@@ -1,4 +1,3 @@
-<!-- PART 1/3 -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -8,33 +7,371 @@
 
   <style>
     :root { color-scheme: dark; }
-    body{
-      background:#0b0b0b;
-      color:#eaeaea;
-      font-family:system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      margin:0;
-      padding:20px;
+
+    body {
+      background: #0b0b0b;
+      color: #eaeaea;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
     }
-    h1{ margin:0 0 6px; font-size:34px; }
-    .small{ opacity:.7; font-size:13px; margin-bottom:14px; }
-    .card{
-      background:#141414;
-      border-radius:16px;
-      padding:16px;
-      margin-bottom:16px;
-      border:1px solid #2a2a2a;
+
+    h1 {
+      margin: 0 0 6px;
+      font-size: 34px;
     }
-    h2{ margin:0 0 10px; font-size:20px; }
-    .muted{ opacity:.72; font-size:13px; }
-    .track{ margin:6px 0; line-height:1.25; }
-    .error{
-      color:#ffb4b4;
-      white-space:pre-wrap;
+
+    .small {
+      opacity: .7;
+      font-size: 13px;
+      margin-bottom: 14px;
+    }
+
+    .statusline {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 8px;
+      opacity: .75;
+      font-size: 13px;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #666;
+      box-shadow: 0 0 0 3px rgba(255,255,255,0.04);
+    }
+    .dot.ok { background: #4caf50; }
+    .dot.err { background: #ff6b6b; }
+    .dot.load { background: #ffc107; }
+
+    .tabs {
+      display: flex;
+      gap: 10px;
+      margin: 14px 0 16px;
+      flex-wrap: wrap;
+    }
+
+    .tabbtn {
+      background: #141414;
+      border: 1px solid #2a2a2a;
+      color: #eaeaea;
+      border-radius: 999px;
+      padding: 10px 14px;
+      font-size: 13px;
+      opacity: .85;
+      cursor: pointer;
+    }
+
+    .tabbtn.active {
+      opacity: 1;
+      border-color: #3a3a3a;
+    }
+
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    .card {
+      background: #141414;
+      border-radius: 16px;
+      padding: 16px;
+      margin-bottom: 16px;
+      border: 1px solid #2a2a2a;
+    }
+
+    h2 {
+      margin: 0 0 10px;
+      font-size: 20px;
+    }
+
+    .muted { opacity: .72; font-size: 13px; }
+
+    .row {
+      display: flex;
+      gap: 14px;
+      align-items: center;
+      flex-wrap: nowrap;
+      min-width: 0;
+    }
+
+    .cover {
+      width: 110px;
+      height: 110px;
+      border-radius: 12px;
+      border: 1px solid #2a2a2a;
+      object-fit: cover;
+      background: #0d0d0d;
+      flex: 0 0 auto;
+    }
+
+    .meta { min-width: 0; }
+
+    .title {
+      font-size: 16px;
+      font-weight: 650;
+      margin: 0 0 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .sub {
+      margin: 0;
+      opacity: .75;
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 6px 10px;
+      border: 1px solid #2a2a2a;
+      border-radius: 999px;
+      font-size: 12px;
+      margin-top: 10px;
+      opacity: .9;
+    }
+
+    .track {
+      margin: 6px 0;
+      line-height: 1.25;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+
+    .error {
+      color: #ffb4b4;
+      white-space: pre-wrap;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-      font-size:12px;
+      font-size: 12px;
+      word-break: break-word;
+      overflow-wrap: anywhere;
     }
-    .row{
-      display:flex;
+
+    @media (max-width: 420px) {
+      body { padding: 16px; }
+      h1 { font-size: 30px; }
+      .cover { width: 96px; height: 96px; }
+      .tabbtn { padding: 9px 12px; }
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Listening Mirror</h1>
+  <div class="small">connected to last.fm user: <b>errz</b></div>
+
+  <div class="statusline">
+    <span id="dot" class="dot load"></span>
+    <span id="statusText">loading…</span>
+  </div>
+
+  <div class="tabs">
+    <button class="tabbtn active" data-tab="tab-now">Now</button>
+    <button class="tabbtn" data-tab="tab-today">Today</button>
+    <button class="tabbtn" data-tab="tab-week">Week</button>
+  </div>
+
+  <div id="tab-now" class="panel active">
+    <div class="card">
+      <h2>Now Playing</h2>
+      <div id="now" class="muted">loading…</div>
+    </div>
+  </div>
+
+  <div id="tab-today" class="panel">
+    <div class="card">
+      <h2>Today</h2>
+      <div id="today" class="muted">loading…</div>
+    </div>
+  </div>
+
+  <div id="tab-week" class="panel">
+    <div class="card">
+      <h2>Top tracks (7 days)</h2>
+      <div id="toptracks" class="muted">loading…</div>
+    </div>
+  </div>
+
+  <script>
+    const WORKER_BASE = "https://i.errtanq9.workers.dev";
+    const REFRESH_MS = 15000;
+
+    function escapeHtml(s) {
+      return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "\"": "&quot;",
+        "'": "&#39;"
+      }[c]));
+    }
+
+    function setDot(mode) {
+      const dot = document.getElementById("dot");
+      dot.classList.remove("ok", "err", "load");
+      dot.classList.add(mode);
+    }
+
+    function setStatus(msg, mode = "load") {
+      document.getElementById("statusText").innerText = msg;
+      setDot(mode);
+    }
+
+    function showError(where, msg) {
+      document.getElementById(where).innerHTML =
+        `<div class="error">${escapeHtml(msg)}</div>`;
+    }
+
+    function localDateKey(d) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    }
+
+    async function fetchJson(url, timeoutMs = 9000) {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), timeoutMs);
+
+      try {
+        const res = await fetch(url, {
+          method: "GET",
+          mode: "cors",
+          cache: "no-store",
+          signal: ctrl.signal
+        });
+
+        const text = await res.text().catch(() => "");
+        if (!res.ok) throw new Error(`HTTP ${res.status}: ${text || "Worker error"}`);
+
+        try {
+          return JSON.parse(text || "{}");
+        } catch {
+          throw new Error(`Non-JSON from Worker: ${text.slice(0, 200)}`);
+        }
+      } finally {
+        clearTimeout(t);
+      }
+    }
+
+    function api(path) {
+      return fetchJson(`${WORKER_BASE}${path}`);
+    }
+
+    function renderNowPlaying(now) {
+      if (!now || (!now.name && !now.artist)) {
+        document.getElementById("now").innerHTML =
+          `<div class="muted">Nothing playing right now.</div>`;
+        return;
+      }
+
+      const cover = now.image || "";
+      const artist = now.artist || "—";
+      const title = now.name || "—";
+      const album = now.album || "";
+
+      document.getElementById("now").innerHTML = `
+        <div class="row">
+          <img class="cover" src="${escapeHtml(cover)}" alt="" onerror="this.style.display='none'">
+          <div class="meta">
+            <div class="title">${escapeHtml(artist)} — ${escapeHtml(title)}</div>
+            <p class="sub">${escapeHtml(album)}</p>
+            <span class="pill">${now.nowPlaying ? "LIVE now playing" : "last played"}</span>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderToday(today) {
+      if (!today || today.length === 0) {
+        document.getElementById("today").innerHTML =
+          `<div class="muted">No scrobbles found for today yet.</div>`;
+        return;
+      }
+
+      document.getElementById("today").innerHTML = today
+        .map((t) => `<div class="track">${escapeHtml(t.artist)} — ${escapeHtml(t.name)}</div>`)
+        .join("");
+    }
+
+    function renderTopTracks(tracks) {
+      if (!tracks || !tracks.length) {
+        document.getElementById("toptracks").innerHTML = `<div class="muted">No data.</div>`;
+        return;
+      }
+
+      document.getElementById("toptracks").innerHTML = tracks
+        .map((t) => `<div class="track">${escapeHtml(t.artist)} — ${escapeHtml(t.name)} <span class="muted">(${Number(t.playcount || 0)})</span></div>`)
+        .join("");
+    }
+
+    async function loadOnce() {
+      setStatus("loading…", "load");
+
+      const [nowRaw, recentRaw, topTracksRaw] = await Promise.all([
+        api("/now"),
+        api("/recent?limit=200"),
+        api("/toptracks?period=7day&limit=10")
+      ]);
+
+      renderNowPlaying(nowRaw);
+
+      const recent = Array.isArray(recentRaw?.recent) ? recentRaw.recent : [];
+      const scrobbled = recent.filter((t) => t.uts);
+
+      const todayKey = localDateKey(new Date());
+      const today = scrobbled
+        .filter((t) => localDateKey(new Date(t.uts)) === todayKey)
+        .sort((a, b) => b.uts - a.uts);
+
+      renderToday(today);
+      renderTopTracks(topTracksRaw?.tracks || []);
+
+      setStatus("ok", "ok");
+    }
+
+    function setActiveTab(id) {
+      document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
+      document.getElementById(id).classList.add("active");
+
+      document.querySelectorAll(".tabbtn").forEach((b) => b.classList.remove("active"));
+      document.querySelector(`.tabbtn[data-tab="${id}"]`).classList.add("active");
+    }
+
+    document.querySelectorAll(".tabbtn").forEach((btn) => {
+      btn.addEventListener("click", () => setActiveTab(btn.dataset.tab));
+    });
+
+    async function init() {
+      try {
+        await loadOnce();
+      } catch (e) {
+        const msg = e?.message || String(e);
+        setStatus("error", "err");
+        showError("now", msg);
+        showError("today", msg);
+        showError("toptracks", msg);
+        return;
+      }
+
+      setInterval(async () => {
+        try {
+          await loadOnce();
+        } catch {
+          setStatus("error", "err");
+        }
+      }, REFRESH_MS);
+    }
+
+    init();
+  </script>
+</body>
+</html>      display:flex;
       gap:14px;
       align-items:center;
     }

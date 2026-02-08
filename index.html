@@ -32,14 +32,9 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
       font-size:12px;
     }
-    .row{
-      display:flex;
-      gap:14px;
-      align-items:center;
-    }
+    .row{ display:flex; gap:14px; align-items:center; }
     .cover{
-      width:110px;
-      height:110px;
+      width:110px; height:110px;
       border-radius:12px;
       border:1px solid #2a2a2a;
       object-fit:cover;
@@ -48,20 +43,13 @@
     }
     .meta{ min-width:0; }
     .title{
-      font-size:16px;
-      font-weight:650;
+      font-size:16px; font-weight:650;
       margin:0 0 6px;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     }
     .sub{
-      margin:0;
-      opacity:.75;
-      font-size:13px;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
+      margin:0; opacity:.75; font-size:13px;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     }
     .pill{
       display:inline-block;
@@ -72,17 +60,12 @@
       margin-top:10px;
       opacity:.9;
     }
-    .hint{
-      margin-top:10px;
-      opacity:.65;
-      font-size:12px;
-    }
+    .hint{ margin-top:10px; opacity:.65; font-size:12px; }
     a{ color:#cfcfcf; }
   </style>
 </head>
 
 <body>
-
   <h1>Listening Mirror</h1>
   <div class="small">connected to last.fm user: <b>errz</b></div>
 
@@ -98,12 +81,27 @@
     <h2>Now Playing</h2>
     <div id="now" class="muted">loading…</div>
   </div>
+
+  <div class="card">
+    <h2>Today's Reflection</h2>
+    <div id="reflection" class="muted">analyzing…</div>
+  </div>
+
+  <div class="card">
+    <h2>Today</h2>
+    <div id="today" class="muted">loading…</div>
+  </div>
+
+  <div class="card">
+    <h2>Top artists (7 days)</h2>
+    <div id="artists" class="muted">loading…</div>
+  </div>
 <script>
   // ====== CONFIG ======
-  // ΒΑΛΕ ΕΔΩ ΤΟ ΝΕΟ worker URL αν άλλαξες worker:
   const WORKER_BASE = "https://i.errtanq9.workers.dev";
   const REFRESH_MS = 15_000; // κάθε 15s ξανατραβάει
 
+  // link στο UI
   document.getElementById("workerLink").href = WORKER_BASE;
   document.getElementById("workerLink").innerText = WORKER_BASE;
 
@@ -119,8 +117,9 @@
   }
 
   function showError(where, msg){
-    document.getElementById(where).innerHTML =
-      `<div class="error">${escapeHtml(msg)}</div>`;
+    const el = document.getElementById(where);
+    if(!el) return;
+    el.innerHTML = `<div class="error">${escapeHtml(msg)}</div>`;
   }
 
   function localDateKey(d){
@@ -169,10 +168,8 @@
   async function api(path){
     return fetchJson(`${WORKER_BASE}${path}`);
   }
-
-  // ====== NORMALIZERS (πιάνει πολλές μορφές JSON) ======
+// ====== NORMALIZERS (πιάνει πολλές μορφές JSON) ======
   function normalizeNow(raw){
-    // Ideal: {artist,name,album,image,nowPlaying}
     if(raw && (raw.artist || raw.name)){
       return {
         artist: raw.artist ?? "",
@@ -183,7 +180,6 @@
       };
     }
 
-    // Last.fm raw style: {recenttracks:{track:[...]}}
     const t = raw?.recenttracks?.track?.[0];
     if(t){
       const img = (t.image || []).find(x => x.size === "extralarge")?.["#text"]
@@ -202,22 +198,7 @@
     return { artist:"", name:"", album:"", image:"", nowPlaying:false };
   }
 
-  <div class="card">
-    <h2>Today's Reflection</h2>
-    <div id="reflection" class="muted">analyzing…</div>
-  </div>
-
-  <div class="card">
-    <h2>Today</h2>
-    <div id="today" class="muted">loading…</div>
-  </div>
-
-  <div class="card">
-    <h2>Top artists (7 days)</h2>
-    <div id="artists" class="muted">loading…</div>
-  </div>
-function normalizeRecent(raw){
-    // Ideal: {recent:[{artist,name,album,uts}]}
+  function normalizeRecent(raw){
     if(Array.isArray(raw?.recent)){
       return raw.recent.map(x => ({
         artist: x.artist ?? "",
@@ -227,14 +208,12 @@ function normalizeRecent(raw){
       }));
     }
 
-    // Last.fm raw style: {recenttracks:{track:[...]}}
     const list = raw?.recenttracks?.track;
     if(Array.isArray(list)){
       return list.map(t => ({
         artist: t?.artist?.["#text"] || "",
         name: t?.name || "",
         album: t?.album?.["#text"] || "",
-        // Last.fm: date.uts (seconds) -> ms
         uts: t?.date?.uts ? Number(t.date.uts) * 1000 : null
       }));
     }
@@ -243,7 +222,6 @@ function normalizeRecent(raw){
   }
 
   function normalizeTop(raw){
-    // Ideal: {artists:[{name,playcount}]}
     if(Array.isArray(raw?.artists)){
       return raw.artists.map(a => ({
         name: a?.name ?? "",
@@ -251,7 +229,6 @@ function normalizeRecent(raw){
       }));
     }
 
-    // Last.fm raw style: {topartists:{artist:[...]}}
     const list = raw?.topartists?.artist;
     if(Array.isArray(list)){
       return list.map(a => ({
@@ -266,8 +243,7 @@ function normalizeRecent(raw){
   // ====== RENDER ======
   function renderNowPlaying(now){
     if(!now || (!now.name && !now.artist)){
-      document.getElementById("now").innerHTML =
-        `<div class="muted">Nothing playing right now.</div>`;
+      document.getElementById("now").innerHTML = `<div class="muted">Nothing playing right now.</div>`;
       return;
     }
 
@@ -290,14 +266,12 @@ function normalizeRecent(raw){
 
   function renderToday(today){
     if(!today || today.length === 0){
-      document.getElementById("today").innerHTML =
-        `<div class="muted">No scrobbles found for today yet.</div>`;
+      document.getElementById("today").innerHTML = `<div class="muted">No scrobbles found for today yet.</div>`;
       return;
     }
-    const html = today.map(t => (
+    document.getElementById("today").innerHTML = today.map(t =>
       `<div class="track">${escapeHtml(t.artist)} — ${escapeHtml(t.name)}</div>`
-    )).join("");
-    document.getElementById("today").innerHTML = html;
+    ).join("");
   }
 
   function renderTopArtists(artists){
@@ -305,13 +279,11 @@ function normalizeRecent(raw){
       document.getElementById("artists").innerHTML = `<div class="muted">No data.</div>`;
       return;
     }
-    const html = artists.map(a => (
+    document.getElementById("artists").innerHTML = artists.map(a =>
       `<div class="track">${escapeHtml(a.name)} <span class="muted">(${Number(a.playcount||0)})</span></div>`
-    )).join("");
-    document.getElementById("artists").innerHTML = html;
+    ).join("");
   }
-
-  function generateReflection(today){
+function generateReflection(today){
     if(!today || today.length === 0){
       document.getElementById("reflection").innerText =
         "No scrobbles today yet. Once you listen, I’ll summarize the pattern.";
@@ -335,17 +307,16 @@ function normalizeRecent(raw){
     }
 
     text += ` Dominant presence: ${topArtist}.`;
-
     const stats = `Scrobbles today: ${today.length} • Artists: ${variety} • Repeated tracks: ${repeats}`;
 
     document.getElementById("reflection").innerHTML =
       `${escapeHtml(text)}<div class="muted" style="margin-top:10px;">${escapeHtml(stats)}</div>`;
   }
-// ====== LOAD ======
+
+  // ====== LOAD ======
   async function loadOnce(){
     setStatus("Fetching from Worker…");
 
-    // Πάμε να πάρουμε όλα μαζί
     const [nowRaw, recentRaw, topRaw] = await Promise.all([
       api("/now"),
       api("/recent?limit=200"),
@@ -388,7 +359,6 @@ function normalizeRecent(raw){
       try{
         await loadOnce();
       }catch(e){
-        // μη σβήνεις το UI, απλά γράψε status
         setStatus(`Error (refresh): ${e?.message || e}`);
       }
     }, REFRESH_MS);

@@ -1,256 +1,636 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Listening Mirror</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Listening Mirror</title>
+  <style>
+    :root{
+      --bg:#050506;
+      --card:rgba(255,255,255,.06);
+      --card2:rgba(255,255,255,.08);
+      --text:rgba(255,255,255,.92);
+      --muted:rgba(255,255,255,.62);
+      --muted2:rgba(255,255,255,.45);
+      --stroke:rgba(255,255,255,.12);
+      --accent:#3cff7a;
+      --radius:22px;
+      --shadow: 0 24px 60px rgba(0,0,0,.55);
+    }
 
-<style>
-:root{
---bg:#0b0b0c;
---card:#141416;
---soft:#1c1c1f;
---text:#e9e9ea;
---muted:#9c9ca1;
---accent:#4ade80;
-}
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+      background:
+        radial-gradient(1200px 800px at 30% 10%, rgba(255,255,255,.10), transparent 60%),
+        radial-gradient(900px 600px at 70% 30%, rgba(255,255,255,.08), transparent 60%),
+        linear-gradient(#070708, #030304);
+      color:var(--text);
+    }
 
-*{box-sizing:border-box}
+    .wrap{
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 24px 16px 42px;
+    }
 
-body{
-margin:0;
-background:radial-gradient(circle at 50% -20%, #1b1b1e 0%, #0b0b0c 60%);
-color:var(--text);
-font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial;
-}
+    h1{
+      margin: 10px 0 18px;
+      font-size: 52px;
+      line-height: 1;
+      letter-spacing: -1px;
+      font-weight: 800;
+      text-shadow: 0 10px 40px rgba(0,0,0,.55);
+    }
 
-.wrap{
-max-width:720px;
-margin:auto;
-padding:22px 14px 40px;
-}
+    .tabsRow{
+      display:flex;
+      align-items:center;
+      gap:14px;
+      margin: 12px 0 18px;
+    }
 
-h1{
-font-size:42px;
-margin:10px 0 16px;
-letter-spacing:-1px;
-}
+    .dot{
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 18px rgba(60,255,122,.45);
+      flex:0 0 auto;
+    }
 
-.tabs{
-display:flex;
-gap:10px;
-margin-bottom:18px;
-align-items:center;
-}
+    .tabs{
+      display:flex;
+      gap:12px;
+      flex-wrap:wrap;
+    }
 
-.dot{
-width:10px;
-height:10px;
-background:var(--accent);
-border-radius:50%;
-margin-right:6px;
-box-shadow:0 0 12px var(--accent);
-}
+    .tab{
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.04);
+      color: var(--muted);
+      padding: 10px 18px;
+      border-radius: 999px;
+      font-weight: 700;
+      letter-spacing:.2px;
+      cursor:pointer;
+      user-select:none;
+      transition: transform .08s ease, background .18s ease, border-color .18s ease, color .18s ease;
+    }
 
-.tab{
-padding:10px 16px;
-border-radius:22px;
-background:var(--soft);
-color:var(--text);
-font-weight:500;
-opacity:.8;
-}
+    .tab:active{ transform: scale(.98); }
+    .tab.active{
+      background: rgba(255,255,255,.09);
+      border-color: rgba(255,255,255,.18);
+      color: var(--text);
+    }
 
-.card{
-background:linear-gradient(180deg,#19191c,#111113);
-border-radius:22px;
-padding:16px;
-margin-bottom:16px;
-box-shadow:0 6px 28px rgba(0,0,0,.45);
-}
+    .panel{
+      border: 1px solid rgba(255,255,255,.10);
+      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+      border-radius: var(--radius);
+      padding: 18px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      overflow: hidden;
+    }
 
-.row{
-display:flex;
-align-items:center;
-gap:14px;
-}
+    .panelTitle{
+      font-size: 44px;
+      font-weight: 900;
+      letter-spacing: -1px;
+      margin: 6px 0 14px;
+    }
 
-.art{
-width:74px;
-height:74px;
-border-radius:14px;
-background:#222;
-flex-shrink:0;
-object-fit:cover;
-}
+    .card{
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(0,0,0,.22);
+      border-radius: 18px;
+      padding: 14px;
+      display:flex;
+      gap: 14px;
+      align-items:center;
+      box-shadow: 0 14px 30px rgba(0,0,0,.35);
+      overflow:hidden;
+    }
 
-.title{
-font-size:18px;
-font-weight:600;
-}
+    .thumb{
+      width: 72px;
+      height: 72px;
+      border-radius: 14px;
+      overflow:hidden;
+      flex:0 0 auto;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.05);
+    }
+    .thumb img{width:100%;height:100%;object-fit:cover;display:block}
+    .thumb.placeholder{
+      display:grid;
+      place-items:center;
+      color: rgba(255,255,255,.32);
+      font-size: 26px;
+      font-weight: 900;
+    }
 
-.album{
-font-size:14px;
-color:var(--muted);
-margin-top:3px;
-}
+    .meta{
+      min-width:0;
+      flex: 1 1 auto;
+    }
+    .line1{
+      font-size: 22px;
+      font-weight: 900;
+      white-space: nowrap;
+      overflow:hidden;
+      text-overflow: ellipsis;
+    }
+    .line2{
+      margin-top: 4px;
+      font-size: 16px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow:hidden;
+      text-overflow: ellipsis;
+    }
 
-.time{
-margin-left:auto;
-color:var(--muted);
-font-size:13px;
-font-variant-numeric:tabular-nums;
-}
+    .badge{
+      margin-top: 10px;
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding: 7px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.05);
+      color: rgba(255,255,255,.78);
+      font-weight: 800;
+      font-size: 13px;
+      letter-spacing:.2px;
+    }
 
-.badge{
-margin-top:8px;
-display:inline-block;
-padding:5px 10px;
-border-radius:999px;
-background:#1f1f23;
-color:var(--muted);
-font-size:12px;
-}
+    .eq{
+      display:inline-flex;
+      align-items:flex-end;
+      gap: 2px;
+      opacity:.95;
+    }
+    .eq i{
+      display:block;
+      width:3px;
+      height:6px;
+      border-radius:2px;
+      background: rgba(234,234,234,.95);
+      animation: eq 900ms ease-in-out infinite;
+      transform-origin: bottom;
+    }
+    .eq i:nth-child(2){ animation-delay: 120ms; height: 9px; }
+    .eq i:nth-child(3){ animation-delay: 240ms; height: 7px; }
+    .eq i:nth-child(4){ animation-delay: 360ms; height: 10px; }
 
-.list{
-display:flex;
-flex-direction:column;
-gap:12px;
-margin-top:6px;
-}
+    @keyframes eq{
+      0%,100%{ transform: scaleY(.55); opacity:.75 }
+      50%{ transform: scaleY(1.2); opacity:1 }
+    }
 
-.item{
-display:flex;
-align-items:center;
-gap:12px;
-background:rgba(255,255,255,.02);
-padding:10px;
-border-radius:16px;
-}
+    .list{
+      display:flex;
+      flex-direction:column;
+      gap: 12px;
+      margin-top: 10px;
+    }
 
-.smallart{
-width:52px;
-height:52px;
-border-radius:12px;
-object-fit:cover;
-background:#222;
-}
+    .row{
+      display:flex;
+      align-items:center;
+      gap:12px;
+      padding: 14px;
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(0,0,0,.18);
+      box-shadow: 0 12px 26px rgba(0,0,0,.30);
+      overflow:hidden;
+    }
 
-.meta{
-display:flex;
-flex-direction:column;
-}
+    .row .left{
+      display:flex;
+      align-items:center;
+      gap: 12px;
+      min-width:0;
+      flex:1 1 auto;
+    }
 
-.artist{
-font-size:15px;
-font-weight:600;
-}
+    .rank{
+      width: 30px;
+      height: 30px;
+      border-radius: 10px;
+      display:grid;
+      place-items:center;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.04);
+      color: rgba(255,255,255,.75);
+      font-weight: 900;
+      flex:0 0 auto;
+    }
 
-.track{
-font-size:13px;
-color:var(--muted);
-}
+    .smallThumb{
+      width: 46px;
+      height: 46px;
+      border-radius: 12px;
+      overflow:hidden;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.05);
+      flex:0 0 auto;
+      display:grid;
+      place-items:center;
+      color: rgba(255,255,255,.30);
+      font-weight: 900;
+    }
+    .smallThumb img{width:100%;height:100%;object-fit:cover;display:block}
 
-.eq{
-width:18px;
-height:14px;
-display:inline-flex;
-gap:2px;
-align-items:flex-end;
-margin-right:6px;
-opacity:.9;
-}
+    .rowTitle{
+      font-weight: 900;
+      font-size: 18px;
+      white-space: nowrap;
+      overflow:hidden;
+      text-overflow: ellipsis;
+    }
+    .rowSub{
+      font-size: 14px;
+      color: var(--muted);
+      margin-top: 3px;
+      white-space: nowrap;
+      overflow:hidden;
+      text-overflow: ellipsis;
+    }
 
-.eq i{
-width:3px;
-background:#eaeaea;
-border-radius:2px;
-animation:eq 900ms ease-in-out infinite;
-}
+    .count{
+      margin-left:auto;
+      flex:0 0 auto;
+      color: rgba(255,255,255,.70);
+      font-weight: 900;
+      font-variant-numeric: tabular-nums;
+      padding-left: 10px;
+    }
 
-.eq i:nth-child(2){animation-delay:120ms}
-.eq i:nth-child(3){animation-delay:240ms}
-.eq i:nth-child(4){animation-delay:360ms}
+    .hint{
+      margin-top: 10px;
+      color: var(--muted2);
+      font-size: 13px;
+      line-height: 1.35;
+    }
 
-@keyframes eq{
-0%,100%{transform:scaleY(.5);opacity:.7}
-50%{transform:scaleY(1.2);opacity:1}
-}
-</style>
+    .err{
+      margin-top: 10px;
+      padding: 12px 14px;
+      border-radius: 16px;
+      border: 1px solid rgba(255,90,90,.30);
+      background: rgba(255,90,90,.08);
+      color: rgba(255,255,255,.88);
+      font-weight: 700;
+      display:none;
+      white-space: pre-wrap;
+    }
+
+    @media (max-width:420px){
+      h1{font-size:44px}
+      .panelTitle{font-size:38px}
+      .thumb{width:66px;height:66px}
+      .line1{font-size:20px}
+    }
+  </style>
 </head>
-
 <body>
-<div class="wrap">
+  <div class="wrap">
+    <h1>Listening Mirror</h1>
 
-<h1>Listening Mirror</h1>
+    <div class="tabsRow">
+      <div class="dot" aria-hidden="true"></div>
+      <div class="tabs" role="tablist" aria-label="Listening Mirror Tabs">
+        <button class="tab active" id="tab-now"   role="tab" aria-selected="true"  data-tab="now">Now</button>
+        <button class="tab"         id="tab-today" role="tab" aria-selected="false" data-tab="today">Today</button>
+        <button class="tab"         id="tab-week"  role="tab" aria-selected="false" data-tab="week">Week</button>
+      </div>
+    </div>
 
-<div class="tabs">
-<div class="dot"></div>
-<div class="tab">Now</div>
-<div class="tab">Today</div>
-<div class="tab">Week</div>
-</div>
+    <section class="panel" id="panel">
+      <div class="panelTitle" id="panelTitle">Now Playing</div>
 
-<div id="now"></div>
-<div id="today"></div>
-<div id="week"></div>
+      <div id="content"></div>
+      <div class="err" id="err"></div>
 
-</div>
+      <div class="hint" id="hint">
+        Uses your Cloudflare Worker as the data source. If images don’t appear, it’s usually a Last.fm artwork availability thing.
+      </div>
+    </section>
+  </div>
 
-<script>
-const API="https://i.errtanq9.workers.dev/";
+  <script>
+    // ========= CONFIG =========
+    // Your Worker base (no trailing slash)
+    const API_BASE = "https://i.errtanq9.workers.dev";
 
-async function load(){
+    // We support BOTH route styles:
+    // 1) /now /recent /top?type=... (your current working screenshot)
+    // 2) /api/now /api/recent /api/top?type=... (your pasted worker code)
+    const ROUTES = {
+      now:   ["/now", "/api/now"],
+      recent:["/recent", "/api/recent"],
+      top:   ["/top", "/api/top"]
+    };
 
-const data=await fetch(API).then(r=>r.json());
+    // ========= HELPERS =========
+    const $ = (id) => document.getElementById(id);
 
-const now=data.now;
-const today=data.today.slice(0,10);
-const week=data.toptracks.slice(0,10);
+    function setError(msg){
+      const el = $("err");
+      if(!msg){
+        el.style.display = "none";
+        el.textContent = "";
+        return;
+      }
+      el.style.display = "block";
+      el.textContent = msg;
+    }
 
-document.getElementById("now").innerHTML=`
-<div class="card">
-<div class="row">
-<img class="art" src="${now.art}">
-<div>
-<div class="title">${now.artist} — ${now.track}</div>
-<div class="album">${now.album||""}</div>
-<div class="badge">${now.playing?"live now playing":"last played"}</div>
-</div>
-</div>
-</div>`;
+    async function fetchFirstOk(pathsWithQuery){
+      let lastErr = "";
+      for (const p of pathsWithQuery){
+        const url = API_BASE + p;
+        try{
+          const r = await fetch(url, { cache: "no-store" });
+          const t = await r.text();
+          if(!r.ok){
+            lastErr = `HTTP ${r.status} from ${p}\n${t}`;
+            continue;
+          }
+          try{
+            return JSON.parse(t);
+          }catch(e){
+            lastErr = `Bad JSON from ${p}\n${t.slice(0,300)}`;
+            continue;
+          }
+        }catch(e){
+          lastErr = `Network error from ${p}\n${String(e)}`;
+        }
+      }
+      throw new Error(lastErr || "All endpoints failed");
+    }
 
-document.getElementById("today").innerHTML=
-`<div class="card"><h2>Today</h2><div class="list">`+
-today.map(t=>`
-<div class="item">
-<div class="eq"><i></i><i></i><i></i><i></i></div>
-<img class="smallart" src="${t.art}">
-<div class="meta">
-<div class="artist">${t.artist}</div>
-<div class="track">${t.track}</div>
-</div>
-<div class="time">${t.time}</div>
-</div>`).join("")+
-`</div></div>`;
+    function safeText(s){ return (s ?? "").toString(); }
 
-document.getElementById("week").innerHTML=
-`<div class="card"><h2>Top Tracks (7 days)</h2><div class="list">`+
-week.map(t=>`
-<div class="item">
-<img class="smallart" src="${t.art}">
-<div class="meta">
-<div class="artist">${t.artist}</div>
-<div class="track">${t.track}</div>
-</div>
-<div class="time">${t.plays} plays</div>
-</div>`).join("")+
-`</div></div>`;
-}
+    function makeThumb(url, size="big"){
+      const has = url && safeText(url).trim().length > 0;
+      const cls = size === "big" ? "thumb" : "smallThumb";
+      if(!has){
+        const div = document.createElement("div");
+        div.className = cls + " placeholder";
+        div.textContent = "★";
+        return div;
+      }
+      const div = document.createElement("div");
+      div.className = cls;
+      const img = document.createElement("img");
+      img.alt = "";
+      img.loading = "lazy";
+      img.decoding = "async";
+      img.referrerPolicy = "no-referrer";
+      img.src = url;
+      div.appendChild(img);
+      return div;
+    }
 
-load();
-setInterval(load,20000);
-</script>
+    function setActiveTab(name){
+      const tabs = document.querySelectorAll(".tab");
+      tabs.forEach(t => {
+        const active = t.dataset.tab === name;
+        t.classList.toggle("active", active);
+        t.setAttribute("aria-selected", active ? "true" : "false");
+      });
+    }
 
+    // ========= RENDERERS =========
+    function renderNow(data){
+      const artist = safeText(data.artist);
+      const name   = safeText(data.name);
+      const album  = safeText(data.album);
+      const image  = safeText(data.image);
+      const nowPlaying = data.nowPlaying === true || data.nowPlaying === "true";
+
+      const content = document.createElement("div");
+      const card = document.createElement("div");
+      card.className = "card";
+
+      card.appendChild(makeThumb(image, "big"));
+
+      const meta = document.createElement("div");
+      meta.className = "meta";
+
+      const l1 = document.createElement("div");
+      l1.className = "line1";
+      l1.textContent = artist ? `${artist} — ${name || "Unknown track"}` : (name || "Unknown track");
+
+      const l2 = document.createElement("div");
+      l2.className = "line2";
+      l2.textContent = album || " ";
+
+      const badge = document.createElement("div");
+      badge.className = "badge";
+
+      if(nowPlaying){
+        const eq = document.createElement("span");
+        eq.className = "eq";
+        eq.innerHTML = "<i></i><i></i><i></i><i></i>";
+        badge.appendChild(eq);
+
+        const txt = document.createElement("span");
+        txt.textContent = "live now playing";
+        badge.appendChild(txt);
+      }else{
+        badge.textContent = "last played";
+      }
+
+      meta.appendChild(l1);
+      meta.appendChild(l2);
+      meta.appendChild(badge);
+
+      card.appendChild(meta);
+      content.appendChild(card);
+
+      return content;
+    }
+
+    function renderListTitle(title){
+      $("panelTitle").textContent = title;
+    }
+
+    function renderTopArtists(list){
+      const wrap = document.createElement("div");
+      wrap.className = "list";
+
+      list.forEach((a, idx) => {
+        const row = document.createElement("div");
+        row.className = "row";
+
+        const left = document.createElement("div");
+        left.className = "left";
+
+        const rank = document.createElement("div");
+        rank.className = "rank";
+        rank.textContent = String(idx + 1);
+
+        left.appendChild(rank);
+        left.appendChild(makeThumb(safeText(a.image), "small"));
+
+        const meta = document.createElement("div");
+        meta.style.minWidth = "0";
+
+        const t = document.createElement("div");
+        t.className = "rowTitle";
+        t.textContent = safeText(a.name) || "Unknown artist";
+
+        const sub = document.createElement("div");
+        sub.className = "rowSub";
+        sub.textContent = " ";
+
+        meta.appendChild(t);
+        meta.appendChild(sub);
+
+        left.appendChild(meta);
+
+        const count = document.createElement("div");
+        count.className = "count";
+        const pc = Number(a.playcount || 0);
+        count.textContent = `${pc} plays`;
+
+        row.appendChild(left);
+        row.appendChild(count);
+
+        wrap.appendChild(row);
+      });
+
+      return wrap;
+    }
+
+    function renderTopTracks(list){
+      const wrap = document.createElement("div");
+      wrap.className = "list";
+
+      list.forEach((t, idx) => {
+        const row = document.createElement("div");
+        row.className = "row";
+
+        const left = document.createElement("div");
+        left.className = "left";
+
+        const rank = document.createElement("div");
+        rank.className = "rank";
+        rank.textContent = String(idx + 1);
+
+        left.appendChild(rank);
+        left.appendChild(makeThumb(safeText(t.image), "small"));
+
+        const meta = document.createElement("div");
+        meta.style.minWidth = "0";
+
+        const title = document.createElement("div");
+        title.className = "rowTitle";
+        const artist = safeText(t.artist);
+        const name = safeText(t.name);
+        title.textContent = artist ? `${artist} — ${name || "Unknown track"}` : (name || "Unknown track");
+
+        const sub = document.createElement("div");
+        sub.className = "rowSub";
+        sub.textContent = " ";
+
+        meta.appendChild(title);
+        meta.appendChild(sub);
+
+        left.appendChild(meta);
+
+        const count = document.createElement("div");
+        count.className = "count";
+        const pc = Number(t.playcount || 0);
+        count.textContent = `${pc} plays`;
+
+        row.appendChild(left);
+        row.appendChild(count);
+
+        wrap.appendChild(row);
+      });
+
+      return wrap;
+    }
+
+    // ========= LOADERS =========
+    async function loadNow(){
+      renderListTitle("Now Playing");
+      const data = await fetchFirstOk(ROUTES.now);
+      return renderNow(data);
+    }
+
+    async function loadWeek(){
+      renderListTitle("Top artists (7 days)");
+      const qs = `?type=artists&period=7day&limit=10`;
+      const paths = ROUTES.top.map(p => p + qs);
+      const data = await fetchFirstOk(paths);
+      const list = Array.isArray(data.artists) ? data.artists : [];
+      return renderTopArtists(list);
+    }
+
+    async function loadToday(){
+      // If your worker has a special "today" endpoint, add it.
+      // For now we show Top Tracks (7 days) as a clean, stable view.
+      renderListTitle("Top tracks (7 days)");
+      const qs = `?type=tracks&period=7day&limit=10`;
+      const paths = ROUTES.top.map(p => p + qs);
+      const data = await fetchFirstOk(paths);
+      const list = Array.isArray(data.tracks) ? data.tracks : [];
+      return renderTopTracks(list);
+    }
+
+    // ========= APP =========
+    let currentTab = "now";
+    let refreshTimer = null;
+
+    async function render(tab){
+      currentTab = tab;
+      setActiveTab(tab);
+      setError(null);
+
+      const host = $("content");
+      host.innerHTML = "";
+
+      try{
+        let node;
+        if(tab === "now") node = await loadNow();
+        else if(tab === "today") node = await loadToday();
+        else node = await loadWeek();
+
+        host.appendChild(node);
+      }catch(e){
+        setError(String(e && e.message ? e.message : e));
+      }
+    }
+
+    function startAutoRefresh(){
+      if(refreshTimer) clearInterval(refreshTimer);
+      // Refresh "Now" more often; others less often.
+      refreshTimer = setInterval(() => {
+        if(currentTab === "now") render("now");
+      }, 15000);
+    }
+
+    document.querySelectorAll(".tab").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const t = btn.dataset.tab;
+        render(t);
+      });
+    });
+
+    render("now");
+    startAutoRefresh();
+  </script>
 </body>
 </html>
+```0

@@ -1,210 +1,242 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Listening Mirror</title>
-
-<style>
-body{
-background:#0b0b0c;
-color:#e8e8ea;
-font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;
-margin:0;
-padding:24px;
-}
-
-h1{
-margin:0 0 6px;
-font-size:28px;
-}
-
-.subhead{
-opacity:.6;
-margin-bottom:18px;
-}
-
-.tabs{
-display:flex;
-gap:10px;
-margin-bottom:18px;
-}
-
-.tab{
-padding:8px 14px;
-border-radius:999px;
-border:1px solid #2a2a2a;
-cursor:pointer;
-opacity:.7;
-}
-
-.tab.active{
-background:#1b1b1d;
-opacity:1;
-}
-
-.card{
-background:#131315;
-border:1px solid #232326;
-border-radius:16px;
-padding:14px;
-margin-bottom:16px;
-}
-
-.row{
-display:flex;
-gap:14px;
-align-items:center;
-}
-
-.cover{
-width:110px;
-height:110px;
-border-radius:12px;
-border:1px solid #2a2a2a;
-object-fit:cover;
-background:#0d0d0d;
-}
-
-.meta{
-min-width:0;
-}
-
-.title{
-font-size:16px;
-font-weight:650;
-margin:0 0 6px;
-white-space:nowrap;
-overflow:hidden;
-text-overflow:ellipsis;
-}
-
-.sub{
-margin:0;
-opacity:.75;
-font-size:13px;
-white-space:nowrap;
-overflow:hidden;
-text-overflow:ellipsis;
-}
-
-.list div{
-margin:6px 0;
-opacity:.9;
-}
-
-.dot{
-width:10px;
-height:10px;
-border-radius:50%;
-background:#ff4d4d;
-display:inline-block;
-margin-right:8px;
-}
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Listening Mirror</title>
+  <style>
+    :root{color-scheme:dark}
+    body{background:#0b0b0b;color:#eaeaea;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;padding:22px}
+    h1{margin:0 0 6px;font-size:38px;letter-spacing:.2px}
+    .small{opacity:.7;font-size:13px;margin-bottom:10px}
+    .toprow{display:flex;align-items:center;gap:10px;margin:10px 0 14px}
+    .dot{width:12px;height:12px;border-radius:999px;background:#ff4b4b;display:inline-block}
+    .tabs{display:flex;gap:10px;margin-left:2px}
+    .tabbtn{border:1px solid #2a2a2a;background:#141414;color:#eaeaea;padding:10px 16px;border-radius:999px;font-size:14px;opacity:.85}
+    .tabbtn.active{opacity:1;background:#1a1a1a}
+    .card{background:#141414;border-radius:18px;padding:18px;margin:16px 0;border:1px solid #2a2a2a}
+    h2{margin:0 0 12px;font-size:22px}
+    .muted{opacity:.72;font-size:13px}
+    .error{color:#ffb4b4;white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;font-size:12px}
+    .row{display:flex;gap:14px;align-items:center}
+    .cover{width:110px;height:110px;border-radius:12px;border:1px solid #2a2a2a;object-fit:cover;background:#0d0d0d;flex:0 0 auto}
+    .meta{min-width:0}
+    .title{font-size:16px;font-weight:650;margin:0 0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .sub{margin:0;opacity:.75;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .pill{display:inline-block;padding:6px 10px;border:1px solid #2a2a2a;border-radius:999px;font-size:12px;margin-top:10px;opacity:.9}
+    .track{margin:8px 0;line-height:1.25}
+    .cols{display:grid;grid-template-columns:1fr;gap:16px}
+    @media (min-width: 820px){.cols{grid-template-columns:1fr 1fr}}
+  </style>
 </head>
-
 <body>
+  <h1>Listening Mirror</h1>
+  <div class="small">connected to last.fm user: <b id="lfUser">errz</b></div>
 
-<h1>Listening Mirror</h1>
-<div class="subhead">connected to last.fm user: errz</div>
+  <div class="toprow">
+    <span id="statusDot" class="dot" aria-label="status"></span>
+    <div class="tabs">
+      <button class="tabbtn active" data-tab="tabNow">Now</button>
+      <button class="tabbtn" data-tab="tabToday">Today</button>
+      <button class="tabbtn" data-tab="tabWeek">Week</button>
+    </div>
+  </div>
 
-<div><span id="statusdot" class="dot"></span><span id="statustext">connecting...</span></div>
+  <section id="tabNow">
+    <div class="card">
+      <h2>Now Playing</h2>
+      <div id="now" class="muted">loading…</div>
+    </div>
+  </section>
 
-<div class="tabs">
-<div class="tab active" id="tab-now">Now</div>
-<div class="tab" id="tab-today">Today</div>
-<div class="tab" id="tab-week">Week</div>
-</div>
+  <section id="tabToday" hidden>
+    <div class="card">
+      <h2>Today</h2>
+      <div id="today" class="muted">loading…</div>
+    </div>
+  </section>
 
-<div id="now" class="card">
-<h2>Now Playing</h2>
-<div id="nowcontent">loading...</div>
-</div>
+  <section id="tabWeek" hidden>
+    <div class="cols">
+      <div class="card">
+        <h2>Top artists (7 days)</h2>
+        <div id="artists" class="muted">loading…</div>
+      </div>
+      <div class="card">
+        <h2>Top tracks (7 days)</h2>
+        <div id="toptracks" class="muted">loading…</div>
+      </div>
+    </div>
+  </section>
 
-<div id="today" class="card" style="display:none">
-<h2>Today</h2>
-<div id="todaylist" class="list"></div>
-</div>
+  <script>
+    const WORKER_BASE = "https://i.errtanq9.workers.dev";
+    const REFRESH_MS = 15000;
+    const WEEK_REFRESH_MS = 300000;
 
-<div id="week" class="card" style="display:none">
-<h2>Top Tracks</h2>
-<div id="weeklist" class="list"></div>
-</div>
+    function escapeHtml(s){
+      return String(s ?? "").replace(/[&<>"']/g, c => ({
+        "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+      }[c]));
+    }
 
-<script>
+    function setOnline(ok){
+      document.getElementById("statusDot").style.background = ok ? "#38d17a" : "#ff4b4b";
+    }
 
-const API="https://i.errtanq9.workers.dev";
+    async function fetchJson(url, timeoutMs=9000){
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), timeoutMs);
+      try{
+        const res = await fetch(url, { method:"GET", mode:"cors", cache:"no-store", signal: ctrl.signal });
+        const text = await res.text().catch(()=> "");
+        if(!res.ok) throw new Error(text || `HTTP ${res.status}`);
+        return JSON.parse(text || "{}");
+      } finally {
+        clearTimeout(t);
+      }
+    }
 
-async function loadNow(){
-try{
-const r=await fetch(API+"/now");
-const j=await r.json();
+    function api(path){ return fetchJson(`${WORKER_BASE}${path}`); }
 
-document.getElementById("statustext").textContent="online";
+    function localDateKey(d){
+      const y = d.getFullYear();
+      const m = String(d.getMonth()+1).padStart(2,"0");
+      const day = String(d.getDate()).padStart(2,"0");
+      return `${y}-${m}-${day}`;
+    }
 
-document.getElementById("nowcontent").innerHTML=
-`<div class="row">
-<img class="cover" src="${j.image}">
-<div class="meta">
-<div class="title">${j.artist} — ${j.name}</div>
-<div class="sub">${j.album||""}</div>
-</div>
-</div>`;
+    function renderNowPlaying(now){
+      if(!now || (!now.name && !now.artist)){
+        document.getElementById("now").innerHTML = `<div class="muted">Nothing playing right now.</div>`;
+        return;
+      }
+      const cover = now.image || "";
+      const artist = now.artist || "—";
+      const title  = now.name || "—";
+      const album  = now.album || "";
+      document.getElementById("now").innerHTML = `
+        <div class="row">
+          <img class="cover" src="${escapeHtml(cover)}" alt="" onerror="this.style.display='none'">
+          <div class="meta">
+            <div class="title">${escapeHtml(artist)} — ${escapeHtml(title)}</div>
+            <p class="sub">${escapeHtml(album)}</p>
+            <span class="pill">${now.nowPlaying ? "LIVE now playing" : "last played"}</span>
+          </div>
+        </div>
+      `;
+    }
 
-}catch{
-document.getElementById("statustext").textContent="error";
-document.getElementById("nowcontent").textContent="Failed to fetch";
-}
-}
+    function renderToday(list){
+      if(!list || list.length === 0){
+        document.getElementById("today").innerHTML = `<div class="muted">No scrobbles found for today yet.</div>`;
+        return;
+      }
+      const html = list.map(t => (
+        `<div class="track">${escapeHtml(t.artist)} — ${escapeHtml(t.name)}</div>`
+      )).join("");
+      document.getElementById("today").innerHTML = html;
+    }
 
-async function loadToday(){
-const r=await fetch(API+"/today");
-const j=await r.json();
-const el=document.getElementById("todaylist");
-el.innerHTML="";
-j.forEach(t=>{
-const d=document.createElement("div");
-d.textContent=t.artist+" — "+t.name;
-el.appendChild(d);
-});
-}
+    function renderTopArtists(artists){
+      if(!artists || !artists.length){
+        document.getElementById("artists").innerHTML = `<div class="muted">No data.</div>`;
+        return;
+      }
+      const html = artists.map(a => (
+        `<div class="track">${escapeHtml(a.name)} <span class="muted">(${Number(a.playcount||0)})</span></div>`
+      )).join("");
+      document.getElementById("artists").innerHTML = html;
+    }
 
-async function loadWeek(){
-const r=await fetch(API+"/week");
-const j=await r.json();
-const el=document.getElementById("weeklist");
-el.innerHTML="";
-j.forEach(t=>{
-const d=document.createElement("div");
-d.textContent=t.artist+" — "+t.name;
-el.appendChild(d);
-});
-}
+    function renderTopTracks(tracks){
+      if(!tracks || !tracks.length){
+        document.getElementById("toptracks").innerHTML = `<div class="muted">No data.</div>`;
+        return;
+      }
+      const html = tracks.map(t => (
+        `<div class="track">${escapeHtml(t.artist)} — ${escapeHtml(t.name)} <span class="muted">(${Number(t.playcount||0)})</span></div>`
+      )).join("");
+      document.getElementById("toptracks").innerHTML = html;
+    }
 
-document.getElementById("tab-now").onclick=()=>{
-now.style.display="block";
-today.style.display="none";
-week.style.display="none";
-};
+    function showError(id, msg){
+      document.getElementById(id).innerHTML = `<div class="error">${escapeHtml(msg)}</div>`;
+    }
 
-document.getElementById("tab-today").onclick=()=>{
-now.style.display="none";
-today.style.display="block";
-week.style.display="none";
-loadToday();
-};
+    async function loadNowAndToday(){
+      const [now, recent] = await Promise.all([
+        api("/now"),
+        api("/recent?limit=200")
+      ]);
 
-document.getElementById("tab-week").onclick=()=>{
-now.style.display="none";
-today.style.display="none";
-week.style.display="block";
-loadWeek();
-};
+      renderNowPlaying(now);
 
-loadNow();
-setInterval(loadNow,15000);
+      const list = Array.isArray(recent?.recent) ? recent.recent : [];
+      const todayKey = localDateKey(new Date());
+      const today = list
+        .filter(t => t.uts && localDateKey(new Date(t.uts)) === todayKey)
+        .sort((a,b) => b.uts - a.uts);
 
-</script>
+      renderToday(today);
+    }
+
+    async function loadWeek(){
+      const [topA, topT] = await Promise.all([
+        api("/top?period=7day&limit=10"),
+        api("/toptracks?period=7day&limit=10")
+      ]);
+
+      renderTopArtists(Array.isArray(topA?.artists) ? topA.artists : []);
+      renderTopTracks(Array.isArray(topT?.tracks) ? topT.tracks : []);
+    }
+
+    function initTabs(){
+      const btns = Array.from(document.querySelectorAll(".tabbtn"));
+      btns.forEach(b => {
+        b.addEventListener("click", () => {
+          btns.forEach(x => x.classList.remove("active"));
+          b.classList.add("active");
+          const target = b.getAttribute("data-tab");
+          ["tabNow","tabToday","tabWeek"].forEach(id => {
+            document.getElementById(id).hidden = (id !== target);
+          });
+        });
+      });
+    }
+
+    async function init(){
+      initTabs();
+      try{
+        await loadNowAndToday();
+        await loadWeek();
+        setOnline(true);
+      }catch(e){
+        setOnline(false);
+        const msg = e?.message || String(e);
+        showError("now", msg);
+        showError("today", msg);
+        showError("artists", msg);
+        showError("toptracks", msg);
+      }
+
+      setInterval(async () => {
+        try{
+          await loadNowAndToday();
+          setOnline(true);
+        }catch(e){
+          setOnline(false);
+        }
+      }, REFRESH_MS);
+
+      setInterval(async () => {
+        try{
+          await loadWeek();
+        }catch(e){}
+      }, WEEK_REFRESH_MS);
+    }
+
+    init();
+  </script>
 </body>
 </html>

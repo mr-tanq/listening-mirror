@@ -26,20 +26,53 @@
     h2{ margin:0 0 10px; font-size:20px; }
     .muted{ opacity:.72; font-size:13px; }
     .track{ margin:6px 0; line-height:1.25; }
+    .error{
+      color:#ffb4b4;
+      white-space:pre-wrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size:12px;
+    }
+    .row{
+      display:flex;
+      gap:14px;
+      align-items:center;
+    }
+    .cover{
+      width:110px;
+      height:110px;
+      border-radius:12px;
+      border:1px solid #2a2a2a;
+      object-fit:cover;
+      background:#0d0d0d;
+      flex:0 0 auto;
+    }
+    .meta{
+      min-width:0;
+    }
+    .title{
+      font-size:16px;
+      font-weight:650;
+      margin:0 0 6px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .sub{
+      margin:0;
+      opacity:.75;
+      font-size:13px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
     .pill{
       display:inline-block;
       padding:6px 10px;
       border:1px solid #2a2a2a;
       border-radius:999px;
       font-size:12px;
-      margin:6px 6px 0 0;
+      margin-top:10px;
       opacity:.9;
-    }
-    .error{
-      color:#ffb4b4;
-      white-space:pre-wrap;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-      font-size:12px;
     }
   </style>
 </head>
@@ -52,6 +85,11 @@
   <div class="card">
     <h2>Status</h2>
     <div id="status" class="muted">loading…</div>
+  </div>
+
+  <div class="card">
+    <h2>Now Playing</h2>
+    <div id="now" class="muted">loading…</div>
   </div>
 
   <div class="card">
@@ -68,11 +106,10 @@
     <h2>Top artists (7 days)</h2>
     <div id="artists" class="muted">loading…</div>
   </div>
-
-<script>
+  <script>
   // ====== CONFIG ======
-  const API_KEY = "9abd7d303f87391819db3d04d0e62f47";
-  const USER = "errz";
+  const WORKER_BASE = "https://i.errtanq9.workers.dev"; // <-- αυτό είναι το Worker σου
+  const CACHE_MS = 15_000;
 
   // ====== HELPERS ======
   function escapeHtml(s){
@@ -101,52 +138,45 @@
     document.getElementById("status").innerText = msg;
   }
 
-  // ====== LAST.FM ======
-  async function lastfm(method, params={}){
-    const url = new URL("https://ws.audioscrobbler.com/2.0/");
-    url.searchParams.set("method", method);
-    url.searchParams.set("user", USER);
-    url.searchParams.set("api_key", API_KEY);
-    url.searchParams.set("format", "json");
-    Object.entries(params).forEach(([k,v]) => url.searchParams.set(k, String(v)));
-
-    const res = await fetch(url.toString());
-    if(!res.ok) throw new Error(`HTTP ${res.status} from Last.fm`);
-    const data = await res.json();
-    if(data && data.error) throw new Error(`Last.fm error: ${data.message || data.error}`);
-    return data;
+  function showError(where, msg){
+    document.getElementById(where).innerHTML = `<div class="error">${escapeHtml(msg)}</div>`;
   }
 
-  async function fetchRecent(limit=200){
-    // recent tracks (scrobbles). "now playing" entries may not have date.
-    const data = await lastfm("user.getrecenttracks", { limit });
-    const raw = (data?.recenttracks?.track) || [];
-
-    // Normalize into objects with local timestamp
-    const normalized = raw.map(t => ({
-      name: t?.name || "",
-      artist: t?.artist?.["#text"] || "",
-      album: t?.album?.["#text"] || "",
-      // "now playing" has no date
-      uts: t?.date?.uts ? Number(t.date.uts) * 1000 : null,
-      nowPlaying: Boolean(t?.["@attr"] && t["@attr"].nowplaying === "true")
-    }));
-
-    return normalized;
-  }
-
-  async function fetchTopArtists7Days(limit=10){
-    const data = await lastfm("user.gettopartists", { period: "7day", limit });
-    const artists = data?.topartists?.artist || [];
-    return artists.map(a => ({
-      name: a?.name || "",
-      playcount: Number(a?.playcount || 0)
-    }));
+  async function api(path){
+    const res = await fetch(`${WORKER_BASE}${path}`, { cache: "no-store" });
+    if(!res.ok){
+      const t = await res.text().catch(()=> "");
+      throw new Error(`Worker HTTP ${res.status}. ${t || ""}`.trim());
+    }
+    return res.json();
   }
 
   // ====== RENDER ======
+  function renderNowPlaying(now){
+    if(!now || (!now.name && !now.artist)){
+      document.getElementById("now").innerHTML = `<div class="muted">Nothing playing right now.</div>`;
+      return;
+    }
+
+    const cover = now.image || "";
+    const artist = now.artist || "—";
+    const title  = now.name || "—";
+    const album  = now.album || "";
+
+    document.getElementById("now").innerHTML = `
+      <div class="row">
+        <img class="cover" src="${escapeHtml(cover)}" alt="">
+        <div class="meta">
+          <div class="title">${escapeHtml(artist)} — ${escapeHtml(title)}</div>
+          <p class="sub">${escapeHtml(album)}</p>
+          <span class="pill">${now.nowPlaying ? "LIVE now playing" : "last played"}</span>
+        </div>
+      </div>
+    `;
+  }
+
   function renderToday(today){
-    if(today.length === 0){
+    if(!today || today.length === 0){
       document.getElementById("today").innerHTML = `<div class="muted">No scrobbles found for today yet.</div>`;
       return;
     }
@@ -157,19 +187,18 @@
   }
 
   function renderTopArtists(artists){
-    if(!artists.length){
+    if(!artists || !artists.length){
       document.getElementById("artists").innerHTML = `<div class="muted">No data.</div>`;
       return;
     }
     const html = artists.map(a => (
-      `<div class="track">${escapeHtml(a.name)} <span class="muted">(${a.playcount})</span></div>`
+      `<div class="track">${escapeHtml(a.name)} <span class="muted">(${Number(a.playcount||0)})</span></div>`
     )).join("");
     document.getElementById("artists").innerHTML = html;
   }
 
   function generateReflection(today){
-    // deterministic v1 logic: variety + repeats + dominant artist
-    if(today.length === 0){
+    if(!today || today.length === 0){
       document.getElementById("reflection").innerText =
         "No scrobbles today yet. Once you listen, I’ll summarize the pattern.";
       return;
@@ -183,7 +212,6 @@
     const repeats = byTrack.filter(([,c]) => c >= 2).length;
 
     let text = "";
-
     if (variety <= 5 && repeats >= 1){
       text = "Comfort-loop day: low variety + repeats. You leaned on familiar anchors to stabilize mood/energy.";
     } else if (variety <= 10){
@@ -194,46 +222,63 @@
 
     text += ` Dominant presence: ${topArtist}.`;
 
-    // add extra line with quick stats
     const stats = `Scrobbles today: ${today.length} • Artists: ${variety} • Repeated tracks: ${repeats}`;
 
     document.getElementById("reflection").innerHTML =
       `${escapeHtml(text)}<div class="muted" style="margin-top:10px;">${escapeHtml(stats)}</div>`;
   }
 
-  // ====== INIT ======
+  // ====== INIT (cache + refresh loop) ======
+  let lastLoad = 0;
+
+  async function loadOnce(){
+    setStatus("Fetching from Worker…");
+
+    const [now, recent, top] = await Promise.all([
+      api("/now"),
+      api("/recent?limit=200"),
+      api("/top?period=7day&limit=10")
+    ]);
+
+    renderNowPlaying(now);
+
+    const scrobbled = (recent?.recent || []).filter(t => t.uts);
+    const todayKey = localDateKey(new Date());
+    const today = scrobbled
+      .filter(t => localDateKey(new Date(t.uts)) === todayKey)
+      .sort((a,b) => a.uts - b.uts);
+
+    renderToday(today);
+    generateReflection(today);
+
+    renderTopArtists(top?.artists || []);
+
+    setStatus(`OK • loaded ${scrobbled.length} recent scrobbles • today: ${today.length}`);
+    lastLoad = Date.now();
+  }
+
   async function init(){
     try{
-      setStatus("Fetching from Last.fm…");
-
-      const recent = await fetchRecent(200);
-
-      // Keep only scrobbled items with a timestamp (exclude now-playing w/out date)
-      const scrobbled = recent.filter(t => t.uts);
-
-      const todayKey = localDateKey(new Date());
-      const today = scrobbled
-        .filter(t => localDateKey(new Date(t.uts)) === todayKey)
-        // show in chronological order
-        .sort((a,b) => a.uts - b.uts);
-
-      renderToday(today);
-      generateReflection(today);
-
-      const topArtists = await fetchTopArtists7Days(10);
-      renderTopArtists(topArtists);
-
-      setStatus(`OK • loaded ${scrobbled.length} recent scrobbles • today: ${today.length}`);
+      await loadOnce();
+      setInterval(async () => {
+        try{
+          if(Date.now() - lastLoad >= CACHE_MS){
+            await loadOnce();
+          }
+        }catch(e){
+          setStatus("Error (auto-refresh)");
+        }
+      }, 5000);
     } catch(e){
       setStatus("Error");
-      document.getElementById("reflection").innerHTML = `<div class="error">${escapeHtml(e.message)}</div>`;
-      document.getElementById("today").innerHTML = `<div class="error">${escapeHtml(e.message)}</div>`;
-      document.getElementById("artists").innerHTML = `<div class="error">${escapeHtml(e.message)}</div>`;
+      showError("now", e.message);
+      showError("reflection", e.message);
+      showError("today", e.message);
+      showError("artists", e.message);
     }
   }
 
   init();
-</script>
-
-</body>
+      </script>
+      </body>
 </html>

@@ -1,731 +1,256 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Listening Mirror</title>
-  <style>
-    :root{
-      --bg:#070707;
-      --panel:#0e0e0e;
-      --panel2:#101010;
-      --text:#eaeaea;
-      --muted:#a6a6a6;
-      --soft:#1a1a1a;
-      --line:#202020;
-      --shadow: 0 16px 40px rgba(0,0,0,.55);
-      --r:22px;
-      --r2:18px;
-      --gap:14px;
-    }
-    *{box-sizing:border-box}
-    html,body{height:100%}
-    body{
-      margin:0;
-      background:
-        radial-gradient(900px 600px at 20% 0%, rgba(255,255,255,.06), transparent 60%),
-        radial-gradient(900px 600px at 90% 20%, rgba(255,255,255,.05), transparent 60%),
-        linear-gradient(180deg, #060606, #090909);
-      color:var(--text);
-      font: 15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
-      letter-spacing:.1px;
-    }
-    .wrap{max-width:860px;margin:0 auto;padding:22px 18px 40px}
-    .title{font-size:44px;font-weight:760;letter-spacing:-.6px;margin:8px 0 4px}
-    .sub{color:var(--muted);margin:0 0 16px;font-size:14px}
-    .topbar{display:flex;align-items:center;gap:10px;margin:14px 0 16px}
-    .dot{width:10px;height:10px;border-radius:999px;background:#666;box-shadow:0 0 0 4px rgba(255,255,255,.05)}
-    .tabs{display:flex;gap:10px;flex-wrap:wrap}
-    .tab{
-      padding:10px 16px;border-radius:999px;
-      border:1px solid var(--line);
-      background:rgba(255,255,255,.03);
-      color:var(--text);
-      cursor:pointer;
-      user-select:none;
-      font-weight:620;
-      letter-spacing:.1px;
-      transition: transform .08s ease, background .15s ease, border-color .15s ease;
-    }
-    .tab:active{transform:scale(.98)}
-    .tab.on{
-      background:rgba(255,255,255,.08);
-      border-color: rgba(255,255,255,.16);
-    }
-    .card{
-      background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02));
-      border:1px solid rgba(255,255,255,.08);
-      border-radius:var(--r);
-      box-shadow: var(--shadow);
-      padding:18px;
-      margin-top:14px;
-      overflow:hidden;
-    }
-    .card h2{margin:0 0 14px;font-size:30px;letter-spacing:-.4px}
-    .np{
-      display:flex;gap:14px;align-items:center;
-      background:rgba(0,0,0,.18);
-      border:1px solid rgba(255,255,255,.06);
-      border-radius: var(--r2);
-      padding:14px;
-    }
-    .cover{
-      width:112px;height:112px;border-radius:16px;
-      border:1px solid rgba(255,255,255,.10);
-      object-fit:cover;
-      background:#0d0d0d;
-      flex:0 0 auto;
-    }
-    .meta{min-width:0;flex:1}
-    .track{font-size:18px;font-weight:760;margin:0 0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .artist{margin:0;color:rgba(255,255,255,.82);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .album{margin:3px 0 0;color:rgba(255,255,255,.55);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .pill{
-      display:inline-flex;align-items:center;gap:8px;
-      padding:6px 10px;border-radius:999px;
-      border:1px solid rgba(255,255,255,.10);
-      background:rgba(255,255,255,.03);
-      font-weight:650;font-size:12px;color:rgba(255,255,255,.78);
-      margin-top:10px;
-    }
-    .list{
-      display:flex;flex-direction:column;gap:12px;
-    }
-    .row{
-      display:flex;align-items:center;gap:12px;
-      padding:12px;
-      border-radius:18px;
-      border:1px solid rgba(255,255,255,.06);
-      background:rgba(0,0,0,.16);
-    }
-    .row .mini{
-      width:54px;height:54px;border-radius:14px;
-      border:1px solid rgba(255,255,255,.10);
-      background:#0d0d0d;
-      object-fit:cover;
-      flex:0 0 auto;
-    }
-    .row .tmeta{min-width:0;flex:1}
-    .row .t1{font-weight:760;margin:0 0 3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .row .t2{margin:0;color:rgba(255,255,255,.62);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .row .time{
-      width:72px;text-align:right;
-      color:rgba(255,255,255,.55);
-      font-variant-numeric: tabular-nums;
-      flex:0 0 auto;
-    }
-    .grid{
-      display:grid;
-      grid-template-columns: 1fr;
-      gap:14px;
-    }
-    @media (min-width:760px){
-      .grid{grid-template-columns: 1fr 1fr}
-    }
-    .hide{display:none}
-    .ghost{
-      color:rgba(255,255,255,.60);
-      padding:4px 0 2px;
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Listening Mirror</title>
+
+<style>
+:root{
+--bg:#0b0b0c;
+--card:#141416;
+--soft:#1c1c1f;
+--text:#e9e9ea;
+--muted:#9c9ca1;
+--accent:#4ade80;
+}
+
+*{box-sizing:border-box}
+
+body{
+margin:0;
+background:radial-gradient(circle at 50% -20%, #1b1b1e 0%, #0b0b0c 60%);
+color:var(--text);
+font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial;
+}
+
+.wrap{
+max-width:720px;
+margin:auto;
+padding:22px 14px 40px;
+}
+
+h1{
+font-size:42px;
+margin:10px 0 16px;
+letter-spacing:-1px;
+}
+
+.tabs{
+display:flex;
+gap:10px;
+margin-bottom:18px;
+align-items:center;
+}
+
+.dot{
+width:10px;
+height:10px;
+background:var(--accent);
+border-radius:50%;
+margin-right:6px;
+box-shadow:0 0 12px var(--accent);
+}
+
+.tab{
+padding:10px 16px;
+border-radius:22px;
+background:var(--soft);
+color:var(--text);
+font-weight:500;
+opacity:.8;
+}
+
+.card{
+background:linear-gradient(180deg,#19191c,#111113);
+border-radius:22px;
+padding:16px;
+margin-bottom:16px;
+box-shadow:0 6px 28px rgba(0,0,0,.45);
+}
+
+.row{
+display:flex;
+align-items:center;
+gap:14px;
+}
+
+.art{
+width:74px;
+height:74px;
+border-radius:14px;
+background:#222;
+flex-shrink:0;
+object-fit:cover;
+}
+
+.title{
+font-size:18px;
+font-weight:600;
+}
+
+.album{
+font-size:14px;
+color:var(--muted);
+margin-top:3px;
+}
+
+.time{
+margin-left:auto;
+color:var(--muted);
+font-size:13px;
+font-variant-numeric:tabular-nums;
+}
+
+.badge{
+margin-top:8px;
+display:inline-block;
+padding:5px 10px;
+border-radius:999px;
+background:#1f1f23;
+color:var(--muted);
+font-size:12px;
+}
+
+.list{
+display:flex;
+flex-direction:column;
+gap:12px;
+margin-top:6px;
+}
+
+.item{
+display:flex;
+align-items:center;
+gap:12px;
+background:rgba(255,255,255,.02);
+padding:10px;
+border-radius:16px;
+}
+
+.smallart{
+width:52px;
+height:52px;
+border-radius:12px;
+object-fit:cover;
+background:#222;
+}
+
+.meta{
+display:flex;
+flex-direction:column;
+}
+
+.artist{
+font-size:15px;
+font-weight:600;
+}
+
+.track{
+font-size:13px;
+color:var(--muted);
+}
+
+.eq{
+width:18px;
+height:14px;
+display:inline-flex;
+gap:2px;
+align-items:flex-end;
+margin-right:6px;
+opacity:.9;
+}
+
+.eq i{
+width:3px;
+background:#eaeaea;
+border-radius:2px;
+animation:eq 900ms ease-in-out infinite;
+}
+
+.eq i:nth-child(2){animation-delay:120ms}
+.eq i:nth-child(3){animation-delay:240ms}
+.eq i:nth-child(4){animation-delay:360ms}
+
+@keyframes eq{
+0%,100%{transform:scaleY(.5);opacity:.7}
+50%{transform:scaleY(1.2);opacity:1}
+}
+</style>
 </head>
+
 <body>
-  <div class="wrap">
-    <div class="title">Listening Mirror</div>
-    <div class="sub" id="sub"></div>
+<div class="wrap">
+
+<h1>Listening Mirror</h1>
+
+<div class="tabs">
+<div class="dot"></div>
+<div class="tab">Now</div>
+<div class="tab">Today</div>
+<div class="tab">Week</div>
+</div>
+
+<div id="now"></div>
+<div id="today"></div>
+<div id="week"></div>
+
+</div>
+
+<script>
+const API="https://i.errtanq9.workers.dev/";
+
+async function load(){
+
+const data=await fetch(API).then(r=>r.json());
+
+const now=data.now;
+const today=data.today.slice(0,10);
+const week=data.toptracks.slice(0,10);
+
+document.getElementById("now").innerHTML=`
+<div class="card">
+<div class="row">
+<img class="art" src="${now.art}">
+<div>
+<div class="title">${now.artist} — ${now.track}</div>
+<div class="album">${now.album||""}</div>
+<div class="badge">${now.playing?"live now playing":"last played"}</div>
+</div>
+</div>
+</div>`;
+
+document.getElementById("today").innerHTML=
+`<div class="card"><h2>Today</h2><div class="list">`+
+today.map(t=>`
+<div class="item">
+<div class="eq"><i></i><i></i><i></i><i></i></div>
+<img class="smallart" src="${t.art}">
+<div class="meta">
+<div class="artist">${t.artist}</div>
+<div class="track">${t.track}</div>
+</div>
+<div class="time">${t.time}</div>
+</div>`).join("")+
+`</div></div>`;
+
+document.getElementById("week").innerHTML=
+`<div class="card"><h2>Top Tracks (7 days)</h2><div class="list">`+
+week.map(t=>`
+<div class="item">
+<img class="smallart" src="${t.art}">
+<div class="meta">
+<div class="artist">${t.artist}</div>
+<div class="track">${t.track}</div>
+</div>
+<div class="time">${t.plays} plays</div>
+</div>`).join("")+
+`</div></div>`;
+}
+
+load();
+setInterval(load,20000);
+</script>
 
-    <div class="topbar">
-      <div class="dot" id="dot"></div>
-      <div class="tabs">
-        <div class="tab on" data-tab="now">Now</div>
-        <div class="tab" data-tab="today">Today</div>
-        <div class="tab" data-tab="week">Week</div>
-      </div>
-    </div>
-
-    <div id="view-now" class="card">
-      <h2>Now Playing</h2>
-      <div class="np" id="np">
-        <img class="cover" id="npCover" alt="">
-        <div class="meta">
-          <p class="track" id="npTrack">—</p>
-          <p class="artist" id="npArtist"></p>
-          <p class="album" id="npAlbum"></p>
-          <div class="pill" id="npPill"></div>
-        </div>
-      </div>
-    </div>
-
-    <div id="view-today" class="card hide">
-      <h2>Today</h2>
-      <div class="list" id="todayList"></div>
-      <div class="ghost" id="todayEmpty"></div>
-    </div>
-
-    <div id="view-week" class="grid hide">
-      <div class="card">
-        <h2>Top artists (7 days)</h2>
-        <div class="list" id="topArtists"></div>
-      </div>
-      <div class="card">
-        <h2>Top tracks (7 days)</h2>
-        <div class="list" id="topTracks"></div>
-      </div>
-    </div>
-  </div>
-
-  <script>
-    const WORKER = "https://i.errtanq9.workers.dev";
-    const RECENT_LIMIT = 200;
-    const TODAY_LIMIT = 10;
-    const TOP_LIMIT = 10;
-
-    const $ = (id)=>document.getElementById(id);
-
-    const dot = $("dot");
-    const sub = $("sub");
-
-    const npCover = $("npCover");
-    const npTrack = $("npTrack");
-    const npArtist = $("npArtist");
-    const npAlbum = $("npAlbum");
-    const npPill = $("npPill");
-
-    const todayList = $("todayList");
-    const todayEmpty = $("todayEmpty");
-
-    const topArtists = $("topArtists");
-    const topTracks = $("topTracks");
-
-    const setOnline = (ok)=>{
-      dot.style.background = ok ? "#33d17a" : "#ff5a5a";
-    };
-
-    const fmtTime = (d)=>{
-      const hh = String(d.getHours()).padStart(2,"0");
-      const mm = String(d.getMinutes()).padStart(2,"0");
-      return `${hh}:${mm}`;
-    };
-
-    const midnightLocal = ()=>{
-      const d = new Date();
-      d.setHours(0,0,0,0);
-      return d.getTime();
-    };
-
-    const safe = (s)=> (s==null ? "" : String(s));
-
-    const fetchJson = async (path)=>{
-      const r = await fetch(`${WORKER}${path}`, { cache: "no-store" });
-      if(!r.ok) throw new Error("bad");
-      return await r.json();
-    };
-
-    const tabToView = {
-      now: "view-now",
-      today: "view-today",
-      week: "view-week"
-    };
-
-    const setTab = (name)=>{
-      document.querySelectorAll(".tab").forEach(t=>{
-        t.classList.toggle("on", t.dataset.tab === name);
-      });
-      Object.values(tabToView).forEach(v=>$(v).classList.add("hide"));
-      $(tabToView[name]).classList.remove("hide");
-    };
-
-    document.querySelectorAll(".tab").forEach(t=>{
-      t.addEventListener("click", ()=>setTab(t.dataset.tab));
-    });
-
-    const renderNow = (j)=>{
-      const artist = safe(j.artist);
-      const name = safe(j.name);
-      const album = safe(j.album);
-      const image = safe(j.image);
-      const nowPlaying = !!j.nowPlaying;
-
-      npCover.src = image || "";
-      npCover.style.visibility = image ? "visible" : "hidden";
-
-      npTrack.textContent = artist && name ? `${artist} — ${name}` : "—";
-      npArtist.textContent = album ? album : "";
-      npAlbum.textContent = "";
-
-      if(nowPlaying){
-        npPill.textContent = "live now playing";
-      }else{
-        npPill.textContent = "last played";
-      }
-    };
-
-    const renderToday = (tracks)=>{
-      todayList.innerHTML = "";
-      todayEmpty.textContent = "";
-
-      const m0 = midnightLocal();
-      const filtered = tracks
-        .filter(t=>t.uts && (Number(t.uts) * 1000) >= m0)
-        .slice(0, TODAY_LIMIT);
-
-      if(filtered.length === 0){
-        todayEmpty.textContent = "No scrobbles yet today.";
-        return;
-      }
-
-      for(const t of filtered){
-        const d = new Date(Number(t.uts) * 1000);
-        const time = fmtTime(d);
-
-        const row = document.createElement("div");
-        row.className = "row";
-
-        const img = document.createElement("img");
-        img.className = "mini";
-        img.alt = "";
-        img.src = t.image || "";
-        img.style.visibility = t.image ? "visible" : "hidden";
-
-        const tm = document.createElement("div");
-        tm.className = "tmeta";
-
-        const t1 = document.createElement("p");
-        t1.className = "t1";
-        t1.textContent = `${t.artist} — ${t.name}`;
-
-        const t2 = document.createElement("p");
-        t2.className = "t2";
-        t2.textContent = t.album ? t.album : "";
-
-        tm.appendChild(t1);
-        tm.appendChild(t2);
-
-        const ti = document.createElement("div");
-        ti.className = "time";
-        ti.textContent = time;
-
-        row.appendChild(img);
-        row.appendChild(tm);
-        row.appendChild(ti);
-
-        todayList.appendChild(row);
-      }
-    };
-
-    const renderTopArtists = (artists)=>{
-      topArtists.innerHTML = "";
-      for(const a of artists.slice(0, TOP_LIMIT)){
-        const row = document.createElement("div");
-        row.className = "row";
-
-        const img = document.createElement("img");
-        img.className = "mini";
-        img.alt = "";
-        img.src = a.image || "";
-        img.style.visibility = a.image ? "visible" : "hidden";
-
-        const tm = document.createElement("div");
-        tm.className = "tmeta";
-
-        const t1 = document.createElement("p");
-        t1.className = "t1";
-        t1.textContent = a.name;
-
-        const t2 = document.createElement("p");
-        t2.className = "t2";
-        t2.textContent = `${a.playcount} plays`;
-
-        tm.appendChild(t1);
-        tm.appendChild(t2);
-
-        row.appendChild(img);
-        row.appendChild(tm);
-
-        topArtists.appendChild(row);
-      }
-    };
-
-    const renderTopTracks = (tracks)=>{
-      topTracks.innerHTML = "";
-      for(const t of tracks.slice(0, TOP_LIMIT)){
-        const row = document.createElement("div");
-        row.className = "row";
-
-        const img = document.createElement("img");
-        img.className = "mini";
-        img.alt = "";
-        img.src = t.image || "";
-        img.style.visibility = t.image ? "visible" : "hidden";
-
-        const tm = document.createElement("div");
-        tm.className = "tmeta";
-
-        const t1 = document.createElement("p");
-        t1.className = "t1";
-        t1.textContent = `${t.artist} — ${t.name}`;
-
-        const t2 = document.createElement("p");
-        t2.className = "t2";
-        t2.textContent = `${t.playcount} plays`;
-
-        tm.appendChild(t1);
-        tm.appendChild(t2);
-
-        row.appendChild(img);
-        row.appendChild(tm);
-
-        topTracks.appendChild(row);
-      }
-    };
-
-    const enrichArtistImages = async (artists)=>{
-      const out = [];
-      for(const a of artists){
-        if(a.image){ out.push(a); continue; }
-        try{
-          const j = await fetchJson(`/api/artist?name=${encodeURIComponent(a.name)}`);
-          out.push({ ...a, image: j.image || "" });
-        }catch{
-          out.push(a);
-        }
-      }
-      return out;
-    };
-
-    const enrichTrackImages = async (tracks)=>{
-      const out = [];
-      for(const t of tracks){
-        if(t.image){ out.push(t); continue; }
-        try{
-          const j = await fetchJson(`/api/track?artist=${encodeURIComponent(t.artist)}&name=${encodeURIComponent(t.name)}`);
-          out.push({ ...t, image: j.image || "" });
-        }catch{
-          out.push(t);
-        }
-      }
-      return out;
-    };
-
-    const loadAll = async ()=>{
-      try{
-        const now = await fetchJson("/api/now");
-        setOnline(true);
-        renderNow(now);
-      }catch{
-        setOnline(false);
-      }
-
-      try{
-        const recent = await fetchJson(`/api/recent?limit=${RECENT_LIMIT}`);
-        renderToday(recent.tracks || []);
-      }catch{
-        todayList.innerHTML = "";
-        todayEmpty.textContent = "Failed to load.";
-      }
-
-      try{
-        const a = await fetchJson(`/api/top?type=artists&period=7day&limit=${TOP_LIMIT}`);
-        const t = await fetchJson(`/api/top?type=tracks&period=7day&limit=${TOP_LIMIT}`);
-
-        const artists = await enrichArtistImages(a.artists || []);
-        const tracks = await enrichTrackImages(t.tracks || []);
-
-        renderTopArtists(artists);
-        renderTopTracks(tracks);
-      }catch{
-        topArtists.innerHTML = "";
-        topTracks.innerHTML = "";
-      }
-
-      sub.textContent = "";
-    };
-
-    loadAll();
-    setInterval(async ()=>{
-      try{
-        const now = await fetchJson("/api/now");
-        setOnline(true);
-        renderNow(now);
-      }catch{
-        setOnline(false);
-      }
-    }, 20000);
-
-    setInterval(async ()=>{
-      try{
-        const recent = await fetchJson(`/api/recent?limit=${RECENT_LIMIT}`);
-        renderToday(recent.tracks || []);
-      }catch{}
-    }, 60000);
-
-    setInterval(async ()=>{
-      try{
-        const a = await fetchJson(`/api/top?type=artists&period=7day&limit=${TOP_LIMIT}`);
-        const t = await fetchJson(`/api/top?type=tracks&period=7day&limit=${TOP_LIMIT}`);
-        const artists = await enrichArtistImages(a.artists || []);
-        const tracks = await enrichTrackImages(t.tracks || []);
-        renderTopArtists(artists);
-        renderTopTracks(tracks);
-      }catch{}
-    }, 180000);
-  </script>
-</body>
-</html>    .count{opacity:.7;font-size:12px;font-variant-numeric:tabular-nums}
-
-    .eq{width:18px;height:14px;display:inline-flex;gap:2px;align-items:flex-end;opacity:.9}
-    .eq i{width:3px;height:6px;background:rgba(234,234,234,.9);border-radius:2px;animation:eq 900ms ease-in-out infinite}
-    .eq i:nth-child(2){animation-delay:120ms;height:9px}
-    .eq i:nth-child(3){animation-delay:240ms;height:7px}
-    .eq i:nth-child(4){animation-delay:360ms;height:10px}
-    @keyframes eq{0%,100%{transform:scaleY(.55);opacity:.75}50%{transform:scaleY(1.2);opacity:1}}
-  </style>
-</head>
-<body>
-  <h1>Listening Mirror</h1>
-
-  <div class="toprow">
-    <span id="statusDot" class="dot" aria-label="status"></span>
-    <div class="tabs">
-      <button class="tabbtn active" data-tab="tabNow">Now</button>
-      <button class="tabbtn" data-tab="tabToday">Today</button>
-      <button class="tabbtn" data-tab="tabWeek">Week</button>
-    </div>
-  </div>
-
-  <section id="tabNow">
-    <div class="card">
-      <h2>Now Playing</h2>
-      <div id="now" class="muted">loading…</div>
-    </div>
-  </section>
-
-  <section id="tabToday" hidden>
-    <div class="card">
-      <h2>Today</h2>
-      <div id="today" class="muted">loading…</div>
-    </div>
-  </section>
-
-  <section id="tabWeek" hidden>
-    <div class="cols">
-      <div class="card">
-        <h2>Top artists (7 days)</h2>
-        <div id="artists" class="muted">loading…</div>
-      </div>
-      <div class="card">
-        <h2>Top tracks (7 days)</h2>
-        <div id="toptracks" class="muted">loading…</div>
-      </div>
-    </div>
-  </section>
-
-  <script>
-    const WORKER_BASE = "https://i.errtanq9.workers.dev";
-    const REFRESH_MS = 15000;
-    const WEEK_REFRESH_MS = 300000;
-    const TODAY_LIMIT = 10;
-
-    function escapeHtml(s){
-      return String(s ?? "").replace(/[&<>"']/g, c => ({
-        "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
-      }[c]));
-    }
-
-    function setOnline(ok){
-      document.getElementById("statusDot").style.background = ok ? "#38d17a" : "#ff4b4b";
-    }
-
-    async function fetchJson(url, timeoutMs=9000){
-      const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), timeoutMs);
-      try{
-        const res = await fetch(url, { method:"GET", mode:"cors", cache:"no-store", signal: ctrl.signal });
-        const text = await res.text().catch(()=> "");
-        if(!res.ok) throw new Error(text || `HTTP ${res.status}`);
-        return JSON.parse(text || "{}");
-      } finally {
-        clearTimeout(t);
-      }
-    }
-
-    function api(path){ return fetchJson(`${WORKER_BASE}${path}`); }
-
-    function localDateKey(d){
-      const y = d.getFullYear();
-      const m = String(d.getMonth()+1).padStart(2,"0");
-      const day = String(d.getDate()).padStart(2,"0");
-      return `${y}-${m}-${day}`;
-    }
-
-    function hhmm(ms){
-      const d = new Date(ms);
-      return d.toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" });
-    }
-
-    function eqHtml(){
-      return `<span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>`;
-    }
-
-    function imgHtml(src){
-      const s = src ? escapeHtml(src) : "";
-      return `<img class="mini" src="${s}" alt="" onerror="this.style.display='none'">`;
-    }
-
-    function renderNowPlaying(now){
-      if(!now || (!now.name && !now.artist)){
-        document.getElementById("now").innerHTML = `<div class="muted">Nothing playing right now.</div>`;
-        return;
-      }
-      const cover = now.image || "";
-      const artist = now.artist || "—";
-      const title  = now.name || "—";
-      const album  = now.album || "";
-      document.getElementById("now").innerHTML = `
-        <div class="row">
-          <img class="cover" src="${escapeHtml(cover)}" alt="" onerror="this.style.display='none'">
-          <div class="meta">
-            <div class="title">${escapeHtml(artist)} — ${escapeHtml(title)}</div>
-            <p class="sub">${escapeHtml(album)}</p>
-            <span class="pill">${now.nowPlaying ? "LIVE now playing" : "last played"}</span>
-          </div>
-        </div>
-      `;
-    }
-
-    function renderToday(list){
-      if(!list || list.length === 0){
-        document.getElementById("today").innerHTML = `<div class="muted">No scrobbles found for today yet.</div>`;
-        return;
-      }
-      const html = `<div class="list">` + list.map(t => {
-        const time = t.uts ? hhmm(t.uts) : "";
-        const album = t.album || "";
-        return `
-          <div class="item">
-            ${eqHtml()}
-            ${imgHtml(t.image)}
-            <div class="time">${escapeHtml(time)}</div>
-            <div class="txt">
-              <div class="line">${escapeHtml(t.artist)} — ${escapeHtml(t.name)}</div>
-              <div class="subline">${escapeHtml(album)}</div>
-            </div>
-          </div>
-        `;
-      }).join("") + `</div>`;
-      document.getElementById("today").innerHTML = html;
-    }
-
-    function renderTopArtists(artists){
-      if(!artists || !artists.length){
-        document.getElementById("artists").innerHTML = `<div class="muted">No data.</div>`;
-        return;
-      }
-      const html = `<div class="list">` + artists.map(a => (
-        `<div class="item">
-          ${eqHtml()}
-          ${imgHtml(a.image)}
-          <div class="txt"><div class="line">${escapeHtml(a.name)}</div></div>
-          <div class="count">(${Number(a.playcount||0)})</div>
-        </div>`
-      )).join("") + `</div>`;
-      document.getElementById("artists").innerHTML = html;
-    }
-
-    function renderTopTracks(tracks){
-      if(!tracks || !tracks.length){
-        document.getElementById("toptracks").innerHTML = `<div class="muted">No data.</div>`;
-        return;
-      }
-      const html = `<div class="list">` + tracks.map(t => (
-        `<div class="item">
-          ${eqHtml()}
-          ${imgHtml(t.image)}
-          <div class="txt"><div class="line">${escapeHtml(t.artist)} — ${escapeHtml(t.name)}</div></div>
-          <div class="count">(${Number(t.playcount||0)})</div>
-        </div>`
-      )).join("") + `</div>`;
-      document.getElementById("toptracks").innerHTML = html;
-    }
-
-    function showError(id, msg){
-      document.getElementById(id).innerHTML = `<div class="error">${escapeHtml(msg)}</div>`;
-    }
-
-    async function loadNowAndToday(){
-      const [now, recent] = await Promise.all([
-        api("/now"),
-        api("/recent?limit=200")
-      ]);
-
-      renderNowPlaying(now);
-
-      const list = Array.isArray(recent?.recent) ? recent.recent : [];
-      const todayKey = localDateKey(new Date());
-      const today = list
-        .filter(t => t.uts && localDateKey(new Date(t.uts)) === todayKey)
-        .sort((a,b) => b.uts - a.uts)
-        .slice(0, TODAY_LIMIT);
-
-      renderToday(today);
-    }
-
-    async function loadWeek(){
-      const [topA, topT] = await Promise.all([
-        api("/top?period=7day&limit=10"),
-        api("/toptracks?period=7day&limit=10")
-      ]);
-
-      renderTopArtists(Array.isArray(topA?.artists) ? topA.artists : []);
-      renderTopTracks(Array.isArray(topT?.tracks) ? topT.tracks : []);
-    }
-
-    function initTabs(){
-      const btns = Array.from(document.querySelectorAll(".tabbtn"));
-      btns.forEach(b => {
-        b.addEventListener("click", () => {
-          btns.forEach(x => x.classList.remove("active"));
-          b.classList.add("active");
-          const target = b.getAttribute("data-tab");
-          ["tabNow","tabToday","tabWeek"].forEach(id => {
-            document.getElementById(id).hidden = (id !== target);
-          });
-        });
-      });
-    }
-
-    async function init(){
-      initTabs();
-      try{
-        await loadNowAndToday();
-        await loadWeek();
-        setOnline(true);
-      }catch(e){
-        setOnline(false);
-        const msg = e?.message || String(e);
-        showError("now", msg);
-        showError("today", msg);
-        showError("artists", msg);
-        showError("toptracks", msg);
-      }
-
-      setInterval(async () => {
-        try{
-          await loadNowAndToday();
-          setOnline(true);
-        }catch(e){
-          setOnline(false);
-        }
-      }, REFRESH_MS);
-
-      setInterval(async () => {
-        try{
-          await loadWeek();
-        }catch(e){}
-      }, WEEK_REFRESH_MS);
-    }
-
-    init();
-  </script>
 </body>
 </html>

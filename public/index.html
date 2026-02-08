@@ -1,1 +1,974 @@
 
+<!-- PART 1/4 -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <title>Listening Mirror</title>
+  <style>
+    :root{
+      --bg0:#06080c;
+      --bg1:#07111a;
+      --card:rgba(255,255,255,.06);
+      --card2:rgba(255,255,255,.08);
+      --stroke:rgba(255,255,255,.10);
+      --stroke2:rgba(255,255,255,.14);
+      --txt:rgba(255,255,255,.92);
+      --muted:rgba(255,255,255,.62);
+      --muted2:rgba(255,255,255,.48);
+      --shadow:0 12px 40px rgba(0,0,0,.55);
+      --r:22px;
+      --r2:16px;
+      --pad:16px;
+      --max:980px;
+      --accent:rgba(120,220,255,.95);
+      --ok:#38d39f;
+      --warn:#ffce5c;
+      --bad:#ff5c7a;
+      --safeTop: env(safe-area-inset-top, 0px);
+      --safeBottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+      color:var(--txt);
+      background:
+        radial-gradient(1200px 600px at 20% -10%, rgba(120,220,255,.16), transparent 55%),
+        radial-gradient(900px 520px at 100% 0%, rgba(180,120,255,.14), transparent 55%),
+        radial-gradient(900px 520px at 60% 110%, rgba(60,255,200,.10), transparent 55%),
+        linear-gradient(180deg, var(--bg1), var(--bg0));
+      overflow-x:hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    .bgCover{
+      position:fixed;
+      inset:-40px;
+      z-index:-2;
+      background: radial-gradient(900px 520px at 50% 15%, rgba(255,255,255,.07), transparent 60%);
+      filter:saturate(1.05);
+    }
+    .bgCover::before{
+      content:"";
+      position:absolute;
+      inset:0;
+      background-image: var(--cover, none);
+      background-size: cover;
+      background-position:center;
+      opacity:.26;
+      filter: blur(34px) saturate(1.25) contrast(1.05);
+      transform: scale(1.1);
+    }
+    .bgCover::after{
+      content:"";
+      position:absolute;
+      inset:0;
+      background:
+        radial-gradient(700px 420px at 40% 10%, rgba(0,0,0,.12), transparent 60%),
+        radial-gradient(700px 420px at 90% 30%, rgba(0,0,0,.22), transparent 60%),
+        linear-gradient(180deg, rgba(0,0,0,.25), rgba(0,0,0,.62));
+    }
+
+    .wrap{
+      width:100%;
+      max-width:var(--max);
+      margin:0 auto;
+      padding: calc(var(--safeTop) + 18px) var(--pad) calc(var(--safeBottom) + 18px);
+    }
+
+    header{
+      display:flex;
+      flex-direction:column;
+      gap:14px;
+      margin-bottom:16px;
+    }
+
+    .titleRow{
+      display:flex;
+      align-items:flex-end;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+    }
+
+    h1{
+      margin:0;
+      letter-spacing:-.02em;
+      font-size: clamp(32px, 7vw, 56px);
+      line-height:1.05;
+    }
+
+    .chips{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
+
+    .chip{
+      display:inline-flex;
+      align-items:center;
+      gap:10px;
+      padding:10px 14px;
+      border-radius:999px;
+      background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.045));
+      border:1px solid var(--stroke);
+      box-shadow: 0 10px 28px rgba(0,0,0,.35);
+      color:var(--muted);
+      font-size:14px;
+      max-width: 100%;
+    }
+
+    .dot{
+      width:10px;height:10px;border-radius:999px;
+      background: var(--muted2);
+      box-shadow: 0 0 0 4px rgba(255,255,255,.04);
+      flex:0 0 auto;
+    }
+    .dot.ok{background:var(--ok)}
+    .dot.warn{background:var(--warn)}
+    .dot.bad{background:var(--bad)}
+
+    .chip strong{color:var(--txt); font-weight:650}
+    .chip span{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width: 72vw}
+
+    .card{
+      background: linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.045));
+      border:1px solid var(--stroke);
+      border-radius:var(--r);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+    }
+
+    .cardInner{padding:18px}
+    .cardTitle{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      margin:0 0 12px;
+      font-size:22px;
+      letter-spacing:-.01em;
+    }
+
+    .subtle{
+      color:var(--muted);
+      font-size:13px;
+      letter-spacing:.02em;
+      text-transform:uppercase;
+    }
+
+    .tabs{
+      display:flex;
+      gap:10px;
+      padding:10px;
+      border-radius:999px;
+      border:1px solid var(--stroke);
+      background: rgba(0,0,0,.18);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      width:100%;
+      overflow:auto;
+      scrollbar-width:none;
+    }
+    .tabs::-webkit-scrollbar{display:none}
+
+    .tabBtn{
+      appearance:none;
+      border:1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      padding:10px 14px;
+      border-radius:999px;
+      font-size:14px;
+      font-weight:650;
+      letter-spacing:.01em;
+      cursor:pointer;
+      white-space:nowrap;
+      transition: transform .12s ease, background .12s ease, border-color .12s ease, color .12s ease;
+    }
+    .tabBtn:active{transform: scale(.98)}
+    .tabBtn[aria-selected="true"]{
+      color:var(--txt);
+      background: linear-gradient(180deg, rgba(120,220,255,.18), rgba(255,255,255,.06));
+      border-color: rgba(120,220,255,.28);
+      box-shadow: 0 12px 30px rgba(0,0,0,.35);
+    }
+
+    .panel{display:none; margin-top:14px}
+    .panel.active{display:block}
+
+    .grid{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap:14px;
+    }
+
+    @media (min-width: 860px){
+      .grid.two{grid-template-columns: 1.2fr .8fr}
+    }
+
+    .kpis{
+      display:grid;
+      grid-template-columns: repeat(2, minmax(0,1fr));
+      gap:12px;
+    }
+    .kpi{
+      background: rgba(0,0,0,.16);
+      border:1px solid var(--stroke);
+      border-radius: var(--r2);
+      padding:14px;
+      min-height:76px;
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      gap:6px;
+    }
+    .kpi .label{color:var(--muted); font-size:13px}
+    .kpi .val{font-size:26px; font-weight:800; letter-spacing:-.02em}
+
+    .npRow{
+      display:flex;
+      gap:14px;
+      align-items:center;
+    }
+    .cover{
+      width:78px;height:78px;border-radius:18px;
+      background: rgba(255,255,255,.07);
+      border:1px solid var(--stroke);
+      box-shadow: 0 16px 36px rgba(0,0,0,.45);
+      overflow:hidden;
+      flex:0 0 auto;
+    }
+    .cover img{width:100%;height:100%;object-fit:cover;display:block}
+
+    .npMeta{min-width:0; flex:1}
+    .npTitle{
+      margin:0;
+      font-size:18px;
+      font-weight:800;
+      letter-spacing:-.01em;
+      line-height:1.2;
+      word-break: break-word;
+    }
+    .npSub{
+      margin:4px 0 0;
+      color:var(--muted);
+      font-size:14px;
+      line-height:1.25;
+      word-break: break-word;
+    }
+    .npBadge{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:8px 12px;
+      border-radius:999px;
+      background: rgba(120,220,255,.12);
+      border:1px solid rgba(120,220,255,.22);
+      color: var(--txt);
+      font-weight:750;
+      font-size:13px;
+      flex:0 0 auto;
+    }
+
+    a.link{
+      color: rgba(160,235,255,.95);
+      text-decoration:none;
+      font-weight:700;
+    }
+    a.link:active{opacity:.8}
+
+    .list{
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    .item{
+      display:flex;
+      gap:12px;
+      align-items:center;
+      padding:12px;
+      border-radius: var(--r2);
+      background: rgba(0,0,0,.14);
+      border:1px solid var(--stroke);
+      overflow:hidden;
+    }
+    .item .mini{
+      width:44px;height:44px;border-radius:12px;
+      background: rgba(255,255,255,.07);
+      border:1px solid var(--stroke);
+      overflow:hidden;
+      flex:0 0 auto;
+    }
+    .item .mini img{width:100%;height:100%;object-fit:cover;display:block}
+    .item .t{
+      min-width:0;
+      flex:1;
+    }
+    .item .t .line1{
+      font-weight:800;
+      font-size:14px;
+      line-height:1.2;
+      margin:0;
+      word-break: break-word;
+    }
+    .item .t .line2{
+      margin:4px 0 0;
+      color:var(--muted);
+      font-size:13px;
+      line-height:1.2;
+      word-break: break-word;
+    }
+    .pill{
+      padding:8px 10px;
+      border-radius:999px;
+      border:1px solid var(--stroke);
+      background: rgba(255,255,255,.05);
+      color:var(--muted);
+      font-size:12px;
+      font-weight:750;
+      flex:0 0 auto;
+    }
+    .pill.now{border-color:rgba(120,220,255,.28); color:rgba(200,245,255,.95); background:rgba(120,220,255,.11)}
+    .pill.rep{border-color:rgba(255,255,255,.12);}
+
+    details{
+      border-radius: var(--r2);
+      border:1px solid var(--stroke);
+      background: rgba(0,0,0,.14);
+      overflow:hidden;
+    }
+    details summary{
+      list-style:none;
+      cursor:pointer;
+      padding:14px 14px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      user-select:none;
+    }
+    details summary::-webkit-details-marker{display:none}
+    .sumTitle{
+      font-weight:850;
+      letter-spacing:-.01em;
+      margin:0;
+      font-size:15px;
+      min-width:0;
+      word-break: break-word;
+    }
+    .chev{
+      width:28px;height:28px;border-radius:999px;
+      display:grid;place-items:center;
+      border:1px solid var(--stroke);
+      background: rgba(255,255,255,.05);
+      flex:0 0 auto;
+      transition: transform .14s ease;
+    }
+    details[open] .chev{transform: rotate(180deg)}
+    .detailBody{
+      padding: 0 14px 14px;
+      color: var(--muted);
+      line-height:1.5;
+      font-size:14px;
+      word-break: break-word;
+    }
+
+    .chipsRow{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      margin-top:12px;
+    }
+    .tag{
+      padding:8px 12px;
+      border-radius:999px;
+      border:1px solid var(--stroke);
+      background: rgba(255,255,255,.05);
+      color: rgba(255,255,255,.78);
+      font-size:13px;
+      font-weight:750;
+      max-width:100%;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+
+    .err{
+      color: rgba(255,255,255,.86);
+      background: rgba(255,92,122,.14);
+      border: 1px solid rgba(255,92,122,.26);
+      border-radius: var(--r2);
+      padding: 12px 14px;
+      line-height:1.35;
+    }
+
+    .userBox{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+      margin-top:10px;
+    }
+    .inp{
+      flex:1 1 220px;
+      min-width: 0;
+      padding:12px 14px;
+      border-radius: 14px;
+      border:1px solid var(--stroke);
+      background: rgba(0,0,0,.18);
+      color: var(--txt);
+      font-size: 14px;
+      outline:none;
+    }
+    .btn{
+      appearance:none;
+      border:1px solid rgba(120,220,255,.26);
+      background: rgba(120,220,255,.12);
+      color: var(--txt);
+      padding:12px 14px;
+      border-radius: 14px;
+      font-weight:850;
+      cursor:pointer;
+      transition: transform .12s ease, opacity .12s ease;
+    }
+    .btn:active{transform: scale(.985); opacity:.9}
+
+    .foot{
+      margin-top:16px;
+      color: var(--muted2);
+      font-size: 12px;
+      text-align:center;
+    }
+  </style>
+</head>
+<body>
+  <div class="bgCover" id="bgCover"></div>
+  <div class="wrap">
+    <header>
+      <div class="titleRow">
+        <h1>Listening Mirror</h1>
+        <div class="chips">
+          <div class="chip" id="chipUser"><span>connected to last.fm user: <strong>—</strong></span></div>
+          <div class="chip" id="chipTz"><span>tz: <strong>—</strong></span></div>
+          <div class="chip" id="chipAi"><span><span class="dot" id="aiDot"></span><strong id="aiTxt">loading</strong></span></div>
+        </div>
+      </div>
+
+      <div class="tabs" role="tablist" aria-label="Sections">
+        <button class="tabBtn" role="tab" id="tabNow" aria-controls="panelNow" aria-selected="true">Now</button>
+        <button class="tabBtn" role="tab" id="tabToday" aria-controls="panelToday" aria-selected="false">Today</button>
+        <button class="tabBtn" role="tab" id="tabRecent" aria-controls="panelRecent" aria-selected="false">Recent</button>
+        <button class="tabBtn" role="tab" id="tabReflection" aria-controls="panelReflection" aria-selected="false">Reflection</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="panel active" id="panelNow" role="tabpanel" aria-labelledby="tabNow">
+        <div class="grid two">
+          <div class="card">
+            <div class="cardInner">
+              <div class="cardTitle">
+                <span>Now Playing</span>
+                <span class="subtle" id="updatedAt">—</span>
+              </div>
+
+              <div id="nowWrap"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="cardInner">
+              <div class="cardTitle">
+                <span>Status</span>
+                <span class="subtle" id="statusTxt">—</span>
+              </div>
+
+              <div class="kpis">
+                <div class="kpi">
+                  <div class="label">Today scrobbles</div>
+                  <div class="val" id="kpiToday">—</div>
+                </div>
+                <div class="kpi">
+                  <div class="label">Recent window</div>
+                  <div class="val" id="kpiRecent">—</div>
+                </div>
+              </div>
+
+              <div style="height:12px"></div>
+
+              <details id="todayHighlightsBox">
+                <summary>
+                  <div class="sumTitle">Today highlights</div>
+                  <div class="chev">⌄</div>
+                </summary>
+                <div class="detailBody" id="todayHighlightsBody"></div>
+              </details>
+            </div>
+          </div>
+        </div>
+      </section>
+<!-- PART 2/4 -->
+      <section class="panel" id="panelToday" role="tabpanel" aria-labelledby="tabToday">
+        <div class="grid">
+          <div class="card">
+            <div class="cardInner">
+              <div class="cardTitle">
+                <span>Today</span>
+                <span class="subtle" id="todayKeyTxt">—</span>
+              </div>
+
+              <div class="kpis">
+                <div class="kpi">
+                  <div class="label">Scrobbles</div>
+                  <div class="val" id="todayCountBig">—</div>
+                </div>
+                <div class="kpi">
+                  <div class="label">Top artist</div>
+                  <div class="val" id="todayTopArtist">—</div>
+                </div>
+              </div>
+
+              <div style="height:12px"></div>
+
+              <details open>
+                <summary>
+                  <div class="sumTitle">Most repeated track</div>
+                  <div class="chev">⌄</div>
+                </summary>
+                <div class="detailBody" id="todayMostRepeated">—</div>
+              </details>
+
+              <div style="height:10px"></div>
+
+              <details>
+                <summary>
+                  <div class="sumTitle">Today arc</div>
+                  <div class="chev">⌄</div>
+                </summary>
+                <div class="detailBody" id="todayArc">—</div>
+              </details>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="cardInner">
+              <div class="cardTitle">
+                <span>Cover focus</span>
+                <span class="subtle">album art glow</span>
+              </div>
+
+              <div id="coverFocus"></div>
+
+              <div class="foot">Tap “Today highlights” or “Reflection” to expand. No horizontal scrolling.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="panelRecent" role="tabpanel" aria-labelledby="tabRecent">
+        <div class="card">
+          <div class="cardInner">
+            <div class="cardTitle">
+              <span>Recent</span>
+              <span class="subtle" id="recentCountTxt">—</span>
+            </div>
+            <div class="list" id="recentList"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="panelReflection" role="tabpanel" aria-labelledby="tabReflection">
+        <div class="card">
+          <div class="cardInner">
+            <div class="cardTitle">
+              <span>Today’s Reflection</span>
+              <span class="subtle" id="reflectionBadge">—</span>
+            </div>
+
+            <div id="reflectionWrap"></div>
+
+            <div id="reflectionErr" class="err" style="display:none"></div>
+
+            <div id="userPrompt" style="display:none">
+              <div class="err">
+                Missing last.fm user. Set a username below (stored on this device).
+                <div class="userBox">
+                  <input class="inp" id="userInput" placeholder="last.fm username (e.g. errz)" />
+                  <button class="btn" id="userSave">Save</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="foot" id="footLine">Listening Mirror • premium UI • cover art from Last.fm</div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const API_BASE = "https://listening-mirror-ai.errtanq9.workers.dev";
+    const LS_USER_KEY = "lm_user";
+
+    const $ = (id) => document.getElementById(id);
+
+    const tabs = [
+      { btn: $("tabNow"), panel: $("panelNow") },
+      { btn: $("tabToday"), panel: $("panelToday") },
+      { btn: $("tabRecent"), panel: $("panelRecent") },
+      { btn: $("tabReflection"), panel: $("panelReflection") }
+    ];
+
+    function setTab(activeBtn){
+      for(const t of tabs){
+        const on = t.btn === activeBtn;
+        t.btn.setAttribute("aria-selected", on ? "true" : "false");
+        t.panel.classList.toggle("active", on);
+      }
+      activeBtn.scrollIntoView({ block:"nearest", inline:"nearest" });
+    }
+
+    for(const t of tabs){
+      t.btn.addEventListener("click", () => setTab(t.btn));
+    }
+
+    function fmtTime(ms){
+      try{
+        const d = new Date(ms);
+        return d.toLocaleString(undefined, { hour:"2-digit", minute:"2-digit", second:"2-digit" });
+      }catch{
+        return "—";
+      }
+    }
+
+    function escapeHtml(s){
+      const str = (s == null ? "" : String(s));
+      return str.replace(/[&<>"']/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+    }
+
+    function pickCover(obj){
+      const img = (obj && obj.image) ? obj.image : "";
+      if(img) return img;
+      return "";
+    }
+
+    function setCoverBg(url){
+      if(!url) return;
+      document.documentElement.style.setProperty("--cover", `url("${url}")`);
+    }
+
+    function chipSet(el, dotClass, label, value){
+      if(!el) return;
+      const dot = el.querySelector(".dot");
+      if(dot){
+        dot.className = "dot " + (dotClass || "");
+      }
+      const strong = el.querySelector("strong");
+      const span = el.querySelector("span");
+      if(strong && value != null) strong.textContent = value;
+      if(span && label) span.innerHTML = label;
+    }
+
+    function renderNowPlaying(np){
+      if(!np || !np.name){
+        return `<div class="err">No now playing track detected right now.</div>`;
+      }
+      const cover = escapeHtml(np.image || "");
+      const artist = escapeHtml(np.artist || "—");
+      const name = escapeHtml(np.name || "—");
+      const album = escapeHtml(np.album || "");
+      const url = escapeHtml(np.url || "");
+      const badge = np.nowPlaying ? `<span class="npBadge"><span class="dot ok"></span>Now</span>` : `<span class="npBadge"><span class="dot warn"></span>Recent</span>`;
+      const albumLine = album ? `<div class="npSub">${album}</div>` : ``;
+      const link = url ? `<div style="margin-top:10px"><a class="link" href="${url}" target="_blank" rel="noopener">Open on last.fm</a></div>` : ``;
+
+      return `
+        <div class="npRow">
+          <div class="cover">${cover ? `<img alt="" src="${cover}" />` : ``}</div>
+          <div class="npMeta">
+            <p class="npTitle">${artist} — ${name}</p>
+            ${albumLine}
+            ${link}
+          </div>
+          ${badge}
+        </div>
+      `;
+    }
+
+    function renderCoverFocus(np){
+      if(!np || !np.name){
+        return `<div class="err">Play something to activate cover focus.</div>`;
+      }
+      const cover = escapeHtml(np.image || "");
+      const artist = escapeHtml(np.artist || "—");
+      const name = escapeHtml(np.name || "—");
+      const album = escapeHtml(np.album || "");
+      const url = escapeHtml(np.url || "");
+      const big = `
+        <div class="item" style="padding:16px">
+          <div class="cover" style="width:92px;height:92px">${cover ? `<img alt="" src="${cover}" />` : ``}</div>
+          <div class="t">
+            <p class="line1" style="font-size:16px;margin:0">${artist} — ${name}</p>
+            <p class="line2" style="margin-top:6px">${album || ""}</p>
+            ${url ? `<div style="margin-top:8px"><a class="link" href="${url}" target="_blank" rel="noopener">Open on last.fm</a></div>` : ``}
+          </div>
+        </div>
+      `;
+      return big;
+    }
+  </script>
+<!-- PART 3/4 -->
+  <script>
+    function renderRecent(list){
+      const el = $("recentList");
+      if(!el) return;
+      el.innerHTML = "";
+      if(!Array.isArray(list) || list.length === 0){
+        el.innerHTML = `<div class="err">No recent tracks found.</div>`;
+        return;
+      }
+      const frag = document.createDocumentFragment();
+      for(const it of list){
+        const cover = escapeHtml(it.image || "");
+        const artist = escapeHtml(it.artist || "—");
+        const name = escapeHtml(it.name || "—");
+        const album = escapeHtml(it.album || "");
+        const url = escapeHtml(it.url || "");
+        const isNow = !!it.nowPlaying;
+        const when = it.playedAt ? fmtTime(it.playedAt) : "—";
+        const pill = isNow ? `<span class="pill now">Now</span>` : `<span class="pill rep">${when}</span>`;
+        const aOpen = url ? `<a class="link" href="${url}" target="_blank" rel="noopener" aria-label="Open on last.fm">${pill.outerHTML || ""}</a>` : pill;
+
+        const node = document.createElement("div");
+        node.className = "item";
+        node.innerHTML = `
+          <div class="mini">${cover ? `<img alt="" src="${cover}" />` : ``}</div>
+          <div class="t">
+            <p class="line1">${artist} — ${name}</p>
+            <p class="line2">${album || ""}</p>
+          </div>
+          ${url ? `<a class="pill ${isNow ? "now" : "rep"}" href="${url}" target="_blank" rel="noopener">${isNow ? "Now" : when}</a>` : `<span class="pill ${isNow ? "now" : "rep"}">${isNow ? "Now" : when}</span>`}
+        `;
+        frag.appendChild(node);
+      }
+      el.appendChild(frag);
+    }
+
+    function renderHighlights(today){
+      const parts = [];
+      if(today && today.topArtist){
+        const n = today.topArtist.count != null ? ` (${today.topArtist.count})` : "";
+        parts.push(`<div><span class="subtle">Top artist</span><div style="margin-top:6px;font-weight:850;color:var(--txt)">${escapeHtml(today.topArtist.name)}${escapeHtml(n)}</div></div>`);
+      }
+      if(today && today.mostRepeated){
+        const n = today.mostRepeated.count != null ? ` (${today.mostRepeated.count})` : "";
+        const txt = `${escapeHtml(today.mostRepeated.artist)} — ${escapeHtml(today.mostRepeated.name)}${escapeHtml(n)}`;
+        parts.push(`<div style="margin-top:12px"><span class="subtle">Most repeated</span><div style="margin-top:6px;font-weight:850;color:var(--txt)">${txt}</div></div>`);
+      }
+      if(today && Array.isArray(today.arc) && today.arc.length){
+        const arc = today.arc.map(x => `${escapeHtml(x.artist)} — ${escapeHtml(x.name)}`).join(" → ");
+        parts.push(`<div style="margin-top:12px"><span class="subtle">Arc</span><div style="margin-top:6px;font-weight:850;color:var(--txt)">${arc}</div></div>`);
+      }
+      return parts.length ? parts.join("") : `<div>No highlights yet.</div>`;
+    }
+
+    function renderReflection(ref){
+      const wrap = $("reflectionWrap");
+      const badge = $("reflectionBadge");
+      const err = $("reflectionErr");
+      if(err) err.style.display = "none";
+      if(!wrap) return;
+
+      if(!ref || ref.ok === false){
+        wrap.innerHTML = "";
+        if(err){
+          err.style.display = "block";
+          err.textContent = (ref && ref.error) ? String(ref.error) : "Could not load reflection.";
+        }
+        return;
+      }
+
+      const data = ref.data || {};
+      const summary = escapeHtml(data.summary || "—");
+      const mood = escapeHtml(data.mood || "");
+      const note = escapeHtml(data.note || "");
+      const themes = Array.isArray(data.themes) ? data.themes : [];
+      const standouts = Array.isArray(data.standouts) ? data.standouts : [];
+
+      if(badge){
+        badge.textContent = ref.cache || "fresh";
+      }
+
+      const themesHtml = themes.length
+        ? `<div class="chipsRow">${themes.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join("")}</div>`
+        : ``;
+
+      const standoutsHtml = standouts.length
+        ? `
+          <details open style="margin-top:12px">
+            <summary>
+              <div class="sumTitle">Standouts</div>
+              <div class="chev">⌄</div>
+            </summary>
+            <div class="detailBody">
+              <div class="list">
+                ${standouts.map(s => `<div class="item" style="padding:12px"><div class="t"><p class="line1" style="margin:0">${escapeHtml(s)}</p></div></div>`).join("")}
+              </div>
+            </div>
+          </details>
+        `
+        : ``;
+
+      const moodHtml = mood ? `<div class="chipsRow"><span class="tag">Mood: ${mood}</span></div>` : ``;
+      const noteHtml = note ? `
+        <details style="margin-top:12px">
+          <summary>
+            <div class="sumTitle">Note</div>
+            <div class="chev">⌄</div>
+          </summary>
+          <div class="detailBody">${note}</div>
+        </details>
+      ` : ``;
+
+      wrap.innerHTML = `
+        <details open>
+          <summary>
+            <div class="sumTitle">Summary</div>
+            <div class="chev">⌄</div>
+          </summary>
+          <div class="detailBody">${summary}</div>
+        </details>
+        ${moodHtml}
+        ${themesHtml}
+        ${standoutsHtml}
+        ${noteHtml}
+      `;
+    }
+
+    function getUserFromUrlOrStorage(){
+      const url = new URL(location.href);
+      const qp = url.searchParams.get("user");
+      if(qp && qp.trim()) return qp.trim();
+      const ls = localStorage.getItem(LS_USER_KEY);
+      if(ls && ls.trim()) return ls.trim();
+      return "";
+    }
+
+    function setUser(user){
+      const u = (user || "").trim();
+      if(!u) return;
+      localStorage.setItem(LS_USER_KEY, u);
+      const url = new URL(location.href);
+      url.searchParams.set("user", u);
+      history.replaceState({}, "", url.toString());
+    }
+
+    async function fetchJson(url){
+      const r = await fetch(url, { cache:"no-store" });
+      const t = await r.text();
+      try{
+        return JSON.parse(t);
+      }catch{
+        return { ok:false, error:"Invalid JSON response" };
+      }
+    }
+
+    let lastData = null;
+
+    async function loadAll(){
+      const user = getUserFromUrlOrStorage();
+
+      const chipUser = $("chipUser");
+      const chipTz = $("chipTz");
+      const chipAi = $("chipAi");
+      const aiDot = $("aiDot");
+      const aiTxt = $("aiTxt");
+
+      if(chipUser) chipUser.innerHTML = `<span>connected to last.fm user: <strong>${escapeHtml(user || "—")}</strong></span>`;
+      if(aiTxt) aiTxt.textContent = "loading";
+      if(aiDot) aiDot.className = "dot warn";
+
+      const dataUrl = `${API_BASE}/api/data${user ? `?user=${encodeURIComponent(user)}` : ""}`;
+      const data = await fetchJson(dataUrl);
+      lastData = data;
+
+      const missingUser = !user && data && data.ok === false && String(data.error || "").toLowerCase().includes("missing last.fm user");
+      $("userPrompt").style.display = missingUser ? "block" : "none";
+
+      if(data && data.ok){
+        if(chipUser) chipUser.innerHTML = `<span>connected to last.fm user: <strong>${escapeHtml(data.user || user || "—")}</strong></span>`;
+        if(chipTz) chipTz.innerHTML = `<span>tz: <strong>${escapeHtml(data.tz || "—")}</strong></span>`;
+
+        const cover = data.nowPlaying && data.nowPlaying.image ? data.nowPlaying.image : "";
+        if(cover) setCoverBg(cover);
+
+        $("updatedAt").textContent = data.updatedAt ? escapeHtml(data.updatedAt) : "—";
+        $("statusTxt").textContent = "OK";
+        $("kpiToday").textContent = (data.today && typeof data.today.count === "number") ? String(data.today.count) : "—";
+        $("kpiRecent").textContent = (typeof data.loadedRecent === "number") ? String(data.loadedRecent) : "—";
+
+        const npHtml = renderNowPlaying(data.nowPlaying);
+        $("nowWrap").innerHTML = npHtml;
+
+        $("todayHighlightsBody").innerHTML = renderHighlights(data.today);
+
+        $("todayKeyTxt").textContent = data.today && data.today.key ? escapeHtml(data.today.key) : "—";
+        $("todayKeyTxt").textContent = (data.today && data.today.key) ? `key: ${escapeHtml(data.today.key)}` : "—";
+        $("todayCountBig").textContent = (data.today && typeof data.today.count === "number") ? String(data.today.count) : "—";
+        $("todayTopArtist").textContent = (data.today && data.today.topArtist && data.today.topArtist.name) ? escapeHtml(data.today.topArtist.name) : "—";
+
+        if(data.today && data.today.mostRepeated){
+          const mr = data.today.mostRepeated;
+          const n = mr.count != null ? ` (${mr.count})` : "";
+          $("todayMostRepeated").innerHTML = `${escapeHtml(mr.artist)} — ${escapeHtml(mr.name)}${escapeHtml(n)}`;
+        }else{
+          $("todayMostRepeated").textContent = "—";
+        }
+
+        if(data.today && Array.isArray(data.today.arc) && data.today.arc.length){
+          const arc = data.today.arc.map(x => `${escapeHtml(x.artist)} — ${escapeHtml(x.name)}`).join(" → ");
+          $("todayArc").innerHTML = arc;
+        }else{
+          $("todayArc").textContent = "—";
+        }
+
+        $("coverFocus").innerHTML = renderCoverFocus(data.nowPlaying);
+
+        $("recentCountTxt").textContent = Array.isArray(data.recent) ? `showing ${data.recent.length}` : "—";
+        renderRecent(Array.isArray(data.recent) ? data.recent : []);
+
+        if(aiTxt) aiTxt.textContent = data.ai || "ready";
+        if(aiDot) aiDot.className = "dot ok";
+      }else{
+        $("statusTxt").textContent = "error";
+        if(aiTxt) aiTxt.textContent = "error";
+        if(aiDot) aiDot.className = "dot bad";
+        $("nowWrap").innerHTML = `<div class="err">${escapeHtml(data && data.error ? data.error : "Could not load data.")}</div>`;
+      }
+
+      const refUrl = `${API_BASE}/api/reflection${user ? `?user=${encodeURIComponent(user)}` : ""}`;
+      const ref = await fetchJson(refUrl);
+      renderReflection(ref);
+    }
+
+    $("userSave").addEventListener("click", () => {
+      const v = $("userInput").value || "";
+      setUser(v);
+      loadAll();
+    });
+
+    (async () => {
+      await loadAll();
+      setInterval(loadAll, 60000);
+    })();
+  </script>
+</body>
+</html>

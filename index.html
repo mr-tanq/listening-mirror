@@ -32,53 +32,29 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
       font-size:12px;
     }
-    .row{
-      display:flex;
-      gap:14px;
-      align-items:center;
-    }
+    .row{ display:flex; gap:14px; align-items:center; }
     .cover{
-      width:110px;
-      height:110px;
-      border-radius:12px;
-      border:1px solid #2a2a2a;
-      object-fit:cover;
-      background:#0d0d0d;
-      flex:0 0 auto;
+      width:110px; height:110px; border-radius:12px;
+      border:1px solid #2a2a2a; object-fit:cover;
+      background:#0d0d0d; flex:0 0 auto;
     }
-    .meta{
-      min-width:0;
-    }
+    .meta{ min-width:0; }
     .title{
-      font-size:16px;
-      font-weight:650;
-      margin:0 0 6px;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
+      font-size:16px; font-weight:650; margin:0 0 6px;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     }
     .sub{
-      margin:0;
-      opacity:.75;
-      font-size:13px;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
+      margin:0; opacity:.75; font-size:13px;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     }
     .pill{
-      display:inline-block;
-      padding:6px 10px;
-      border:1px solid #2a2a2a;
-      border-radius:999px;
-      font-size:12px;
-      margin-top:10px;
-      opacity:.9;
+      display:inline-block; padding:6px 10px;
+      border:1px solid #2a2a2a; border-radius:999px;
+      font-size:12px; margin-top:10px; opacity:.9;
     }
   </style>
 </head>
-
 <body>
-
   <h1>Listening Mirror</h1>
   <div class="small">connected to last.fm user: <b>errz</b></div>
 
@@ -91,7 +67,6 @@
     <h2>Now Playing</h2>
     <div id="now" class="muted">loading…</div>
   </div>
-
   <div class="card">
     <h2>Today's Reflection</h2>
     <div id="reflection" class="muted">analyzing…</div>
@@ -106,10 +81,11 @@
     <h2>Top artists (7 days)</h2>
     <div id="artists" class="muted">loading…</div>
   </div>
-  <script>
+
+<script>
   // ====== CONFIG ======
-  const WORKER_BASE = "https://i.errtanq9.workers.dev"; // <-- αυτό είναι το Worker σου
-  const CACHE_MS = 15_000;
+  const WORKER_BASE = "https://i.errtanq9.workers.dev";   // Cloudflare Worker base
+  const CACHE_MS = 15_000;                                 // refresh window
 
   // ====== HELPERS ======
   function escapeHtml(s){
@@ -134,9 +110,7 @@
     return [...map.entries()].sort((a,b)=>b[1]-a[1]);
   }
 
-  function setStatus(msg){
-    document.getElementById("status").innerText = msg;
-  }
+  function setStatus(msg){ document.getElementById("status").innerText = msg; }
 
   function showError(where, msg){
     document.getElementById(where).innerHTML = `<div class="error">${escapeHtml(msg)}</div>`;
@@ -150,7 +124,6 @@
     }
     return res.json();
   }
-
   // ====== RENDER ======
   function renderNowPlaying(now){
     if(!now || (!now.name && !now.artist)){
@@ -227,8 +200,7 @@
     document.getElementById("reflection").innerHTML =
       `${escapeHtml(text)}<div class="muted" style="margin-top:10px;">${escapeHtml(stats)}</div>`;
   }
-
-  // ====== INIT (cache + refresh loop) ======
+ // ====== INIT ======
   let lastLoad = 0;
 
   async function loadOnce(){
@@ -250,7 +222,6 @@
 
     renderToday(today);
     generateReflection(today);
-
     renderTopArtists(top?.artists || []);
 
     setStatus(`OK • loaded ${scrobbled.length} recent scrobbles • today: ${today.length}`);
@@ -262,10 +233,8 @@
       await loadOnce();
       setInterval(async () => {
         try{
-          if(Date.now() - lastLoad >= CACHE_MS){
-            await loadOnce();
-          }
-        }catch(e){
+          if(Date.now() - lastLoad >= CACHE_MS) await loadOnce();
+        } catch(e){
           setStatus("Error (auto-refresh)");
         }
       }, 5000);
@@ -279,6 +248,7 @@
   }
 
   init();
-      </script>
-      </body>
-</html>
+</script>
+
+</body>
+</html> 

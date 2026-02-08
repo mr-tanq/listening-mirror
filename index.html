@@ -1,8 +1,9 @@
+<!-- PART 1/3 -->
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Listening Mirror</title>
 
   <style>
@@ -32,9 +33,14 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
       font-size:12px;
     }
-    .row{ display:flex; gap:14px; align-items:center; }
+    .row{
+      display:flex;
+      gap:14px;
+      align-items:center;
+    }
     .cover{
-      width:110px; height:110px;
+      width:110px;
+      height:110px;
       border-radius:12px;
       border:1px solid #2a2a2a;
       object-fit:cover;
@@ -43,13 +49,20 @@
     }
     .meta{ min-width:0; }
     .title{
-      font-size:16px; font-weight:650;
+      font-size:16px;
+      font-weight:650;
       margin:0 0 6px;
-      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
     }
     .sub{
-      margin:0; opacity:.75; font-size:13px;
-      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+      margin:0;
+      opacity:.75;
+      font-size:13px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
     }
     .pill{
       display:inline-block;
@@ -60,7 +73,11 @@
       margin-top:10px;
       opacity:.9;
     }
-    .hint{ margin-top:10px; opacity:.65; font-size:12px; }
+    .hint{
+      margin-top:10px;
+      opacity:.65;
+      font-size:12px;
+    }
     a{ color:#cfcfcf; }
   </style>
 </head>
@@ -96,14 +113,16 @@
     <h2>Top artists (7 days)</h2>
     <div id="artists" class="muted">loading…</div>
   </div>
+<!-- PART 2/3 -->
 <script>
   // ====== CONFIG ======
+  // ΒΑΛΕ ΕΔΩ ΤΟ worker URL:
   const WORKER_BASE = "https://i.errtanq9.workers.dev";
-  const REFRESH_MS = 15_000; // κάθε 15s ξανατραβάει
+  const REFRESH_MS = 15000; // κάθε 15s
 
-  // link στο UI
-  document.getElementById("workerLink").href = WORKER_BASE;
-  document.getElementById("workerLink").innerText = WORKER_BASE;
+  const workerA = document.getElementById("workerLink");
+  workerA.href = WORKER_BASE;
+  workerA.innerText = WORKER_BASE;
 
   // ====== HELPERS ======
   function escapeHtml(s){
@@ -117,9 +136,8 @@
   }
 
   function showError(where, msg){
-    const el = document.getElementById(where);
-    if(!el) return;
-    el.innerHTML = `<div class="error">${escapeHtml(msg)}</div>`;
+    document.getElementById(where).innerHTML =
+      `<div class="error">${escapeHtml(msg)}</div>`;
   }
 
   function localDateKey(d){
@@ -168,8 +186,10 @@
   async function api(path){
     return fetchJson(`${WORKER_BASE}${path}`);
   }
-// ====== NORMALIZERS (πιάνει πολλές μορφές JSON) ======
+
+  // ====== NORMALIZERS (πιάνει πολλές μορφές JSON) ======
   function normalizeNow(raw){
+    // Ideal: {artist,name,album,image,nowPlaying}
     if(raw && (raw.artist || raw.name)){
       return {
         artist: raw.artist ?? "",
@@ -180,6 +200,7 @@
       };
     }
 
+    // Last.fm raw style: {recenttracks:{track:[...]}}
     const t = raw?.recenttracks?.track?.[0];
     if(t){
       const img = (t.image || []).find(x => x.size === "extralarge")?.["#text"]
@@ -199,6 +220,7 @@
   }
 
   function normalizeRecent(raw){
+    // Ideal: {recent:[{artist,name,album,uts}]}
     if(Array.isArray(raw?.recent)){
       return raw.recent.map(x => ({
         artist: x.artist ?? "",
@@ -208,12 +230,14 @@
       }));
     }
 
+    // Last.fm raw style: {recenttracks:{track:[...]}}
     const list = raw?.recenttracks?.track;
     if(Array.isArray(list)){
       return list.map(t => ({
         artist: t?.artist?.["#text"] || "",
         name: t?.name || "",
         album: t?.album?.["#text"] || "",
+        // Last.fm: date.uts (seconds) -> ms
         uts: t?.date?.uts ? Number(t.date.uts) * 1000 : null
       }));
     }
@@ -222,6 +246,7 @@
   }
 
   function normalizeTop(raw){
+    // Ideal: {artists:[{name,playcount}]}
     if(Array.isArray(raw?.artists)){
       return raw.artists.map(a => ({
         name: a?.name ?? "",
@@ -229,6 +254,7 @@
       }));
     }
 
+    // Last.fm raw style: {topartists:{artist:[...]}}
     const list = raw?.topartists?.artist;
     if(Array.isArray(list)){
       return list.map(a => ({
@@ -239,11 +265,12 @@
 
     return [];
   }
-
+<!-- PART 3/3 -->
   // ====== RENDER ======
   function renderNowPlaying(now){
     if(!now || (!now.name && !now.artist)){
-      document.getElementById("now").innerHTML = `<div class="muted">Nothing playing right now.</div>`;
+      document.getElementById("now").innerHTML =
+        `<div class="muted">Nothing playing right now.</div>`;
       return;
     }
 
@@ -266,12 +293,14 @@
 
   function renderToday(today){
     if(!today || today.length === 0){
-      document.getElementById("today").innerHTML = `<div class="muted">No scrobbles found for today yet.</div>`;
+      document.getElementById("today").innerHTML =
+        `<div class="muted">No scrobbles found for today yet.</div>`;
       return;
     }
-    document.getElementById("today").innerHTML = today.map(t =>
+    const html = today.map(t => (
       `<div class="track">${escapeHtml(t.artist)} — ${escapeHtml(t.name)}</div>`
-    ).join("");
+    )).join("");
+    document.getElementById("today").innerHTML = html;
   }
 
   function renderTopArtists(artists){
@@ -279,11 +308,13 @@
       document.getElementById("artists").innerHTML = `<div class="muted">No data.</div>`;
       return;
     }
-    document.getElementById("artists").innerHTML = artists.map(a =>
+    const html = artists.map(a => (
       `<div class="track">${escapeHtml(a.name)} <span class="muted">(${Number(a.playcount||0)})</span></div>`
-    ).join("");
+    )).join("");
+    document.getElementById("artists").innerHTML = html;
   }
-function generateReflection(today){
+
+  function generateReflection(today){
     if(!today || today.length === 0){
       document.getElementById("reflection").innerText =
         "No scrobbles today yet. Once you listen, I’ll summarize the pattern.";
@@ -307,6 +338,7 @@ function generateReflection(today){
     }
 
     text += ` Dominant presence: ${topArtist}.`;
+
     const stats = `Scrobbles today: ${today.length} • Artists: ${variety} • Repeated tracks: ${repeats}`;
 
     document.getElementById("reflection").innerHTML =

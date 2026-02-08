@@ -1,111 +1,401 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Listening Mirror</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Listening Mirror</title>
 
-<style>
-:root{color-scheme:dark}
-body{
-background:#0b0b0b;
-color:#eaeaea;
-font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-margin:0;
-padding:20px;
-}
-h1{margin:0 0 6px;font-size:34px}
-.small{opacity:.7;font-size:13px;margin-bottom:14px}
-.card{
-background:#141414;
-border-radius:16px;
-padding:16px;
-margin-bottom:16px;
-border:1px solid #2a2a2a;
-}
-h2{margin:0 0 10px;font-size:20px}
-.muted{opacity:.72;font-size:13px}
-.track{margin:6px 0;line-height:1.25}
-.row{display:flex;gap:14px;align-items:center}
-.cover{
-width:110px;height:110px;border-radius:12px;
-border:1px solid #2a2a2a;object-fit:cover;background:#0d0d0d;
-}
-.title{font-size:16px;font-weight:650;margin:0 0 6px}
-.sub{margin:0;opacity:.75;font-size:13px}
-.pill{display:inline-block;padding:6px 10px;border:1px solid #2a2a2a;border-radius:999px;font-size:12px;margin-top:10px}
-.error{color:#ffb4b4;font-size:12px}
-</style>
+  <style>
+    :root { color-scheme: dark; }
+    body{
+      background:#0b0b0b;
+      color:#eaeaea;
+      font-family:system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      margin:0;
+      padding:20px;
+    }
+    h1{ margin:0 0 6px; font-size:34px; }
+    .small{ opacity:.7; font-size:13px; margin-bottom:14px; }
+    .card{
+      background:#141414;
+      border-radius:16px;
+      padding:16px;
+      margin-bottom:16px;
+      border:1px solid #2a2a2a;
+    }
+    h2{ margin:0 0 10px; font-size:20px; }
+    .muted{ opacity:.72; font-size:13px; }
+    .track{ margin:6px 0; line-height:1.25; }
+    .error{
+      color:#ffb4b4;
+      white-space:pre-wrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size:12px;
+    }
+    .row{
+      display:flex;
+      gap:14px;
+      align-items:center;
+    }
+    .cover{
+      width:110px;
+      height:110px;
+      border-radius:12px;
+      border:1px solid #2a2a2a;
+      object-fit:cover;
+      background:#0d0d0d;
+      flex:0 0 auto;
+    }
+    .meta{ min-width:0; }
+    .title{
+      font-size:16px;
+      font-weight:650;
+      margin:0 0 6px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .sub{
+      margin:0;
+      opacity:.75;
+      font-size:13px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .pill{
+      display:inline-block;
+      padding:6px 10px;
+      border:1px solid #2a2a2a;
+      border-radius:999px;
+      font-size:12px;
+      margin-top:10px;
+      opacity:.9;
+    }
+    .hint{
+      margin-top:10px;
+      opacity:.65;
+      font-size:12px;
+    }
+    a{ color:#cfcfcf; }
+  </style>
 </head>
 
 <body>
 
-<h1>Listening Mirror</h1>
-<div class="small">connected to last.fm user: <b>errz</b></div>
+  <h1>Listening Mirror</h1>
+  <div class="small">connected to last.fm user: <b>errz</b></div>
 
-<div class="card"><h2>Status</h2><div id="status" class="muted">loading…</div></div>
-<div class="card"><h2>Now Playing</h2><div id="now"></div></div>
-<div class="card"><h2>Today's Reflection</h2><div id="reflection"></div></div>
-<div class="card"><h2>Today</h2><div id="today"></div></div>
-<div class="card"><h2>Top artists (7 days)</h2><div id="artists"></div></div>
+  <div class="card">
+    <h2>Status</h2>
+    <div id="status" class="muted">loading…</div>
+    <div class="hint">
+      Worker: <a id="workerLink" href="#" target="_blank" rel="noopener">open</a>
+    </div>
+  </div>
 
+  <div class="card">
+    <h2>Now Playing</h2>
+    <div id="now" class="muted">loading…</div>
+  </div>
 <script>
+  // ====== CONFIG ======
+  // ΒΑΛΕ ΕΔΩ ΤΟ ΝΕΟ worker URL αν άλλαξες worker:
+  const WORKER_BASE = "https://i.errtanq9.workers.dev";
+  const REFRESH_MS = 15_000; // κάθε 15s ξανατραβάει
 
-const API="https://i.errtanq9.workers.dev";
+  document.getElementById("workerLink").href = WORKER_BASE;
+  document.getElementById("workerLink").innerText = WORKER_BASE;
 
-function set(id,html){document.getElementById(id).innerHTML=html}
+  // ====== HELPERS ======
+  function escapeHtml(s){
+    return String(s ?? "").replace(/[&<>"']/g, c => ({
+      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+    }[c]));
+  }
 
-async function load(){
+  function setStatus(msg){
+    document.getElementById("status").innerText = msg;
+  }
 
-try{
+  function showError(where, msg){
+    document.getElementById(where).innerHTML =
+      `<div class="error">${escapeHtml(msg)}</div>`;
+  }
 
-document.getElementById("status").innerText="syncing…"
+  function localDateKey(d){
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,"0");
+    const day = String(d.getDate()).padStart(2,"0");
+    return `${y}-${m}-${day}`;
+  }
 
-const now=await fetch(API+"/now").then(r=>r.json())
-const recent=await fetch(API+"/recent").then(r=>r.json())
-const top=await fetch(API+"/top").then(r=>r.json())
+  function countBy(arr, keyFn){
+    const map = new Map();
+    for(const x of arr){
+      const k = keyFn(x);
+      map.set(k, (map.get(k)||0)+1);
+    }
+    return [...map.entries()].sort((a,b)=>b[1]-a[1]);
+  }
 
-/* NOW PLAYING */
+  async function fetchJson(url, timeoutMs=9000){
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
 
-if(now && now.artist){
-set("now",`
-<div class="row">
-<img class="cover" src="${now.image||""}">
-<div>
-<div class="title">${now.artist} — ${now.name}</div>
-<div class="sub">${now.album||""}</div>
-<span class="pill">${now.nowPlaying?"LIVE now playing":"last played"}</span>
-</div>
-</div>`)
-}else set("now","<div class='muted'>Nothing playing right now</div>")
+    try{
+      const res = await fetch(url, {
+        method: "GET",
+        mode: "cors",
+        cache: "no-store",
+        signal: ctrl.signal
+      });
 
-/* TODAY */
+      const text = await res.text().catch(()=> "");
+      if(!res.ok){
+        throw new Error(`HTTP ${res.status} from Worker. ${text || ""}`.trim());
+      }
 
-const today=(recent.recent||[])
-set("today",today.map(t=>`<div class="track">${t.artist} — ${t.name}</div>`).join("")||"<div class='muted'>No scrobbles yet</div>")
+      try{
+        return JSON.parse(text || "{}");
+      }catch{
+        throw new Error(`Worker returned non-JSON: ${text.slice(0,200)}`);
+      }
+    } finally {
+      clearTimeout(t);
+    }
+  }
 
-/* REFLECTION */
+  async function api(path){
+    return fetchJson(`${WORKER_BASE}${path}`);
+  }
 
-const artists=[...new Set(today.map(t=>t.artist))]
-set("reflection",`You listened to <b>${artists.length}</b> artists today across <b>${today.length}</b> plays.`)
+  // ====== NORMALIZERS (πιάνει πολλές μορφές JSON) ======
+  function normalizeNow(raw){
+    // Ideal: {artist,name,album,image,nowPlaying}
+    if(raw && (raw.artist || raw.name)){
+      return {
+        artist: raw.artist ?? "",
+        name: raw.name ?? "",
+        album: raw.album ?? "",
+        image: raw.image ?? "",
+        nowPlaying: Boolean(raw.nowPlaying)
+      };
+    }
 
-/* TOP */
+    // Last.fm raw style: {recenttracks:{track:[...]}}
+    const t = raw?.recenttracks?.track?.[0];
+    if(t){
+      const img = (t.image || []).find(x => x.size === "extralarge")?.["#text"]
+               || (t.image || []).find(x => x.size === "large")?.["#text"]
+               || (t.image || []).find(x => x.size === "medium")?.["#text"]
+               || "";
+      return {
+        artist: t?.artist?.["#text"] || "",
+        name: t?.name || "",
+        album: t?.album?.["#text"] || "",
+        image: img,
+        nowPlaying: t?.["@attr"]?.nowplaying === "true"
+      };
+    }
 
-const topArtists=top.artists||[]
-set("artists",topArtists.map(a=>`<div class="track">${a.name} (${a.playcount})</div>`).join(""))
+    return { artist:"", name:"", album:"", image:"", nowPlaying:false };
+  }
 
-document.getElementById("status").innerText="OK"
+  <div class="card">
+    <h2>Today's Reflection</h2>
+    <div id="reflection" class="muted">analyzing…</div>
+  </div>
 
-}catch(e){
-document.getElementById("status").innerText="error"
-console.log(e)
-}
+  <div class="card">
+    <h2>Today</h2>
+    <div id="today" class="muted">loading…</div>
+  </div>
 
-}
+  <div class="card">
+    <h2>Top artists (7 days)</h2>
+    <div id="artists" class="muted">loading…</div>
+  </div>
+function normalizeRecent(raw){
+    // Ideal: {recent:[{artist,name,album,uts}]}
+    if(Array.isArray(raw?.recent)){
+      return raw.recent.map(x => ({
+        artist: x.artist ?? "",
+        name: x.name ?? "",
+        album: x.album ?? "",
+        uts: x.uts == null ? null : Number(x.uts)
+      }));
+    }
 
-load()
-setInterval(load,15000)
+    // Last.fm raw style: {recenttracks:{track:[...]}}
+    const list = raw?.recenttracks?.track;
+    if(Array.isArray(list)){
+      return list.map(t => ({
+        artist: t?.artist?.["#text"] || "",
+        name: t?.name || "",
+        album: t?.album?.["#text"] || "",
+        // Last.fm: date.uts (seconds) -> ms
+        uts: t?.date?.uts ? Number(t.date.uts) * 1000 : null
+      }));
+    }
 
+    return [];
+  }
+
+  function normalizeTop(raw){
+    // Ideal: {artists:[{name,playcount}]}
+    if(Array.isArray(raw?.artists)){
+      return raw.artists.map(a => ({
+        name: a?.name ?? "",
+        playcount: Number(a?.playcount ?? 0)
+      }));
+    }
+
+    // Last.fm raw style: {topartists:{artist:[...]}}
+    const list = raw?.topartists?.artist;
+    if(Array.isArray(list)){
+      return list.map(a => ({
+        name: a?.name || "",
+        playcount: Number(a?.playcount || 0)
+      }));
+    }
+
+    return [];
+  }
+
+  // ====== RENDER ======
+  function renderNowPlaying(now){
+    if(!now || (!now.name && !now.artist)){
+      document.getElementById("now").innerHTML =
+        `<div class="muted">Nothing playing right now.</div>`;
+      return;
+    }
+
+    const cover = now.image || "";
+    const artist = now.artist || "—";
+    const title  = now.name || "—";
+    const album  = now.album || "";
+
+    document.getElementById("now").innerHTML = `
+      <div class="row">
+        <img class="cover" src="${escapeHtml(cover)}" alt="" onerror="this.style.display='none'">
+        <div class="meta">
+          <div class="title">${escapeHtml(artist)} — ${escapeHtml(title)}</div>
+          <p class="sub">${escapeHtml(album)}</p>
+          <span class="pill">${now.nowPlaying ? "LIVE now playing" : "last played"}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderToday(today){
+    if(!today || today.length === 0){
+      document.getElementById("today").innerHTML =
+        `<div class="muted">No scrobbles found for today yet.</div>`;
+      return;
+    }
+    const html = today.map(t => (
+      `<div class="track">${escapeHtml(t.artist)} — ${escapeHtml(t.name)}</div>`
+    )).join("");
+    document.getElementById("today").innerHTML = html;
+  }
+
+  function renderTopArtists(artists){
+    if(!artists || !artists.length){
+      document.getElementById("artists").innerHTML = `<div class="muted">No data.</div>`;
+      return;
+    }
+    const html = artists.map(a => (
+      `<div class="track">${escapeHtml(a.name)} <span class="muted">(${Number(a.playcount||0)})</span></div>`
+    )).join("");
+    document.getElementById("artists").innerHTML = html;
+  }
+
+  function generateReflection(today){
+    if(!today || today.length === 0){
+      document.getElementById("reflection").innerText =
+        "No scrobbles today yet. Once you listen, I’ll summarize the pattern.";
+      return;
+    }
+
+    const byArtist = countBy(today, t => t.artist);
+    const byTrack  = countBy(today, t => `${t.artist} — ${t.name}`);
+
+    const topArtist = byArtist[0]?.[0] || "—";
+    const variety = byArtist.length;
+    const repeats = byTrack.filter(([,c]) => c >= 2).length;
+
+    let text = "";
+    if (variety <= 5 && repeats >= 1){
+      text = "Comfort-loop day: low variety + repeats. You leaned on familiar anchors to stabilize mood/energy.";
+    } else if (variety <= 10){
+      text = "Balanced day: you stayed within a recognizable palette, with some exploration inside it.";
+    } else {
+      text = "Exploratory day: high variety suggests searching for new emotional input rather than staying in comfort.";
+    }
+
+    text += ` Dominant presence: ${topArtist}.`;
+
+    const stats = `Scrobbles today: ${today.length} • Artists: ${variety} • Repeated tracks: ${repeats}`;
+
+    document.getElementById("reflection").innerHTML =
+      `${escapeHtml(text)}<div class="muted" style="margin-top:10px;">${escapeHtml(stats)}</div>`;
+  }
+// ====== LOAD ======
+  async function loadOnce(){
+    setStatus("Fetching from Worker…");
+
+    // Πάμε να πάρουμε όλα μαζί
+    const [nowRaw, recentRaw, topRaw] = await Promise.all([
+      api("/now"),
+      api("/recent?limit=200"),
+      api("/top?period=7day&limit=10")
+    ]);
+
+    const now = normalizeNow(nowRaw);
+    const recent = normalizeRecent(recentRaw);
+    const top = normalizeTop(topRaw);
+
+    renderNowPlaying(now);
+
+    const scrobbled = recent.filter(t => t.uts);
+    const todayKey = localDateKey(new Date());
+    const today = scrobbled
+      .filter(t => localDateKey(new Date(t.uts)) === todayKey)
+      .sort((a,b) => a.uts - b.uts);
+
+    renderToday(today);
+    generateReflection(today);
+    renderTopArtists(top);
+
+    setStatus(`OK • recent: ${scrobbled.length} • today: ${today.length} • top artists: ${top.length}`);
+  }
+
+  async function init(){
+    try{
+      await loadOnce();
+    }catch(e){
+      setStatus("Error");
+      const msg = e?.message || String(e);
+      showError("now", msg);
+      showError("reflection", msg);
+      showError("today", msg);
+      showError("artists", msg);
+      return;
+    }
+
+    setInterval(async () => {
+      try{
+        await loadOnce();
+      }catch(e){
+        // μη σβήνεις το UI, απλά γράψε status
+        setStatus(`Error (refresh): ${e?.message || e}`);
+      }
+    }, REFRESH_MS);
+  }
+
+  init();
 </script>
+
 </body>
 </html>

@@ -7,31 +7,45 @@
   <style>
     :root{color-scheme:dark}
     body{background:#0b0b0b;color:#eaeaea;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;padding:22px}
-    h1{margin:0 0 6px;font-size:38px;letter-spacing:.2px}
-    .small{opacity:.7;font-size:13px;margin-bottom:10px}
-    .toprow{display:flex;align-items:center;gap:10px;margin:10px 0 14px}
-    .dot{width:12px;height:12px;border-radius:999px;background:#ff4b4b;display:inline-block}
-    .tabs{display:flex;gap:10px;margin-left:2px}
-    .tabbtn{border:1px solid #2a2a2a;background:#141414;color:#eaeaea;padding:10px 16px;border-radius:999px;font-size:14px;opacity:.85}
-    .tabbtn.active{opacity:1;background:#1a1a1a}
-    .card{background:#141414;border-radius:18px;padding:18px;margin:16px 0;border:1px solid #2a2a2a}
+    h1{margin:0 0 10px;font-size:38px;letter-spacing:.2px}
+    .toprow{display:flex;align-items:center;gap:12px;margin:6px 0 18px}
+    .dot{width:12px;height:12px;border-radius:999px;background:#ff4b4b;display:inline-block;flex:0 0 auto}
+    .tabs{display:flex;gap:10px}
+    .tabbtn{border:1px solid #2a2a2a;background:linear-gradient(180deg,#161616,#101010);color:#eaeaea;padding:10px 16px;border-radius:999px;font-size:14px;opacity:.85;box-shadow:0 10px 30px rgba(0,0,0,.25) inset}
+    .tabbtn.active{opacity:1;background:linear-gradient(180deg,#1c1c1c,#121212)}
+    .card{background:radial-gradient(1200px 220px at 10% 0%,rgba(255,255,255,.05),transparent 60%),linear-gradient(180deg,#141414,#0f0f0f);border-radius:22px;padding:18px;margin:16px 0;border:1px solid #2a2a2a;box-shadow:0 12px 40px rgba(0,0,0,.35)}
     h2{margin:0 0 12px;font-size:22px}
     .muted{opacity:.72;font-size:13px}
     .error{color:#ffb4b4;white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;font-size:12px}
     .row{display:flex;gap:14px;align-items:center}
-    .cover{width:110px;height:110px;border-radius:12px;border:1px solid #2a2a2a;object-fit:cover;background:#0d0d0d;flex:0 0 auto}
+    .cover{width:110px;height:110px;border-radius:14px;border:1px solid #2a2a2a;object-fit:cover;background:#0d0d0d;flex:0 0 auto}
     .meta{min-width:0}
-    .title{font-size:16px;font-weight:650;margin:0 0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .title{font-size:16px;font-weight:700;margin:0 0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .sub{margin:0;opacity:.75;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .pill{display:inline-block;padding:6px 10px;border:1px solid #2a2a2a;border-radius:999px;font-size:12px;margin-top:10px;opacity:.9}
-    .track{margin:8px 0;line-height:1.25}
     .cols{display:grid;grid-template-columns:1fr;gap:16px}
     @media (min-width: 820px){.cols{grid-template-columns:1fr 1fr}}
+
+    .list{display:flex;flex-direction:column;gap:10px}
+    .item{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:16px;border:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.03)}
+    .item:hover{background:rgba(255,255,255,.045)}
+    .mini{width:42px;height:42px;border-radius:10px;border:1px solid rgba(255,255,255,.10);object-fit:cover;background:#0d0d0d;flex:0 0 auto}
+    .time{opacity:.75;font-size:12px;min-width:48px;text-align:right;font-variant-numeric:tabular-nums}
+    .txt{min-width:0;flex:1}
+    .line{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px}
+    .subline{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.70;font-size:12px;margin-top:2px}
+    .count{opacity:.7;font-size:12px;font-variant-numeric:tabular-nums}
+
+    .eq{width:18px;height:14px;display:inline-flex;gap:2px;align-items:flex-end;opacity:.9}
+    .eq i{width:3px;height:6px;background:rgba(234,234,234,.9);border-radius:2px;animation:eq 900ms ease-in-out infinite}
+    .eq i:nth-child(2){animation-delay:120ms;height:9px}
+    .eq i:nth-child(3){animation-delay:240ms;height:7px}
+    .eq i:nth-child(4){animation-delay:360ms;height:10px}
+    @keyframes eq{0%,100%{transform:scaleY(.55);opacity:.75}50%{transform:scaleY(1.2);opacity:1}}
   </style>
 </head>
 <body>
   <h1>Listening Mirror</h1>
-  <div class="small">connected to last.fm user: <b id="lfUser">errz</b></div>
 
   <div class="toprow">
     <span id="statusDot" class="dot" aria-label="status"></span>
@@ -73,6 +87,7 @@
     const WORKER_BASE = "https://i.errtanq9.workers.dev";
     const REFRESH_MS = 15000;
     const WEEK_REFRESH_MS = 300000;
+    const TODAY_LIMIT = 10;
 
     function escapeHtml(s){
       return String(s ?? "").replace(/[&<>"']/g, c => ({
@@ -106,6 +121,20 @@
       return `${y}-${m}-${day}`;
     }
 
+    function hhmm(ms){
+      const d = new Date(ms);
+      return d.toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" });
+    }
+
+    function eqHtml(){
+      return `<span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>`;
+    }
+
+    function imgHtml(src){
+      const s = src ? escapeHtml(src) : "";
+      return `<img class="mini" src="${s}" alt="" onerror="this.style.display='none'">`;
+    }
+
     function renderNowPlaying(now){
       if(!now || (!now.name && !now.artist)){
         document.getElementById("now").innerHTML = `<div class="muted">Nothing playing right now.</div>`;
@@ -132,9 +161,21 @@
         document.getElementById("today").innerHTML = `<div class="muted">No scrobbles found for today yet.</div>`;
         return;
       }
-      const html = list.map(t => (
-        `<div class="track">${escapeHtml(t.artist)} — ${escapeHtml(t.name)}</div>`
-      )).join("");
+      const html = `<div class="list">` + list.map(t => {
+        const time = t.uts ? hhmm(t.uts) : "";
+        const album = t.album || "";
+        return `
+          <div class="item">
+            ${eqHtml()}
+            ${imgHtml(t.image)}
+            <div class="time">${escapeHtml(time)}</div>
+            <div class="txt">
+              <div class="line">${escapeHtml(t.artist)} — ${escapeHtml(t.name)}</div>
+              <div class="subline">${escapeHtml(album)}</div>
+            </div>
+          </div>
+        `;
+      }).join("") + `</div>`;
       document.getElementById("today").innerHTML = html;
     }
 
@@ -143,9 +184,14 @@
         document.getElementById("artists").innerHTML = `<div class="muted">No data.</div>`;
         return;
       }
-      const html = artists.map(a => (
-        `<div class="track">${escapeHtml(a.name)} <span class="muted">(${Number(a.playcount||0)})</span></div>`
-      )).join("");
+      const html = `<div class="list">` + artists.map(a => (
+        `<div class="item">
+          ${eqHtml()}
+          ${imgHtml(a.image)}
+          <div class="txt"><div class="line">${escapeHtml(a.name)}</div></div>
+          <div class="count">(${Number(a.playcount||0)})</div>
+        </div>`
+      )).join("") + `</div>`;
       document.getElementById("artists").innerHTML = html;
     }
 
@@ -154,9 +200,14 @@
         document.getElementById("toptracks").innerHTML = `<div class="muted">No data.</div>`;
         return;
       }
-      const html = tracks.map(t => (
-        `<div class="track">${escapeHtml(t.artist)} — ${escapeHtml(t.name)} <span class="muted">(${Number(t.playcount||0)})</span></div>`
-      )).join("");
+      const html = `<div class="list">` + tracks.map(t => (
+        `<div class="item">
+          ${eqHtml()}
+          ${imgHtml(t.image)}
+          <div class="txt"><div class="line">${escapeHtml(t.artist)} — ${escapeHtml(t.name)}</div></div>
+          <div class="count">(${Number(t.playcount||0)})</div>
+        </div>`
+      )).join("") + `</div>`;
       document.getElementById("toptracks").innerHTML = html;
     }
 
@@ -176,7 +227,8 @@
       const todayKey = localDateKey(new Date());
       const today = list
         .filter(t => t.uts && localDateKey(new Date(t.uts)) === todayKey)
-        .sort((a,b) => b.uts - a.uts);
+        .sort((a,b) => b.uts - a.uts)
+        .slice(0, TODAY_LIMIT);
 
       renderToday(today);
     }

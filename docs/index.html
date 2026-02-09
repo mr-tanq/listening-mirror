@@ -1,566 +1,305 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Listening Mirror</title>
-  <style>
-    :root{
-      color-scheme: dark;
-      --bg:#0b0b0b;
-      --panel:#141414;
-      --panel2:#161616;
-      --border:#2a2a2a;
-      --text:#eaeaea;
-      --muted:rgba(234,234,234,.65);
-      --muted2:rgba(234,234,234,.5);
-      --shadow: 0 18px 60px rgba(0,0,0,.55);
-      --radius:22px;
-    }
-    *{box-sizing:border-box}
-    body{
-      margin:0;
-      background: radial-gradient(1200px 900px at 30% 0%, rgba(255,255,255,.06), transparent 55%),
-                  radial-gradient(1000px 800px at 80% 40%, rgba(255,255,255,.045), transparent 60%),
-                  var(--bg);
-      color:var(--text);
-      font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-      -webkit-font-smoothing: antialiased;
-      text-rendering: optimizeLegibility;
-    }
-    .wrap{max-width:780px;margin:0 auto;padding:22px 16px 80px}
-    h1{
-      font-size:56px;
-      margin:10px 0 10px;
-      letter-spacing:-.03em;
-      font-weight:800;
-    }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Listening Mirror</title>
 
-    .statusRow{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      margin:8px 0 16px;
-    }
-    .dot{
-      width:22px;height:22px;border-radius:999px;
-      background:#18d26b;
-      box-shadow: 0 0 0 6px rgba(24,210,107,.10);
-      border:1px solid rgba(255,255,255,.18);
-      flex:0 0 auto;
-    }
-    .dot.bad{background:#ff5a5a; box-shadow: 0 0 0 6px rgba(255,90,90,.10);}
-    .debug{
-      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
-      border:1px solid rgba(255,255,255,.10);
-      border-radius:18px;
-      padding:12px 14px;
-      box-shadow: var(--shadow);
-      width:100%;
-    }
-    .debug b{font-weight:800}
-    .muted{color:var(--muted)}
-    .muted2{color:var(--muted2); font-size:14px}
+<style>
+:root{
+--bg:#0b0b0b;
+--card:#141414;
+--stroke:#2a2a2a;
+--text:#eaeaea;
+--muted:#a8a8a8;
+}
 
-    .tabs{
-      display:flex;
-      gap:12px;
-      margin:14px 0 12px;
-      flex-wrap:nowrap;
-      overflow:auto;
-      padding-bottom:4px;
-    }
-    .tab{
-      appearance:none;
-      border:1px solid rgba(255,255,255,.10);
-      background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.04));
-      color:var(--text);
-      border-radius:999px;
-      padding:12px 18px;
-      font-weight:750;
-      letter-spacing:-.01em;
-      min-width: 96px;
-      cursor:pointer;
-      box-shadow: 0 10px 34px rgba(0,0,0,.35);
-      transition: transform .12s ease, background .12s ease, border-color .12s ease, opacity .12s ease;
-      opacity:.86;
-      white-space:nowrap;
-    }
-    .tab.active{
-      opacity:1;
-      border-color: rgba(255,255,255,.18);
-      background: linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.05));
-      transform: translateY(-1px);
-    }
-    .divider{
-      height:6px;border-radius:999px;
-      background: rgba(255,255,255,.08);
-      border:1px solid rgba(255,255,255,.06);
-      margin:6px 0 18px;
-    }
+body{
+margin:0;
+font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;
+background:var(--bg);
+color:var(--text);
+overflow-x:hidden;
+}
 
-    .card{
-      background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.03));
-      border:1px solid rgba(255,255,255,.10);
-      border-radius: var(--radius);
-      padding:18px;
-      box-shadow: var(--shadow);
-      position:relative;
-      overflow:hidden;
-    }
-    .card::before{
-      content:"";
-      position:absolute; inset:-1px;
-      background: radial-gradient(900px 420px at 40% 0%, rgba(255,255,255,.10), transparent 60%);
-      pointer-events:none;
-      opacity:.65;
-    }
-    .card > *{position:relative}
+/* dynamic background */
+#bg{
+position:fixed;
+inset:0;
+z-index:-2;
+background-size:cover;
+background-position:center;
+filter:blur(30px) brightness(.55);
+opacity:0;
+transition:opacity .5s ease;
+transform:scale(1.1);
+}
+#bg.on{opacity:.45;}
 
-    h2{
-      font-size:54px;
-      margin:6px 0 12px;
-      font-weight:850;
-      letter-spacing:-.03em;
-    }
-    h3{
-      font-size:40px;
-      margin:22px 0 10px;
-      font-weight:850;
-      letter-spacing:-.03em;
-    }
+#vignette{
+position:fixed;
+inset:0;
+z-index:-1;
+background:
+radial-gradient(circle at center, transparent 20%, black 85%);
+}
 
-    .subtabs{
-      display:flex; gap:12px;
-      margin:6px 0 12px;
-    }
-    .chip{
-      appearance:none;
-      border:1px solid rgba(255,255,255,.10);
-      background: rgba(255,255,255,.05);
-      color:var(--text);
-      border-radius:999px;
-      padding:10px 16px;
-      font-weight:800;
-      cursor:pointer;
-      opacity:.85;
-      transition: opacity .12s ease, border-color .12s ease, transform .12s ease, background .12s ease;
-    }
-    .chip.active{
-      opacity:1;
-      border-color: rgba(255,255,255,.18);
-      background: rgba(255,255,255,.07);
-      transform: translateY(-1px);
-    }
+.container{
+max-width:900px;
+margin:auto;
+padding:20px;
+}
 
-    .list{display:flex; flex-direction:column; gap:14px; margin-top:12px}
-    .row{
-      display:flex; align-items:center; gap:14px;
-      background: linear-gradient(180deg, rgba(0,0,0,.20), rgba(0,0,0,.10));
-      border:1px solid rgba(255,255,255,.08);
-      border-radius:18px;
-      padding:14px 14px;
-    }
-    .rank{
-      width:46px;height:46px;border-radius:16px;
-      display:flex;align-items:center;justify-content:center;
-      background: rgba(255,255,255,.04);
-      border:1px solid rgba(255,255,255,.08);
-      font-weight:900;
-      color: rgba(255,255,255,.55);
-      flex:0 0 auto;
-    }
-    .cover{
-      width:56px;height:56px;border-radius:14px;
-      border:1px solid rgba(255,255,255,.12);
-      object-fit:cover;
-      background: rgba(255,255,255,.04);
-      flex:0 0 auto;
-    }
-    .meta{min-width:0; flex:1}
-    .title{
-      font-weight:900;
-      letter-spacing:-.01em;
-      font-size:20px;
-      line-height:1.15;
-      margin-bottom:6px;
-      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-    }
-    .sub{
-      color:var(--muted2);
-      font-size:14px;
-      font-weight:700;
-      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-    }
-    .count{
-      color: rgba(255,255,255,.55);
-      font-weight:900;
-      font-size:20px;
-      width:60px;
-      text-align:right;
-      flex:0 0 auto;
-    }
+h1{
+font-size:56px;
+margin:10px 0 10px;
+font-weight:900;
+}
 
-    .out{
-      background: linear-gradient(180deg, rgba(0,0,0,.22), rgba(0,0,0,.12));
-      border:1px solid rgba(255,255,255,.10);
-      border-radius:18px;
-      padding:14px;
-      line-height:1.5;
-      font-size:16px;
-      white-space:pre-wrap;
-    }
+.tabs{
+display:flex;
+gap:10px;
+margin-bottom:18px;
+}
 
-    /* Top panel dynamic background */
-    .topBg{
-      background:
-        linear-gradient(rgba(0,0,0,.70), rgba(0,0,0,.86)),
-        radial-gradient(900px 420px at 40% 0%, rgba(255,255,255,.08), transparent 60%);
-      background-size: cover;
-      background-position:center;
-    }
+.tab{
+padding:10px 18px;
+border-radius:999px;
+border:1px solid var(--stroke);
+background:#151515;
+cursor:pointer;
+font-weight:800;
+}
 
-    @media (max-width:520px){
-      h1{font-size:46px}
-      h2{font-size:46px}
-      h3{font-size:34px}
-      .tab{min-width:auto;padding:12px 16px}
-    }
-  </style>
+.tab.active{
+background:#232323;
+border-color:#444;
+}
+
+.card{
+background:rgba(20,20,20,.7);
+border:1px solid var(--stroke);
+border-radius:22px;
+padding:20px;
+margin-bottom:20px;
+}
+
+.list{
+display:flex;
+flex-direction:column;
+gap:14px;
+}
+
+.item{
+display:flex;
+align-items:center;
+gap:12px;
+}
+
+.rank{
+width:38px;height:38px;
+border-radius:12px;
+border:1px solid #333;
+display:flex;
+align-items:center;
+justify-content:center;
+font-weight:900;
+opacity:.7;
+}
+
+.cover{
+width:50px;height:50px;
+border-radius:12px;
+object-fit:cover;
+border:1px solid #333;
+}
+
+.meta{
+flex:1;
+}
+
+.title{
+font-weight:900;
+font-size:18px;
+}
+
+.artist{
+color:var(--muted);
+font-weight:700;
+}
+
+.count{
+font-weight:900;
+opacity:.7;
+}
+
+.hidden{display:none;}
+</style>
 </head>
 
 <body>
-  <div class="wrap">
-    <h1>Listening Mirror</h1>
 
-    <div class="statusRow">
-      <div id="dot" class="dot"></div>
-      <div class="debug">
-        <div><b>API:</b> <span id="apiStatus" class="muted">Checking…</span></div>
-        <div><b>BASE_API:</b> <span id="baseApiLabel" class="muted"></span></div>
-        <div class="muted2">Αν γράψει status ≠ 200, τότε είναι καθαρά θέμα σύνδεσης site → worker.</div>
-      </div>
-    </div>
+<div id="bg"></div>
+<div id="vignette"></div>
 
-    <div class="tabs">
-      <button class="tab active" data-tab="now">Now</button>
-      <button class="tab" data-tab="top">Top</button>
-      <button class="tab" data-tab="mirror">Mirror</button>
-      <button class="tab" data-tab="history">History</button>
-    </div>
+<div class="container">
+<h1>Listening Mirror</h1>
 
-    <div class="divider"></div>
+<div class="tabs">
+<div class="tab active" data-tab="now">Now</div>
+<div class="tab" data-tab="top">Top</div>
+<div class="tab" data-tab="mirror">Mirror</div>
+<div class="tab" data-tab="history">History</div>
+</div>
 
-    <!-- NOW -->
-    <section class="panel" data-panel="now">
-      <div class="card">
-        <h2>Now Playing</h2>
-        <div id="nowBox" class="list"></div>
-      </div>
-    </section>
+<!-- NOW -->
+<div id="now" class="panel">
+<div class="card">
+<h2>Now Playing</h2>
+<div id="nowContent">Loading...</div>
+</div>
+</div>
 
-    <!-- TOP -->
-    <section class="panel" data-panel="top" style="display:none">
-      <div id="topCard" class="card topBg">
-        <div class="subtabs">
-          <button class="chip active" data-top-subtab="today">Today</button>
-          <button class="chip" data-top-subtab="week">Week</button>
-          <button class="chip" data-top-subtab="year">Year</button>
-        </div>
+<!-- TOP -->
+<div id="top" class="panel hidden">
+<div class="card">
+<h2>Top Tracks</h2>
+<div id="topTracks" class="list"></div>
+</div>
 
-        <div data-subpanel="today">
-          <h2>Top tracks</h2>
-          <div id="topTodayTracks" class="list"></div>
-          <h3>Top artists</h3>
-          <div id="topTodayArtists" class="list"></div>
-        </div>
+<div class="card">
+<h2>Top Artists</h2>
+<div id="topArtists" class="list"></div>
+</div>
+</div>
 
-        <div data-subpanel="week" style="display:none">
-          <h2>Top tracks</h2>
-          <div id="topWeekTracks" class="list"></div>
-          <h3>Top artists</h3>
-          <div id="topWeekArtists" class="list"></div>
-        </div>
+<!-- MIRROR -->
+<div id="mirror" class="panel hidden">
+<div class="card">
+<h2>Mirror</h2>
+<div id="mirrorText">Opening mirror...</div>
+</div>
+</div>
 
-        <div data-subpanel="year" style="display:none">
-          <h2>Top tracks</h2>
-          <div id="topYearTracks" class="list"></div>
-          <h3>Top artists</h3>
-          <div id="topYearArtists" class="list"></div>
-        </div>
-      </div>
-    </section>
+<!-- HISTORY -->
+<div id="history" class="panel hidden">
+<div class="card">
+<h2>History</h2>
+<div id="historyList" class="list"></div>
+</div>
+</div>
 
-    <!-- MIRROR -->
-    <section class="panel" data-panel="mirror" style="display:none">
-      <div class="card">
-        <h2>Mirror</h2>
-        <div id="mirrorOut" class="out">Opening Mirror…</div>
-      </div>
-    </section>
+</div>
 
-    <!-- HISTORY -->
-    <section class="panel" data-panel="history" style="display:none">
-      <div class="card">
-        <h2>History</h2>
-        <div id="historyList" class="list"></div>
-        <div id="historyEmpty" class="muted" style="display:none;margin-top:14px">No data yet.</div>
-      </div>
-    </section>
+<script>
+const BASE="https://i.errtanq9.workers.dev";
 
-  </div>
+/* tabs */
+document.querySelectorAll(".tab").forEach(tab=>{
+tab.onclick=()=>{
+document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
+tab.classList.add("active");
 
-  <script>
-    // ====== CONFIG ======
-    // Αν θες να αλλάξεις worker:
-    // window.BASE_API = "https://YOUR-WORKER.workers.dev";
-    const BASE_API = window.BASE_API || "https://i.errtanq9.workers.dev";
-    document.getElementById("baseApiLabel").textContent = BASE_API;
+const target=tab.dataset.tab;
+document.querySelectorAll(".panel").forEach(p=>p.classList.add("hidden"));
+document.getElementById(target).classList.remove("hidden");
 
-    // Last.fm valid periods:
-    // overall, 7day, 1month, 3month, 6month, 12month
-    const PERIOD_MAP = {
-      today: "7day",     // δεν υπάρχει "today" στο last.fm
-      week:  "1month",
-      year:  "12month"
-    };
+if(target==="top") loadTop();
+if(target==="history") loadHistory();
+if(target==="mirror") loadMirror();
+};
+});
 
-    // ====== HELPERS ======
-    const $ = (sel, root=document) => root.querySelector(sel);
-    const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+/* NOW */
+async function loadNow(){
+const r=await fetch(BASE+"/api/now");
+const d=await r.json();
 
-    function escapeHtml(s) {
-      return String(s || "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
-    }
+document.getElementById("nowContent").innerHTML=`
+<div class="item">
+<img class="cover" src="${d.image}">
+<div class="meta">
+<div class="title">${d.name}</div>
+<div class="artist">${d.artist}</div>
+</div>
+</div>`;
+}
+loadNow();
 
-    async function apiGet(path){
-      const r = await fetch(`${BASE_API}${path}`, { method:"GET" });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.json();
-    }
+/* TOP */
+async function loadTop(){
 
-    async function apiPost(path, body){
-      const r = await fetch(`${BASE_API}${path}`, {
-        method:"POST",
-        headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify(body || {})
-      });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.json();
-    }
+/* tracks */
+const t=await (await fetch(BASE+"/api/top?type=tracks&period=7day&limit=8")).json();
+const trackBox=document.getElementById("topTracks");
+trackBox.innerHTML="";
 
-    function setApiStatus(ok, text){
-      const dot = document.getElementById("dot");
-      const s = document.getElementById("apiStatus");
-      if (ok) {
-        dot.classList.remove("bad");
-      } else {
-        dot.classList.add("bad");
-      }
-      s.textContent = text;
-    }
+t.tracks.forEach((x,i)=>{
+trackBox.innerHTML+=`
+<div class="item">
+<div class="rank">${i+1}</div>
+<img class="cover" src="${x.image}">
+<div class="meta">
+<div class="title">${x.name}</div>
+<div class="artist">${x.artist||""}</div>
+</div>
+<div class="count">${x.playcount}</div>
+</div>`;
+});
 
-    function rowHTML({rank, image, title, sub, count}){
-      const img = image ? `<img class="cover" src="${image}" alt="" loading="lazy"
-        onerror="this.style.display='none'">` : `<div class="cover" style="display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.35);font-weight:900;border-radius:14px;">★</div>`;
-      return `
-        <div class="row">
-          <div class="rank">${rank}</div>
-          ${img}
-          <div class="meta">
-            <div class="title">${escapeHtml(title)}</div>
-            ${sub ? `<div class="sub">${escapeHtml(sub)}</div>` : ``}
-          </div>
-          ${count !== undefined ? `<div class="count">${escapeHtml(String(count))}</div>` : ``}
-        </div>
-      `;
-    }
+/* artists + BACKGROUND */
+const a=await (await fetch(BASE+"/api/top?type=artists&period=7day&limit=8")).json();
+const artistBox=document.getElementById("topArtists");
+artistBox.innerHTML="";
 
-    // ====== TABS ======
-    function showPanel(name){
-      $$(".tab").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
-      $$(".panel").forEach(p => p.style.display = (p.dataset.panel === name) ? "" : "none");
+a.artists.forEach((x,i)=>{
+artistBox.innerHTML+=`
+<div class="item">
+<div class="rank">${i+1}</div>
+<img class="cover" src="${x.image}">
+<div class="meta">
+<div class="title">${x.name}</div>
+</div>
+<div class="count">${x.playcount}</div>
+</div>`;
+});
 
-      if (name === "now") loadNow();
-      if (name === "top") loadTopFor(currentTopSubtab);
-      if (name === "history") loadHistory();
-      if (name === "mirror") loadMirror();
-    }
+/* BACKGROUND FIX */
+if(a.artists[0] && a.artists[0].image){
+const bg=document.getElementById("bg");
+bg.style.backgroundImage=`url(${a.artists[0].image})`;
+bg.classList.add("on");
+}
+}
 
-    $$(".tab").forEach(b => b.addEventListener("click", () => showPanel(b.dataset.tab)));
+/* HISTORY */
+async function loadHistory(){
+const r=await fetch(BASE+"/api/recent?limit=10");
+const d=await r.json();
 
-    // ====== NOW ======
-    async function loadNow(){
-      const box = document.getElementById("nowBox");
-      box.innerHTML = `<div class="muted">Loading…</div>`;
-      try{
-        const now = await apiGet("/api/now");
-        box.innerHTML = `
-          <div class="list">
-            ${rowHTML({
-              rank: now?.nowPlaying ? "●" : "1",
-              image: now?.image || "",
-              title: `${now?.artist || "—"} — ${now?.name || "—"}`,
-              sub: now?.album || "",
-              count: ""
-            })}
-          </div>
-        `;
-      }catch(e){
-        box.innerHTML = `<div class="muted">Now failed: ${escapeHtml(String(e))}</div>`;
-      }
-    }
+const box=document.getElementById("historyList");
+box.innerHTML="";
 
-    // ====== HISTORY ======
-    async function loadHistory(){
-      const list = document.getElementById("historyList");
-      const empty = document.getElementById("historyEmpty");
-      list.innerHTML = `<div class="muted">Loading…</div>`;
-      empty.style.display = "none";
+d.tracks.forEach((x,i)=>{
+box.innerHTML+=`
+<div class="item">
+<div class="rank">${i+1}</div>
+<img class="cover" src="${x.image}">
+<div class="meta">
+<div class="title">${x.name}</div>
+<div class="artist">${x.artist}</div>
+</div>
+</div>`;
+});
+}
 
-      try{
-        const data = await apiGet("/api/recent?limit=20");
-        const tracks = data?.tracks || data?.recent || [];
-        if (!tracks.length){
-          list.innerHTML = "";
-          empty.style.display = "";
-          return;
-        }
-        list.innerHTML = tracks.map((t,i) => rowHTML({
-          rank: i+1,
-          image: t.image || "",
-          title: `${t.artist || "—"} — ${t.name || "—"}`,
-          sub: t.album || "",
-          count: ""
-        })).join("");
-      }catch(e){
-        list.innerHTML = `<div class="muted">History failed: ${escapeHtml(String(e))}</div>`;
-      }
-    }
+/* MIRROR */
+async function loadMirror(){
+const r=await fetch(BASE+"/api/reflection",{method:"POST"});
+const d=await r.json();
+document.getElementById("mirrorText").textContent=d.text;
+}
+</script>
 
-    // ====== TOP ======
-    let currentTopSubtab = "today";
-
-    function setTopBackground(imageUrl){
-      const topCard = document.getElementById("topCard");
-      if (!imageUrl){
-        topCard.style.backgroundImage = "";
-        return;
-      }
-      topCard.style.backgroundImage =
-        `linear-gradient(rgba(0,0,0,.72), rgba(0,0,0,.88)), url("${imageUrl}")`;
-      topCard.style.backgroundSize = "cover";
-      topCard.style.backgroundPosition = "center";
-    }
-
-    function setTopSubtab(key){
-      currentTopSubtab = key;
-
-      $$("[data-top-subtab]").forEach(b => {
-        b.classList.toggle("active", b.getAttribute("data-top-subtab") === key);
-      });
-
-      $$("[data-subpanel]").forEach(p => {
-        p.style.display = (p.getAttribute("data-subpanel") === key) ? "" : "none";
-      });
-
-      loadTopFor(key);
-    }
-
-    $$("[data-top-subtab]").forEach(b => b.addEventListener("click", () => {
-      setTopSubtab(b.getAttribute("data-top-subtab"));
-    }));
-
-    async function loadTopFor(key){
-      const period = PERIOD_MAP[key] || "7day";
-
-      const tracksBox =
-        key === "today" ? document.getElementById("topTodayTracks") :
-        key === "week"  ? document.getElementById("topWeekTracks")  :
-                          document.getElementById("topYearTracks");
-
-      const artistsBox =
-        key === "today" ? document.getElementById("topTodayArtists") :
-        key === "week"  ? document.getElementById("topWeekArtists")  :
-                          document.getElementById("topYearArtists");
-
-      tracksBox.innerHTML = `<div class="muted">Loading…</div>`;
-      artistsBox.innerHTML = `<div class="muted">Loading…</div>`;
-
-      try{
-        const [tracksRes, artistsRes] = await Promise.all([
-          apiGet(`/api/top?type=tracks&period=${encodeURIComponent(period)}&limit=20`),
-          apiGet(`/api/top?type=artists&period=${encodeURIComponent(period)}&limit=20`)
-        ]);
-
-        const tracks = tracksRes?.tracks || [];
-        const artists = artistsRes?.artists || [];
-
-        // tracks list
-        if (!tracks.length) {
-          tracksBox.innerHTML = `<div class="muted">No top tracks.</div>`;
-        } else {
-          tracksBox.innerHTML = tracks.map((t,i) => rowHTML({
-            rank: i+1,
-            image: t.image || "",
-            title: t.name || "—",
-            sub: t.artist || "",
-            count: t.playcount ?? ""
-          })).join("");
-        }
-
-        // artists list
-        if (!artists.length) {
-          artistsBox.innerHTML = `<div class="muted">No top artists.</div>`;
-          setTopBackground("");
-        } else {
-          artistsBox.innerHTML = artists.map((a,i) => rowHTML({
-            rank: i+1,
-            image: a.image || "",
-            title: a.name || "—",
-            sub: "",
-            count: a.playcount ?? ""
-          })).join("");
-
-          // background from #1 artist image
-          setTopBackground(artists[0]?.image || "");
-        }
-      }catch(e){
-        tracksBox.innerHTML = `<div class="muted">Top tracks failed: ${escapeHtml(String(e))}</div>`;
-        artistsBox.innerHTML = `<div class="muted">Top artists failed: ${escapeHtml(String(e))}</div>`;
-        setTopBackground("");
-      }
-    }
-
-    // ====== MIRROR ======
-    async function loadMirror(){
-      const out = document.getElementById("mirrorOut");
-      out.textContent = "Generating…";
-      try{
-        const res = await apiPost("/api/reflection", { focus: "" });
-        out.textContent = (res?.text && String(res.text).trim()) ? String(res.text).trim() : "No reflection.";
-      }catch(e){
-        out.textContent = "No reflection.";
-      }
-    }
-
-    // ====== API HEALTH CHECK ======
-    async function healthCheck(){
-      try{
-        const r = await fetch(`${BASE_API}/api/now`, { method:"GET" });
-        setApiStatus(r.ok, r.ok ? `OK (status ${r.status})` : `Bad (status ${r.status})`);
-      }catch(e){
-        setApiStatus(false, "Offline / blocked");
-      }
-    }
-
-    // ====== INIT ======
-    (async function init(){
-      await healthCheck();
-      showPanel("now");
-      // default subtab for top
-      setTopSubtab("today");
-    })();
-  </script>
 </body>
 </html>

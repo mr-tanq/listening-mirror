@@ -1,158 +1,251 @@
 export default {
   async fetch(request, env, ctx) {
-    const url = new URL(request.url);
+    // --- CORS (fixes "Failed to load" from GitHub Pages) ---
+    const origin = request.headers.get("Origin") || "*";
+    const corsHeaders = {
+      "Access-Control-Allow-Origin": origin,
+      "Vary": "Origin",
+      "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      "Access-Control-Max-Age": "86400",
+    };
 
-    // CORS preflight
     if (request.method === "OPTIONS") {
-      return cors(new Response(null, { status: 204 }), env);
+      return new Response(null, { status: 204, headers: corsHeaders });
     }
 
     try {
-      if (url.pathname === "/" || url.pathname === "/health") {
-        return cors(json({ ok: true, service: "listening-mirror" }), env);
+      const url = new URL(request.url);
+      const path = url.pathname;
+
+      // Basic sanity endpoint
+      if (path === "/api/health") {
+        return json({ ok: true, ts: Date.now() }, corsHeaders);
       }
 
-      if (url.pathname === "/dashboard") {
-        const payload = await buildDashboard(env);
-        return cors(json(payload), env);
+      // --- Required env vars ---
+      // Set these in Cloudflare Worker "Settings -> Variables and secrets"
+      // LASTFM_API_KEY
+      // LASTFM_USER
+      const LASTFM_API_KEY = env.LASTFM_API_KEY;
+      const LASTFM_USER = env.LASTFM_USER;
+
+      if (!LASTFM_API_KEY || !LASTFM_USER) {
+        return json(
+          { error: "Missing env vars: LASTFM_API_KEY and/or LASTFM_USER" },
+          corsHeaders,
+          500
+        );
       }
 
-      return cors(json({ error: "Not found" }, 404), env);
-    } catch (e) {
-      return cors(json({ error: e?.message || "Worker error" }, 500), env);
+      // Helper: call Last.fm
+      async function lastfm(params) {
+        const base = "https://ws.audioscrobbler.com/2.0/";
+        const qs = new URLSearchParams({
+          api_key: LASTFM_API_KEY,
+          user: LASTFM_USER,
+          format: "json",
+          ...params,
+        });
+        const r = await fetch(`${base}?${qs.toString()}`);
+        if (!r.ok) throw new Error("Last.fm HTTP " + r.status);
+        return await r.json();
+      }
+
+      function pickImage(images) {
+        // Last.fm returns array: [{#text,size}, ...]
+        if (!Array.isArray(images)) return "";
+        // prefer "extralarge" then "large" then last non-empty
+        const preferred = ["extralarge", "large", "medium", "small"];
+        for (const s of preferred) {
+          const it = images.find((x) => x && x.size === s && x["#text"]);
+          if (it && it["#text"]) return it["#text"];
+        }
+        const any = images.find((x) => x && x["#text"]);
+        return any ? any["#text"] : "";
+      }
+
+      // --- /api/now ---
+      // returns: { artist, name, album, image, nowPlaying }
+      if (path === "/api/now") {
+        const data = await lastfm({
+          method: "user.getrecenttracks",
+          limit: "1",
+        });
+
+        const t = data?.recenttracks?.track?.[0];
+        if (!t) return json({ nowPlaying: false }, corsHeaders);
+
+        const artist = t?.artist?.["#text"] || t?.artist?.name || "";
+        const name = t?.name || "";
+        const album = t?.album?.["#text"] || "";
+        const image = pickImage(t?.image);
+        const nowPlaying = t?.["@attr"]?.nowplaying === "true";
+
+        return json({ artist, name, album, image, nowPlaying }, corsHeaders);
+      }
+
+      // --- /api/recent?limit=40 ---
+      // returns: { tracks: [{ artist, name, album, image, nowPlaying }] }
+      if (path === "/api/recent") {
+        const limit = clampInt(url.searchParams.get("limit"), 1, 200, 40);
+        const data = await lastfm({
+          method: "user.getrecenttracks",
+          limit: String(limit),
+        });
+
+        const tracks = (data?.recenttracks?.track || []).map((t) => ({
+          artist: t?.artist?.["#text"] || t?.artist?.name || "",
+          name: t?.name || "",
+          album: t?.album?.["#text"] || "",
+          image: pickImage(t?.image),
+          nowPlaying: t?.["@attr"]?.nowplaying === "true",
+        }));
+
+        return json({ tracks }, corsHeaders);
+      }
+
+      // --- /api/top?type=tracks|artists&period=7day&limit=12 ---
+      if (path === "/api/top") {
+        const type = (url.searchParams.get("type") || "").toLowerCase();
+        const period = url.searchParams.get("period") || "7day";
+        const limit = clampInt(url.searchParams.get("limit"), 1, 200, 12);
+
+        if (type === "tracks") {
+          const data = await lastfm({
+            method: "user.gettoptracks",
+            period,
+            limit: String(limit),
+          });
+
+          const tracks = (data?.toptracks?.track || []).map((t) => ({
+            artist: t?.artist?.name || "",
+            name: t?.name || "",
+            playcount: toInt(t?.playcount),
+            image: pickImage(t?.image),
+          }));
+
+          return json({ tracks }, corsHeaders);
+        }
+
+        if (type === "artists") {
+          const data = await lastfm({
+            method: "user.gettopartists",
+            period,
+            limit: String(limit),
+          });
+
+          const artists = (data?.topartists?.artist || []).map((a) => ({
+            name: a?.name || "",
+            playcount: toInt(a?.playcount),
+            image: pickImage(a?.image),
+          }));
+
+          return json({ artists }, corsHeaders);
+        }
+
+        return json({ error: "Invalid type. Use tracks or artists." }, corsHeaders, 400);
+      }
+
+      // --- /api/reflection (AUTO, no need user input) ---
+      // We generate a structured "reflection" from last 7 days top tracks/artists.
+      if (path === "/api/reflection") {
+        // optional POST body: { focus: "" } (ignored if empty)
+        let focus = "";
+        if (request.method === "POST") {
+          try {
+            const body = await request.json();
+            focus = (body?.focus || "").trim();
+          } catch {}
+        }
+
+        const [topTracks, topArtists] = await Promise.all([
+          lastfm({ method: "user.gettoptracks", period: "7day", limit: "10" }),
+          lastfm({ method: "user.gettopartists", period: "7day", limit: "7" }),
+        ]);
+
+        const tracks = (topTracks?.toptracks?.track || []).map((t) => ({
+          artist: t?.artist?.name || "",
+          name: t?.name || "",
+          playcount: toInt(t?.playcount),
+        }));
+
+        const artists = (topArtists?.topartists?.artist || []).map((a) => ({
+          name: a?.name || "",
+          playcount: toInt(a?.playcount),
+        }));
+
+        const text = buildReflection({ tracks, artists, focus });
+        return json({ text }, corsHeaders);
+      }
+
+      return json({ error: "Not found" }, corsHeaders, 404);
+    } catch (err) {
+      return json({ error: String(err?.message || err) }, {
+        "Access-Control-Allow-Origin": request.headers.get("Origin") || "*",
+        "Vary": "Origin",
+        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      }, 500);
     }
-  }
+  },
 };
 
-function json(obj, status = 200) {
+function json(obj, headers = {}, status = 200) {
   return new Response(JSON.stringify(obj), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8" }
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      ...headers,
+    },
   });
 }
 
-function cors(res, env) {
-  const h = new Headers(res.headers);
-  h.set("Access-Control-Allow-Origin", env.ALLOW_ORIGIN || "*");
-  h.set("Access-Control-Allow-Methods", "GET,OPTIONS");
-  h.set("Access-Control-Allow-Headers", "Content-Type");
-  return new Response(res.body, { status: res.status, headers: h });
-}
-async function buildDashboard(env) {
-  const user = must(env.LASTFM_USER, "LASTFM_USER missing");
-  const apiKey = must(env.LASTFM_API_KEY, "LASTFM_API_KEY missing");
-
-  const ttl = Number(env.CACHE_TTL_SECONDS || 15);
-
-  // Cache with Cloudflare cache API (simple: cache the whole dashboard)
-  const cacheKey = new Request("https://cache.local/dashboard");
-  const cached = await caches.default.match(cacheKey);
-  if (cached) return await cached.json();
-
-  // 1) fetch recent scrobbles
-  const recent = await lastfm(apiKey, user, "user.getrecenttracks", { limit: 200 });
-
-  const raw = recent?.recenttracks?.track || [];
-  const normalized = raw.map(t => ({
-    name: t?.name || "",
-    artist: t?.artist?.["#text"] || "",
-    album: t?.album?.["#text"] || "",
-    uts: t?.date?.uts ? Number(t.date.uts) * 1000 : null,
-    nowPlaying: Boolean(t?.["@attr"] && t["@attr"].nowplaying === "true")
-  }));
-
-  const scrobbled = normalized.filter(x => x.uts);
-
-  // 2) today list (local day based on UTC — απλό/σταθερό)
-  const todayKey = dateKeyUTC(new Date());
-  const today = scrobbled
-    .filter(t => dateKeyUTC(new Date(t.uts)) === todayKey)
-    .sort((a, b) => a.uts - b.uts);
-
-  // 3) top artists 7 days
-  const top = await lastfm(apiKey, user, "user.gettopartists", { period: "7day", limit: 10 });
-  const topArtists = (top?.topartists?.artist || []).map(a => ({
-    name: a?.name || "",
-    playcount: Number(a?.playcount || 0)
-  }));
-
-  // 4) status line
-  const status = `OK • loaded ${scrobbled.length} recent scrobbles • today: ${today.length}`;
-
-  // 5) reflection (v1 deterministic, χωρίς OpenAI ακόμη)
-  const reflection = reflectionV1(today);
-
-  const payload = { user, status, today, topArtists, reflection };
-
-  // store cache
-  const resp = json(payload);
-  resp.headers.set("Cache-Control", `public, max-age=${ttl}`);
-  await caches.default.put(cacheKey, resp.clone());
-
-  return payload;
+function toInt(v) {
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) ? n : 0;
 }
 
-function must(v, msg) {
-  if (!v) throw new Error(msg);
-  return v;
-}
-async function lastfm(apiKey, user, method, params = {}) {
-  const url = new URL("https://ws.audioscrobbler.com/2.0/");
-  url.searchParams.set("method", method);
-  url.searchParams.set("user", user);
-  url.searchParams.set("api_key", apiKey);
-  url.searchParams.set("format", "json");
-
-  for (const [k, v] of Object.entries(params)) {
-    url.searchParams.set(k, String(v));
-  }
-
-  const res = await fetch(url.toString());
-  if (!res.ok) throw new Error(`HTTP ${res.status} from Last.fm`);
-  const data = await res.json();
-  if (data?.error) throw new Error(`Last.fm error: ${data.message || data.error}`);
-  return data;
+function clampInt(v, min, max, fallback) {
+  const n = parseInt(v, 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
 }
 
-function dateKeyUTC(d) {
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(d.getUTCDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
+function buildReflection({ tracks, artists, focus }) {
+  const topArtist = artists[0]?.name ? `${artists[0].name} (${artists[0].playcount} plays)` : "—";
+  const top3Artists = artists.slice(0, 3).map(a => `${a.name} (${a.playcount})`).join(", ") || "—";
+  const top3Tracks = tracks.slice(0, 3).map(t => `${t.name} — ${t.artist} (${t.playcount})`).join("\n") || "—";
 
-function countBy(arr, keyFn) {
-  const map = new Map();
-  for (const x of arr) {
-    const k = keyFn(x);
-    map.set(k, (map.get(k) || 0) + 1);
-  }
-  return [...map.entries()].sort((a, b) => b[1] - a[1]);
-}
-function reflectionV1(today) {
-  if (!today || today.length === 0) {
-    return "No scrobbles today yet. Once you listen, I’ll summarize the pattern.";
-  }
+  const repeats = tracks.filter(t => t.playcount >= 6);
+  const repeatLine = repeats.length
+    ? `You looped ${repeats.length} track(s) hard this week (6+ plays).`
+    : `Your listening was spread out — no single track dominated massively.`;
 
-  const byArtist = countBy(today, t => t.artist);
-  const byTrack = countBy(today, t => `${t.artist} — ${t.name}`);
+  const angle = focus
+    ? `Focus: ${focus}\n\n`
+    : "";
 
-  const topArtist = byArtist[0]?.[0] || "—";
-  const variety = byArtist.length;
-  const repeats = byTrack.filter(([, c]) => c >= 2).length;
+  return (
+`${angle}Weekly reflection (Last.fm — last 7 days)
 
-  let text = "";
+Top artist:
+• ${topArtist}
 
-  if (variety <= 5 && repeats >= 1) {
-    text = "Comfort-loop day: low variety + repeats. You leaned on familiar anchors to stabilize mood/energy.";
-  } else if (variety <= 10) {
-    text = "Balanced day: you stayed within a recognizable palette, with some exploration inside it.";
-  } else {
-    text = "Exploratory day: high variety suggests searching for new emotional input rather than staying in comfort.";
-  }
+Top artists (top 3):
+• ${top3Artists}
 
-  text += ` Dominant presence: ${topArtist}.`;
-  const stats = `Scrobbles today: ${today.length} • Artists: ${variety} • Repeated tracks: ${repeats}`;
+Top tracks (top 3):
+${top3Tracks}
 
-  return `${text}\n${stats}`;
+Pattern:
+• ${repeatLine}
+
+Interpretation:
+• Your “center of gravity” this week sits around your top artist + the repeated tracks. When a track hits 6–8 plays in 7 days, it usually means: mood anchoring, obsession with a specific sound, or you’re testing a mix/feeling.
+
+Suggestion (based strictly on the data above):
+• If you want variety: rotate between your #1 artist and #3–#5 artists to keep the vibe but widen the palette.
+• If you want depth: replay the top track in 3 different contexts (headphones / speakers / late night) and note what changes.`
+  );
 }

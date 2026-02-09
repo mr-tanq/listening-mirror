@@ -4,381 +4,220 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Listening Mirror</title>
-
   <style>
-    :root{
-      --bg:#0b0c0e;
-      --card:rgba(255,255,255,.06);
-      --txt:rgba(255,255,255,.92);
-      --muted:rgba(255,255,255,.60);
-      --muted2:rgba(255,255,255,.42);
-      --stroke:rgba(255,255,255,.10);
-      --radius:28px;
+    :root { --bg1:#111; --bg2:#1a1a1a; --card:#2a2a2a; --text:#eee; --muted:#bdbdbd; --pill:#3a3a3a; }
+    *{box-sizing:border-box} body{
+      margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color:var(--text);
+      background: radial-gradient(1200px 800px at 30% 20%, #2b2b2b 0%, #141414 45%, #0d0d0d 100%);
+      min-height:100vh;
+      display:flex; justify-content:center;
     }
-    body{
-      margin:0;
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      background: radial-gradient(1200px 800px at 30% 10%, rgba(255,255,255,.10), transparent 60%),
-                  radial-gradient(900px 600px at 80% 20%, rgba(255,255,255,.08), transparent 55%),
-                  var(--bg);
-      color:var(--txt);
+    .wrap{width:min(920px, 92vw); padding:28px 0 60px}
+    h1{margin:10px 0 18px; font-size: clamp(44px, 7vw, 84px); letter-spacing:-0.02em; line-height:0.95}
+    .row{display:flex; gap:14px; flex-wrap:wrap; align-items:center}
+    .dot{width:22px;height:22px;border-radius:50%; background:#26d07c; box-shadow:0 0 0 6px rgba(38,208,124,0.15)}
+    .pill{
+      border:0; color:var(--text);
+      background: linear-gradient(#3a3a3a, #2d2d2d);
+      padding:14px 24px; border-radius:999px;
+      font-weight:700; font-size:20px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), 0 10px 30px rgba(0,0,0,0.35);
     }
-    .wrap{max-width:980px;margin:0 auto;padding:28px 18px 60px;}
-    h1{font-size:56px;letter-spacing:-1px;margin:18px 0 10px;}
-    .tabs{display:flex;gap:12px;align-items:center;margin:10px 0 18px;flex-wrap:wrap;}
-    .dot{width:18px;height:18px;border-radius:999px;background:#38d06e;box-shadow:0 0 0 6px rgba(56,208,110,.12)}
-    .tab{
-      border:1px solid var(--stroke);
-      background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
-      color:var(--txt);
-      padding:10px 18px;border-radius:999px;
-      font-weight:800;
-      cursor:pointer;
-      user-select:none;
-      min-width:96px;
-      text-align:center;
-    }
-    .tab[aria-selected="true"]{
-      background:linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.06));
-      border-color:rgba(255,255,255,.18);
-    }
-
-    .panel{
-      border:1px solid var(--stroke);
-      background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
-      border-radius:var(--radius);
-      padding:22px;
-      box-shadow:0 12px 60px rgba(0,0,0,.55);
-      backdrop-filter: blur(10px);
-    }
-    .panel h2{font-size:54px;margin:6px 0 14px;letter-spacing:-1px}
-
+    .pill:active{transform:translateY(1px)}
     .card{
-      border:1px solid var(--stroke);
-      background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.05));
-      border-radius:22px;
-      padding:16px;
+      margin-top:18px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.06));
+      border:1px solid rgba(255,255,255,0.08);
+      border-radius:28px;
+      padding:22px;
+      box-shadow: 0 30px 70px rgba(0,0,0,0.55);
     }
-    .nowGrid{
-      display:grid;
-      grid-template-columns: 120px 1fr;
-      gap:16px;
-      align-items:center;
+    .card h2{margin:0 0 14px; font-size: clamp(40px, 5vw, 72px); letter-spacing:-0.02em}
+    .mini{color:var(--muted); font-size:18px; margin-top:6px}
+    .nowbox{
+      margin-top:12px;
+      border-radius:26px;
+      padding:20px;
+      background: rgba(0,0,0,0.18);
+      border:1px solid rgba(255,255,255,0.08);
+      display:flex; gap:18px; align-items:center;
+      min-height:140px;
     }
     .cover{
-      width:120px;height:120px;border-radius:18px;
-      border:1px solid var(--stroke);
-      background:rgba(255,255,255,.06);
+      width:110px; height:110px; border-radius:22px;
+      background: rgba(255,255,255,0.08);
+      border:1px solid rgba(255,255,255,0.10);
+      flex:0 0 auto;
       overflow:hidden;
+      display:flex; align-items:center; justify-content:center;
     }
-    .cover img{width:100%;height:100%;object-fit:cover;display:block;}
-    .meta{min-width:0;}
-    .title{
-      font-size:22px;font-weight:900;line-height:1.15;
-      white-space:normal; overflow:visible; text-overflow:unset;
-      word-break:break-word;
+    .cover img{width:100%; height:100%; object-fit:cover}
+    .meta{display:flex; flex-direction:column; gap:6px}
+    .track{font-size:26px; font-weight:800}
+    .artist{font-size:20px; color:var(--muted); font-weight:650}
+    .err{margin-top:10px; color:#ffb3b3; font-weight:700}
+    .list{display:flex; flex-direction:column; gap:10px; margin-top:8px}
+    .item{
+      display:flex; justify-content:space-between; gap:14px;
+      padding:12px 14px; border-radius:16px;
+      background: rgba(0,0,0,0.18);
+      border:1px solid rgba(255,255,255,0.07);
+      font-size:18px;
     }
-    .sub{
-      margin-top:6px;
-      color:var(--muted);
-      font-weight:700;
-      white-space:normal;
-      word-break:break-word;
-    }
-    .badge{
-      margin-top:12px;
-      display:inline-flex;gap:10px;align-items:center;
-      padding:10px 14px;border-radius:999px;
-      border:1px solid var(--stroke);
-      background:rgba(0,0,0,.25);
-      color:var(--txt);
-      font-weight:800;
-    }
-    .bars{display:inline-flex;gap:3px;align-items:flex-end;}
-    .bars span{width:4px;border-radius:3px;background:rgba(255,255,255,.75);display:block}
-    .bars span:nth-child(1){height:7px}
-    .bars span:nth-child(2){height:12px}
-    .bars span:nth-child(3){height:9px}
-
-    .list{display:flex;flex-direction:column;gap:12px;}
-    .row{
-      display:grid;
-      grid-template-columns: 44px 56px 1fr auto;
-      gap:12px;
-      align-items:center;
-      padding:14px 14px;
-      border-radius:18px;
-      border:1px solid var(--stroke);
-      background:rgba(0,0,0,.22);
-    }
-    .rank{
-      width:44px;height:44px;border-radius:14px;
-      display:grid;place-items:center;
-      border:1px solid var(--stroke);
-      color:var(--muted);
-      font-weight:900;
-      background:rgba(255,255,255,.04);
-    }
-    .mini{
-      width:56px;height:56px;border-radius:16px;
-      border:1px solid var(--stroke);
-      overflow:hidden;
-      background:rgba(255,255,255,.06);
-      display:block;
-      position:relative;
-    }
-    .mini::after{
-      content:"";
-      position:absolute;inset:0;
-      background:radial-gradient(90px 70px at 30% 25%, rgba(255,255,255,.10), transparent 60%),
-                 radial-gradient(70px 60px at 70% 70%, rgba(255,255,255,.08), transparent 55%);
-      pointer-events:none;
-    }
-    .mini img{width:100%;height:100%;object-fit:cover;display:block;}
-
-    .rowTitle{
-      font-weight:900;
-      white-space:normal; overflow:visible; text-overflow:unset;
-      word-break:break-word;
-      line-height:1.18;
-    }
-    .rowSub{color:var(--muted2);font-weight:700;margin-top:4px}
-    .count{color:var(--muted);font-weight:900;white-space:nowrap}
-
-    .out{
-      margin-top:14px;
-      padding:14px;
-      border-radius:18px;
-      border:1px solid var(--stroke);
-      background:rgba(0,0,0,.22);
-      color:var(--txt);
-      white-space:pre-wrap;
-      line-height:1.35;
-    }
-    .muted{color:var(--muted2);font-weight:700}
+    .item .left{display:flex; flex-direction:column}
+    .item .name{font-weight:800}
+    .item .sub{color:var(--muted); font-size:14px; margin-top:2px}
+    .item .plays{color:var(--muted); font-weight:750; white-space:nowrap}
+    .hidden{display:none}
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>Listening Mirror</h1>
 
-    <div class="tabs">
-      <div class="dot" aria-hidden="true"></div>
-      <div class="tab" data-tab="now" aria-selected="true">Now</div>
-      <div class="tab" data-tab="today" aria-selected="false">Today</div>
-      <div class="tab" data-tab="week" aria-selected="false">Week</div>
-      <div class="tab" data-tab="reflection" aria-selected="false">Reflection</div>
+    <div class="row">
+      <div class="dot" title="online"></div>
+      <button class="pill" id="btnNow">Now</button>
+      <button class="pill" id="btnToday">Today</button>
+      <button class="pill" id="btnWeek">Week</button>
+      <button class="pill" id="btnReflection">Reflection</button>
     </div>
 
-    <!-- NOW -->
-    <section class="panel" data-panel="now">
+    <div class="card" id="panelNow">
       <h2>Now Playing</h2>
-      <div class="card">
-        <div class="nowGrid">
-          <div class="cover" id="nowCover"></div>
-          <div class="meta">
-            <div class="title" id="nowTitle">Loading…</div>
-            <div class="sub" id="nowAlbum"></div>
-            <div class="badge" id="nowBadge" style="display:none;">
-              <span class="bars" aria-hidden="true"><span></span><span></span><span></span></span>
-              <span>live now playing</span>
-            </div>
-          </div>
+      <div class="nowbox">
+        <div class="cover" id="nowCover"></div>
+        <div class="meta">
+          <div class="track" id="nowTrack">—</div>
+          <div class="artist" id="nowArtist"></div>
+          <div class="mini" id="nowInfo"></div>
         </div>
       </div>
-      <div class="muted" id="nowErr" style="margin-top:12px;display:none;">Failed to load.</div>
-    </section>
-
-    <!-- TODAY -->
-    <section class="panel" data-panel="today" style="display:none;">
-      <h2>Today</h2>
+      <div class="err" id="nowErr"></div>
+    </div>
+    <div class="card hidden" id="panelToday">
+      <h2>Today Top Tracks</h2>
       <div class="list" id="todayList"></div>
-      <div class="muted" id="todayEmpty" style="display:none;margin-top:14px;">No data yet.</div>
-    </section>
+      <div class="err" id="todayErr"></div>
+    </div>
 
-    <!-- WEEK -->
-    <section class="panel" data-panel="week" style="display:none;">
-      <h2>Top tracks (7 days)</h2>
-      <div class="list" id="weekTracks"></div>
+    <div class="card hidden" id="panelWeek">
+      <h2>Week Top Tracks</h2>
+      <div class="list" id="weekList"></div>
+      <div class="err" id="weekErr"></div>
+    </div>
 
-      <div style="height:18px"></div>
-
-      <h2 style="font-size:44px;margin-top:10px;">Top artists (7 days)</h2>
-      <div class="list" id="weekArtists"></div>
-    </section>
-
-    <!-- REFLECTION -->
-    <section class="panel" data-panel="reflection" style="display:none;">
+    <div class="card hidden" id="panelReflection">
       <h2>Reflection</h2>
-      <div class="muted">Auto reflection based strictly on your Last.fm data.</div>
-      <div class="out" id="reflectionOut" style="display:none;"></div>
-      <div class="muted" id="reflectionErr" style="display:none;margin-top:12px;">Failed to load reflection.</div>
-    </section>
+      <div class="mini">AI reflection based strictly on your Last.fm data.</div>
+      <div class="nowbox" style="align-items:flex-start">
+        <div class="meta" style="gap:10px; width:100%">
+          <div class="track" style="font-size:22px" id="refText">—</div>
+        </div>
+      </div>
+      <div class="err" id="refErr"></div>
+    </div>
+
   </div>
 
-  <script>
-    // Your Worker base:
-    const BASE_API = "https://i.errtanq9.workers.dev";
-    const $ = (id) => document.getElementById(id);
+<script>
+  // IMPORTANT: αυτό πρέπει να είναι το Worker σου
+  const API_BASE = "https://i.errtanq9.workers.dev";
 
-    function setTab(name){
-      document.querySelectorAll(".tab").forEach(t=>{
-        t.setAttribute("aria-selected", t.dataset.tab === name ? "true" : "false");
-      });
-      document.querySelectorAll("[data-panel]").forEach(p=>{
-        p.style.display = (p.dataset.panel === name) ? "" : "none";
-      });
-    }
+  const $ = (id) => document.getElementById(id);
 
-    document.querySelectorAll(".tab").forEach(t=>{
-      t.addEventListener("click", ()=>{
-        const name = t.dataset.tab;
-        setTab(name);
-        if (name === "now") loadNow();
-        if (name === "today") loadToday();
-        if (name === "week") loadWeek();
-        if (name === "reflection") loadReflection(); // auto
-      });
+  function show(panelId){
+    ["panelNow","panelToday","panelWeek","panelReflection"].forEach(id=>{
+      $(id).classList.toggle("hidden", id !== panelId);
     });
+  }
 
-    async function fetchJSON(path, opts){
-      const r = await fetch(BASE_API + path, opts);
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      return await r.json();
+  async function getJSON(url){
+    const r = await fetch(url, { method:"GET" });
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  }
+
+  function setCover(el, url){
+    el.innerHTML = "";
+    if(!url){ el.textContent = ""; return; }
+    const img = document.createElement("img");
+    img.src = url;
+    img.alt = "cover";
+    el.appendChild(img);
+  }
+
+  function renderList(container, tracks){
+    container.innerHTML = "";
+    tracks.forEach((t, idx) => {
+      const row = document.createElement("div");
+      row.className = "item";
+      row.innerHTML = `
+        <div class="left">
+          <div class="name">${idx+1}. ${escapeHTML(t.name)}</div>
+          <div class="sub">${escapeHTML(t.artist)}</div>
+        </div>
+        <div class="plays">${t.playcount} plays</div>
+      `;
+      container.appendChild(row);
+    });
+  }
+
+  function escapeHTML(s){
+    return String(s ?? "").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
+  async function loadNow(){
+    $("nowErr").textContent = "";
+    $("nowTrack").textContent = "—";
+    $("nowArtist").textContent = "";
+    $("nowInfo").textContent = "";
+    setCover($("nowCover"), null);
+
+    try{
+      const data = await getJSON(`${API_BASE}/api/now`);
+      if(!data?.track){ throw new Error("No data"); }
+      $("nowTrack").textContent = data.track.name || "—";
+      $("nowArtist").textContent = data.track.artist || "";
+      $("nowInfo").textContent = data.track.nowplaying ? "Now playing" : "Last played";
+      setCover($("nowCover"), data.track.image || null);
+    }catch(e){
+      $("nowErr").textContent = "Failed to load.";
     }
+  }
 
-    function coverHTML(url){
-      if (url) return `<img src="${url}" alt="" />`;
-      return ""; // no stars, no text
+  async function loadTop(period, listElId, errElId){
+    $(errElId).textContent = "";
+    $(listElId).innerHTML = "";
+    try{
+      const data = await getJSON(`${API_BASE}/api/top?type=tracks&period=${period}&limit=10`);
+      if(!data?.tracks) throw new Error("No tracks");
+      renderList($(listElId), data.tracks);
+    }catch(e){
+      $(errElId).textContent = "Failed to load.";
     }
+  }
 
-    // NOW
-    async function loadNow(){
-      $("nowErr").style.display = "none";
-      try{
-        const d = await fetchJSON("/api/now");
-        const title = d.artist ? `${d.artist} — ${d.name}` : (d.name || "—");
-        $("nowTitle").textContent = title || "—";
-        $("nowAlbum").textContent = d.album || "";
-        $("nowCover").innerHTML = coverHTML(d.image);
-        $("nowBadge").style.display = d.nowPlaying ? "inline-flex" : "none";
-      }catch(e){
-        $("nowTitle").textContent = "—";
-        $("nowAlbum").textContent = "";
-        $("nowCover").innerHTML = "";
-        $("nowBadge").style.display = "none";
-        $("nowErr").style.display = "";
-      }
+  async function loadReflection(){
+    $("refErr").textContent = "";
+    $("refText").textContent = "—";
+    try{
+      const data = await getJSON(`${API_BASE}/api/reflection?period=7day&limit=10`);
+      $("refText").textContent = data?.text || "No reflection.";
+    }catch(e){
+      $("refErr").textContent = "Failed to load reflection.";
     }
+  }
 
-    // TODAY
-    async function loadToday(){
-      const listEl = $("todayList");
-      const emptyEl = $("todayEmpty");
-      listEl.innerHTML = "";
-      emptyEl.style.display = "none";
+  $("btnNow").onclick = () => { show("panelNow"); loadNow(); };
+  $("btnToday").onclick = () => { show("panelToday"); loadTop("1day","todayList","todayErr"); };
+  $("btnWeek").onclick = () => { show("panelWeek"); loadTop("7day","weekList","weekErr"); };
+  $("btnReflection").onclick = () => { show("panelReflection"); loadReflection(); };
 
-      try{
-        const d = await fetchJSON("/api/recent?limit=40");
-        const tracks = d.tracks || [];
-        if (!tracks.length){ emptyEl.style.display=""; return; }
+  // initial
+  show("panelNow");
+  loadNow();
+</script>
 
-        tracks.slice(0, 30).forEach((t, i)=>{
-          const title = `${t.artist} — ${t.name}`;
-          const row = document.createElement("div");
-          row.className = "row";
-          row.innerHTML = `
-            <div class="rank">${i+1}</div>
-            <div class="mini">${t.image ? `<img src="${t.image}" alt="">` : ""}</div>
-            <div class="meta">
-              <div class="rowTitle">${escapeHTML(title)}</div>
-              <div class="rowSub">${escapeHTML(t.album || "")}</div>
-            </div>
-            <div class="count">${t.nowPlaying ? "LIVE" : ""}</div>
-          `;
-          listEl.appendChild(row);
-        });
-      }catch(e){
-        emptyEl.style.display="";
-        emptyEl.textContent = "Failed to load.";
-      }
-    }
-
-    // WEEK
-    async function loadWeek(){
-      $("weekTracks").innerHTML = "";
-      $("weekArtists").innerHTML = "";
-
-      // Top tracks
-      try{
-        const d = await fetchJSON("/api/top?type=tracks&period=7day&limit=12");
-        (d.tracks || []).forEach((t, i)=>{
-          const row = document.createElement("div");
-          row.className = "row";
-          row.innerHTML = `
-            <div class="rank">${i+1}</div>
-            <div class="mini">${t.image ? `<img src="${t.image}" alt="">` : ""}</div>
-            <div class="meta">
-              <div class="rowTitle">${escapeHTML(t.name || "")}</div>
-              <div class="rowSub">${escapeHTML(t.artist || "")}</div>
-            </div>
-            <div class="count">${(t.playcount||0)} plays</div>
-          `;
-          $("weekTracks").appendChild(row);
-        });
-      }catch(e){
-        const m = document.createElement("div");
-        m.className="muted";
-        m.textContent="Failed to load top tracks.";
-        $("weekTracks").appendChild(m);
-      }
-
-      // Top artists
-      try{
-        const d2 = await fetchJSON("/api/top?type=artists&period=7day&limit=10");
-        (d2.artists || []).forEach((a, i)=>{
-          const row = document.createElement("div");
-          row.className = "row";
-          row.innerHTML = `
-            <div class="rank">${i+1}</div>
-            <div class="mini">${a.image ? `<img src="${a.image}" alt="">` : ""}</div>
-            <div class="meta">
-              <div class="rowTitle">${escapeHTML(a.name || "")}</div>
-              <div class="rowSub"></div>
-            </div>
-            <div class="count">${(a.playcount||0)} plays</div>
-          `;
-          $("weekArtists").appendChild(row);
-        });
-      }catch(e){
-        const m = document.createElement("div");
-        m.className="muted";
-        m.textContent="Failed to load top artists.";
-        $("weekArtists").appendChild(m);
-      }
-    }
-
-    // REFLECTION (AUTO, no button)
-    async function loadReflection(){
-      $("reflectionOut").style.display = "none";
-      $("reflectionOut").textContent = "";
-      $("reflectionErr").style.display = "none";
-
-      try{
-        const d = await fetchJSON("/api/reflection", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({}) });
-        $("reflectionOut").textContent = d.text || "(no output)";
-        $("reflectionOut").style.display = "";
-      }catch(e){
-        $("reflectionErr").style.display = "";
-      }
-    }
-
-    function escapeHTML(s){
-      return String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
-    }
-
-    // initial load
-    loadNow();
-  </script>
 </body>
 </html>

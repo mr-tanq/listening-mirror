@@ -11,6 +11,7 @@
       --card:rgba(255,255,255,.06);
       --txt:rgba(255,255,255,.92);
       --muted:rgba(255,255,255,.58);
+      --muted2:rgba(255,255,255,.42);
       --stroke:rgba(255,255,255,.10);
       --radius:28px;
       --shadow: 0 12px 60px rgba(0,0,0,.55);
@@ -29,21 +30,30 @@
     h1{font-size:56px;letter-spacing:-1px;margin:18px 0 10px;}
 
     .tabs{
-      display:flex; gap:12px; align-items:center;
-      margin:10px 0 12px; overflow-x:auto; -webkit-overflow-scrolling:touch;
+      display:flex;
+      gap:12px;
+      align-items:center;
+      margin:10px 0 12px;
+      overflow-x:auto;
+      -webkit-overflow-scrolling:touch;
       padding-bottom:6px;
     }
     .tabs::-webkit-scrollbar{height:6px}
     .tabs::-webkit-scrollbar-thumb{background:rgba(255,255,255,.10);border-radius:999px}
-    .dot{flex:0 0 auto;width:18px;height:18px;border-radius:999px;background:#38d06e;
-      box-shadow:0 0 0 6px rgba(56,208,110,.12)}
+    .dot{
+      flex:0 0 auto;
+      width:18px;height:18px;border-radius:999px;background:#38d06e;
+      box-shadow:0 0 0 6px rgba(56,208,110,.12)
+    }
     .tab{
       flex:0 0 auto;
       border:1px solid var(--stroke);
       background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
       color:var(--txt);
       padding:10px 18px;border-radius:999px;
-      font-weight:800; cursor:pointer; user-select:none;
+      font-weight:800;
+      cursor:pointer;
+      user-select:none;
       white-space:nowrap;
     }
     .tab[aria-selected="true"]{
@@ -61,15 +71,32 @@
     }
     .panel h2{font-size:48px;margin:6px 0 14px;letter-spacing:-1px}
 
-    .card{border:1px solid var(--stroke); background:rgba(0,0,0,.22);
-      border-radius:22px; padding:16px;}
+    .card{
+      border:1px solid var(--stroke);
+      background:rgba(0,0,0,.22);
+      border-radius:22px;
+      padding:16px;
+    }
 
-    .muted{color:var(--muted); font-weight:750}
+    .muted{color:var(--muted);font-weight:750}
+
+    .debug{
+      margin:10px 0 18px;
+      border:1px solid var(--stroke);
+      background:rgba(0,0,0,.18);
+      border-radius:18px;
+      padding:12px 14px;
+      font-size:14px;
+      line-height:1.35;
+      word-break:break-word;
+    }
+    .debug b{color:rgba(255,255,255,.92)}
 
     .row{
       display:grid;
       grid-template-columns: 44px 56px 1fr auto;
-      gap:12px; align-items:center;
+      gap:12px;
+      align-items:center;
       padding:14px 14px;
       border-radius:18px;
       border:1px solid var(--stroke);
@@ -92,9 +119,27 @@
       display:grid;place-items:center;
     }
     .mini img{width:100%;height:100%;object-fit:cover;display:block;}
-    .rowTitle{font-weight:900; line-height:1.18; font-size:18px;}
-    .rowSub{color:rgba(255,255,255,.42); font-weight:750; margin-top:4px; font-size:14px;}
-    .count{color:rgba(255,255,255,.60); font-weight:900; white-space:nowrap; font-variant-numeric: tabular-nums;}
+    .rowTitle{
+      font-weight:900;
+      line-height:1.18;
+      font-size:18px;
+      word-break:break-word;
+      overflow-wrap:anywhere;
+    }
+    .rowSub{
+      color:var(--muted2);
+      font-weight:750;
+      margin-top:4px;
+      font-size:14px;
+      word-break:break-word;
+      overflow-wrap:anywhere;
+    }
+    .count{
+      color:rgba(255,255,255,.60);
+      font-weight:900;
+      white-space:nowrap;
+      font-variant-numeric: tabular-nums;
+    }
 
     .ph{
       width:100%;height:100%;
@@ -105,25 +150,85 @@
         rgba(255,255,255,.06);
     }
     .ph svg{width:26px;height:26px;opacity:.55;}
-    .nowGrid{display:grid; grid-template-columns: 120px 1fr; gap:16px; align-items:center;}
-    .cover{width:120px;height:120px;border-radius:18px;border:1px solid var(--stroke);
-      background:rgba(255,255,255,.08);overflow:hidden;display:grid;place-items:center;}
+
+    .nowGrid{
+      display:grid;
+      grid-template-columns: 120px 1fr;
+      gap:16px;
+      align-items:center;
+    }
+    .cover{
+      width:120px;height:120px;
+      border-radius:18px;
+      border:1px solid var(--stroke);
+      background:rgba(255,255,255,.08);
+      overflow:hidden;
+      display:grid;place-items:center;
+    }
     .cover img{width:100%;height:100%;object-fit:cover;display:block;}
-    .title{font-size:22px;font-weight:900;line-height:1.15;}
-    .sub{margin-top:6px;color:var(--muted);font-weight:750;}
+    .title{
+      font-size:22px;
+      font-weight:900;
+      line-height:1.15;
+      word-break:break-word;
+      overflow-wrap:anywhere;
+    }
+    .sub{
+      margin-top:6px;
+      color:var(--muted);
+      font-weight:750;
+      word-break:break-word;
+      overflow-wrap:anywhere;
+    }
+
+    .btnRow{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:12px}
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      padding:12px 16px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.18);
+      background:rgba(255,255,255,.10);
+      color:var(--txt);
+      font-weight:900;
+      cursor:pointer;
+      user-select:none;
+    }
+    .btn:disabled{opacity:.55;cursor:not-allowed}
+    .out{
+      margin-top:14px;
+      padding:14px;
+      border-radius:18px;
+      border:1px solid var(--stroke);
+      background:rgba(0,0,0,.22);
+      color:var(--txt);
+      white-space:pre-wrap;
+      line-height:1.45;
+      word-break:break-word;
+      overflow-wrap:anywhere;
+    }
 
     @media (max-width: 640px){
       h1{font-size:44px;margin:10px 0 8px;}
+      .wrap{padding:22px 14px 46px;}
       .panel{padding:16px;border-radius:24px;}
       .panel h2{font-size:40px}
       .nowGrid{grid-template-columns: 92px 1fr; gap:12px;}
       .cover{width:92px;height:92px;border-radius:16px;}
       .title{font-size:18px}
       .sub{font-size:14px}
-      .row{grid-template-columns: 40px 52px 1fr; grid-template-areas:"rank art meta" "rank art count";}
+
+      .row{
+        grid-template-columns: 40px 52px 1fr;
+        grid-template-areas:"rank art meta" "rank art count";
+        align-items:start;
+        gap:10px 12px;
+      }
       .rank{grid-area:rank;width:40px;height:40px}
       .mini{grid-area:art;width:52px;height:52px}
       .count{grid-area:count;justify-self:end;align-self:end}
+      .tab{padding:10px 14px}
     }
   </style>
 </head>
@@ -132,11 +237,18 @@
   <div class="wrap">
     <h1>Listening Mirror</h1>
 
+    <div class="debug" id="dbg">
+      <div><b>API:</b> <span id="dbgApi">checking…</span></div>
+      <div><b>BASE_API:</b> <span id="dbgBase"></span></div>
+      <div class="muted">Αν γράψει FAIL εδώ, τότε είναι καθαρά θέμα σύνδεσης site → worker.</div>
+    </div>
+
     <div class="tabs">
       <div class="dot" aria-hidden="true"></div>
       <div class="tab" data-tab="now" aria-selected="true">Now</div>
       <div class="tab" data-tab="today" aria-selected="false">Today</div>
       <div class="tab" data-tab="week" aria-selected="false">Week</div>
+      <div class="tab" data-tab="mirror" aria-selected="false">Mirror</div>
     </div>
 
     <section class="panel" data-panel="now">
@@ -162,11 +274,21 @@
     <section class="panel" data-panel="week" style="display:none;">
       <h2>Top tracks</h2>
       <div id="weekTracks"></div>
-
       <div style="height:18px"></div>
-
       <h2 style="font-size:40px;margin-top:10px;">Top artists</h2>
       <div id="weekArtists"></div>
+    </section>
+
+    <section class="panel" data-panel="mirror" style="display:none;">
+      <h2>Mirror</h2>
+      <div class="muted">AI text από τα Last.fm patterns σου. (Χρησιμοποιεί το Worker endpoint <b>/api/reflection</b>.)</div>
+
+      <div class="btnRow">
+        <button class="btn" id="btnMirror">Refresh Mirror</button>
+        <span class="muted" id="mirrorStatus"></span>
+      </div>
+
+      <div class="out" id="mirrorOut" style="display:none;"></div>
     </section>
   </div>
 
@@ -176,6 +298,7 @@
     const qsApi = new URL(location.href).searchParams.get("api");
     const storedApi = localStorage.getItem("BASE_API");
     const BASE_API = (qsApi || storedApi || DEFAULT_API).replace(/\/+$/,"");
+
     if (qsApi) localStorage.setItem("BASE_API", BASE_API);
 
     const $ = (id) => document.getElementById(id);
@@ -196,12 +319,12 @@
         if (name === "now") loadNow();
         if (name === "today") loadToday();
         if (name === "week") loadWeek();
+        if (name === "mirror") loadMirror();
       });
     });
 
     async function fetchJSON(path, opts = {}){
-      const url = BASE_API + path;
-      const r = await fetch(url, { ...opts, mode:"cors", cache:"no-store" });
+      const r = await fetch(BASE_API + path, { ...opts, mode:"cors", cache:"no-store" });
       const text = await r.text();
       let data = null;
       try { data = JSON.parse(text); } catch {}
@@ -222,6 +345,11 @@
       `;
     }
 
+    function coverHTML(url){
+      if (url) return `<img src="${url}" alt="" loading="lazy" />`;
+      return placeholderHTML();
+    }
+
     function esc(s){
       return String(s ?? "")
         .replaceAll("&","&amp;")
@@ -229,7 +357,16 @@
         .replaceAll(">","&gt;");
     }
 
-    // NOW
+    async function checkApi(){
+      $("dbgBase").textContent = BASE_API;
+      try{
+        const r = await fetch(BASE_API + "/api/now", { mode:"cors", cache:"no-store" });
+        $("dbgApi").textContent = `OK (status ${r.status})`;
+      }catch(e){
+        $("dbgApi").textContent = `FAIL (${e?.name || "Error"}: ${e?.message || e})`;
+      }
+    }
+
     async function loadNow(){
       $("nowHint").textContent = "";
       try{
@@ -237,7 +374,7 @@
         const title = d.artist ? `${d.artist} — ${d.name}` : (d.name || "—");
         $("nowTitle").textContent = title || "—";
         $("nowAlbum").textContent = d.album || "";
-        $("nowCover").innerHTML = d.image ? `<img src="${esc(d.image)}" alt="" loading="lazy" />` : placeholderHTML();
+        $("nowCover").innerHTML = coverHTML(d.image);
         $("nowHint").textContent = d.nowPlaying ? "LIVE now playing" : "";
       }catch(e){
         $("nowTitle").textContent = "Failed to load.";
@@ -247,7 +384,6 @@
       }
     }
 
-    // TODAY
     async function loadToday(){
       const listEl = $("todayList");
       const emptyEl = $("todayEmpty");
@@ -259,7 +395,7 @@
         const tracks = d.tracks || [];
         if (!tracks.length){ emptyEl.style.display=""; return; }
 
-        tracks.slice(0, 30).forEach((t, i)=>{
+        tracks.slice(0, 10).forEach((t, i)=>{
           const row = document.createElement("div");
           row.className = "row";
           row.innerHTML = `
@@ -279,36 +415,18 @@
       }
     }
 
-    // WEEK (artwork fallback from RECENT like Now/Today)
     async function loadWeek(){
       $("weekTracks").innerHTML = "";
       $("weekArtists").innerHTML = "";
 
-      // 1) fetch recent map for artwork fallback (same source as Now/Today)
-      let recentMap = new Map();
-      try{
-        const r = await fetchJSON("/api/recent?limit=200");
-        const recent = r.tracks || [];
-        for (const t of recent){
-          // key by track name (simple & robust for your use)
-          if (t?.name && t?.image && !recentMap.has(t.name)) {
-            recentMap.set(t.name, t.image);
-          }
-        }
-      }catch(e){
-        // ignore: week can still load without fallback
-      }
-
-      // 2) Top tracks
       try{
         const d = await fetchJSON("/api/top?type=tracks&period=7day&limit=12");
         (d.tracks || []).forEach((t, i)=>{
-          const img = t.image || recentMap.get(t.name) || "";
           const row = document.createElement("div");
           row.className = "row";
           row.innerHTML = `
             <div class="rank">${i+1}</div>
-            <div class="mini">${img ? `<img src="${esc(img)}" alt="" loading="lazy">` : placeholderHTML()}</div>
+            <div class="mini">${t.image ? `<img src="${esc(t.image)}" alt="" loading="lazy">` : placeholderHTML()}</div>
             <div>
               <div class="rowTitle">${esc(t.name || "")}</div>
               <div class="rowSub"></div>
@@ -324,7 +442,6 @@
         $("weekTracks").appendChild(m);
       }
 
-      // 3) Top artists
       try{
         const d2 = await fetchJSON("/api/top?type=artists&period=7day&limit=10");
         (d2.artists || []).forEach((a, i)=>{
@@ -349,7 +466,36 @@
       }
     }
 
-    // initial
+    async function loadMirror(){
+      const statusEl = $("mirrorStatus");
+      const outEl = $("mirrorOut");
+      const btn = $("btnMirror");
+      statusEl.textContent = "";
+      outEl.style.display = "none";
+      outEl.textContent = "";
+
+      btn.disabled = true;
+      statusEl.textContent = "Loading…";
+
+      try{
+        const d = await fetchJSON("/api/reflection", {
+          method:"POST",
+          headers:{ "Content-Type":"application/json" },
+          body: JSON.stringify({ focus: "" })
+        });
+        outEl.textContent = d.text || "No output.";
+        outEl.style.display = "";
+        statusEl.textContent = "";
+      }catch(e){
+        statusEl.textContent = "Failed: " + (e.message || "");
+      }finally{
+        btn.disabled = false;
+      }
+    }
+
+    document.getElementById("btnMirror").addEventListener("click", loadMirror);
+
+    checkApi();
     loadNow();
   </script>
 </body>

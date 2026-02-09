@@ -1,84 +1,113 @@
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    const path = url.pathname;
 
-    // CORS preflight
+    // --- CORS (IMPORTANT for GitHub Pages) ---
     if (request.method === "OPTIONS") {
-      return cors(new Response(null, { status: 204 }));
+      return new Response(null, { status: 204, headers: corsHeaders() });
     }
 
     try {
-      if (url.pathname === "/" || url.pathname === "") {
-        return cors(text("Listening Mirror API — OK"));
+      if (path === "/" || path === "/health") {
+        return json({ ok: true, service: "listening-mirror-worker" }, 200);
       }
 
-      if (url.pathname === "/api/now") {
-        const data = await getRecentTrack(env);
-        return cors(json(data));
+      if (path === "/api/now") {
+        const data = await lastfmNowPlaying(env);
+        return json({ track: data }, 200);
       }
 
-      if (url.pathname === "/api/top") {
+      if (path === "/api/top") {
         const type = (url.searchParams.get("type") || "tracks").toLowerCase();
-        const period = url.searchParams.get("period") || "7day";
-        const limit = clampInt(url.searchParams.get("limit"), 1, 50, 10);
+        const period = (url.searchParams.get("period") || "7day").toLowerCase();
+        const limit = clampInt(url.searchParams.get("limit"), 1, 20, 5);
 
         if (type !== "tracks") {
-          return cors(json({ error: "Only type=tracks supported" }, 400));
+          return json({ error: "Only type=tracks is supported." }, 400);
         }
 
-        const data = await getTopTracks(env, period, limit);
-        return cors(json(data));
+        const tracks = await lastfmTopTracks(env, period, limit);
+        return json({ tracks }, 200);
       }
 
-      if (url.pathname === "/api/reflection") {
-        // placeholder safe response (you already have OPENAI_API_KEY; we can wire later)
-        const period = url.searchParams.get("period") || "7day";
+      if (path === "/api/reflection") {
+        // We keep this strictly factual.
+        // If OPENAI_API_KEY is missing, we return a clear message (no made-up text).
+        const period = (url.searchParams.get("period") || "7day").toLowerCase();
         const limit = clampInt(url.searchParams.get("limit"), 1, 20, 10);
-        const top = await getTopTracks(env, period, limit);
 
-        const names = top.tracks.map(t => `${t.name} — ${t.artist} (${t.playcount})`).join(" | ");
-        const textOut = `This week you leaned into: ${names}.`;
-        return cors(json({ text: textOut }));
+        const tracks = await lastfmTopTracks(env, period, limit);
+
+        if (!env.OPENAI_API_KEY) {
+          return json({
+            period,
+            reflection:
+              "Reflection is disabled because OPENAI_API_KEY is not set in Cloudflare Worker secrets.",
+            top_tracks: tracks.map(t => ({
+              name: t.name,
+              artist: t.artist,
+              playcount: t.playcount
+            }))
+          }, 200);
+        }
+
+        const reflection = await aiReflection(env, { period, tracks });
+        return json({ period, reflection }, 200);
       }
 
-      return cors(json({ error: "Not found" }, 404));
-    } catch (e) {
-      return cors(json({ error: "Server error" }, 500));
+      return json({ error: "Not found." }, 404);
+    } catch (err) {
+      return json({ error: String(err?.message || err) }, 500);
     }
-  }
+  },
 };
 
-function clampInt(v, min, max, def) {
-  const n = Number.parseInt(v ?? "", 10);
-  if (!Number.isFinite(n)) return def;
-  return Math.max(min, Math.min(max, n));
-}
-function cors(resp) {
-  const h = new Headers(resp.headers);
-  h.set("Access-Control-Allow-Origin", "*");
-  h.set("Access-Control-Allow-Methods", "GET,OPTIONS");
-  h.set("Access-Control-Allow-Headers", "Content-Type");
-  return new Response(resp.body, { status: resp.status, headers: h });
+function corsHeaders() {
+  return {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type,Accept",
+    "Access-Control-Max-Age": "86400",
+  };
 }
 
 function json(obj, status = 200) {
-  return new Response(JSON.stringify(obj), {
+  return new Response(JSON.stringify(obj, null, 2), {
     status,
-    headers: { "Content-Type": "application/json; charset=utf-8" }
+    headers: {
+      ...corsHeaders(),
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
   });
 }
 
-function text(t, status = 200) {
-  return new Response(t, {
-    status,
-    headers: { "Content-Type": "text/plain; charset=utf-8" }
-  });
+function clampInt(value, min, max, fallback) {
+  const n = Number.parseInt(value ?? "", 10);
+  if (Number.isNaN(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+// ----------------------
+// Last.fm helpers
+// ----------------------
+
+function getLastfmKey(env) {
+  // You have both LASTFM_API_KEY (secret) and LASTFM_KEY (plaintext) in screenshots.
+  return env.LASTFM_API_KEY || env.LASTFM_KEY || "";
 }
 
-async function getRecentTrack(env) {
-  const user = env.LASTFM_USER;
-  const apiKey = env.LASTFM_API_KEY;
+function getLastfmUser(env) {
+  return env.LASTFM_USER || "";
+}
 
+async function lastfmNowPlaying(env) {
+  const apiKey = getLastfmKey(env);
+  const user = getLastfmUser(env);
+  if (!apiKey) throw new Error("Missing LASTFM_API_KEY (or LASTFM_KEY).");
+  if (!user) throw new Error("Missing LASTFM_USER.");
+
+  // Use user.getrecenttracks
   const endpoint = new URL("https://ws.audioscrobbler.com/2.0/");
   endpoint.searchParams.set("method", "user.getrecenttracks");
   endpoint.searchParams.set("user", user);
@@ -86,28 +115,29 @@ async function getRecentTrack(env) {
   endpoint.searchParams.set("format", "json");
   endpoint.searchParams.set("limit", "1");
 
-  const r = await fetch(endpoint.toString());
-  if (!r.ok) throw new Error("Last.fm error");
-  const j = await r.json();
+  const res = await fetch(endpoint.toString(), { headers: { "Accept": "application/json" } });
+  if (!res.ok) throw new Error(`Last.fm error (recenttracks) HTTP ${res.status}`);
+  const data = await res.json();
 
-  const track = j?.recenttracks?.track?.[0];
-  if (!track) return { track: null };
+  const t = data?.recenttracks?.track?.[0];
+  if (!t) return { name: "—", artist: "—", image: "" };
 
-  const img = pickImage(track.image);
-  const nowplaying = track?.["@attr"]?.nowplaying === "true";
+  const name = t?.name || "—";
+  const artist = t?.artist?.["#text"] || t?.artist?.name || "—";
+  const album = t?.album?.["#text"] || "";
+  const nowplaying = t?.["@attr"]?.nowplaying === "true";
 
-  return {
-    track: {
-      name: track.name || "",
-      artist: track.artist?.["#text"] || "",
-      image: img,
-      nowplaying
-    }
-  };
+  const image = pickLastfmImage(t?.image);
+  const ts = t?.date?.uts ? Number(t.date.uts) : null;
+
+  return { name, artist, album, nowplaying, image, uts: ts };
 }
-async function getTopTracks(env, period, limit) {
-  const user = env.LASTFM_USER;
-  const apiKey = env.LASTFM_API_KEY;
+
+async function lastfmTopTracks(env, period, limit) {
+  const apiKey = getLastfmKey(env);
+  const user = getLastfmUser(env);
+  if (!apiKey) throw new Error("Missing LASTFM_API_KEY (or LASTFM_KEY).");
+  if (!user) throw new Error("Missing LASTFM_USER.");
 
   const endpoint = new URL("https://ws.audioscrobbler.com/2.0/");
   endpoint.searchParams.set("method", "user.gettoptracks");
@@ -117,32 +147,76 @@ async function getTopTracks(env, period, limit) {
   endpoint.searchParams.set("period", period);
   endpoint.searchParams.set("limit", String(limit));
 
-  const r = await fetch(endpoint.toString());
-  if (!r.ok) throw new Error("Last.fm error");
-  const j = await r.json();
+  const res = await fetch(endpoint.toString(), { headers: { "Accept": "application/json" } });
+  if (!res.ok) throw new Error(`Last.fm error (toptracks) HTTP ${res.status}`);
+  const data = await res.json();
 
-  const tracks = (j?.toptracks?.track || []).map(t => ({
-    name: t.name || "",
-    artist: t.artist?.name || "",
-    playcount: Number.parseInt(t.playcount || "0", 10) || 0,
-    image: pickImage(t.image)
+  const arr = data?.toptracks?.track || [];
+  return arr.map((t) => ({
+    name: t?.name || "—",
+    artist: t?.artist?.name || "—",
+    playcount: t?.playcount ? Number(t.playcount) : null,
+    image: pickLastfmImage(t?.image),
+    url: t?.url || "",
   }));
-
-  return { tracks };
 }
 
-function pickImage(imageArr) {
-  if (!Array.isArray(imageArr)) return "";
-  // prefer largest
-  const sorted = [...imageArr].reverse();
-  for (const it of sorted) {
-    if (it && it["#text"]) return it["#text"];
+function pickLastfmImage(images) {
+  // Last.fm returns array like [{#text:"...", size:"small"}, ...]
+  if (!Array.isArray(images)) return "";
+  const preferred = ["extralarge", "large", "medium", "small"];
+  for (const size of preferred) {
+    const found = images.find((x) => x?.size === size && x?.["#text"]);
+    if (found?.["#text"]) return found["#text"];
   }
-  return "";
+  const any = images.find((x) => x?.["#text"]);
+  return any?.["#text"] || "";
 }
-// NOTE:
-// env vars που έχεις ήδη βάλει στο Cloudflare:
-// - LASTFM_API_KEY (secret)
-// - LASTFM_USER (π.χ. errz)
-// - CACHE_TTL (προαιρετικό)
-// - OPENAI_API_KEY (secret) (θα το δέσουμε αργότερα αν θες)
+// ----------------------
+// OpenAI reflection (factual, based on provided tracks only)
+// ----------------------
+
+async function aiReflection(env, { period, tracks }) {
+  // No inventions: we provide the model ONLY the tracks list and ask to summarize patterns.
+  const payload = {
+    model: "gpt-4o-mini",
+    temperature: 0.2,
+    messages: [
+      {
+        role: "system",
+        content:
+          "You write a short factual reflection based strictly on the provided Last.fm top tracks list. " +
+          "Do not invent listening times, moods, genres, or life events. " +
+          "Only mention what can be inferred directly: repeated artists, most-played tracks, concentration vs variety."
+      },
+      {
+        role: "user",
+        content:
+          `Period: ${period}\n` +
+          "Top tracks (name — artist — playcount):\n" +
+          tracks
+            .map((t, i) => `${i + 1}. ${t.name} — ${t.artist} — ${t.playcount ?? "?"}`)
+            .join("\n")
+      }
+    ]
+  };
+
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${env.OPENAI_API_KEY}`,
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`OpenAI error HTTP ${res.status}${t ? " — " + t.slice(0, 200) : ""}`);
+  }
+
+  const data = await res.json();
+  const text = data?.choices?.[0]?.message?.content?.trim();
+  return text || "No reflection returned.";
+}

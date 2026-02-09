@@ -152,7 +152,8 @@
       <div class="tab" data-tab="today" aria-selected="false">Today</div>
       <div class="tab" data-tab="week" aria-selected="false">Week</div>
     </div>
-<section class="panel" data-panel="now">
+
+    <section class="panel" data-panel="now">
       <h2>Now Playing</h2>
       <div class="card">
         <div class="nowGrid">
@@ -173,10 +174,10 @@
     </section>
 
     <section class="panel" data-panel="week" style="display:none;">
-      <h2>Top tracks (7 days)</h2>
+      <h2>Top tracks</h2>
       <div id="weekTracks"></div>
       <div style="height:18px"></div>
-      <h2 style="font-size:40px;margin-top:10px;">Top artists (7 days)</h2>
+      <h2 style="font-size:40px;margin-top:10px;">Top artists</h2>
       <div id="weekArtists"></div>
     </section>
 
@@ -259,7 +260,23 @@
         .replaceAll("<","&lt;")
         .replaceAll(">","&gt;");
     }
-async function checkApi(){
+
+    function renderRow({ rank, image, title, sub, count, isLive=false }){
+      const img = image ? `<img src="${esc(image)}" alt="" loading="lazy">` : placeholderHTML();
+      return `
+        <div class="row">
+          <div class="rank">${rank}</div>
+          <div class="mini">${img}</div>
+          <div>
+            <div class="rowTitle">${esc(title)}</div>
+            <div class="rowSub">${esc(sub || "")}</div>
+          </div>
+          <div class="count">${isLive ? "LIVE" : (count ?? "")}</div>
+        </div>
+      `;
+    }
+
+    async function checkApi(){
       $("dbgBase").textContent = BASE_API;
       try{
         const d = await withTimeout((signal)=>fetch(BASE_API + "/api/now", { signal, cache:"no-store", mode:"cors" }));
@@ -299,20 +316,18 @@ async function checkApi(){
         const tracks = d.tracks || [];
         if (!tracks.length){ emptyEl.style.display=""; return; }
 
-        tracks.slice(0, 30).forEach((t, i)=>{
-          const row = document.createElement("div");
-          row.className = "row";
-          row.innerHTML = `
-            <div class="rank">${i+1}</div>
-            <div class="mini">${t.image ? `<img src="${esc(t.image)}" alt="" loading="lazy">` : placeholderHTML()}</div>
-            <div>
-              <div class="rowTitle">${esc(`${t.artist} — ${t.name}`)}</div>
-              <div class="rowSub">${esc(t.album || "")}</div>
-            </div>
-            <div class="count">${t.nowPlaying ? "LIVE" : ""}</div>
-          `;
-          listEl.appendChild(row);
-        });
+        listEl.innerHTML = tracks.slice(0, 30).map((t, i) => {
+          const title = `${t.artist} — ${t.name}`;
+          const sub = t.album || "";
+          return renderRow({
+            rank: i+1,
+            image: t.image || "",
+            title,
+            sub,
+            count: t.nowPlaying ? "" : "",
+            isLive: !!t.nowPlaying
+          });
+        }).join("");
       }catch(e){
         emptyEl.style.display="";
         emptyEl.textContent = "Failed to load: " + (e.message || "");
@@ -324,53 +339,54 @@ async function checkApi(){
       $("weekTracks").innerHTML = "";
       $("weekArtists").innerHTML = "";
 
+      // TOP TRACKS
       try{
         const d = await fetchJSON("/api/top?type=tracks&period=7day&limit=12");
-        (d.tracks || []).forEach((t, i)=>{
-          const row = document.createElement("div");
-          row.className = "row";
-          row.innerHTML = `
-            <div class="rank">${i+1}</div>
-            <div class="mini">${t.image ? `<img src="${esc(t.image)}" alt="" loading="lazy">` : placeholderHTML()}</div>
-            <div>
-              <div class="rowTitle">${esc(t.name || "")}</div>
-              <div class="rowSub"></div>
-            </div>
-            <div class="count">${(t.playcount||0)}</div>
-          `;
-          $("weekTracks").appendChild(row);
-        });
+        const tracks = d.tracks || [];
+
+        if (!tracks.length){
+          $("weekTracks").innerHTML = `<div class="muted">No tracks yet.</div>`;
+        } else {
+          $("weekTracks").innerHTML = tracks.map((t, i) => {
+            const title = t.artist ? `${t.artist} — ${t.name}` : (t.name || "—");
+            const sub = t.album || "";
+            return renderRow({
+              rank: i+1,
+              image: t.image || "",
+              title,
+              sub,
+              count: (t.playcount || 0)
+            });
+          }).join("");
+        }
       }catch(e){
-        const m = document.createElement("div");
-        m.className="muted";
-        m.textContent="Failed to load top tracks: " + (e.message || "");
-        $("weekTracks").appendChild(m);
+        $("weekTracks").innerHTML = `<div class="muted">Failed to load top tracks: ${esc(e.message || "")}</div>`;
       }
 
+      // TOP ARTISTS
       try{
         const d2 = await fetchJSON("/api/top?type=artists&period=7day&limit=10");
-        (d2.artists || []).forEach((a, i)=>{
-          const row = document.createElement("div");
-          row.className = "row";
-          row.innerHTML = `
-            <div class="rank">${i+1}</div>
-            <div class="mini">${a.image ? `<img src="${esc(a.image)}" alt="" loading="lazy">` : placeholderHTML()}</div>
-            <div>
-              <div class="rowTitle">${esc(a.name || "")}</div>
-              <div class="rowSub"></div>
-            </div>
-            <div class="count">${(a.playcount||0)}</div>
-          `;
-          $("weekArtists").appendChild(row);
-        });
+        const artists = d2.artists || [];
+
+        if (!artists.length){
+          $("weekArtists").innerHTML = `<div class="muted">No artists yet.</div>`;
+        } else {
+          $("weekArtists").innerHTML = artists.map((a, i) => {
+            return renderRow({
+              rank: i+1,
+              image: a.image || "",
+              title: a.name || "—",
+              sub: "",
+              count: (a.playcount || 0)
+            });
+          }).join("");
+        }
       }catch(e){
-        const m = document.createElement("div");
-        m.className="muted";
-        m.textContent="Failed to load top artists: " + (e.message || "");
-        $("weekArtists").appendChild(m);
+        $("weekArtists").innerHTML = `<div class="muted">Failed to load top artists: ${esc(e.message || "")}</div>`;
       }
     }
-// initial
+
+    // initial
     checkApi();
     loadNow();
   </script>

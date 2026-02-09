@@ -180,18 +180,14 @@
       <h2 style="font-size:40px;margin-top:10px;">Top artists</h2>
       <div id="weekArtists"></div>
     </section>
-
   </div>
 
   <script>
-    // ✅ Βασικό: Last.fm Worker μόνο
-    // Αν θέλεις να το αλλάξεις γρήγορα χωρίς νέο deploy:
-    // βάλε ?api=https://i.errtanq9.workers.dev στο URL του site.
     const DEFAULT_API = "https://i.errtanq9.workers.dev";
 
     const qsApi = new URL(location.href).searchParams.get("api");
     const storedApi = localStorage.getItem("BASE_API");
-    const BASE_API = (qsApi || storedApi || DEFAULT_API).replace(/\/+$/,""); // trim trailing /
+    const BASE_API = (qsApi || storedApi || DEFAULT_API).replace(/\/+$/,"");
 
     if (qsApi) localStorage.setItem("BASE_API", BASE_API);
 
@@ -224,11 +220,7 @@
 
     async function fetchJSON(path, opts = {}){
       const url = BASE_API + path;
-      const r = await fetch(url, {
-        ...opts,
-        mode: "cors",
-        cache: "no-store"
-      });
+      const r = await fetch(url, { ...opts, mode:"cors", cache:"no-store" });
       const text = await r.text();
       let data = null;
       try { data = JSON.parse(text); } catch {}
@@ -249,11 +241,6 @@
       `;
     }
 
-    function coverHTML(url){
-      if (url) return `<img src="${url}" alt="" loading="lazy" />`;
-      return placeholderHTML();
-    }
-
     function esc(s){
       return String(s ?? "")
         .replaceAll("&","&amp;")
@@ -261,19 +248,10 @@
         .replaceAll(">","&gt;");
     }
 
-    function renderRow({ rank, image, title, sub, count, isLive=false }){
-      const img = image ? `<img src="${esc(image)}" alt="" loading="lazy">` : placeholderHTML();
-      return `
-        <div class="row">
-          <div class="rank">${rank}</div>
-          <div class="mini">${img}</div>
-          <div>
-            <div class="rowTitle">${esc(title)}</div>
-            <div class="rowSub">${esc(sub || "")}</div>
-          </div>
-          <div class="count">${isLive ? "LIVE" : (count ?? "")}</div>
-        </div>
-      `;
+    function imgTag(url){
+      const u = (url && String(url).trim()) ? String(url).trim() : "";
+      if (!u) return placeholderHTML();
+      return `<img src="${esc(u)}" alt="" loading="lazy" referrerpolicy="no-referrer">`;
     }
 
     async function checkApi(){
@@ -294,7 +272,7 @@
         const title = d.artist ? `${d.artist} — ${d.name}` : (d.name || "—");
         $("nowTitle").textContent = title || "—";
         $("nowAlbum").textContent = d.album || "";
-        $("nowCover").innerHTML = coverHTML(d.image);
+        $("nowCover").innerHTML = imgTag(d.image);
         $("nowHint").textContent = d.nowPlaying ? "LIVE now playing" : "";
       }catch(e){
         $("nowTitle").textContent = "Failed to load.";
@@ -316,18 +294,20 @@
         const tracks = d.tracks || [];
         if (!tracks.length){ emptyEl.style.display=""; return; }
 
-        listEl.innerHTML = tracks.slice(0, 30).map((t, i) => {
-          const title = `${t.artist} — ${t.name}`;
-          const sub = t.album || "";
-          return renderRow({
-            rank: i+1,
-            image: t.image || "",
-            title,
-            sub,
-            count: t.nowPlaying ? "" : "",
-            isLive: !!t.nowPlaying
-          });
-        }).join("");
+        tracks.slice(0, 30).forEach((t, i)=>{
+          const row = document.createElement("div");
+          row.className = "row";
+          row.innerHTML = `
+            <div class="rank">${i+1}</div>
+            <div class="mini">${imgTag(t.image)}</div>
+            <div>
+              <div class="rowTitle">${esc(`${t.artist} — ${t.name}`)}</div>
+              <div class="rowSub">${esc(t.album || "")}</div>
+            </div>
+            <div class="count">${t.nowPlaying ? "LIVE" : ""}</div>
+          `;
+          listEl.appendChild(row);
+        });
       }catch(e){
         emptyEl.style.display="";
         emptyEl.textContent = "Failed to load: " + (e.message || "");
@@ -339,50 +319,50 @@
       $("weekTracks").innerHTML = "";
       $("weekArtists").innerHTML = "";
 
-      // TOP TRACKS
       try{
         const d = await fetchJSON("/api/top?type=tracks&period=7day&limit=12");
-        const tracks = d.tracks || [];
-
-        if (!tracks.length){
-          $("weekTracks").innerHTML = `<div class="muted">No tracks yet.</div>`;
-        } else {
-          $("weekTracks").innerHTML = tracks.map((t, i) => {
-            const title = t.artist ? `${t.artist} — ${t.name}` : (t.name || "—");
-            const sub = t.album || "";
-            return renderRow({
-              rank: i+1,
-              image: t.image || "",
-              title,
-              sub,
-              count: (t.playcount || 0)
-            });
-          }).join("");
-        }
+        (d.tracks || []).forEach((t, i)=>{
+          const row = document.createElement("div");
+          row.className = "row";
+          row.innerHTML = `
+            <div class="rank">${i+1}</div>
+            <div class="mini">${imgTag(t.image)}</div>
+            <div>
+              <div class="rowTitle">${esc(t.name || "")}</div>
+              <div class="rowSub"></div>
+            </div>
+            <div class="count">${(t.playcount||0)}</div>
+          `;
+          $("weekTracks").appendChild(row);
+        });
       }catch(e){
-        $("weekTracks").innerHTML = `<div class="muted">Failed to load top tracks: ${esc(e.message || "")}</div>`;
+        const m = document.createElement("div");
+        m.className="muted";
+        m.textContent="Failed to load top tracks: " + (e.message || "");
+        $("weekTracks").appendChild(m);
       }
 
-      // TOP ARTISTS
       try{
         const d2 = await fetchJSON("/api/top?type=artists&period=7day&limit=10");
-        const artists = d2.artists || [];
-
-        if (!artists.length){
-          $("weekArtists").innerHTML = `<div class="muted">No artists yet.</div>`;
-        } else {
-          $("weekArtists").innerHTML = artists.map((a, i) => {
-            return renderRow({
-              rank: i+1,
-              image: a.image || "",
-              title: a.name || "—",
-              sub: "",
-              count: (a.playcount || 0)
-            });
-          }).join("");
-        }
+        (d2.artists || []).forEach((a, i)=>{
+          const row = document.createElement("div");
+          row.className = "row";
+          row.innerHTML = `
+            <div class="rank">${i+1}</div>
+            <div class="mini">${imgTag(a.image)}</div>
+            <div>
+              <div class="rowTitle">${esc(a.name || "")}</div>
+              <div class="rowSub"></div>
+            </div>
+            <div class="count">${(a.playcount||0)}</div>
+          `;
+          $("weekArtists").appendChild(row);
+        });
       }catch(e){
-        $("weekArtists").innerHTML = `<div class="muted">Failed to load top artists: ${esc(e.message || "")}</div>`;
+        const m = document.createElement("div");
+        m.className="muted";
+        m.textContent="Failed to load top artists: " + (e.message || "");
+        $("weekArtists").appendChild(m);
       }
     }
 

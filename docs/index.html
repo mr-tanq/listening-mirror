@@ -1,305 +1,439 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Listening Mirror</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Listening Mirror</title>
 
-<style>
-:root{
---bg:#0b0b0b;
---card:#141414;
---stroke:#2a2a2a;
---text:#eaeaea;
---muted:#a8a8a8;
-}
+  <style>
+    :root{
+      --bg:#0b0c0e;
+      --txt:rgba(255,255,255,.92);
+      --muted:rgba(255,255,255,.58);
+      --stroke:rgba(255,255,255,.10);
+      --radius:28px;
+      --shadow: 0 12px 60px rgba(0,0,0,.55);
+      --hero: none;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color:var(--txt);
+      background:
+        radial-gradient(1200px 800px at 30% 10%, rgba(255,255,255,.10), transparent 60%),
+        radial-gradient(900px 600px at 80% 20%, rgba(255,255,255,.08), transparent 55%),
+        var(--bg);
+      min-height:100vh;
+    }
+    body.top-hero{
+      background:
+        linear-gradient(180deg, rgba(0,0,0,.15), rgba(0,0,0,.75)),
+        radial-gradient(1200px 800px at 30% 10%, rgba(255,255,255,.08), transparent 60%),
+        radial-gradient(900px 600px at 80% 20%, rgba(255,255,255,.06), transparent 55%),
+        var(--bg);
+    }
+    body.top-hero::before{
+      content:"";
+      position:fixed;
+      inset:0;
+      background-image: var(--hero);
+      background-size: cover;
+      background-position: center;
+      filter: blur(26px) saturate(1.1);
+      opacity: .22;
+      pointer-events:none;
+      z-index:-1;
+    }
 
-body{
-margin:0;
-font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;
-background:var(--bg);
-color:var(--text);
-overflow-x:hidden;
-}
+    .wrap{max-width:980px;margin:0 auto;padding:24px 16px 64px;}
+    h1{font-size:52px;letter-spacing:-1px;margin:14px 0 12px;}
 
-/* dynamic background */
-#bg{
-position:fixed;
-inset:0;
-z-index:-2;
-background-size:cover;
-background-position:center;
-filter:blur(30px) brightness(.55);
-opacity:0;
-transition:opacity .5s ease;
-transform:scale(1.1);
-}
-#bg.on{opacity:.45;}
+    .tabs{
+      display:flex; gap:10px; align-items:center;
+      margin:8px 0 14px; overflow-x:auto; -webkit-overflow-scrolling:touch;
+      padding-bottom:6px;
+    }
+    .tabs::-webkit-scrollbar{height:6px}
+    .tabs::-webkit-scrollbar-thumb{background:rgba(255,255,255,.10);border-radius:999px}
+    .dot{flex:0 0 auto;width:16px;height:16px;border-radius:999px;background:#38d06e;box-shadow:0 0 0 6px rgba(56,208,110,.12)}
+    .tab{
+      flex:0 0 auto;
+      border:1px solid var(--stroke);
+      background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
+      color:var(--txt);
+      padding:10px 16px;border-radius:999px;
+      font-weight:850; cursor:pointer; user-select:none;
+      white-space:nowrap;
+    }
+    .tab[aria-selected="true"]{
+      background:linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.06));
+      border-color:rgba(255,255,255,.18);
+    }
 
-#vignette{
-position:fixed;
-inset:0;
-z-index:-1;
-background:
-radial-gradient(circle at center, transparent 20%, black 85%);
-}
+    .subtabs{display:flex; gap:10px; margin:0 0 14px; overflow-x:auto; -webkit-overflow-scrolling:touch; padding-bottom:6px;}
+    .subtabs::-webkit-scrollbar{height:6px}
+    .subtabs::-webkit-scrollbar-thumb{background:rgba(255,255,255,.10);border-radius:999px}
+    .stab{
+      flex:0 0 auto;
+      border:1px solid var(--stroke);
+      background:rgba(0,0,0,.18);
+      color:var(--txt);
+      padding:8px 14px;border-radius:999px;
+      font-weight:850; cursor:pointer; user-select:none;
+      white-space:nowrap;
+    }
+    .stab[aria-selected="true"]{
+      background:rgba(255,255,255,.10);
+      border-color:rgba(255,255,255,.18);
+    }
 
-.container{
-max-width:900px;
-margin:auto;
-padding:20px;
-}
+    .panel{
+      border:1px solid var(--stroke);
+      background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
+      border-radius:var(--radius);
+      padding:18px;
+      box-shadow:var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+    .panel h2{font-size:40px;margin:6px 0 14px;letter-spacing:-1px}
 
-h1{
-font-size:56px;
-margin:10px 0 10px;
-font-weight:900;
-}
+    .card{border:1px solid var(--stroke); background:rgba(0,0,0,.22); border-radius:22px; padding:16px;}
+    .muted{color:var(--muted); font-weight:750}
 
-.tabs{
-display:flex;
-gap:10px;
-margin-bottom:18px;
-}
+    .nowGrid{display:grid; grid-template-columns: 108px 1fr; gap:14px; align-items:center;}
+    .cover{
+      width:108px;height:108px;border-radius:18px;border:1px solid var(--stroke);
+      background:rgba(255,255,255,.08);
+      overflow:hidden;
+      display:grid;place-items:center;
+    }
+    .cover img{width:100%;height:100%;object-fit:cover;display:block;}
+    .title{font-size:20px;font-weight:950;line-height:1.15;word-break:break-word;overflow-wrap:anywhere;}
+    .sub{margin-top:6px;color:var(--muted);font-weight:800;word-break:break-word;overflow-wrap:anywhere;}
+    .pill{
+      margin-top:10px;
+      display:inline-flex;gap:8px;align-items:center;
+      padding:8px 12px;border-radius:999px;
+      border:1px solid var(--stroke);
+      background:rgba(0,0,0,.18);
+      font-weight:900;
+    }
+    .bars{display:inline-flex;gap:3px;align-items:flex-end;}
+    .bars span{width:4px;border-radius:3px;background:rgba(255,255,255,.75);display:block}
+    .bars span:nth-child(1){height:7px}
+    .bars span:nth-child(2){height:12px}
+    .bars span:nth-child(3){height:9px}
 
-.tab{
-padding:10px 18px;
-border-radius:999px;
-border:1px solid var(--stroke);
-background:#151515;
-cursor:pointer;
-font-weight:800;
-}
+    .row{
+      display:grid;
+      grid-template-columns: 44px 56px 1fr auto;
+      gap:12px; align-items:center;
+      padding:14px 14px;
+      border-radius:18px;
+      border:1px solid var(--stroke);
+      background:rgba(0,0,0,.22);
+      margin-bottom:12px;
+    }
+    .rank{
+      width:44px;height:44px;border-radius:14px;
+      display:grid;place-items:center;
+      border:1px solid var(--stroke);
+      color:rgba(255,255,255,.55);
+      font-weight:950;
+      background:rgba(255,255,255,.04);
+    }
+    .mini{
+      width:56px;height:56px;border-radius:16px;
+      border:1px solid var(--stroke);
+      overflow:hidden;
+      background:rgba(255,255,255,.08);
+      display:grid;place-items:center;
+    }
+    .mini img{width:100%;height:100%;object-fit:cover;display:block;}
+    .rowTitle{font-weight:950; line-height:1.18; font-size:18px; word-break:break-word; overflow-wrap:anywhere;}
+    .rowSub{color:rgba(255,255,255,.42); font-weight:800; margin-top:4px; font-size:14px; word-break:break-word; overflow-wrap:anywhere;}
+    .count{color:rgba(255,255,255,.60); font-weight:950; white-space:nowrap; font-variant-numeric: tabular-nums;}
 
-.tab.active{
-background:#232323;
-border-color:#444;
-}
+    .ph{
+      width:100%;height:100%;
+      display:grid;place-items:center;
+      background:
+        radial-gradient(120px 120px at 30% 20%, rgba(255,255,255,.12), transparent 55%),
+        radial-gradient(160px 120px at 70% 80%, rgba(255,255,255,.10), transparent 60%),
+        rgba(255,255,255,.06);
+    }
+    .ph svg{width:24px;height:24px;opacity:.55;}
 
-.card{
-background:rgba(20,20,20,.7);
-border:1px solid var(--stroke);
-border-radius:22px;
-padding:20px;
-margin-bottom:20px;
-}
+    .mirrorBox{
+      border:1px solid var(--stroke);
+      background:rgba(0,0,0,.22);
+      border-radius:18px;
+      padding:14px;
+      white-space:pre-wrap;
+      line-height:1.45;
+      word-break:break-word;
+      overflow-wrap:anywhere;
+      font-weight:700;
+    }
 
-.list{
-display:flex;
-flex-direction:column;
-gap:14px;
-}
-
-.item{
-display:flex;
-align-items:center;
-gap:12px;
-}
-
-.rank{
-width:38px;height:38px;
-border-radius:12px;
-border:1px solid #333;
-display:flex;
-align-items:center;
-justify-content:center;
-font-weight:900;
-opacity:.7;
-}
-
-.cover{
-width:50px;height:50px;
-border-radius:12px;
-object-fit:cover;
-border:1px solid #333;
-}
-
-.meta{
-flex:1;
-}
-
-.title{
-font-weight:900;
-font-size:18px;
-}
-
-.artist{
-color:var(--muted);
-font-weight:700;
-}
-
-.count{
-font-weight:900;
-opacity:.7;
-}
-
-.hidden{display:none;}
-</style>
+    @media (max-width: 640px){
+      .wrap{padding:20px 14px 56px;}
+      h1{font-size:42px;margin:10px 0 10px;}
+      .panel{padding:16px;border-radius:24px;}
+      .panel h2{font-size:34px}
+      .nowGrid{grid-template-columns: 92px 1fr; gap:12px;}
+      .cover{width:92px;height:92px;border-radius:16px;}
+      .title{font-size:18px}
+      .sub{font-size:14px}
+      .row{grid-template-columns: 40px 52px 1fr; grid-template-areas:"rank art meta" "rank art count"; align-items:start;}
+      .rank{grid-area:rank;width:40px;height:40px}
+      .mini{grid-area:art;width:52px;height:52px}
+      .count{grid-area:count;justify-self:end;align-self:end}
+      .rowTitle{font-size:16px}
+      .rowSub{font-size:13px}
+    }
+  </style>
 </head>
 
 <body>
+  <div class="wrap">
+    <h1>Listening Mirror</h1>
 
-<div id="bg"></div>
-<div id="vignette"></div>
+    <div class="tabs">
+      <div class="dot" aria-hidden="true"></div>
+      <div class="tab" data-tab="now" aria-selected="true">Now</div>
+      <div class="tab" data-tab="top" aria-selected="false">Top</div>
+      <div class="tab" data-tab="mirror" aria-selected="false">Mirror</div>
+      <div class="tab" data-tab="history" aria-selected="false">History</div>
+    </div>
 
-<div class="container">
-<h1>Listening Mirror</h1>
+    <section class="panel" data-panel="now">
+      <h2>Now</h2>
+      <div class="card">
+        <div class="nowGrid">
+          <div class="cover" id="nowCover"></div>
+          <div>
+            <div class="title" id="nowTitle">Loading…</div>
+            <div class="sub" id="nowAlbum"></div>
+            <div class="pill" id="nowPill" style="display:none;">
+              <span class="bars" aria-hidden="true"><span></span><span></span><span></span></span>
+              <span>LIVE</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="muted" id="nowTime" style="margin-top:12px;"></div>
+    </section>
 
-<div class="tabs">
-<div class="tab active" data-tab="now">Now</div>
-<div class="tab" data-tab="top">Top</div>
-<div class="tab" data-tab="mirror">Mirror</div>
-<div class="tab" data-tab="history">History</div>
-</div>
+    <section class="panel" data-panel="top" style="display:none;">
+      <h2>Top</h2>
+      <div class="subtabs">
+        <div class="stab" data-period="1day" aria-selected="true">Today</div>
+        <div class="stab" data-period="7day" aria-selected="false">Week</div>
+        <div class="stab" data-period="12month" aria-selected="false">Year</div>
+      </div>
 
-<!-- NOW -->
-<div id="now" class="panel">
-<div class="card">
-<h2>Now Playing</h2>
-<div id="nowContent">Loading...</div>
-</div>
-</div>
+      <div class="card" style="margin-bottom:14px;">
+        <div class="muted" style="margin-bottom:10px;font-weight:900;">Top tracks</div>
+        <div id="topTracks"></div>
+      </div>
 
-<!-- TOP -->
-<div id="top" class="panel hidden">
-<div class="card">
-<h2>Top Tracks</h2>
-<div id="topTracks" class="list"></div>
-</div>
+      <div class="card">
+        <div class="muted" style="margin-bottom:10px;font-weight:900;">Top artists</div>
+        <div id="topArtists"></div>
+      </div>
+    </section>
 
-<div class="card">
-<h2>Top Artists</h2>
-<div id="topArtists" class="list"></div>
-</div>
-</div>
+    <section class="panel" data-panel="mirror" style="display:none;">
+      <h2>Mirror</h2>
+      <div class="mirrorBox" id="mirrorOut">Opening mirror…</div>
+      <div class="muted" id="mirrorErr" style="margin-top:12px;"></div>
+    </section>
 
-<!-- MIRROR -->
-<div id="mirror" class="panel hidden">
-<div class="card">
-<h2>Mirror</h2>
-<div id="mirrorText">Opening mirror...</div>
-</div>
-</div>
+    <section class="panel" data-panel="history" style="display:none;">
+      <h2>History</h2>
+      <div id="histList"></div>
+      <div class="muted" id="histEmpty" style="display:none;margin-top:14px;">No data.</div>
+    </section>
 
-<!-- HISTORY -->
-<div id="history" class="panel hidden">
-<div class="card">
-<h2>History</h2>
-<div id="historyList" class="list"></div>
-</div>
-</div>
+  </div>
 
-</div>
+  <script>
+    const BASE_API = "https://i.errtanq9.workers.dev";
 
-<script>
-const BASE="https://i.errtanq9.workers.dev";
+    const $ = (id) => document.getElementById(id);
 
-/* tabs */
-document.querySelectorAll(".tab").forEach(tab=>{
-tab.onclick=()=>{
-document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
-tab.classList.add("active");
+    function placeholderHTML(){
+      return `<div class="ph" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M9 18V6.7c0-.4.24-.76.6-.92l8-3.6c.66-.3 1.4.18 1.4.9V15.5c0 1.66-1.79 3-4 3s-4-1.34-4-3 1.79-3 4-3c.75 0 1.46.16 2.06.44V5.3L11 8.1V18c0 1.66-1.79 3-4 3s-4-1.34-4-3 1.79-3 4-3c.75 0 1.46.16 2 .43Z" fill="rgba(255,255,255,.78)"/>
+        </svg>
+      </div>`;
+    }
 
-const target=tab.dataset.tab;
-document.querySelectorAll(".panel").forEach(p=>p.classList.add("hidden"));
-document.getElementById(target).classList.remove("hidden");
+    function esc(s){
+      return String(s ?? "")
+        .replaceAll("&","&amp;")
+        .replaceAll("<","&lt;")
+        .replaceAll(">","&gt;");
+    }
 
-if(target==="top") loadTop();
-if(target==="history") loadHistory();
-if(target==="mirror") loadMirror();
-};
-});
+    async function fetchJSON(path, opts){
+      const r = await fetch(BASE_API + path, { cache:"no-store", mode:"cors", ...opts });
+      const t = await r.text();
+      let j = {};
+      try { j = JSON.parse(t); } catch {}
+      if (!r.ok) throw new Error((j && (j.error || j.message)) ? (j.error || j.message) : ("HTTP " + r.status));
+      return j;
+    }
 
-/* NOW */
-async function loadNow(){
-const r=await fetch(BASE+"/api/now");
-const d=await r.json();
+    function setTab(name){
+      document.querySelectorAll(".tab").forEach(t=>{
+        t.setAttribute("aria-selected", t.dataset.tab === name ? "true" : "false");
+      });
+      document.querySelectorAll("[data-panel]").forEach(p=>{
+        p.style.display = (p.dataset.panel === name) ? "" : "none";
+      });
 
-document.getElementById("nowContent").innerHTML=`
-<div class="item">
-<img class="cover" src="${d.image}">
-<div class="meta">
-<div class="title">${d.name}</div>
-<div class="artist">${d.artist}</div>
-</div>
-</div>`;
-}
-loadNow();
+      document.body.classList.toggle("top-hero", name === "top");
 
-/* TOP */
-async function loadTop(){
+      if (name === "now") loadNow();
+      if (name === "top") loadTop(getSelectedPeriod());
+      if (name === "mirror") loadMirror();
+      if (name === "history") loadHistory();
+    }
 
-/* tracks */
-const t=await (await fetch(BASE+"/api/top?type=tracks&period=7day&limit=8")).json();
-const trackBox=document.getElementById("topTracks");
-trackBox.innerHTML="";
+    document.querySelectorAll(".tab").forEach(t=>{
+      t.addEventListener("click", ()=> setTab(t.dataset.tab));
+    });
 
-t.tracks.forEach((x,i)=>{
-trackBox.innerHTML+=`
-<div class="item">
-<div class="rank">${i+1}</div>
-<img class="cover" src="${x.image}">
-<div class="meta">
-<div class="title">${x.name}</div>
-<div class="artist">${x.artist||""}</div>
-</div>
-<div class="count">${x.playcount}</div>
-</div>`;
-});
+    function getSelectedPeriod(){
+      const s = document.querySelector('.stab[aria-selected="true"]');
+      return s ? s.dataset.period : "1day";
+    }
 
-/* artists + BACKGROUND */
-const a=await (await fetch(BASE+"/api/top?type=artists&period=7day&limit=8")).json();
-const artistBox=document.getElementById("topArtists");
-artistBox.innerHTML="";
+    document.querySelectorAll(".stab").forEach(s=>{
+      s.addEventListener("click", ()=>{
+        document.querySelectorAll(".stab").forEach(x=>x.setAttribute("aria-selected", x===s ? "true" : "false"));
+        loadTop(s.dataset.period);
+      });
+    });
 
-a.artists.forEach((x,i)=>{
-artistBox.innerHTML+=`
-<div class="item">
-<div class="rank">${i+1}</div>
-<img class="cover" src="${x.image}">
-<div class="meta">
-<div class="title">${x.name}</div>
-</div>
-<div class="count">${x.playcount}</div>
-</div>`;
-});
+    function fmtTimeFromUts(uts){
+      if (!uts) return "";
+      const ms = Number(uts) * 1000;
+      if (!Number.isFinite(ms)) return "";
+      const d = new Date(ms);
+      return d.toLocaleString();
+    }
 
-/* BACKGROUND FIX */
-if(a.artists[0] && a.artists[0].image){
-const bg=document.getElementById("bg");
-bg.style.backgroundImage=`url(${a.artists[0].image})`;
-bg.classList.add("on");
-}
-}
+    async function loadNow(){
+      try{
+        const d = await fetchJSON("/api/now");
+        const title = (d.artist && d.name) ? `${d.artist} — ${d.name}` : "—";
+        $("nowTitle").textContent = title;
+        $("nowAlbum").textContent = d.album || "";
+        $("nowCover").innerHTML = d.image ? `<img src="${esc(d.image)}" alt="" loading="lazy">` : placeholderHTML();
+        $("nowPill").style.display = d.nowPlaying ? "inline-flex" : "none";
+        $("nowTime").textContent = d.nowPlaying ? "" : (d.uts ? ("Last played: " + fmtTimeFromUts(d.uts)) : "");
+      }catch(e){
+        $("nowTitle").textContent = "Failed to load.";
+        $("nowAlbum").textContent = "";
+        $("nowCover").innerHTML = placeholderHTML();
+        $("nowPill").style.display = "none";
+        $("nowTime").textContent = "";
+      }
+    }
 
-/* HISTORY */
-async function loadHistory(){
-const r=await fetch(BASE+"/api/recent?limit=10");
-const d=await r.json();
+    function makeRow(i, img, title, sub, count){
+      const el = document.createElement("div");
+      el.className = "row";
+      el.innerHTML = `
+        <div class="rank">${i}</div>
+        <div class="mini">${img ? `<img src="${esc(img)}" alt="" loading="lazy">` : placeholderHTML()}</div>
+        <div>
+          <div class="rowTitle">${esc(title)}</div>
+          <div class="rowSub">${esc(sub || "")}</div>
+        </div>
+        <div class="count">${esc(count || "")}</div>
+      `;
+      return el;
+    }
 
-const box=document.getElementById("historyList");
-box.innerHTML="";
+    async function loadTop(period){
+      $("topTracks").innerHTML = "";
+      $("topArtists").innerHTML = "";
 
-d.tracks.forEach((x,i)=>{
-box.innerHTML+=`
-<div class="item">
-<div class="rank">${i+1}</div>
-<img class="cover" src="${x.image}">
-<div class="meta">
-<div class="title">${x.name}</div>
-<div class="artist">${x.artist}</div>
-</div>
-</div>`;
-});
-}
+      let heroSet = false;
 
-/* MIRROR */
-async function loadMirror(){
-const r=await fetch(BASE+"/api/reflection",{method:"POST"});
-const d=await r.json();
-document.getElementById("mirrorText").textContent=d.text;
-}
-</script>
+      try{
+        const t = await fetchJSON(`/api/top?type=tracks&period=${encodeURIComponent(period)}&limit=12`);
+        (t.tracks || []).forEach((x, idx)=>{
+          $("topTracks").appendChild(
+            makeRow(idx+1, x.image || "", x.name || "", x.artist || "", (x.playcount || 0).toString())
+          );
+        });
+      }catch(e){
+        $("topTracks").innerHTML = `<div class="muted">Failed to load.</div>`;
+      }
 
+      try{
+        const a = await fetchJSON(`/api/top?type=artists&period=${encodeURIComponent(period)}&limit=10`);
+        (a.artists || []).forEach((x, idx)=>{
+          if (!heroSet && x.image){
+            document.documentElement.style.setProperty("--hero", `url("${x.image}")`);
+            heroSet = true;
+          }
+          $("topArtists").appendChild(
+            makeRow(idx+1, x.image || "", x.name || "", "", (x.playcount || 0).toString())
+          );
+        });
+        if (!heroSet){
+          document.documentElement.style.setProperty("--hero", "none");
+        }
+      }catch(e){
+        $("topArtists").innerHTML = `<div class="muted">Failed to load.</div>`;
+        document.documentElement.style.setProperty("--hero", "none");
+      }
+    }
+
+    async function loadMirror(){
+      $("mirrorErr").textContent = "";
+      $("mirrorOut").textContent = "Opening mirror…";
+      try{
+        const d = await fetchJSON("/api/mirror", { method:"GET" });
+        $("mirrorOut").textContent = d.text || "No output.";
+      }catch(e){
+        $("mirrorOut").textContent = "Failed.";
+        $("mirrorErr").textContent = String(e.message || e);
+      }
+    }
+
+    async function loadHistory(){
+      const list = $("histList");
+      const empty = $("histEmpty");
+      list.innerHTML = "";
+      empty.style.display = "none";
+
+      try{
+        const d = await fetchJSON("/api/recent?limit=30");
+        const tracks = d.tracks || [];
+        if (!tracks.length){ empty.style.display = ""; return; }
+
+        tracks.forEach((t, idx)=>{
+          const when = t.nowPlaying ? "LIVE" : (t.uts ? fmtTimeFromUts(t.uts) : "");
+          list.appendChild(
+            makeRow(idx+1, t.image || "", `${t.artist || ""} — ${t.name || ""}`.trim(), t.album || "", when)
+          );
+        });
+      }catch(e){
+        empty.style.display = "";
+        empty.textContent = "Failed to load.";
+      }
+    }
+
+    loadNow();
+  </script>
 </body>
 </html>

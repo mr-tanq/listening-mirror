@@ -9,18 +9,12 @@
     :root{
       --bg:#0b0c0e;
       --card:rgba(255,255,255,.06);
-      --card2:rgba(255,255,255,.08);
       --txt:rgba(255,255,255,.92);
       --muted:rgba(255,255,255,.60);
       --muted2:rgba(255,255,255,.42);
       --stroke:rgba(255,255,255,.10);
-      --glow:rgba(255,255,255,.12);
       --radius:28px;
     }
-
-    *{ box-sizing:border-box; }
-    html,body{ height:100%; }
-
     body{
       margin:0;
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
@@ -28,26 +22,11 @@
                   radial-gradient(900px 600px at 80% 20%, rgba(255,255,255,.08), transparent 55%),
                   var(--bg);
       color:var(--txt);
-      overflow-x:hidden;
     }
-
     .wrap{max-width:980px;margin:0 auto;padding:28px 18px 60px;}
     h1{font-size:56px;letter-spacing:-1px;margin:18px 0 10px;}
-    @media (max-width:520px){
-      h1{font-size:44px;}
-    }
-
-    .tabs{
-      display:flex;
-      gap:12px;
-      align-items:center;
-      margin:10px 0 18px;
-      flex-wrap:wrap;
-    }
-    .dot{
-      width:18px;height:18px;border-radius:999px;background:#38d06e;
-      box-shadow:0 0 0 6px rgba(56,208,110,.12)
-    }
+    .tabs{display:flex;gap:12px;align-items:center;margin:10px 0 18px;flex-wrap:wrap;}
+    .dot{width:18px;height:18px;border-radius:999px;background:#38d06e;box-shadow:0 0 0 6px rgba(56,208,110,.12)}
     .tab{
       border:1px solid var(--stroke);
       background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
@@ -56,9 +35,8 @@
       font-weight:800;
       cursor:pointer;
       user-select:none;
-      min-width:92px;
+      min-width:96px;
       text-align:center;
-      white-space:nowrap;
     }
     .tab[aria-selected="true"]{
       background:linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.06));
@@ -72,66 +50,41 @@
       padding:22px;
       box-shadow:0 12px 60px rgba(0,0,0,.55);
       backdrop-filter: blur(10px);
-      max-width:100%;
     }
     .panel h2{font-size:54px;margin:6px 0 14px;letter-spacing:-1px}
-    @media (max-width:520px){
-      .panel{padding:18px;}
-      .panel h2{font-size:40px;}
-    }
 
     .card{
       border:1px solid var(--stroke);
       background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.05));
       border-radius:22px;
       padding:16px;
-      max-width:100%;
     }
-
     .nowGrid{
       display:grid;
       grid-template-columns: 120px 1fr;
       gap:16px;
       align-items:center;
-      min-width:0;
     }
-    @media (max-width:520px){
-      .nowGrid{
-        grid-template-columns: 92px 1fr;
-        gap:14px;
-      }
-    }
-
     .cover{
       width:120px;height:120px;border-radius:18px;
       border:1px solid var(--stroke);
-      background:rgba(255,255,255,.08);
+      background:rgba(255,255,255,.06);
       overflow:hidden;
     }
-    @media (max-width:520px){
-      .cover{ width:92px; height:92px; border-radius:16px; }
-    }
-
     .cover img{width:100%;height:100%;object-fit:cover;display:block;}
     .meta{min-width:0;}
-
     .title{
       font-size:22px;font-weight:900;line-height:1.15;
       white-space:normal; overflow:visible; text-overflow:unset;
       word-break:break-word;
     }
-    @media (max-width:520px){
-      .title{font-size:18px;}
-    }
-
     .sub{
       margin-top:6px;
       color:var(--muted);
-      font-weight:750;
+      font-weight:700;
       white-space:normal;
       word-break:break-word;
     }
-
     .badge{
       margin-top:12px;
       display:inline-flex;gap:10px;align-items:center;
@@ -139,7 +92,7 @@
       border:1px solid var(--stroke);
       background:rgba(0,0,0,.25);
       color:var(--txt);
-      font-weight:850;
+      font-weight:800;
     }
     .bars{display:inline-flex;gap:3px;align-items:flex-end;}
     .bars span{width:4px;border-radius:3px;background:rgba(255,255,255,.75);display:block}
@@ -148,7 +101,6 @@
     .bars span:nth-child(3){height:9px}
 
     .list{display:flex;flex-direction:column;gap:12px;}
-
     .row{
       display:grid;
       grid-template-columns: 44px 56px 1fr auto;
@@ -158,17 +110,7 @@
       border-radius:18px;
       border:1px solid var(--stroke);
       background:rgba(0,0,0,.22);
-      min-width:0;
     }
-
-    @media (max-width:520px){
-      .row{
-        grid-template-columns: 42px 54px 1fr auto;
-        padding:12px 12px;
-        gap:10px;
-      }
-    }
-
     .rank{
       width:44px;height:44px;border-radius:14px;
       display:grid;place-items:center;
@@ -177,21 +119,20 @@
       font-weight:900;
       background:rgba(255,255,255,.04);
     }
-    @media (max-width:520px){
-      .rank{width:42px;height:42px;border-radius:14px;}
-    }
-
     .mini{
       width:56px;height:56px;border-radius:16px;
       border:1px solid var(--stroke);
       overflow:hidden;
-      background:rgba(255,255,255,.08);
-      display:grid;place-items:center;
-      color:rgba(255,255,255,.25);
-      font-weight:900;
+      background:rgba(255,255,255,.06);
+      display:block;
+      position:relative;
     }
-    @media (max-width:520px){
-      .mini{width:54px;height:54px;border-radius:16px;}
+    .mini::after{
+      content:"";
+      position:absolute;inset:0;
+      background:radial-gradient(90px 70px at 30% 25%, rgba(255,255,255,.10), transparent 60%),
+                 radial-gradient(70px 60px at 70% 70%, rgba(255,255,255,.08), transparent 55%);
+      pointer-events:none;
     }
     .mini img{width:100%;height:100%;object-fit:cover;display:block;}
 
@@ -201,42 +142,9 @@
       word-break:break-word;
       line-height:1.18;
     }
-    .rowSub{color:var(--muted2);font-weight:750;margin-top:4px;word-break:break-word}
+    .rowSub{color:var(--muted2);font-weight:700;margin-top:4px}
     .count{color:var(--muted);font-weight:900;white-space:nowrap}
 
-    /* No-star placeholder (no "★") */
-    .ph{
-      width:100%;height:100%;
-      display:flex;align-items:center;justify-content:center;
-      background:rgba(255,255,255,.06);
-      color:rgba(255,255,255,.20);
-      font-weight:900;
-      font-size:18px;
-    }
-
-    /* Reflection UI */
-    .field{display:flex;flex-direction:column;gap:10px;margin-top:10px}
-    textarea{
-      width:100%;
-      min-height:110px;
-      border-radius:18px;
-      border:1px solid var(--stroke);
-      background:rgba(0,0,0,.28);
-      color:var(--txt);
-      padding:14px;
-      font-size:16px;
-      outline:none;
-      resize:vertical;
-    }
-    .btn{
-      display:inline-flex;align-items:center;justify-content:center;
-      padding:12px 16px;border-radius:999px;
-      border:1px solid rgba(255,255,255,.18);
-      background:rgba(255,255,255,.10);
-      color:var(--txt);
-      font-weight:900;
-      cursor:pointer;
-    }
     .out{
       margin-top:14px;
       padding:14px;
@@ -278,6 +186,7 @@
           </div>
         </div>
       </div>
+      <div class="muted" id="nowErr" style="margin-top:12px;display:none;">Failed to load.</div>
     </section>
 
     <!-- TODAY -->
@@ -301,27 +210,15 @@
     <!-- REFLECTION -->
     <section class="panel" data-panel="reflection" style="display:none;">
       <h2>Reflection</h2>
-      <div class="muted">AI reflection based strictly on your Last.fm data.</div>
-
-      <!-- Hidden input + button (kept for debugging, but auto-run is enabled) -->
-      <div class="field" style="display:none;">
-        <textarea id="reflectionFocus" placeholder="Optional..."></textarea>
-        <div style="display:flex;gap:12px;flex-wrap:wrap;">
-          <button class="btn" id="btnReflect">Generate reflection</button>
-          <span class="muted" id="reflectStatus"></span>
-        </div>
-      </div>
-
+      <div class="muted">Auto reflection based strictly on your Last.fm data.</div>
       <div class="out" id="reflectionOut" style="display:none;"></div>
-      <div class="muted" id="reflectionLoading" style="margin-top:12px;">Loading reflection…</div>
+      <div class="muted" id="reflectionErr" style="display:none;margin-top:12px;">Failed to load reflection.</div>
     </section>
   </div>
 
   <script>
-    // ✅ Worker base domain
-    // Must include the /img proxy endpoint you added in the worker.
+    // Your Worker base:
     const BASE_API = "https://i.errtanq9.workers.dev";
-
     const $ = (id) => document.getElementById(id);
 
     function setTab(name){
@@ -331,15 +228,17 @@
       document.querySelectorAll("[data-panel]").forEach(p=>{
         p.style.display = (p.dataset.panel === name) ? "" : "none";
       });
-
-      if (name === "now") loadNow();
-      if (name === "today") loadToday();
-      if (name === "week") loadWeek();
-      if (name === "reflection") loadReflectionAuto();
     }
 
     document.querySelectorAll(".tab").forEach(t=>{
-      t.addEventListener("click", ()=> setTab(t.dataset.tab));
+      t.addEventListener("click", ()=>{
+        const name = t.dataset.tab;
+        setTab(name);
+        if (name === "now") loadNow();
+        if (name === "today") loadToday();
+        if (name === "week") loadWeek();
+        if (name === "reflection") loadReflection(); // auto
+      });
     });
 
     async function fetchJSON(path, opts){
@@ -348,37 +247,31 @@
       return await r.json();
     }
 
-    function placeholderHTML(){
-      return `<div class="ph" aria-hidden="true"></div>`;
-    }
-
-    // ✅ Image proxy via worker: /img?u=<encoded>
     function coverHTML(url){
-      if (url){
-        const proxied = BASE_API + "/img?u=" + encodeURIComponent(url);
-        return `<img src="${proxied}" alt="" loading="lazy" />`;
-      }
-      return placeholderHTML();
+      if (url) return `<img src="${url}" alt="" />`;
+      return ""; // no stars, no text
     }
 
     // NOW
     async function loadNow(){
+      $("nowErr").style.display = "none";
       try{
         const d = await fetchJSON("/api/now");
         const title = d.artist ? `${d.artist} — ${d.name}` : (d.name || "—");
-        $("nowTitle").textContent = title;
+        $("nowTitle").textContent = title || "—";
         $("nowAlbum").textContent = d.album || "";
         $("nowCover").innerHTML = coverHTML(d.image);
         $("nowBadge").style.display = d.nowPlaying ? "inline-flex" : "none";
       }catch(e){
-        $("nowTitle").textContent = "Failed to load.";
+        $("nowTitle").textContent = "—";
         $("nowAlbum").textContent = "";
-        $("nowCover").innerHTML = placeholderHTML();
+        $("nowCover").innerHTML = "";
         $("nowBadge").style.display = "none";
+        $("nowErr").style.display = "";
       }
     }
 
-    // TODAY (recent list)
+    // TODAY
     async function loadToday(){
       const listEl = $("todayList");
       const emptyEl = $("todayEmpty");
@@ -396,7 +289,7 @@
           row.className = "row";
           row.innerHTML = `
             <div class="rank">${i+1}</div>
-            <div class="mini">${coverHTML(t.image)}</div>
+            <div class="mini">${t.image ? `<img src="${t.image}" alt="">` : ""}</div>
             <div class="meta">
               <div class="rowTitle">${escapeHTML(title)}</div>
               <div class="rowSub">${escapeHTML(t.album || "")}</div>
@@ -411,12 +304,12 @@
       }
     }
 
-    // WEEK (top tracks + artists)
+    // WEEK
     async function loadWeek(){
       $("weekTracks").innerHTML = "";
       $("weekArtists").innerHTML = "";
 
-      // Top tracks (7 days) -> Title only + cover
+      // Top tracks
       try{
         const d = await fetchJSON("/api/top?type=tracks&period=7day&limit=12");
         (d.tracks || []).forEach((t, i)=>{
@@ -424,12 +317,12 @@
           row.className = "row";
           row.innerHTML = `
             <div class="rank">${i+1}</div>
-            <div class="mini">${coverHTML(t.image)}</div>
+            <div class="mini">${t.image ? `<img src="${t.image}" alt="">` : ""}</div>
             <div class="meta">
               <div class="rowTitle">${escapeHTML(t.name || "")}</div>
               <div class="rowSub">${escapeHTML(t.artist || "")}</div>
             </div>
-            <div class="count">${(t.playcount||0)}</div>
+            <div class="count">${(t.playcount||0)} plays</div>
           `;
           $("weekTracks").appendChild(row);
         });
@@ -440,7 +333,7 @@
         $("weekTracks").appendChild(m);
       }
 
-      // Top artists (7 days) -> artist image + name
+      // Top artists
       try{
         const d2 = await fetchJSON("/api/top?type=artists&period=7day&limit=10");
         (d2.artists || []).forEach((a, i)=>{
@@ -448,12 +341,12 @@
           row.className = "row";
           row.innerHTML = `
             <div class="rank">${i+1}</div>
-            <div class="mini">${coverHTML(a.image)}</div>
+            <div class="mini">${a.image ? `<img src="${a.image}" alt="">` : ""}</div>
             <div class="meta">
               <div class="rowTitle">${escapeHTML(a.name || "")}</div>
               <div class="rowSub"></div>
             </div>
-            <div class="count">${(a.playcount||0)}</div>
+            <div class="count">${(a.playcount||0)} plays</div>
           `;
           $("weekArtists").appendChild(row);
         });
@@ -465,29 +358,18 @@
       }
     }
 
-    // REFLECTION (AUTO - no input, no button)
-    let reflectionLoaded = false;
-
-    async function loadReflectionAuto(){
-      if (reflectionLoaded) return;
-      reflectionLoaded = true;
-
-      $("reflectionLoading").style.display = "";
+    // REFLECTION (AUTO, no button)
+    async function loadReflection(){
       $("reflectionOut").style.display = "none";
       $("reflectionOut").textContent = "";
+      $("reflectionErr").style.display = "none";
 
       try{
-        const d = await fetchJSON("/api/reflection", {
-          method:"POST",
-          headers:{ "Content-Type":"application/json" },
-          body: JSON.stringify({ focus: "" })
-        });
-
+        const d = await fetchJSON("/api/reflection", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({}) });
         $("reflectionOut").textContent = d.text || "(no output)";
         $("reflectionOut").style.display = "";
-        $("reflectionLoading").style.display = "none";
       }catch(e){
-        $("reflectionLoading").textContent = "Failed to load reflection.";
+        $("reflectionErr").style.display = "";
       }
     }
 
@@ -495,7 +377,7 @@
       return String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
     }
 
-    // initial
+    // initial load
     loadNow();
   </script>
 </body>

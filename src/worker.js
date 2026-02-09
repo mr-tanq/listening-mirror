@@ -1,9 +1,13 @@
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    const path = url.pathname;
+    let path = url.pathname || "/";
 
-    // CORS
+    // Accept both /api/* and /*
+    if (path.startsWith("/api/")) path = path.slice(4);
+    if (path === "/api") path = "/";
+
+    // CORS preflight
     if (request.method === "OPTIONS") {
       return corsResponse(env, null, 204);
     }
@@ -13,21 +17,35 @@ export default {
         return corsResponse(env, { ok: true, service: "Listening Mirror Worker" });
       }
 
+      // Image proxy (optional αλλά χρήσιμο)
+      if (path === "/img") {
+        const u = url.searchParams.get("u");
+        if (!u) return corsResponse(env, { error: "Missing u" }, 400);
+        return proxyImage(env, u);
+      }
+
       if (path === "/now") {
         const data = await cachedJson(ctx, request, env, "now", () => getNowPlaying(env));
         return corsResponse(env, data);
       }
 
       if (path === "/recent") {
-        const limit = clampInt(url.searchParams.get("limit"), 1, 200, 200);
+        const limit = clampInt(url.searchParams.get("limit"), 1, 200, 40);
         const data = await cachedJson(ctx, request, env, `recent:${limit}`, () => getRecent(env, limit));
         return corsResponse(env, data);
       }
 
       if (path === "/top") {
+        const type = url.searchParams.get("type") || "artists"; // tracks | artists
         const period = url.searchParams.get("period") || "7day";
         const limit = clampInt(url.searchParams.get("limit"), 1, 50, 10);
-        const data = await cachedJson(ctx, request, env, `top:${period}:${limit}`, () => getTopArtists(env, period, limit));
+
+        const key = `top:${type}:${period}:${limit}`;
+        const data = await cachedJson(ctx, request, env, key, async () => {
+          if (type === "tracks") return getTopTracksWithAlbumArt(env, period, limit);
+          return getTopArtists(env, period, limit);
+        });
+
         return corsResponse(env, data);
       }
 
@@ -45,49 +63,56 @@ export default {
     }
   }
 };
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    let path = url.pathname || "/";
 
-function clampInt(v, min, max, fallback) {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(min, Math.min(max, Math.trunc(n)));
-}
-function corsHeaders(env, extra = {}) {
-  const allow = (env.ALLOW_ORIGIN && String(env.ALLOW_ORIGIN).trim()) || "*";
-  return {
-    "access-control-allow-origin": allow,
-    "access-control-allow-methods": "GET,OPTIONS",
-    "access-control-allow-headers": "content-type",
-    "access-control-max-age": "86400",
-    ...extra,
-  };
-}
+    // Accept both /api/* and /*
+    if (path.startsWith("/api/")) path = path.slice(4);
+    if (path === "/api") path = "/";
 
-function corsResponse(env, jsonObj, status = 200) {
-  if (jsonObj === null) return new Response(null, { status, headers: corsHeaders(env) });
-  return new Response(JSON.stringify(jsonObj, null, 0), {
-    status,
-    headers: corsHeaders(env, { "content-type": "application/json; charset=utf-8" }),
-  });
-}
+    // CORS preflight
+    if (request.method === "OPTIONS") {
+      return corsResponse(env, null, 204);
+    }
 
-async function cachedJson(ctx, request, env, key, producer) {
-  const ttl = clampInt(env.CACHE_TTL_SECONDS, 0, 3600, 15);
-  if (ttl <= 0) return producer();
+    try {
+      if (path === "/" || path === "") {
+        return corsResponse(env, { ok: true, service: "Listening Mirror Worker" });
+      }
 
-  const cacheKey = new Request(new URL(`/__cache/${key}`, request.url).toString(), { method: "GET" });
-  const cache = caches.default;
+      // Image proxy (optional αλλά χρήσιμο)
+      if (path === "/img") {
+        const u = url.searchParams.get("u");
+        if (!u) return corsResponse(env, { error: "Missing u" }, 400);
+        return proxyImage(env, u);
+      }
 
-  const hit = await cache.match(cacheKey);
-  if (hit) return hit.json();
+      if (path === "/now") {
+        const data = await cachedJson(ctx, request, env, "now", () => getNowPlaying(env));
+        return corsResponse(env, data);
+      }
 
-  const data = await producer();
-  const res = new Response(JSON.stringify(data), {
-    headers: { "content-type": "application/json; charset=utf-8", "cache-control": `public, max-age=${ttl}` },
-  });
+      if (path === "/recent") {
+        const limit = clampInt(url.searchParams.get("limit"), 1, 200, 40);
+        const data = await cachedJson(ctx, request, env, `recent:${limit}`, () => getRecent(env, limit));
+        return corsResponse(env, data);
+      }
 
-  ctx.waitUntil(cache.put(cacheKey, res.clone()));
-  return data;
-}
+      if (path === "/top") {
+        const type = url.searchParams.get("type") || "artists"; // tracks | artists
+        const period = url.searchParams.get("period") || "7day";
+        const limit = clampInt(url.searchParams.get("limit"), 1, 50, 10);
+
+        const key = `top:${type}:${period}:${limit}`;
+        const data = await cachedJson(ctx, request, env, key, async () => {
+          if (type === "tracks") return getTopTracksWithAlbumArt(env, period, limit);
+          return getTopArtists(env, period, limit);
+        });
+
+        return corsResponse(env, data);
+      }
 async function lastfm(env, method, params = {}) {
   const apiKey = env.LASTFM_API_KEY;
   const user = env.LASTFM_USER;
@@ -97,10 +122,15 @@ async function lastfm(env, method, params = {}) {
 
   const u = new URL("https://ws.audioscrobbler.com/2.0/");
   u.searchParams.set("method", method);
-  u.searchParams.set("user", user);
   u.searchParams.set("api_key", apiKey);
   u.searchParams.set("format", "json");
-  for (const [k, v] of Object.entries(params)) u.searchParams.set(k, String(v));
+
+  // default user for user.* methods
+  if (method.startsWith("user.")) u.searchParams.set("user", user);
+
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null) u.searchParams.set(k, String(v));
+  }
 
   const r = await fetch(u.toString(), { headers: { "user-agent": "listening-mirror/1.0" } });
   if (!r.ok) throw new Error(`Last.fm HTTP ${r.status}`);
@@ -109,18 +139,50 @@ async function lastfm(env, method, params = {}) {
   return data;
 }
 
+function pickImage(images) {
+  if (!Array.isArray(images)) return "";
+  for (let i = images.length - 1; i >= 0; i--) {
+    const url = images[i]?.["#text"];
+    if (url) return url;
+  }
+  return "";
+}
+
+// Το placeholder του Last.fm (αστεράκι) — αν το δεις, το θεωρούμε “no art”
+function isLastfmPlaceholder(url) {
+  return typeof url === "string" && url.includes("2a96cbd8b46e442fc41c2b86b821562f");
+}
+
+// μικρό helper για “λίγη παραλληλία” χωρίς να βαράμε Last.fm άπειρα
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let i = 0;
+
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (i < items.length) {
+      const idx = i++;
+      out[idx] = await fn(items[idx], idx);
+    }
+  });
+
+  await Promise.all(workers);
+  return out;
+}
+
 async function getNowPlaying(env) {
   const data = await lastfm(env, "user.getrecenttracks", { limit: 1 });
   const t = data?.recenttracks?.track?.[0];
   if (!t) return { nowPlaying: false };
 
   const nowPlaying = Boolean(t?.["@attr"]?.nowplaying === "true");
-  const image = pickImage(t?.image);
+  const rawImg = pickImage(t?.image);
+  const image = rawImg ? imgProxy(env, rawImg) : "";
+
   return {
     artist: t?.artist?.["#text"] || "",
     name: t?.name || "",
     album: t?.album?.["#text"] || "",
-    image: image || "",
+    image,
     nowPlaying
   };
 }
@@ -128,33 +190,67 @@ async function getNowPlaying(env) {
 async function getRecent(env, limit) {
   const data = await lastfm(env, "user.getrecenttracks", { limit });
   const raw = data?.recenttracks?.track || [];
-  const recent = raw.map(t => ({
-    name: t?.name || "",
-    artist: t?.artist?.["#text"] || "",
-    album: t?.album?.["#text"] || "",
-    uts: t?.date?.uts ? Number(t.date.uts) * 1000 : null,
-    nowPlaying: Boolean(t?.["@attr"]?.nowplaying === "true"),
-    image: pickImage(t?.image) || ""
-  }));
-  return { recent };
+
+  const tracks = raw.map(t => {
+    const rawImg = pickImage(t?.image);
+    return {
+      name: t?.name || "",
+      artist: t?.artist?.["#text"] || "",
+      album: t?.album?.["#text"] || "",
+      uts: t?.date?.uts ? Number(t.date.uts) * 1000 : null,
+      nowPlaying: Boolean(t?.["@attr"]?.nowplaying === "true"),
+      image: rawImg ? imgProxy(env, rawImg) : ""
+    };
+  });
+
+  return { tracks };
 }
 async function getTopArtists(env, period, limit) {
   const data = await lastfm(env, "user.gettopartists", { period, limit });
-  const artists = (data?.topartists?.artist || []).map(a => ({
-    name: a?.name || "",
-    playcount: Number(a?.playcount || 0),
-  }));
+  const artists = (data?.topartists?.artist || []).map(a => {
+    const rawImg = pickImage(a?.image);
+    return {
+      name: a?.name || "",
+      playcount: Number(a?.playcount || 0),
+      image: rawImg ? imgProxy(env, rawImg) : ""
+    };
+  });
   return { artists };
 }
 
-function pickImage(images) {
-  if (!Array.isArray(images)) return "";
-  // παίρνουμε το μεγαλύτερο που έχει url
-  for (let i = images.length - 1; i >= 0; i--) {
-    const url = images[i]?.["#text"];
-    if (url) return url;
-  }
-  return "";
+async function getTopTracksWithAlbumArt(env, period, limit) {
+  const data = await lastfm(env, "user.gettoptracks", { period, limit });
+  const raw = (data?.toptracks?.track || []).slice(0, limit);
+
+  const tracks = await mapLimit(raw, 4, async (t) => {
+    const name = t?.name || "";
+    const artist = t?.artist?.name || t?.artist || "";
+    const playcount = Number(t?.playcount || 0);
+
+    // 1) αρχικό image (συνήθως placeholder)
+    let rawImg = pickImage(t?.image);
+    let finalImg = rawImg;
+
+    // 2) αν είναι placeholder -> track.getInfo για album art
+    if (!finalImg || isLastfmPlaceholder(finalImg)) {
+      try {
+        const info = await lastfm(env, "track.getInfo", { track: name, artist, autocorrect: 1 });
+        const albumImg = pickImage(info?.track?.album?.image);
+        if (albumImg) finalImg = albumImg;
+      } catch {
+        // ignore
+      }
+    }
+
+    return {
+      name,
+      artist,
+      playcount,
+      image: finalImg ? imgProxy(env, finalImg) : ""
+    };
+  });
+
+  return { tracks };
 }
 
 function renderEmbed(now) {
@@ -194,3 +290,17 @@ function escapeHtml(s) {
 function escapeAttr(s) {
   return escapeHtml(s).replace(/`/g, "&#96;");
 }
+      if (path === "/embed") {
+        const now = await cachedJson(ctx, request, env, "now", () => getNowPlaying(env));
+        const html = renderEmbed(now);
+        return new Response(html, {
+          headers: corsHeaders(env, { "content-type": "text/html; charset=utf-8" }),
+        });
+      }
+
+      return corsResponse(env, { error: "Not found" }, 404);
+    } catch (e) {
+      return corsResponse(env, { error: String(e?.message || e) }, 500);
+    }
+  }
+};

@@ -4,13 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Listening Mirror</title>
-
   <style>
     :root{
       --bg:#0b0c0e;
-      --card:rgba(255,255,255,.06);
       --txt:rgba(255,255,255,.92);
       --muted:rgba(255,255,255,.58);
+      --muted2:rgba(255,255,255,.42);
       --stroke:rgba(255,255,255,.10);
       --radius:28px;
       --shadow: 0 12px 60px rgba(0,0,0,.55);
@@ -24,12 +23,33 @@
         radial-gradient(900px 600px at 80% 20%, rgba(255,255,255,.08), transparent 55%),
         var(--bg);
       color:var(--txt);
+      min-height:100vh;
     }
+
+    .bgArt{
+      position:fixed; inset:-60px;
+      background-size: cover;
+      background-position: center;
+      filter: blur(30px) saturate(1.05);
+      opacity:.18;
+      transform: scale(1.05);
+      pointer-events:none;
+      z-index:-2;
+    }
+    .bgFade{
+      position:fixed; inset:0;
+      background: radial-gradient(900px 600px at 50% 20%, rgba(255,255,255,.06), transparent 65%),
+                  linear-gradient(180deg, rgba(0,0,0,.25), rgba(0,0,0,.65));
+      pointer-events:none;
+      z-index:-1;
+    }
+
     .wrap{max-width:980px;margin:0 auto;padding:28px 18px 60px;}
     h1{font-size:56px;letter-spacing:-1px;margin:18px 0 10px;}
+
     .tabs{
       display:flex; gap:12px; align-items:center;
-      margin:10px 0 12px; overflow-x:auto; -webkit-overflow-scrolling:touch;
+      margin:10px 0 14px; overflow-x:auto; -webkit-overflow-scrolling:touch;
       padding-bottom:6px;
     }
     .tabs::-webkit-scrollbar{height:6px}
@@ -42,12 +62,34 @@
       background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
       color:var(--txt);
       padding:10px 18px;border-radius:999px;
-      font-weight:800; cursor:pointer; user-select:none;
+      font-weight:850; cursor:pointer; user-select:none;
       white-space:nowrap;
     }
     .tab[aria-selected="true"]{
       background:linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.06));
       border-color:rgba(255,255,255,.18);
+    }
+
+    .subtabs{
+      display:flex; gap:10px; align-items:center;
+      margin:4px 0 14px;
+      overflow-x:auto; -webkit-overflow-scrolling:touch;
+      padding-bottom:4px;
+    }
+    .sub{
+      flex:0 0 auto;
+      border:1px solid var(--stroke);
+      background:rgba(0,0,0,.18);
+      color:var(--txt);
+      padding:8px 14px;border-radius:999px;
+      font-weight:850; cursor:pointer; user-select:none;
+      white-space:nowrap;
+      opacity:.9;
+    }
+    .sub[aria-selected="true"]{
+      background:rgba(255,255,255,.10);
+      border-color:rgba(255,255,255,.20);
+      opacity:1;
     }
 
     .panel{
@@ -60,21 +102,25 @@
     }
     .panel h2{font-size:48px;margin:6px 0 14px;letter-spacing:-1px}
 
-    .card{border:1px solid var(--stroke); background:rgba(0,0,0,.22);
-      border-radius:22px; padding:16px;}
-
-    .muted{color:var(--muted); font-weight:750}
-    .debug{
-      margin:10px 0 18px;
+    .card{
       border:1px solid var(--stroke);
-      background:rgba(0,0,0,.18);
-      border-radius:18px;
-      padding:12px 14px;
-      font-size:14px;
-      line-height:1.35;
-      word-break:break-word;
+      background:rgba(0,0,0,.22);
+      border-radius:22px;
+      padding:16px;
     }
-    .debug b{color:rgba(255,255,255,.92)}
+
+    .muted{color:var(--muted);font-weight:750}
+    .muted2{color:var(--muted2);font-weight:750}
+
+    .nowGrid{display:grid; grid-template-columns: 120px 1fr; gap:16px; align-items:center;}
+    .cover{
+      width:120px;height:120px;border-radius:18px;border:1px solid var(--stroke);
+      background:rgba(255,255,255,.08);overflow:hidden;display:grid;place-items:center;
+    }
+    .cover img{width:100%;height:100%;object-fit:cover;display:block;}
+    .title{font-size:22px;font-weight:900;line-height:1.15;word-break:break-word;overflow-wrap:anywhere;}
+    .subline{margin-top:6px;color:var(--muted);font-weight:750;word-break:break-word;overflow-wrap:anywhere;}
+
     .row{
       display:grid;
       grid-template-columns: 44px 56px 1fr auto;
@@ -101,9 +147,9 @@
       display:grid;place-items:center;
     }
     .mini img{width:100%;height:100%;object-fit:cover;display:block;}
-    .rowTitle{font-weight:900; line-height:1.18; font-size:18px;}
-    .rowSub{color:rgba(255,255,255,.42); font-weight:750; margin-top:4px; font-size:14px;}
-    .count{color:rgba(255,255,255,.60); font-weight:900; white-space:nowrap; font-variant-numeric: tabular-nums;}
+    .rowTitle{font-weight:900;line-height:1.18;font-size:18px;word-break:break-word;overflow-wrap:anywhere;}
+    .rowSub{color:rgba(255,255,255,.42);font-weight:750;margin-top:4px;font-size:14px;word-break:break-word;overflow-wrap:anywhere;}
+    .count{color:rgba(255,255,255,.60);font-weight:900;white-space:nowrap;font-variant-numeric: tabular-nums;}
 
     .ph{
       width:100%;height:100%;
@@ -114,12 +160,18 @@
         rgba(255,255,255,.06);
     }
     .ph svg{width:26px;height:26px;opacity:.55;}
-    .nowGrid{display:grid; grid-template-columns: 120px 1fr; gap:16px; align-items:center;}
-    .cover{width:120px;height:120px;border-radius:18px;border:1px solid var(--stroke);
-      background:rgba(255,255,255,.08);overflow:hidden;display:grid;place-items:center;}
-    .cover img{width:100%;height:100%;object-fit:cover;display:block;}
-    .title{font-size:22px;font-weight:900;line-height:1.15;}
-    .sub{margin-top:6px;color:var(--muted);font-weight:750;}
+
+    .out{
+      margin-top:12px;
+      padding:14px;
+      border-radius:18px;
+      border:1px solid var(--stroke);
+      background:rgba(0,0,0,.22);
+      white-space:pre-wrap;
+      line-height:1.5;
+      word-break:break-word;
+      overflow-wrap:anywhere;
+    }
 
     @media (max-width: 640px){
       h1{font-size:44px;margin:10px 0 8px;}
@@ -128,29 +180,30 @@
       .nowGrid{grid-template-columns: 92px 1fr; gap:12px;}
       .cover{width:92px;height:92px;border-radius:16px;}
       .title{font-size:18px}
-      .sub{font-size:14px}
+      .subline{font-size:14px}
       .row{grid-template-columns: 40px 52px 1fr; grid-template-areas:"rank art meta" "rank art count";}
       .rank{grid-area:rank;width:40px;height:40px}
       .mini{grid-area:art;width:52px;height:52px}
       .count{grid-area:count;justify-self:end;align-self:end}
+      .rowTitle{font-size:16px}
+      .rowSub{font-size:13px}
     }
   </style>
 </head>
+
 <body>
+  <div class="bgArt" id="bgArt"></div>
+  <div class="bgFade"></div>
+
   <div class="wrap">
     <h1>Listening Mirror</h1>
-
-    <div class="debug" id="dbg">
-      <div><b>API:</b> <span id="dbgApi">checking…</span></div>
-      <div><b>BASE_API:</b> <span id="dbgBase"></span></div>
-      <div class="muted">Αν γράψει status ≠ 200, τότε είναι καθαρά θέμα σύνδεσης site → worker.</div>
-    </div>
 
     <div class="tabs">
       <div class="dot" aria-hidden="true"></div>
       <div class="tab" data-tab="now" aria-selected="true">Now</div>
-      <div class="tab" data-tab="today" aria-selected="false">Today</div>
-      <div class="tab" data-tab="week" aria-selected="false">Week</div>
+      <div class="tab" data-tab="top" aria-selected="false">Top</div>
+      <div class="tab" data-tab="mirror" aria-selected="false">Mirror</div>
+      <div class="tab" data-tab="history" aria-selected="false">History</div>
     </div>
 
     <section class="panel" data-panel="now">
@@ -160,27 +213,56 @@
           <div class="cover" id="nowCover"></div>
           <div>
             <div class="title" id="nowTitle">Loading…</div>
-            <div class="sub" id="nowAlbum"></div>
+            <div class="subline" id="nowAlbum"></div>
             <div class="muted" id="nowHint" style="margin-top:10px;"></div>
           </div>
         </div>
       </div>
     </section>
 
-    <section class="panel" data-panel="today" style="display:none;">
-      <h2>Today</h2>
-      <div id="todayList"></div>
-      <div class="muted" id="todayEmpty" style="display:none;margin-top:14px;">No data yet.</div>
+    <section class="panel" data-panel="top" style="display:none;">
+      <div class="subtabs">
+        <div class="sub" data-sub="today" aria-selected="true">Today</div>
+        <div class="sub" data-sub="week" aria-selected="false">Week</div>
+        <div class="sub" data-sub="year" aria-selected="false">Year</div>
+      </div>
+
+      <div data-subpanel="today">
+        <h2>Top tracks</h2>
+        <div id="topTodayTracks"></div>
+        <div style="height:18px"></div>
+        <h2 style="font-size:40px;margin-top:10px;">Top artists</h2>
+        <div id="topTodayArtists"></div>
+      </div>
+
+      <div data-subpanel="week" style="display:none;">
+        <h2>Top tracks</h2>
+        <div id="topWeekTracks"></div>
+        <div style="height:18px"></div>
+        <h2 style="font-size:40px;margin-top:10px;">Top artists</h2>
+        <div id="topWeekArtists"></div>
+      </div>
+
+      <div data-subpanel="year" style="display:none;">
+        <h2>Top tracks</h2>
+        <div id="topYearTracks"></div>
+        <div style="height:18px"></div>
+        <h2 style="font-size:40px;margin-top:10px;">Top artists</h2>
+        <div id="topYearArtists"></div>
+      </div>
     </section>
 
-    <section class="panel" data-panel="week" style="display:none;">
-      <h2>Top tracks</h2>
-      <div id="weekTracks"></div>
-      <div style="height:18px"></div>
-      <h2 style="font-size:40px;margin-top:10px;">Top artists</h2>
-      <div id="weekArtists"></div>
+    <section class="panel" data-panel="mirror" style="display:none;">
+      <h2>Mirror</h2>
+      <div class="muted2">Generates automatically when you open this tab.</div>
+      <div class="out" id="mirrorOut">Opening Mirror…</div>
     </section>
 
+    <section class="panel" data-panel="history" style="display:none;">
+      <h2>History</h2>
+      <div id="historyList"></div>
+      <div class="muted" id="historyEmpty" style="display:none;margin-top:14px;">No data yet.</div>
+    </section>
   </div>
 
   <script>
@@ -188,47 +270,15 @@
     const qsApi = new URL(location.href).searchParams.get("api");
     const storedApi = localStorage.getItem("BASE_API");
     const BASE_API = (qsApi || storedApi || DEFAULT_API).replace(/\/+$/,"");
-
     if (qsApi) localStorage.setItem("BASE_API", BASE_API);
 
     const $ = (id) => document.getElementById(id);
 
-    function setTab(name){
-      document.querySelectorAll(".tab").forEach(t=>{
-        t.setAttribute("aria-selected", t.dataset.tab === name ? "true" : "false");
-      });
-      document.querySelectorAll("[data-panel]").forEach(p=>{
-        p.style.display = (p.dataset.panel === name) ? "" : "none";
-      });
-    }
-
-    document.querySelectorAll(".tab").forEach(t=>{
-      t.addEventListener("click", ()=>{
-        const name = t.dataset.tab;
-        setTab(name);
-        if (name === "now") loadNow();
-        if (name === "today") loadToday();
-        if (name === "week") loadWeek();
-      });
-    });
-
-    function withTimeout(promise, ms=8000){
-      const c = new AbortController();
-      const t = setTimeout(()=>c.abort(), ms);
-      return promise(c.signal).finally(()=>clearTimeout(t));
-    }
-
-    async function fetchJSON(path, opts = {}){
-      const url = BASE_API + path;
-      const r = await fetch(url, { ...opts, mode:"cors", cache:"no-store" });
-      const text = await r.text();
-      let data = null;
-      try { data = JSON.parse(text); } catch {}
-      if (!r.ok) {
-        const msg = (data && (data.error || data.message)) ? (data.error || data.message) : text;
-        throw new Error(`HTTP ${r.status} @ ${path} :: ${msg}`.slice(0,300));
-      }
-      return data;
+    function esc(s){
+      return String(s ?? "")
+        .replaceAll("&","&amp;")
+        .replaceAll("<","&lt;")
+        .replaceAll(">","&gt;");
     }
 
     function placeholderHTML(){
@@ -246,123 +296,227 @@
       return placeholderHTML();
     }
 
-    function esc(s){
-      return String(s ?? "")
-        .replaceAll("&","&amp;")
-        .replaceAll("<","&lt;")
-        .replaceAll(">","&gt;");
+    async function fetchJSON(path, opts = {}){
+      const r = await fetch(BASE_API + path, { ...opts, mode:"cors", cache:"no-store" });
+      const t = await r.text();
+      let j = null;
+      try { j = JSON.parse(t); } catch {}
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return j;
     }
 
-    async function checkApi(){
-      $("dbgBase").textContent = BASE_API;
-      try{
-        const d = await withTimeout((signal)=>fetch(BASE_API + "/api/now", { signal, cache:"no-store", mode:"cors" }));
-        $("dbgApi").textContent = `OK (status ${d.status})`;
-      }catch(e){
-        $("dbgApi").textContent = `FAIL (${e?.name || "Error"}: ${e?.message || e})`;
-      }
+    function setTab(name){
+      document.querySelectorAll(".tab").forEach(t=>{
+        t.setAttribute("aria-selected", t.dataset.tab === name ? "true" : "false");
+      });
+      document.querySelectorAll("[data-panel]").forEach(p=>{
+        p.style.display = (p.dataset.panel === name) ? "" : "none";
+      });
     }
+
+    function setSub(name){
+      document.querySelectorAll(".sub").forEach(s=>{
+        s.setAttribute("aria-selected", s.dataset.sub === name ? "true" : "false");
+      });
+      document.querySelectorAll("[data-subpanel]").forEach(p=>{
+        p.style.display = (p.dataset.subpanel === name) ? "" : "none";
+      });
+    }
+
+    function setBg(url){
+      $("bgArt").style.backgroundImage = url ? `url("${url}")` : "";
+    }
+
+    document.querySelectorAll(".tab").forEach(t=>{
+      t.addEventListener("click", async ()=>{
+        const name = t.dataset.tab;
+        setTab(name);
+        if (name === "now") loadNow();
+        if (name === "top") loadTopActive();
+        if (name === "mirror") loadMirror();
+        if (name === "history") loadHistory();
+      });
+    });
+
+    document.querySelectorAll(".sub").forEach(s=>{
+      s.addEventListener("click", ()=>{
+        const name = s.dataset.sub;
+        setSub(name);
+        loadTopActive();
+      });
+    });
 
     async function loadNow(){
       $("nowHint").textContent = "";
       try{
         const d = await fetchJSON("/api/now");
-        const title = d.artist ? `${d.artist} — ${d.name}` : (d.name || "—");
+        const title = d?.artist ? `${d.artist} — ${d.name}` : (d?.name || "—");
         $("nowTitle").textContent = title || "—";
-        $("nowAlbum").textContent = d.album || "";
-        $("nowCover").innerHTML = coverHTML(d.image);
-        $("nowHint").textContent = d.nowPlaying ? "LIVE now playing" : "";
+        $("nowAlbum").textContent = d?.album || "";
+        $("nowCover").innerHTML = coverHTML(d?.image);
+        $("nowHint").textContent = d?.nowPlaying ? "LIVE now playing" : "";
       }catch(e){
         $("nowTitle").textContent = "Failed to load.";
         $("nowAlbum").textContent = "";
         $("nowCover").innerHTML = placeholderHTML();
-        $("nowHint").textContent = e.message || "Check Worker + CORS.";
+        $("nowHint").textContent = "Check Worker.";
       }
     }
 
-    async function loadToday(){
-      const listEl = $("todayList");
-      const emptyEl = $("todayEmpty");
+    function renderRows(containerId, items, mode){
+      const el = $(containerId);
+      el.innerHTML = "";
+      (items || []).forEach((x, i)=>{
+        const row = document.createElement("div");
+        row.className = "row";
+
+        let title = "";
+        let sub = "";
+        let count = "";
+
+        if (mode === "trackOnly") {
+          title = x?.name || "";
+          sub = x?.artist || "";
+          count = x?.playcount ? String(x.playcount) : "";
+        } else if (mode === "artist") {
+          title = x?.name || "";
+          sub = "";
+          count = x?.playcount ? String(x.playcount) : "";
+        } else if (mode === "history") {
+          title = `${x?.artist || ""} — ${x?.name || ""}`;
+          sub = x?.album || "";
+          count = x?.nowPlaying ? "LIVE" : "";
+        }
+
+        row.innerHTML = `
+          <div class="rank">${i+1}</div>
+          <div class="mini">${x?.image ? `<img src="${esc(x.image)}" alt="" loading="lazy">` : placeholderHTML()}</div>
+          <div>
+            <div class="rowTitle">${esc(title)}</div>
+            <div class="rowSub">${esc(sub)}</div>
+          </div>
+          <div class="count">${esc(count)}</div>
+        `;
+        el.appendChild(row);
+      });
+    }
+
+    function todayKeyFromUts(uts){
+      if (!uts) return null;
+      const d = new Date(Number(uts) * 1000);
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    }
+
+    async function loadTopToday(){
+      const recent = await fetchJSON("/api/recent?limit=120");
+      const tracks = recent?.tracks || [];
+
+      const now = new Date();
+      const keyNow = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
+
+      const todays = tracks.filter(t => todayKeyFromUts(t.uts) === keyNow);
+
+      const trackMap = new Map();
+      const artistMap = new Map();
+
+      for (const t of todays) {
+        const tn = `${t.artist} — ${t.name}`;
+        trackMap.set(tn, (trackMap.get(tn) || 0) + 1);
+        artistMap.set(t.artist, (artistMap.get(t.artist) || 0) + 1);
+      }
+
+      const topTracks = Array.from(trackMap.entries())
+        .sort((a,b)=>b[1]-a[1])
+        .slice(0,12)
+        .map(([k,v])=>{
+          const parts = k.split(" — ");
+          return { name: parts.slice(1).join(" — "), artist: parts[0] || "", playcount: v, image: "" };
+        });
+
+      const topArtists = Array.from(artistMap.entries())
+        .sort((a,b)=>b[1]-a[1])
+        .slice(0,10)
+        .map(([name,playcount])=>({ name, playcount, image:"" }));
+
+      const topArtistName = topArtists[0]?.name || "";
+      if (topArtistName) {
+        try {
+          const a = await fetchJSON(`/api/artist?name=${encodeURIComponent(topArtistName)}`);
+          setBg(a?.image || "");
+        } catch { setBg(""); }
+      } else {
+        setBg("");
+      }
+
+      renderRows("topTodayTracks", topTracks, "trackOnly");
+      renderRows("topTodayArtists", topArtists, "artist");
+    }
+
+    async function loadTopPeriod(period, tracksId, artistsId){
+      const [t, a] = await Promise.all([
+        fetchJSON(`/api/top?type=tracks&period=${encodeURIComponent(period)}&limit=12`),
+        fetchJSON(`/api/top?type=artists&period=${encodeURIComponent(period)}&limit=10`)
+      ]);
+
+      const artists = a?.artists || [];
+      const topArtistName = artists[0]?.name || "";
+
+      if (topArtistName) {
+        try {
+          const ai = await fetchJSON(`/api/artist?name=${encodeURIComponent(topArtistName)}`);
+          setBg(ai?.image || "");
+        } catch { setBg(""); }
+      } else {
+        setBg("");
+      }
+
+      renderRows(tracksId, t?.tracks || [], "trackOnly");
+      renderRows(artistsId, artists, "artist");
+    }
+
+    async function loadTopActive(){
+      const active = document.querySelector('.sub[aria-selected="true"]')?.dataset?.sub || "today";
+      try{
+        if (active === "today") return await loadTopToday();
+        if (active === "week") return await loadTopPeriod("7day", "topWeekTracks", "topWeekArtists");
+        return await loadTopPeriod("12month", "topYearTracks", "topYearArtists");
+      }catch(e){
+        setBg("");
+        const idT = active === "today" ? "topTodayTracks" : (active === "week" ? "topWeekTracks" : "topYearTracks");
+        const idA = active === "today" ? "topTodayArtists" : (active === "week" ? "topWeekArtists" : "topYearArtists");
+        $(idT).innerHTML = `<div class="muted">Failed to load.</div>`;
+        $(idA).innerHTML = ``;
+      }
+    }
+
+    async function loadMirror(){
+      $("mirrorOut").textContent = "Generating…";
+      try{
+        const d = await fetchJSON("/api/mirror?period=7day");
+        $("mirrorOut").textContent = d?.text || "No reflection.";
+      }catch(e){
+        $("mirrorOut").textContent = "Failed to load AI. Check OPENAI_API_KEY.";
+      }
+    }
+
+    async function loadHistory(){
+      const listEl = $("historyList");
+      const emptyEl = $("historyEmpty");
       listEl.innerHTML = "";
       emptyEl.style.display = "none";
+      setBg("");
 
       try{
-        const d = await fetchJSON("/api/recent?limit=40");
-        const tracks = d.tracks || [];
+        const d = await fetchJSON("/api/recent?limit=50");
+        const tracks = d?.tracks || [];
         if (!tracks.length){ emptyEl.style.display=""; return; }
-
-        tracks.slice(0, 30).forEach((t, i)=>{
-          const row = document.createElement("div");
-          row.className = "row";
-          row.innerHTML = `
-            <div class="rank">${i+1}</div>
-            <div class="mini">${t.image ? `<img src="${esc(t.image)}" alt="" loading="lazy">` : placeholderHTML()}</div>
-            <div>
-              <div class="rowTitle">${esc(`${t.artist} — ${t.name}`)}</div>
-              <div class="rowSub">${esc(t.album || "")}</div>
-            </div>
-            <div class="count">${t.nowPlaying ? "LIVE" : ""}</div>
-          `;
-          listEl.appendChild(row);
-        });
+        renderRows("historyList", tracks, "history");
       }catch(e){
         emptyEl.style.display="";
-        emptyEl.textContent = "Failed to load: " + (e.message || "");
+        emptyEl.textContent = "Failed to load.";
       }
     }
 
-    async function loadWeek(){
-      $("weekTracks").innerHTML = "";
-      $("weekArtists").innerHTML = "";
-
-      try{
-        const d = await fetchJSON("/api/top?type=tracks&period=7day&limit=12");
-        (d.tracks || []).forEach((t, i)=>{
-          const row = document.createElement("div");
-          row.className = "row";
-          row.innerHTML = `
-            <div class="rank">${i+1}</div>
-            <div class="mini">${t.image ? `<img src="${esc(t.image)}" alt="" loading="lazy">` : placeholderHTML()}</div>
-            <div>
-              <div class="rowTitle">${esc(t.name || "")}</div>
-              <div class="rowSub"></div>
-            </div>
-            <div class="count">${(t.playcount||0)}</div>
-          `;
-          $("weekTracks").appendChild(row);
-        });
-      }catch(e){
-        const m = document.createElement("div");
-        m.className="muted";
-        m.textContent="Failed to load top tracks: " + (e.message || "");
-        $("weekTracks").appendChild(m);
-      }
-
-      try{
-        const d2 = await fetchJSON("/api/top?type=artists&period=7day&limit=10");
-        (d2.artists || []).forEach((a, i)=>{
-          const row = document.createElement("div");
-          row.className = "row";
-          row.innerHTML = `
-            <div class="rank">${i+1}</div>
-            <div class="mini">${a.image ? `<img src="${esc(a.image)}" alt="" loading="lazy">` : placeholderHTML()}</div>
-            <div>
-              <div class="rowTitle">${esc(a.name || "")}</div>
-              <div class="rowSub"></div>
-            </div>
-            <div class="count">${(a.playcount||0)}</div>
-          `;
-          $("weekArtists").appendChild(row);
-        });
-      }catch(e){
-        const m = document.createElement("div");
-        m.className="muted";
-        m.textContent="Failed to load top artists: " + (e.message || "");
-        $("weekArtists").appendChild(m);
-      }
-    }
-
-    checkApi();
     loadNow();
   </script>
 </body>

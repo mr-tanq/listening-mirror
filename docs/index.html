@@ -27,6 +27,7 @@
     }
     .wrap{max-width:980px;margin:0 auto;padding:28px 18px 60px;}
     h1{font-size:56px;letter-spacing:-1px;margin:18px 0 10px;}
+
     .tabs{
       display:flex; gap:12px; align-items:center;
       margin:10px 0 12px; overflow-x:auto; -webkit-overflow-scrolling:touch;
@@ -64,17 +65,7 @@
       border-radius:22px; padding:16px;}
 
     .muted{color:var(--muted); font-weight:750}
-    .debug{
-      margin:10px 0 18px;
-      border:1px solid var(--stroke);
-      background:rgba(0,0,0,.18);
-      border-radius:18px;
-      padding:12px 14px;
-      font-size:14px;
-      line-height:1.35;
-      word-break:break-word;
-    }
-    .debug b{color:rgba(255,255,255,.92)}
+
     .row{
       display:grid;
       grid-template-columns: 44px 56px 1fr auto;
@@ -136,15 +127,10 @@
     }
   </style>
 </head>
+
 <body>
   <div class="wrap">
     <h1>Listening Mirror</h1>
-
-    <div class="debug" id="dbg">
-      <div><b>API:</b> <span id="dbgApi">checking…</span></div>
-      <div><b>BASE_API:</b> <span id="dbgBase"></span></div>
-      <div class="muted">Αν γράψει status ≠ 200, τότε είναι καθαρά θέμα σύνδεσης site → worker.</div>
-    </div>
 
     <div class="tabs">
       <div class="dot" aria-hidden="true"></div>
@@ -176,7 +162,9 @@
     <section class="panel" data-panel="week" style="display:none;">
       <h2>Top tracks</h2>
       <div id="weekTracks"></div>
+
       <div style="height:18px"></div>
+
       <h2 style="font-size:40px;margin-top:10px;">Top artists</h2>
       <div id="weekArtists"></div>
     </section>
@@ -188,7 +176,6 @@
     const qsApi = new URL(location.href).searchParams.get("api");
     const storedApi = localStorage.getItem("BASE_API");
     const BASE_API = (qsApi || storedApi || DEFAULT_API).replace(/\/+$/,"");
-
     if (qsApi) localStorage.setItem("BASE_API", BASE_API);
 
     const $ = (id) => document.getElementById(id);
@@ -211,12 +198,6 @@
         if (name === "week") loadWeek();
       });
     });
-
-    function withTimeout(promise, ms=8000){
-      const c = new AbortController();
-      const t = setTimeout(()=>c.abort(), ms);
-      return promise(c.signal).finally(()=>clearTimeout(t));
-    }
 
     async function fetchJSON(path, opts = {}){
       const url = BASE_API + path;
@@ -248,22 +229,6 @@
         .replaceAll(">","&gt;");
     }
 
-    function imgTag(url){
-      const u = (url && String(url).trim()) ? String(url).trim() : "";
-      if (!u) return placeholderHTML();
-      return `<img src="${esc(u)}" alt="" loading="lazy" referrerpolicy="no-referrer">`;
-    }
-
-    async function checkApi(){
-      $("dbgBase").textContent = BASE_API;
-      try{
-        const d = await withTimeout((signal)=>fetch(BASE_API + "/api/now", { signal, cache:"no-store", mode:"cors" }));
-        $("dbgApi").textContent = `OK (status ${d.status})`;
-      }catch(e){
-        $("dbgApi").textContent = `FAIL (${e?.name || "Error"}: ${e?.message || e})`;
-      }
-    }
-
     // NOW
     async function loadNow(){
       $("nowHint").textContent = "";
@@ -272,7 +237,7 @@
         const title = d.artist ? `${d.artist} — ${d.name}` : (d.name || "—");
         $("nowTitle").textContent = title || "—";
         $("nowAlbum").textContent = d.album || "";
-        $("nowCover").innerHTML = imgTag(d.image);
+        $("nowCover").innerHTML = d.image ? `<img src="${esc(d.image)}" alt="" loading="lazy" />` : placeholderHTML();
         $("nowHint").textContent = d.nowPlaying ? "LIVE now playing" : "";
       }catch(e){
         $("nowTitle").textContent = "Failed to load.";
@@ -299,7 +264,7 @@
           row.className = "row";
           row.innerHTML = `
             <div class="rank">${i+1}</div>
-            <div class="mini">${imgTag(t.image)}</div>
+            <div class="mini">${t.image ? `<img src="${esc(t.image)}" alt="" loading="lazy">` : placeholderHTML()}</div>
             <div>
               <div class="rowTitle">${esc(`${t.artist} — ${t.name}`)}</div>
               <div class="rowSub">${esc(t.album || "")}</div>
@@ -314,19 +279,36 @@
       }
     }
 
-    // WEEK
+    // WEEK (artwork fallback from RECENT like Now/Today)
     async function loadWeek(){
       $("weekTracks").innerHTML = "";
       $("weekArtists").innerHTML = "";
 
+      // 1) fetch recent map for artwork fallback (same source as Now/Today)
+      let recentMap = new Map();
+      try{
+        const r = await fetchJSON("/api/recent?limit=200");
+        const recent = r.tracks || [];
+        for (const t of recent){
+          // key by track name (simple & robust for your use)
+          if (t?.name && t?.image && !recentMap.has(t.name)) {
+            recentMap.set(t.name, t.image);
+          }
+        }
+      }catch(e){
+        // ignore: week can still load without fallback
+      }
+
+      // 2) Top tracks
       try{
         const d = await fetchJSON("/api/top?type=tracks&period=7day&limit=12");
         (d.tracks || []).forEach((t, i)=>{
+          const img = t.image || recentMap.get(t.name) || "";
           const row = document.createElement("div");
           row.className = "row";
           row.innerHTML = `
             <div class="rank">${i+1}</div>
-            <div class="mini">${imgTag(t.image)}</div>
+            <div class="mini">${img ? `<img src="${esc(img)}" alt="" loading="lazy">` : placeholderHTML()}</div>
             <div>
               <div class="rowTitle">${esc(t.name || "")}</div>
               <div class="rowSub"></div>
@@ -342,6 +324,7 @@
         $("weekTracks").appendChild(m);
       }
 
+      // 3) Top artists
       try{
         const d2 = await fetchJSON("/api/top?type=artists&period=7day&limit=10");
         (d2.artists || []).forEach((a, i)=>{
@@ -349,7 +332,7 @@
           row.className = "row";
           row.innerHTML = `
             <div class="rank">${i+1}</div>
-            <div class="mini">${imgTag(a.image)}</div>
+            <div class="mini">${a.image ? `<img src="${esc(a.image)}" alt="" loading="lazy">` : placeholderHTML()}</div>
             <div>
               <div class="rowTitle">${esc(a.name || "")}</div>
               <div class="rowSub"></div>
@@ -367,7 +350,6 @@
     }
 
     // initial
-    checkApi();
     loadNow();
   </script>
 </body>

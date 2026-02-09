@@ -16,42 +16,39 @@
       --stroke:rgba(255,255,255,.10);
       --glow:rgba(255,255,255,.12);
       --radius:28px;
-      --shadow: 0 12px 60px rgba(0,0,0,.55);
     }
 
-    *{box-sizing:border-box}
+    *{ box-sizing:border-box; }
+    html,body{ height:100%; }
+
     body{
       margin:0;
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      background:
-        radial-gradient(1200px 800px at 30% 10%, rgba(255,255,255,.10), transparent 60%),
-        radial-gradient(900px 600px at 80% 20%, rgba(255,255,255,.08), transparent 55%),
-        var(--bg);
+      background: radial-gradient(1200px 800px at 30% 10%, rgba(255,255,255,.10), transparent 60%),
+                  radial-gradient(900px 600px at 80% 20%, rgba(255,255,255,.08), transparent 55%),
+                  var(--bg);
       color:var(--txt);
+      overflow-x:hidden;
     }
 
     .wrap{max-width:980px;margin:0 auto;padding:28px 18px 60px;}
     h1{font-size:56px;letter-spacing:-1px;margin:18px 0 10px;}
+    @media (max-width:520px){
+      h1{font-size:44px;}
+    }
 
-    /* Tabs: mobile-friendly (horizontal scroll, no cut) */
     .tabs{
       display:flex;
       gap:12px;
       align-items:center;
       margin:10px 0 18px;
-      overflow-x:auto;
-      -webkit-overflow-scrolling:touch;
-      padding-bottom:6px;
+      flex-wrap:wrap;
     }
-    .tabs::-webkit-scrollbar{height:6px}
-    .tabs::-webkit-scrollbar-thumb{background:rgba(255,255,255,.10);border-radius:999px}
     .dot{
-      flex:0 0 auto;
       width:18px;height:18px;border-radius:999px;background:#38d06e;
       box-shadow:0 0 0 6px rgba(56,208,110,.12)
     }
     .tab{
-      flex:0 0 auto;
       border:1px solid var(--stroke);
       background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
       color:var(--txt);
@@ -59,7 +56,7 @@
       font-weight:800;
       cursor:pointer;
       user-select:none;
-      min-width:96px;
+      min-width:92px;
       text-align:center;
       white-space:nowrap;
     }
@@ -73,16 +70,22 @@
       background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
       border-radius:var(--radius);
       padding:22px;
-      box-shadow:var(--shadow);
+      box-shadow:0 12px 60px rgba(0,0,0,.55);
       backdrop-filter: blur(10px);
+      max-width:100%;
     }
     .panel h2{font-size:54px;margin:6px 0 14px;letter-spacing:-1px}
+    @media (max-width:520px){
+      .panel{padding:18px;}
+      .panel h2{font-size:40px;}
+    }
 
     .card{
       border:1px solid var(--stroke);
       background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.05));
       border-radius:22px;
       padding:16px;
+      max-width:100%;
     }
 
     .nowGrid{
@@ -90,6 +93,13 @@
       grid-template-columns: 120px 1fr;
       gap:16px;
       align-items:center;
+      min-width:0;
+    }
+    @media (max-width:520px){
+      .nowGrid{
+        grid-template-columns: 92px 1fr;
+        gap:14px;
+      }
     }
 
     .cover{
@@ -97,26 +107,29 @@
       border:1px solid var(--stroke);
       background:rgba(255,255,255,.08);
       overflow:hidden;
-      position:relative;
-      display:grid;
-      place-items:center;
     }
-    .cover img{width:100%;height:100%;object-fit:cover;display:block;}
+    @media (max-width:520px){
+      .cover{ width:92px; height:92px; border-radius:16px; }
+    }
 
+    .cover img{width:100%;height:100%;object-fit:cover;display:block;}
     .meta{min-width:0;}
+
     .title{
       font-size:22px;font-weight:900;line-height:1.15;
-      white-space:normal;
+      white-space:normal; overflow:visible; text-overflow:unset;
       word-break:break-word;
-      overflow-wrap:anywhere;
     }
+    @media (max-width:520px){
+      .title{font-size:18px;}
+    }
+
     .sub{
       margin-top:6px;
       color:var(--muted);
       font-weight:750;
       white-space:normal;
       word-break:break-word;
-      overflow-wrap:anywhere;
     }
 
     .badge{
@@ -145,6 +158,15 @@
       border-radius:18px;
       border:1px solid var(--stroke);
       background:rgba(0,0,0,.22);
+      min-width:0;
+    }
+
+    @media (max-width:520px){
+      .row{
+        grid-template-columns: 42px 54px 1fr auto;
+        padding:12px 12px;
+        gap:10px;
+      }
     }
 
     .rank{
@@ -155,6 +177,9 @@
       font-weight:900;
       background:rgba(255,255,255,.04);
     }
+    @media (max-width:520px){
+      .rank{width:42px;height:42px;border-radius:14px;}
+    }
 
     .mini{
       width:56px;height:56px;border-radius:16px;
@@ -162,47 +187,31 @@
       overflow:hidden;
       background:rgba(255,255,255,.08);
       display:grid;place-items:center;
-      position:relative;
+      color:rgba(255,255,255,.25);
+      font-weight:900;
+    }
+    @media (max-width:520px){
+      .mini{width:54px;height:54px;border-radius:16px;}
     }
     .mini img{width:100%;height:100%;object-fit:cover;display:block;}
 
     .rowTitle{
       font-weight:900;
-      white-space:normal;
+      white-space:normal; overflow:visible; text-overflow:unset;
       word-break:break-word;
-      overflow-wrap:anywhere;
       line-height:1.18;
-      font-size:18px;
     }
-    .rowSub{
-      color:var(--muted2);
-      font-weight:750;
-      margin-top:4px;
-      white-space:normal;
-      word-break:break-word;
-      overflow-wrap:anywhere;
-      font-size:14px;
-    }
-    .count{
-      color:var(--muted);
-      font-weight:900;
-      white-space:nowrap;
-      font-variant-numeric: tabular-nums;
-    }
+    .rowSub{color:var(--muted2);font-weight:750;margin-top:4px;word-break:break-word}
+    .count{color:var(--muted);font-weight:900;white-space:nowrap}
 
-    /* Clean placeholder (NO stars anywhere) */
+    /* No-star placeholder (no "★") */
     .ph{
       width:100%;height:100%;
-      display:grid;place-items:center;
-      background:
-        radial-gradient(120px 120px at 30% 20%, rgba(255,255,255,.12), transparent 55%),
-        radial-gradient(160px 120px at 70% 80%, rgba(255,255,255,.10), transparent 60%),
-        rgba(255,255,255,.06);
-    }
-    .ph svg{
-      width:26px;height:26px;
-      opacity:.55;
-      filter: drop-shadow(0 10px 18px rgba(0,0,0,.35));
+      display:flex;align-items:center;justify-content:center;
+      background:rgba(255,255,255,.06);
+      color:rgba(255,255,255,.20);
+      font-weight:900;
+      font-size:18px;
     }
 
     /* Reflection UI */
@@ -218,7 +227,6 @@
       font-size:16px;
       outline:none;
       resize:vertical;
-      line-height:1.35;
     }
     .btn{
       display:inline-flex;align-items:center;justify-content:center;
@@ -237,52 +245,11 @@
       background:rgba(0,0,0,.22);
       color:var(--txt);
       white-space:pre-wrap;
-      line-height:1.45;
-      word-break:break-word;
-      overflow-wrap:anywhere;
+      line-height:1.35;
     }
-    .muted{color:var(--muted2);font-weight:750}
-
-    /* Mobile tweaks */
-    @media (max-width: 640px){
-      .wrap{padding:22px 14px 46px;}
-      h1{font-size:44px;margin:10px 0 8px;}
-      .panel{padding:16px;border-radius:24px;}
-      .panel h2{font-size:44px;margin:4px 0 12px;}
-
-      .nowGrid{
-        grid-template-columns: 92px 1fr;
-        gap:12px;
-      }
-      .cover{width:92px;height:92px;border-radius:16px;}
-      .title{font-size:18px}
-      .sub{font-size:14px}
-
-      .row{
-        grid-template-columns: 40px 52px 1fr;
-        grid-template-areas:
-          "rank art meta"
-          "rank art count";
-        align-items:start;
-        gap:10px 12px;
-      }
-      .rank{grid-area:rank;width:40px;height:40px;border-radius:14px}
-      .mini{grid-area:art;width:52px;height:52px;border-radius:16px}
-      .row .meta{grid-area:meta}
-      .count{grid-area:count;justify-self:end;align-self:end}
-      .rowTitle{font-size:16px}
-      .rowSub{font-size:13px}
-
-      .tab{min-width:auto;padding:10px 14px;font-weight:850}
-    }
-
-    @media (max-width: 380px){
-      h1{font-size:40px}
-      .panel h2{font-size:40px}
-    }
+    .muted{color:var(--muted2);font-weight:700}
   </style>
 </head>
-
 <body>
   <div class="wrap">
     <h1>Listening Mirror</h1>
@@ -336,20 +303,23 @@
       <h2>Reflection</h2>
       <div class="muted">AI reflection based strictly on your Last.fm data.</div>
 
-      <div class="field">
-        <textarea id="reflectionFocus" placeholder="Optional: τι θες να ρωτήσει/αναλύσει; (π.χ. 'γιατί κόλλησα με The Dears αυτή τη βδομάδα;')"></textarea>
-        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+      <!-- Hidden input + button (kept for debugging, but auto-run is enabled) -->
+      <div class="field" style="display:none;">
+        <textarea id="reflectionFocus" placeholder="Optional..."></textarea>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;">
           <button class="btn" id="btnReflect">Generate reflection</button>
           <span class="muted" id="reflectStatus"></span>
         </div>
       </div>
 
       <div class="out" id="reflectionOut" style="display:none;"></div>
+      <div class="muted" id="reflectionLoading" style="margin-top:12px;">Loading reflection…</div>
     </section>
   </div>
 
   <script>
-    // ✅ ΒΑΛΕ ΕΔΩ ΜΟΝΟ το base domain του Worker σου:
+    // ✅ Worker base domain
+    // Must include the /img proxy endpoint you added in the worker.
     const BASE_API = "https://i.errtanq9.workers.dev";
 
     const $ = (id) => document.getElementById(id);
@@ -361,16 +331,15 @@
       document.querySelectorAll("[data-panel]").forEach(p=>{
         p.style.display = (p.dataset.panel === name) ? "" : "none";
       });
+
+      if (name === "now") loadNow();
+      if (name === "today") loadToday();
+      if (name === "week") loadWeek();
+      if (name === "reflection") loadReflectionAuto();
     }
 
     document.querySelectorAll(".tab").forEach(t=>{
-      t.addEventListener("click", ()=>{
-        const name = t.dataset.tab;
-        setTab(name);
-        if (name === "now") loadNow();
-        if (name === "today") loadToday();
-        if (name === "week") loadWeek();
-      });
+      t.addEventListener("click", ()=> setTab(t.dataset.tab));
     });
 
     async function fetchJSON(path, opts){
@@ -380,25 +349,16 @@
     }
 
     function placeholderHTML(){
-      return `
-        <div class="ph" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M9 18V6.7c0-.4.24-.76.6-.92l8-3.6c.66-.3 1.4.18 1.4.9V15.5c0 1.66-1.79 3-4 3s-4-1.34-4-3 1.79-3 4-3c.75 0 1.46.16 2.06.44V5.3L11 8.1V18c0 1.66-1.79 3-4 3s-4-1.34-4-3 1.79-3 4-3c.75 0 1.46.16 2 .43Z" fill="rgba(255,255,255,.78)"/>
-          </svg>
-        </div>
-      `;
+      return `<div class="ph" aria-hidden="true"></div>`;
     }
 
+    // ✅ Image proxy via worker: /img?u=<encoded>
     function coverHTML(url){
-      if (url) return `<img src="${url}" alt="" loading="lazy" />`;
+      if (url){
+        const proxied = BASE_API + "/img?u=" + encodeURIComponent(url);
+        return `<img src="${proxied}" alt="" loading="lazy" />`;
+      }
       return placeholderHTML();
-    }
-
-    function escapeHTML(s){
-      return String(s ?? "")
-        .replaceAll("&","&amp;")
-        .replaceAll("<","&lt;")
-        .replaceAll(">","&gt;");
     }
 
     // NOW
@@ -432,12 +392,11 @@
 
         tracks.slice(0, 30).forEach((t, i)=>{
           const title = `${t.artist} — ${t.name}`;
-          const img = t.image || "";
           const row = document.createElement("div");
           row.className = "row";
           row.innerHTML = `
             <div class="rank">${i+1}</div>
-            <div class="mini">${img ? `<img src="${img}" alt="" loading="lazy">` : placeholderHTML()}</div>
+            <div class="mini">${coverHTML(t.image)}</div>
             <div class="meta">
               <div class="rowTitle">${escapeHTML(title)}</div>
               <div class="rowSub">${escapeHTML(t.album || "")}</div>
@@ -457,7 +416,7 @@
       $("weekTracks").innerHTML = "";
       $("weekArtists").innerHTML = "";
 
-      // Top tracks (7 days) -> ΜΟΝΟ τίτλος τραγουδιού ✅
+      // Top tracks (7 days) -> Title only + cover
       try{
         const d = await fetchJSON("/api/top?type=tracks&period=7day&limit=12");
         (d.tracks || []).forEach((t, i)=>{
@@ -465,10 +424,10 @@
           row.className = "row";
           row.innerHTML = `
             <div class="rank">${i+1}</div>
-            <div class="mini">${t.image ? `<img src="${t.image}" alt="" loading="lazy">` : placeholderHTML()}</div>
+            <div class="mini">${coverHTML(t.image)}</div>
             <div class="meta">
               <div class="rowTitle">${escapeHTML(t.name || "")}</div>
-              <div class="rowSub"></div>
+              <div class="rowSub">${escapeHTML(t.artist || "")}</div>
             </div>
             <div class="count">${(t.playcount||0)}</div>
           `;
@@ -481,7 +440,7 @@
         $("weekTracks").appendChild(m);
       }
 
-      // Top artists (7 days)
+      // Top artists (7 days) -> artist image + name
       try{
         const d2 = await fetchJSON("/api/top?type=artists&period=7day&limit=10");
         (d2.artists || []).forEach((a, i)=>{
@@ -489,7 +448,7 @@
           row.className = "row";
           row.innerHTML = `
             <div class="rank">${i+1}</div>
-            <div class="mini">${a.image ? `<img src="${a.image}" alt="" loading="lazy">` : placeholderHTML()}</div>
+            <div class="mini">${coverHTML(a.image)}</div>
             <div class="meta">
               <div class="rowTitle">${escapeHTML(a.name || "")}</div>
               <div class="rowSub"></div>
@@ -506,29 +465,39 @@
       }
     }
 
-    // REFLECTION
-    $("btnReflect").addEventListener("click", async ()=>{
-      $("reflectStatus").textContent = "Working…";
+    // REFLECTION (AUTO - no input, no button)
+    let reflectionLoaded = false;
+
+    async function loadReflectionAuto(){
+      if (reflectionLoaded) return;
+      reflectionLoaded = true;
+
+      $("reflectionLoading").style.display = "";
       $("reflectionOut").style.display = "none";
       $("reflectionOut").textContent = "";
 
-      const focus = $("reflectionFocus").value || "";
       try{
         const d = await fetchJSON("/api/reflection", {
           method:"POST",
           headers:{ "Content-Type":"application/json" },
-          body: JSON.stringify({ focus })
+          body: JSON.stringify({ focus: "" })
         });
+
         $("reflectionOut").textContent = d.text || "(no output)";
         $("reflectionOut").style.display = "";
-        $("reflectStatus").textContent = "";
+        $("reflectionLoading").style.display = "none";
       }catch(e){
-        $("reflectStatus").textContent = "Failed.";
+        $("reflectionLoading").textContent = "Failed to load reflection.";
       }
-    });
+    }
+
+    function escapeHTML(s){
+      return String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+    }
 
     // initial
     loadNow();
   </script>
 </body>
 </html>
+```0

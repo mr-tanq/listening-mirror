@@ -16,29 +16,52 @@
       --stroke:rgba(255,255,255,.10);
       --glow:rgba(255,255,255,.12);
       --radius:28px;
+      --shadow: 0 12px 60px rgba(0,0,0,.55);
     }
+
+    *{box-sizing:border-box}
     body{
       margin:0;
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      background: radial-gradient(1200px 800px at 30% 10%, rgba(255,255,255,.10), transparent 60%),
-                  radial-gradient(900px 600px at 80% 20%, rgba(255,255,255,.08), transparent 55%),
-                  var(--bg);
+      background:
+        radial-gradient(1200px 800px at 30% 10%, rgba(255,255,255,.10), transparent 60%),
+        radial-gradient(900px 600px at 80% 20%, rgba(255,255,255,.08), transparent 55%),
+        var(--bg);
       color:var(--txt);
     }
+
     .wrap{max-width:980px;margin:0 auto;padding:28px 18px 60px;}
     h1{font-size:56px;letter-spacing:-1px;margin:18px 0 10px;}
-    .tabs{display:flex;gap:12px;align-items:center;margin:10px 0 18px;}
-    .dot{width:18px;height:18px;border-radius:999px;background:#38d06e;box-shadow:0 0 0 6px rgba(56,208,110,.12)}
+
+    /* Tabs: mobile-friendly (horizontal scroll, no cut) */
+    .tabs{
+      display:flex;
+      gap:12px;
+      align-items:center;
+      margin:10px 0 18px;
+      overflow-x:auto;
+      -webkit-overflow-scrolling:touch;
+      padding-bottom:6px;
+    }
+    .tabs::-webkit-scrollbar{height:6px}
+    .tabs::-webkit-scrollbar-thumb{background:rgba(255,255,255,.10);border-radius:999px}
+    .dot{
+      flex:0 0 auto;
+      width:18px;height:18px;border-radius:999px;background:#38d06e;
+      box-shadow:0 0 0 6px rgba(56,208,110,.12)
+    }
     .tab{
+      flex:0 0 auto;
       border:1px solid var(--stroke);
       background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
       color:var(--txt);
       padding:10px 18px;border-radius:999px;
-      font-weight:700;
+      font-weight:800;
       cursor:pointer;
       user-select:none;
       min-width:96px;
       text-align:center;
+      white-space:nowrap;
     }
     .tab[aria-selected="true"]{
       background:linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.06));
@@ -50,42 +73,52 @@
       background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
       border-radius:var(--radius);
       padding:22px;
-      box-shadow:0 12px 60px rgba(0,0,0,.55);
+      box-shadow:var(--shadow);
       backdrop-filter: blur(10px);
     }
     .panel h2{font-size:54px;margin:6px 0 14px;letter-spacing:-1px}
+
     .card{
       border:1px solid var(--stroke);
       background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.05));
       border-radius:22px;
       padding:16px;
     }
+
     .nowGrid{
       display:grid;
       grid-template-columns: 120px 1fr;
       gap:16px;
       align-items:center;
     }
+
     .cover{
       width:120px;height:120px;border-radius:18px;
       border:1px solid var(--stroke);
       background:rgba(255,255,255,.08);
       overflow:hidden;
+      position:relative;
+      display:grid;
+      place-items:center;
     }
     .cover img{width:100%;height:100%;object-fit:cover;display:block;}
-    .meta{min-width:0;} /* critical for wrapping */
+
+    .meta{min-width:0;}
     .title{
       font-size:22px;font-weight:900;line-height:1.15;
-      white-space:normal; overflow:visible; text-overflow:unset;
+      white-space:normal;
       word-break:break-word;
+      overflow-wrap:anywhere;
     }
     .sub{
       margin-top:6px;
       color:var(--muted);
-      font-weight:700;
+      font-weight:750;
       white-space:normal;
       word-break:break-word;
+      overflow-wrap:anywhere;
     }
+
     .badge{
       margin-top:12px;
       display:inline-flex;gap:10px;align-items:center;
@@ -93,7 +126,7 @@
       border:1px solid var(--stroke);
       background:rgba(0,0,0,.25);
       color:var(--txt);
-      font-weight:800;
+      font-weight:850;
     }
     .bars{display:inline-flex;gap:3px;align-items:flex-end;}
     .bars span{width:4px;border-radius:3px;background:rgba(255,255,255,.75);display:block}
@@ -102,6 +135,7 @@
     .bars span:nth-child(3){height:9px}
 
     .list{display:flex;flex-direction:column;gap:12px;}
+
     .row{
       display:grid;
       grid-template-columns: 44px 56px 1fr auto;
@@ -112,6 +146,7 @@
       border:1px solid var(--stroke);
       background:rgba(0,0,0,.22);
     }
+
     .rank{
       width:44px;height:44px;border-radius:14px;
       display:grid;place-items:center;
@@ -120,24 +155,55 @@
       font-weight:900;
       background:rgba(255,255,255,.04);
     }
+
     .mini{
       width:56px;height:56px;border-radius:16px;
       border:1px solid var(--stroke);
       overflow:hidden;
       background:rgba(255,255,255,.08);
       display:grid;place-items:center;
-      color:rgba(255,255,255,.25);
-      font-weight:900;
+      position:relative;
     }
     .mini img{width:100%;height:100%;object-fit:cover;display:block;}
+
     .rowTitle{
       font-weight:900;
-      white-space:normal; overflow:visible; text-overflow:unset;
+      white-space:normal;
       word-break:break-word;
+      overflow-wrap:anywhere;
       line-height:1.18;
+      font-size:18px;
     }
-    .rowSub{color:var(--muted2);font-weight:700;margin-top:4px}
-    .count{color:var(--muted);font-weight:900;white-space:nowrap}
+    .rowSub{
+      color:var(--muted2);
+      font-weight:750;
+      margin-top:4px;
+      white-space:normal;
+      word-break:break-word;
+      overflow-wrap:anywhere;
+      font-size:14px;
+    }
+    .count{
+      color:var(--muted);
+      font-weight:900;
+      white-space:nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Clean placeholder (NO stars anywhere) */
+    .ph{
+      width:100%;height:100%;
+      display:grid;place-items:center;
+      background:
+        radial-gradient(120px 120px at 30% 20%, rgba(255,255,255,.12), transparent 55%),
+        radial-gradient(160px 120px at 70% 80%, rgba(255,255,255,.10), transparent 60%),
+        rgba(255,255,255,.06);
+    }
+    .ph svg{
+      width:26px;height:26px;
+      opacity:.55;
+      filter: drop-shadow(0 10px 18px rgba(0,0,0,.35));
+    }
 
     /* Reflection UI */
     .field{display:flex;flex-direction:column;gap:10px;margin-top:10px}
@@ -152,6 +218,7 @@
       font-size:16px;
       outline:none;
       resize:vertical;
+      line-height:1.35;
     }
     .btn{
       display:inline-flex;align-items:center;justify-content:center;
@@ -170,11 +237,52 @@
       background:rgba(0,0,0,.22);
       color:var(--txt);
       white-space:pre-wrap;
-      line-height:1.35;
+      line-height:1.45;
+      word-break:break-word;
+      overflow-wrap:anywhere;
     }
-    .muted{color:var(--muted2);font-weight:700}
+    .muted{color:var(--muted2);font-weight:750}
+
+    /* Mobile tweaks */
+    @media (max-width: 640px){
+      .wrap{padding:22px 14px 46px;}
+      h1{font-size:44px;margin:10px 0 8px;}
+      .panel{padding:16px;border-radius:24px;}
+      .panel h2{font-size:44px;margin:4px 0 12px;}
+
+      .nowGrid{
+        grid-template-columns: 92px 1fr;
+        gap:12px;
+      }
+      .cover{width:92px;height:92px;border-radius:16px;}
+      .title{font-size:18px}
+      .sub{font-size:14px}
+
+      .row{
+        grid-template-columns: 40px 52px 1fr;
+        grid-template-areas:
+          "rank art meta"
+          "rank art count";
+        align-items:start;
+        gap:10px 12px;
+      }
+      .rank{grid-area:rank;width:40px;height:40px;border-radius:14px}
+      .mini{grid-area:art;width:52px;height:52px;border-radius:16px}
+      .row .meta{grid-area:meta}
+      .count{grid-area:count;justify-self:end;align-self:end}
+      .rowTitle{font-size:16px}
+      .rowSub{font-size:13px}
+
+      .tab{min-width:auto;padding:10px 14px;font-weight:850}
+    }
+
+    @media (max-width: 380px){
+      h1{font-size:40px}
+      .panel h2{font-size:40px}
+    }
   </style>
 </head>
+
 <body>
   <div class="wrap">
     <h1>Listening Mirror</h1>
@@ -203,12 +311,6 @@
           </div>
         </div>
       </div>
-
-      <!-- ΑΥΤΟ ΕΙΝΑΙ το “κείμενο από κάτω” που ρώτησες.
-           Αν δεν το θες, άστο όπως είναι (σβηστό ήδη) ή βάλε άλλο δικό σου. -->
-      <!-- <p class="muted" style="margin:14px 2px 0;">
-        Uses your Cloudflare Worker as the data source.
-      </p> -->
     </section>
 
     <!-- TODAY -->
@@ -236,7 +338,7 @@
 
       <div class="field">
         <textarea id="reflectionFocus" placeholder="Optional: τι θες να ρωτήσει/αναλύσει; (π.χ. 'γιατί κόλλησα με The Dears αυτή τη βδομάδα;')"></textarea>
-        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
           <button class="btn" id="btnReflect">Generate reflection</button>
           <span class="muted" id="reflectStatus"></span>
         </div>
@@ -245,9 +347,9 @@
       <div class="out" id="reflectionOut" style="display:none;"></div>
     </section>
   </div>
+
   <script>
     // ✅ ΒΑΛΕ ΕΔΩ ΜΟΝΟ το base domain του Worker σου:
-    // (το δικό σου είναι αυτό που δουλεύει: https://i.errtanq9.workers.dev)
     const BASE_API = "https://i.errtanq9.workers.dev";
 
     const $ = (id) => document.getElementById(id);
@@ -277,9 +379,26 @@
       return await r.json();
     }
 
+    function placeholderHTML(){
+      return `
+        <div class="ph" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M9 18V6.7c0-.4.24-.76.6-.92l8-3.6c.66-.3 1.4.18 1.4.9V15.5c0 1.66-1.79 3-4 3s-4-1.34-4-3 1.79-3 4-3c.75 0 1.46.16 2.06.44V5.3L11 8.1V18c0 1.66-1.79 3-4 3s-4-1.34-4-3 1.79-3 4-3c.75 0 1.46.16 2 .43Z" fill="rgba(255,255,255,.78)"/>
+          </svg>
+        </div>
+      `;
+    }
+
     function coverHTML(url){
-      if (url) return `<img src="${url}" alt="" />`;
-      return `<div class="mini" aria-hidden="true">★</div>`;
+      if (url) return `<img src="${url}" alt="" loading="lazy" />`;
+      return placeholderHTML();
+    }
+
+    function escapeHTML(s){
+      return String(s ?? "")
+        .replaceAll("&","&amp;")
+        .replaceAll("<","&lt;")
+        .replaceAll(">","&gt;");
     }
 
     // NOW
@@ -294,7 +413,7 @@
       }catch(e){
         $("nowTitle").textContent = "Failed to load.";
         $("nowAlbum").textContent = "";
-        $("nowCover").innerHTML = "";
+        $("nowCover").innerHTML = placeholderHTML();
         $("nowBadge").style.display = "none";
       }
     }
@@ -318,7 +437,7 @@
           row.className = "row";
           row.innerHTML = `
             <div class="rank">${i+1}</div>
-            <div class="mini">${img ? `<img src="${img}" alt="">` : "★"}</div>
+            <div class="mini">${img ? `<img src="${img}" alt="" loading="lazy">` : placeholderHTML()}</div>
             <div class="meta">
               <div class="rowTitle">${escapeHTML(title)}</div>
               <div class="rowSub">${escapeHTML(t.album || "")}</div>
@@ -338,7 +457,7 @@
       $("weekTracks").innerHTML = "";
       $("weekArtists").innerHTML = "";
 
-      // Top tracks (7 days) -> ΘΕΛΕΙΣ ΜΟΝΟ ΤΙΤΛΟ τραγουδιού ✅
+      // Top tracks (7 days) -> ΜΟΝΟ τίτλος τραγουδιού ✅
       try{
         const d = await fetchJSON("/api/top?type=tracks&period=7day&limit=12");
         (d.tracks || []).forEach((t, i)=>{
@@ -346,12 +465,12 @@
           row.className = "row";
           row.innerHTML = `
             <div class="rank">${i+1}</div>
-            <div class="mini">${t.image ? `<img src="${t.image}" alt="">` : "★"}</div>
+            <div class="mini">${t.image ? `<img src="${t.image}" alt="" loading="lazy">` : placeholderHTML()}</div>
             <div class="meta">
               <div class="rowTitle">${escapeHTML(t.name || "")}</div>
-              <div class="rowSub">${escapeHTML(t.artist || "")}</div>
+              <div class="rowSub"></div>
             </div>
-            <div class="count">${(t.playcount||0)} plays</div>
+            <div class="count">${(t.playcount||0)}</div>
           `;
           $("weekTracks").appendChild(row);
         });
@@ -370,12 +489,12 @@
           row.className = "row";
           row.innerHTML = `
             <div class="rank">${i+1}</div>
-            <div class="mini">${a.image ? `<img src="${a.image}" alt="">` : "★"}</div>
+            <div class="mini">${a.image ? `<img src="${a.image}" alt="" loading="lazy">` : placeholderHTML()}</div>
             <div class="meta">
               <div class="rowTitle">${escapeHTML(a.name || "")}</div>
               <div class="rowSub"></div>
             </div>
-            <div class="count">${(a.playcount||0)} plays</div>
+            <div class="count">${(a.playcount||0)}</div>
           `;
           $("weekArtists").appendChild(row);
         });
@@ -407,10 +526,6 @@
         $("reflectStatus").textContent = "Failed.";
       }
     });
-
-    function escapeHTML(s){
-      return String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
-    }
 
     // initial
     loadNow();

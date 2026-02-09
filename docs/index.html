@@ -1,584 +1,412 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Listening Mirror</title>
-  <style>
-    :root{
-      --bg:#0b0c0f;
-      --panel:#14161b;
-      --panel2:#111318;
-      --text:#e9eaec;
-      --muted:#a5a8b0;
-      --line:rgba(255,255,255,0.08);
-      --shadow: 0 12px 40px rgba(0,0,0,0.55);
-      --r:18px;
-      --pad:18px;
-      --live:#ff3b30; /* iOS red */
-    }
-    *{box-sizing:border-box}
-    body{
-      margin:0;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-      background: radial-gradient(1200px 800px at 20% 0%, rgba(255,255,255,0.06), transparent 55%),
-                  radial-gradient(1000px 900px at 90% 10%, rgba(255,255,255,0.04), transparent 55%),
-                  var(--bg);
-      color:var(--text);
-    }
-    .wrap{max-width:980px;margin:0 auto;padding:22px 18px 40px}
-    h1{
-      margin:18px 0 10px;
-      font-size: clamp(42px, 7vw, 88px);
-      letter-spacing:-0.03em;
-      line-height:1.02;
-    }
-    .debug{
-      display:flex;gap:10px;align-items:center;
-      background: rgba(255,255,255,0.04);
-      border:1px solid var(--line);
-      border-radius: 16px;
-      padding: 12px 14px;
-      box-shadow: var(--shadow);
-      margin: 8px 0 16px;
-    }
-    .dot{
-      width:14px;height:14px;border-radius:999px;
-      background:#ff3b30;
-      box-shadow: 0 0 0 4px rgba(255,59,48,0.12);
-      flex:0 0 auto;
-    }
-    .dbgtext{font-size:14px;line-height:1.35;color:var(--muted)}
-    .dbgtext b{color:var(--text)}
-    .row{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0}
-    .pillbar{display:flex;gap:10px;flex-wrap:wrap}
-    .pill{
-      background: rgba(255,255,255,0.03);
-      border:1px solid var(--line);
-      color:var(--text);
-      padding: 10px 18px;
-      border-radius: 999px;
-      cursor:pointer;
-      user-select:none;
-      box-shadow: 0 10px 28px rgba(0,0,0,0.35);
-      font-weight:650;
-      letter-spacing:0.01em;
-    }
-    .pill[aria-selected="true"]{
-      background: rgba(255,255,255,0.08);
-      border-color: rgba(255,255,255,0.18);
-    }
-    .divider{height:2px;background:rgba(255,255,255,0.08);border-radius:999px;margin:14px 0 16px}
-    .card{
-      background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
-      border:1px solid var(--line);
-      border-radius: var(--r);
-      padding: var(--pad);
-      box-shadow: var(--shadow);
-    }
-    .card h2{
-      margin: 8px 0 2px;
-      font-size: clamp(36px, 5vw, 64px);
-      letter-spacing:-0.03em;
-    }
-    .subtabs{margin-top:10px;display:flex;gap:10px;flex-wrap:wrap}
-    .subpill{
-      background: rgba(0,0,0,0.12);
-      border:1px solid var(--line);
-      color:var(--text);
-      padding: 10px 16px;
-      border-radius: 999px;
-      cursor:pointer;
-      user-select:none;
-      font-weight:650;
-    }
-    .subpill[aria-selected="true"]{
-      background: rgba(255,255,255,0.08);
-      border-color: rgba(255,255,255,0.18);
-    }
-    .list{margin-top:14px;display:flex;flex-direction:column;gap:12px}
-    .item{
-      display:grid;
-      grid-template-columns: 44px 56px 1fr auto;
-      align-items:center;
-      gap:12px;
-      padding: 14px;
-      border-radius: 18px;
-      border:1px solid rgba(255,255,255,0.06);
-      background: rgba(0,0,0,0.12);
-    }
-    .idx{
-      width:34px;height:34px;border-radius:12px;
-      display:flex;align-items:center;justify-content:center;
-      background: rgba(255,255,255,0.04);
-      border:1px solid rgba(255,255,255,0.07);
-      color: var(--muted);
-      font-weight:800;
-    }
-    img.cover{
-      width:56px;height:56px;border-radius:14px;
-      object-fit:cover;
-      background: rgba(255,255,255,0.04);
-      border:1px solid rgba(255,255,255,0.07);
-    }
-    .meta{min-width:0}
-    .title{
-      font-size:18px;font-weight:800;letter-spacing:-0.01em;
-      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-    }
-    .subtitle{
-      margin-top:3px;
-      font-size:14px;color:var(--muted);
-      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-    }
-    .count{
-      font-variant-numeric: tabular-nums;
-      color: var(--muted);
-      font-weight:800;
-      font-size:18px;
-      padding-left:10px;
-    }
-    .nowcard{
-      display:grid;
-      grid-template-columns: 96px 1fr;
-      gap:16px;
-      align-items:center;
-      padding: 18px;
-      border-radius: 22px;
-      border:1px solid rgba(255,255,255,0.06);
-      background: rgba(0,0,0,0.12);
-    }
-    .nowcover{
-      width:96px;height:96px;border-radius:20px;object-fit:cover;
-      background: rgba(255,255,255,0.04);
-      border:1px solid rgba(255,255,255,0.07);
-    }
-    .badge{
-      display:inline-flex;align-items:center;gap:8px;
-      padding: 9px 14px;border-radius:999px;
-      border:1px solid rgba(255,255,255,0.10);
-      background: rgba(0,0,0,0.22);
-      margin-top:10px;
-      font-weight:900;
-      letter-spacing:0.02em;
-    }
-    /* LIVE badge: red text (requested) */
-    .badge.live{
-      color: var(--live);
-      border-color: rgba(255,59,48,0.35);
-      background: rgba(255,59,48,0.10);
-    }
-    .badge .bars{
-      display:inline-flex;gap:3px;align-items:flex-end;height:14px
-    }
-    .badge .bars span{
-      width:3px;border-radius:2px;background: currentColor;
-      display:block;
-      animation: bounce 0.9s infinite ease-in-out;
-    }
-    .badge .bars span:nth-child(2){animation-delay:0.12s}
-    .badge .bars span:nth-child(3){animation-delay:0.24s}
-    @keyframes bounce{
-      0%,100%{height:5px;opacity:0.55}
-      50%{height:14px;opacity:1}
-    }
-    .smallmuted{margin-top:8px;color:var(--muted);font-size:14px}
-    .mirrorbox{
-      margin-top:14px;
-      padding: 18px;
-      border-radius: 20px;
-      background: rgba(0,0,0,0.14);
-      border:1px solid rgba(255,255,255,0.06);
-      color: var(--text);
-      font-size: 16px;
-      line-height: 1.55;
-      white-space: pre-wrap;
-    }
-    .footerhint{
-      margin-top:10px;color:rgba(255,255,255,0.35);font-size:12px
-    }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <h1>Listening Mirror</h1>
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    const path = url.pathname;
 
-    <div class="debug">
-      <div class="dot" id="apiDot"></div>
-      <div class="dbgtext">
-        <div><b>API:</b> <span id="apiStatus">Checking…</span></div>
-        <div><b>BASE_API:</b> <span id="apiBase"></span></div>
-        <div style="margin-top:4px;">Αν γράψει status ≠ 200, τότε είναι καθαρά θέμα σύνδεσης site → worker.</div>
-      </div>
-    </div>
+    // CORS preflight
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders() });
+    }
 
-    <div class="row">
-      <div class="pillbar" role="tablist" aria-label="Main tabs">
-        <button class="pill" role="tab" data-tab="now" aria-selected="true">Now</button>
-        <button class="pill" role="tab" data-tab="top" aria-selected="false">Top</button>
-        <button class="pill" role="tab" data-tab="mirror" aria-selected="false">Mirror</button>
-        <button class="pill" role="tab" data-tab="history" aria-selected="false">History</button>
-      </div>
-    </div>
+    try {
+      if (path === "/img") return await handleImg(url);
+      if (path === "/api/now") return await handleNow(request, env);
+      if (path === "/api/recent") return await handleRecent(request, env);
+      if (path === "/api/top") return await handleTop(request, env);
+      if (path === "/api/reflection") return await handleReflection(request, env);
 
-    <div class="divider"></div>
+      return json({ ok: false, error: "Not found" }, 404);
+    } catch (err) {
+      return json({ ok: false, error: String(err?.message || err) }, 500);
+    }
+  },
+};
 
-    <!-- NOW -->
-    <section id="tab-now" class="card" style="display:block">
-      <h2>Now Playing</h2>
-      <div id="nowArea" class="list"></div>
-    </section>
-<!-- TOP -->
-    <section id="tab-top" class="card" style="display:none">
-      <h2>Top</h2>
+function corsHeaders() {
+  return {
+    "access-control-allow-origin": "*",
+    "access-control-allow-methods": "GET,POST,OPTIONS",
+    "access-control-allow-headers": "content-type",
+  };
+}
 
-      <!-- Type subtabs -->
-      <div class="subtabs" role="tablist" aria-label="Top type tabs">
-        <button class="subpill" role="tab" data-toptype="tracks" aria-selected="true">Tracks</button>
-        <button class="subpill" role="tab" data-toptype="artists" aria-selected="false">Artists</button>
-        <button class="subpill" role="tab" data-toptype="albums" aria-selected="false">Albums</button>
-      </div>
+function json(obj, status = 200, extraHeaders = {}) {
+  return new Response(JSON.stringify(obj, null, 2), {
+    status,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      ...corsHeaders(),
+      ...extraHeaders,
+    },
+  });
+}
 
-      <!-- Period subtabs -->
-      <div class="subtabs" role="tablist" aria-label="Top period tabs" style="margin-top:10px">
-        <button class="subpill" role="tab" data-period="today" aria-selected="true">Today</button>
-        <button class="subpill" role="tab" data-period="week" aria-selected="false">Week</button>
-        <button class="subpill" role="tab" data-period="year" aria-selected="false">Year</button>
-        <button class="subpill" role="tab" data-period="all" aria-selected="false">All time</button>
-      </div>
+function mustEnv(env, key) {
+  const v = env[key];
+  if (!v) throw new Error(`Missing env var: ${key}`);
+  return v;
+}
 
-      <div id="topArea" class="list"></div>
-      <div class="footerhint">Top/Today υπολογίζεται από τα recent scrobbles της ημέρας (local timezone).</div>
-    </section>
+function asInt(v, def) {
+  const n = Number.parseInt(String(v ?? ""), 10);
+  return Number.isFinite(n) ? n : def;
+}
 
-    <!-- MIRROR -->
-    <section id="tab-mirror" class="card" style="display:none">
-      <h2>Mirror</h2>
+function clamp(n, a, b) {
+  return Math.max(a, Math.min(b, n));
+}
 
-      <div class="subtabs" role="tablist" aria-label="Mirror period tabs">
-        <button class="subpill" role="tab" data-mperiod="today" aria-selected="true">Today</button>
-        <button class="subpill" role="tab" data-mperiod="week" aria-selected="false">Week</button>
-        <button class="subpill" role="tab" data-mperiod="year" aria-selected="false">Year</button>
-        <button class="subpill" role="tab" data-mperiod="all" aria-selected="false">All time</button>
-      </div>
+function pickImage(images, preferredSize = "extralarge") {
+  if (!images) return "";
+  if (typeof images === "string") return images;
+  if (!Array.isArray(images)) return "";
+  const exact = images.find(x => x?.size === preferredSize && x?.["#text"]);
+  if (exact) return exact["#text"];
+  for (let i = images.length - 1; i >= 0; i--) {
+    const u = images[i]?.["#text"];
+    if (u) return u;
+  }
+  return "";
+}
 
-      <div id="mirrorBox" class="mirrorbox">Opening mirror…</div>
-      <div class="footerhint">Το Mirror παράγεται από τον worker (/api/reflection) με βάση Top + Recent.</div>
-    </section>
+function proxyImg(origin, imageRaw) {
+  if (!imageRaw) return "";
+  return `${origin}/img?url=${encodeURIComponent(imageRaw)}`;
+}
 
-    <!-- HISTORY -->
-    <section id="tab-history" class="card" style="display:none">
-      <h2>History</h2>
-      <div id="historyArea" class="list"></div>
-    </section>
+async function lastfmGet(env, method, params) {
+  const apiKey = mustEnv(env, "LASTFM_API_KEY");
+  const user = mustEnv(env, "LASTFM_USER");
 
-  </div>
+  const u = new URL("https://ws.audioscrobbler.com/2.0/");
+  u.searchParams.set("format", "json");
+  u.searchParams.set("api_key", apiKey);
+  u.searchParams.set("user", user);
+  u.searchParams.set("method", method);
 
-  <script>
-    // ===== CONFIG =====
-    const DEFAULT_BASE_API = "https://i.errtanq9.workers.dev";
-    const BASE_API = (window.BASE_API && typeof window.BASE_API === "string" && window.BASE_API.startsWith("http"))
-      ? window.BASE_API
-      : DEFAULT_BASE_API;
+  for (const [k, v] of Object.entries(params || {})) {
+    if (v === undefined || v === null || v === "") continue;
+    u.searchParams.set(k, String(v));
+  }
 
-    const LIMIT_RECENT = 30;
-    const LIMIT_TOP = 20;
+  const res = await fetch(u.toString(), { method: "GET" });
+  if (!res.ok) throw new Error(`Last.fm HTTP ${res.status}`);
+  const data = await res.json();
 
-    const state = {
-      tab: "now",
-      topType: "tracks",
-      topPeriod: "today",
-      mirrorPeriod: "today",
-      lastNowTrackKey: "",
+  if (data?.error) throw new Error(`Last.fm: ${data.message || "error"}`);
+  return data;
+}
+async function handleImg(url) {
+  const raw = url.searchParams.get("url");
+  if (!raw) return new Response("Missing url", { status: 400, headers: corsHeaders() });
+
+  let target;
+  try {
+    target = new URL(raw);
+  } catch {
+    return new Response("Bad url", { status: 400, headers: corsHeaders() });
+  }
+
+  const res = await fetch(target.toString(), {
+    headers: {
+      "user-agent": "ListeningMirror/1.0",
+      "accept": "image/*,*/*;q=0.8",
+    },
+  });
+
+  const headers = new Headers(corsHeaders());
+  const ct = res.headers.get("content-type");
+  if (ct) headers.set("content-type", ct);
+  headers.set("cache-control", "public, max-age=86400");
+
+  return new Response(res.body, { status: res.status, headers });
+}
+
+/**
+ * tzOffsetMinutes is JS Date.getTimezoneOffset():
+ * minutes to add to LOCAL to get UTC. (CET: -60, EET: -120, etc.)
+ *
+ * We avoid Date()/setHours() (Worker runs in UTC), and do pure arithmetic:
+ * local = utc - offset
+ * localDay = floor(local / 86400)
+ * startLocal = localDay * 86400
+ * startUtc = startLocal + offset
+ */
+function startOfLocalDayUnix(nowUnix, tzOffsetMinutes) {
+  const offsetSec = tzOffsetMinutes * 60;
+  const localNow = nowUnix - offsetSec;
+  const localDay = Math.floor(localNow / 86400);
+  const startLocal = localDay * 86400;
+  const startUtc = startLocal + offsetSec;
+  return startUtc;
+}
+
+async function handleNow(request, env) {
+  const origin = new URL(request.url).origin;
+
+  const data = await lastfmGet(env, "user.getrecenttracks", { limit: 1 });
+  const track = data?.recenttracks?.track?.[0];
+  if (!track) return json({ ok: true, track: null });
+
+  const nowplaying = track?.["@attr"]?.nowplaying === "true";
+  const imageRaw = pickImage(track.image, "extralarge") || pickImage(track.image, "large") || "";
+  const image = proxyImg(origin, imageRaw);
+
+  return json({
+    ok: true,
+    track: {
+      name: track.name || "",
+      artist: track.artist || { mbid: "", "#text": "" },
+      album: track.album?.["#text"] || "",
+      image,
+      nowplaying,
+      url: track.url || "",
+      uts: track.date?.uts || "",
+    },
+  });
+}
+
+async function handleRecent(request, env) {
+  const origin = new URL(request.url).origin;
+  const url = new URL(request.url);
+
+  const limit = clamp(asInt(url.searchParams.get("limit"), 20), 1, 100);
+  const data = await lastfmGet(env, "user.getrecenttracks", { limit });
+
+  const tracks = Array.isArray(data?.recenttracks?.track) ? data.recenttracks.track : [];
+  const items = tracks.map(t => {
+    const imageRaw = pickImage(t.image, "large") || pickImage(t.image, "extralarge") || "";
+    return {
+      name: t.name || "",
+      artist: t.artist?.["#text"] || "",
+      album: t.album?.["#text"] || "",
+      image: proxyImg(origin, imageRaw),
+      uts: t.date?.uts || "",
+      nowplaying: t?.["@attr"]?.nowplaying === "true",
+      url: t.url || "",
     };
+  });
 
-    // ===== HELPERS =====
-    function el(sel){ return document.querySelector(sel); }
-    function els(sel){ return Array.from(document.querySelectorAll(sel)); }
+  return json({ ok: true, items });
+}
+async function computeTopFromRecent(env, fromUnix, toUnix) {
+  const MAX_PAGES = 6;     // ανέβασα λίγο για πιο “γεμάτο” Today
+  const PER_PAGE = 200;
 
-    function setApiStatus(ok, statusText){
-      el("#apiStatus").textContent = statusText;
-      el("#apiBase").textContent = BASE_API;
-      el("#apiDot").style.background = ok ? "#34c759" : "#ff3b30";
-      el("#apiDot").style.boxShadow = ok ? "0 0 0 4px rgba(52,199,89,0.12)" : "0 0 0 4px rgba(255,59,48,0.12)";
-    }
+  let page = 1;
+  let totalPages = 1;
 
-    function escapeHtml(s){
-      return String(s ?? "")
-        .replaceAll("&","&amp;").replaceAll("<","&lt;")
-        .replaceAll(">","&gt;").replaceAll('"',"&quot;")
-        .replaceAll("'","&#039;");
-    }
+  const countsTracks = new Map();   // "artist — track"
+  const countsArtists = new Map();  // "artist"
+  const countsAlbums = new Map();   // "artist — album"
+  const bestTrackImage = new Map(); // key -> imageRaw
+  const bestAlbumImage = new Map(); // key -> imageRaw
 
-    function safeImg(url){
-      if(!url) return "";
-      return url;
-    }
+  while (page <= totalPages && page <= MAX_PAGES) {
+    const data = await lastfmGet(env, "user.getrecenttracks", {
+      limit: PER_PAGE,
+      page,
+      from: fromUnix,
+      to: toUnix,
+    });
 
-    function formatLocalDateTimeFromUnix(uts){
-      if(!uts) return "";
-      const d = new Date(Number(uts) * 1000);
-      return d.toLocaleString(undefined, { year:"numeric", month:"numeric", day:"numeric", hour:"2-digit", minute:"2-digit", second:"2-digit" });
-    }
+    const rt = data?.recenttracks;
+    totalPages = asInt(rt?.["@attr"]?.totalPages, 1);
 
-    async function apiGet(path){
-      const url = `${BASE_API}${path}${path.includes("?") ? "&" : "?"}t=${Date.now()}`;
-      const res = await fetch(url, { method:"GET" });
-      if(!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
-    }
+    const tracks = Array.isArray(rt?.track) ? rt.track : [];
+    for (const t of tracks) {
+      if (t?.["@attr"]?.nowplaying === "true") continue;
 
-    async function apiPost(path, body){
-      const url = `${BASE_API}${path}${path.includes("?") ? "&" : "?"}t=${Date.now()}`;
-      const res = await fetch(url, {
-        method:"POST",
-        headers:{ "content-type":"application/json" },
-        body: JSON.stringify(body ?? {})
-      });
-      if(!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
-    }
+      const artist = t.artist?.["#text"] || "";
+      const name = t.name || "";
+      const album = t.album?.["#text"] || "";
 
-    function showTab(tab){
-      state.tab = tab;
-      els('[role="tab"][data-tab]').forEach(b => b.setAttribute("aria-selected", b.dataset.tab === tab ? "true" : "false"));
-      el("#tab-now").style.display = tab === "now" ? "block" : "none";
-      el("#tab-top").style.display = tab === "top" ? "block" : "none";
-      el("#tab-mirror").style.display = tab === "mirror" ? "block" : "none";
-      el("#tab-history").style.display = tab === "history" ? "block" : "none";
-    }
+      if (artist) countsArtists.set(artist, (countsArtists.get(artist) || 0) + 1);
 
-    function setTopType(type){
-      state.topType = type;
-      els('[data-toptype]').forEach(b => b.setAttribute("aria-selected", b.dataset.toptype === type ? "true" : "false"));
-    }
-
-    function setTopPeriod(period){
-      state.topPeriod = period;
-      // top period buttons
-      els('#tab-top [data-period]').forEach(b => b.setAttribute("aria-selected", b.dataset.period === period ? "true" : "false"));
-    }
-
-    function setMirrorPeriod(period){
-      state.mirrorPeriod = period;
-      els('#tab-mirror [data-mperiod]').forEach(b => b.setAttribute("aria-selected", b.dataset.mperiod === period ? "true" : "false"));
-    }
-  </script>
-<script>
-    // ===== RENDERERS =====
-    function renderNow(track){
-      const area = el("#nowArea");
-      area.innerHTML = "";
-
-      if(!track){
-        area.innerHTML = `<div class="nowcard"><div class="meta"><div class="title">No data</div><div class="subtitle">Couldn’t load /api/now</div></div></div>`;
-        return;
+      if (artist && name) {
+        const k = `${artist} — ${name}`;
+        countsTracks.set(k, (countsTracks.get(k) || 0) + 1);
+        const imageRaw = pickImage(t.image, "large") || pickImage(t.image, "extralarge") || "";
+        if (imageRaw && !bestTrackImage.get(k)) bestTrackImage.set(k, imageRaw);
       }
 
-      const cover = safeImg(track.image);
-      const title = escapeHtml(track.name);
-      const artist = escapeHtml(track.artist);
-      const album = escapeHtml(track.album || "");
-      const live = !!track.nowplaying;
-      const lastPlayed = track.uts ? formatLocalDateTimeFromUnix(track.uts) : "";
-
-      area.innerHTML = `
-        <div class="nowcard">
-          <img class="nowcover" src="${escapeHtml(cover)}" alt="" loading="lazy"
-               onerror="this.onerror=null;this.src='';this.style.display='none';">
-          <div class="meta">
-            <div class="title">${artist} — ${title}</div>
-            <div class="subtitle">${album || "&nbsp;"}</div>
-            ${live
-              ? `<div class="badge live"><span class="bars"><span></span><span></span><span></span></span>LIVE</div>`
-              : (lastPlayed ? `<div class="smallmuted">Last played: ${escapeHtml(lastPlayed)}</div>` : `<div class="smallmuted">&nbsp;</div>`)
-            }
-          </div>
-        </div>
-      `;
+      if (artist && album) {
+        const k = `${artist} — ${album}`;
+        countsAlbums.set(k, (countsAlbums.get(k) || 0) + 1);
+        const imageRaw = pickImage(t.image, "large") || pickImage(t.image, "extralarge") || "";
+        if (imageRaw && !bestAlbumImage.get(k)) bestAlbumImage.set(k, imageRaw);
+      }
     }
 
-    function renderList(items, mode){
-      // mode: "tracks" | "artists" | "albums" | "history"
-      const toHtml = (it, i) => {
-        const idx = i + 1;
-        const cover = safeImg(it.image);
-        const count = (it.playcount != null) ? String(it.playcount) : "";
-        const right = count ? `<div class="count">${escapeHtml(count)}</div>` : `<div class="count"></div>`;
+    page++;
+  }
 
-        let title = "";
-        let subtitle = "";
+  return { countsTracks, countsArtists, countsAlbums, bestTrackImage, bestAlbumImage };
+}
 
-        if(mode === "artists"){
-          title = escapeHtml(it.name || "");
-          subtitle = "&nbsp;";
-        } else if(mode === "albums"){
-          title = escapeHtml(it.name || "");
-          subtitle = escapeHtml(it.artist || "");
-        } else if(mode === "history"){
-          title = escapeHtml(it.artist || "") + " — " + escapeHtml(it.name || "");
-          subtitle = escapeHtml(it.album || "");
-        } else {
-          // tracks
-          title = escapeHtml(it.name || "");
-          subtitle = escapeHtml(it.artist || "");
-        }
+function mapPeriod(period) {
+  if (period === "week") return "7day";
+  if (period === "year") return "12month";
+  if (period === "all") return "overall";
+  return "7day";
+}
 
-        return `
-          <div class="item">
-            <div class="idx">${idx}</div>
-            <img class="cover" src="${escapeHtml(cover)}" alt="" loading="lazy"
-                 onerror="this.onerror=null;this.src='';this.style.display='none';">
-            <div class="meta">
-              <div class="title">${title}</div>
-              <div class="subtitle">${subtitle || "&nbsp;"}</div>
-            </div>
-            ${right}
-          </div>
-        `;
+async function getTopData(env, origin, type, period, limit, tzOffsetMinutes) {
+  const nowUnix = Math.floor(Date.now() / 1000);
+
+  if (period === "today") {
+    const fromUnix = startOfLocalDayUnix(nowUnix, tzOffsetMinutes);
+    const agg = await computeTopFromRecent(env, fromUnix, nowUnix);
+
+    if (type === "artists") {
+      return Array.from(agg.countsArtists.entries())
+        .map(([name, playcount]) => ({ name, playcount, image: "" }))
+        .sort((a, b) => b.playcount - a.playcount)
+        .slice(0, limit);
+    }
+
+    if (type === "albums") {
+      return Array.from(agg.countsAlbums.entries())
+        .map(([key, playcount]) => {
+          const [artist, name] = key.split(" — ");
+          const imageRaw = agg.bestAlbumImage.get(key) || "";
+          return { artist, name, playcount, image: proxyImg(origin, imageRaw) };
+        })
+        .sort((a, b) => b.playcount - a.playcount)
+        .slice(0, limit);
+    }
+
+    // tracks
+    return Array.from(agg.countsTracks.entries())
+      .map(([key, playcount]) => {
+        const [artist, name] = key.split(" — ");
+        const imageRaw = agg.bestTrackImage.get(key) || "";
+        return { artist, name, playcount, image: proxyImg(origin, imageRaw) };
+      })
+      .sort((a, b) => b.playcount - a.playcount)
+      .slice(0, limit);
+  }
+
+  const lfPeriod = mapPeriod(period);
+
+  if (type === "artists") {
+    const data = await lastfmGet(env, "user.gettopartists", { period: lfPeriod, limit });
+    const list = Array.isArray(data?.topartists?.artist) ? data.topartists.artist : [];
+    return list.map(a => ({
+      name: a.name || "",
+      playcount: asInt(a.playcount, 0),
+      image: "",
+    }));
+  }
+
+  if (type === "albums") {
+    const data = await lastfmGet(env, "user.gettopalbums", { period: lfPeriod, limit });
+    const list = Array.isArray(data?.topalbums?.album) ? data.topalbums.album : [];
+    return list.map(alb => {
+      const imageRaw = pickImage(alb.image, "large") || pickImage(alb.image, "extralarge") || "";
+      return {
+        name: alb.name || "",
+        artist: alb.artist?.name || alb.artist || "",
+        playcount: asInt(alb.playcount, 0),
+        image: proxyImg(origin, imageRaw),
       };
+    });
+  }
 
-      return (items || []).map(toHtml).join("");
-    }
+  // tracks
+  const data = await lastfmGet(env, "user.gettoptracks", { period: lfPeriod, limit });
+  const list = Array.isArray(data?.toptracks?.track) ? data.toptracks.track : [];
+  return list.map(t => {
+    const imageRaw = pickImage(t.image, "large") || pickImage(t.image, "extralarge") || "";
+    return {
+      name: t.name || "",
+      artist: t.artist?.name || t.artist || "",
+      playcount: asInt(t.playcount, 0),
+      image: proxyImg(origin, imageRaw),
+    };
+  });
+}
 
-    async function loadNow(){
-      try{
-        const data = await apiGet("/api/now");
-        const t = data?.track;
-        const normalized = t ? {
-          name: t.name,
-          artist: t.artist?.["#text"] || t.artist || "",
-          album: t.album || "",
-          image: t.image || "",
-          nowplaying: !!t.nowplaying,
-          uts: t.uts || ""
-        } : null;
+async function handleTop(request, env) {
+  const origin = new URL(request.url).origin;
+  const url = new URL(request.url);
 
-        // Update now UI
-        renderNow(normalized);
+  const type = (url.searchParams.get("type") || "tracks").toLowerCase();
+  const period = (url.searchParams.get("period") || "week").toLowerCase(); // today/week/year/all
+  const limit = clamp(asInt(url.searchParams.get("limit"), 20), 1, 100);
+  const tzOffsetMinutes = asInt(url.searchParams.get("tzOffsetMinutes"), 0);
 
-        // Trigger mirror refresh on track change (only if Mirror tab visible)
-        const key = normalized ? `${normalized.artist}||${normalized.name}||${normalized.uts||""}||${normalized.nowplaying?"1":"0"}` : "";
-        if(key && key !== state.lastNowTrackKey){
-          state.lastNowTrackKey = key;
-          if(state.tab === "mirror"){
-            await loadMirror();
-          }
-        }
-      }catch(err){
-        renderNow(null);
-      }
-    }
+  const items = await getTopData(env, origin, type, period, limit, tzOffsetMinutes);
+  return json({ ok: true, type, period, items });
+}
+async function handleReflection(request, env) {
+  if (request.method !== "POST") return json({ ok: false, error: "POST only" }, 405);
 
-    function mapTopPeriodToWorker(period){
-      // worker supports: today, week, year, all
-      return period;
-    }
+  const origin = new URL(request.url).origin;
+  const body = await request.json().catch(() => ({}));
+  const period = String(body?.period || "week").toLowerCase(); // today/week/year/all
+  const tzOffsetMinutes = asInt(body?.tzOffsetMinutes, 0);
 
-    async function loadTop(){
-      const area = el("#topArea");
-      area.innerHTML = `<div class="mirrorbox">Loading…</div>`;
+  const limitTop = 10;
+  const limitRecent = 10;
 
-      const type = state.topType;
-      const period = mapTopPeriodToWorker(state.topPeriod);
+  const [topTracksItems, topArtistsItems, recents] = await Promise.all([
+    getTopData(env, origin, "tracks", period, limitTop, tzOffsetMinutes),
+    getTopData(env, origin, "artists", period, limitTop, tzOffsetMinutes),
+    (async () => {
+      const data = await lastfmGet(env, "user.getrecenttracks", { limit: limitRecent });
+      const tracks = Array.isArray(data?.recenttracks?.track) ? data.recenttracks.track : [];
+      return tracks.map(t => ({
+        name: t.name || "",
+        artist: t.artist?.["#text"] || "",
+        album: t.album?.["#text"] || "",
+      }));
+    })(),
+  ]);
 
-      try{
-        const tzOffsetMinutes = new Date().getTimezoneOffset(); // minutes (UTC - local)
-        const data = await apiGet(`/api/top?type=${encodeURIComponent(type)}&period=${encodeURIComponent(period)}&limit=${LIMIT_TOP}&tzOffsetMinutes=${encodeURIComponent(tzOffsetMinutes)}`);
+  const facts = {
+    period,
+    topTracks: topTracksItems.slice(0, 8).map(x => ({ name: x.name, artist: x.artist, playcount: x.playcount })),
+    topArtists: topArtistsItems.slice(0, 8).map(x => ({ name: x.name, playcount: x.playcount })),
+    recents: recents.slice(0, 8),
+  };
 
-        const items = data?.items || [];
-        area.innerHTML = renderList(items, type);
-      }catch(err){
-        area.innerHTML = `<div class="mirrorbox">Failed to load top: ${escapeHtml(err.message || String(err))}</div>`;
-      }
-    }
+  const openaiKey = mustEnv(env, "OPENAI_API_KEY");
 
-    async function loadHistory(){
-      const area = el("#historyArea");
-      area.innerHTML = `<div class="mirrorbox">Loading…</div>`;
-      try{
-        const data = await apiGet(`/api/recent?limit=${LIMIT_RECENT}`);
-        const items = data?.items || [];
-        area.innerHTML = renderList(items, "history");
-      }catch(err){
-        area.innerHTML = `<div class="mirrorbox">Failed to load history: ${escapeHtml(err.message || String(err))}</div>`;
-      }
-    }
+  const system = [
+    "You write concise, structured listening reflections.",
+    "Use ONLY the provided facts. Do not invent artists, tracks, numbers, or claims.",
+    "Output in 2 numbered sections exactly:",
+    "1) Mood summary (2–4 sentences).",
+    "2) Observations (3–6 bullet points).",
+    "No extra sections, no emojis."
+  ].join(" ");
 
-    async function loadMirror(){
-      const box = el("#mirrorBox");
-      box.textContent = "Opening mirror…";
-      try{
-        const tzOffsetMinutes = new Date().getTimezoneOffset();
-        const period = state.mirrorPeriod; // today/week/year/all
-        const data = await apiPost("/api/reflection", { period, tzOffsetMinutes });
+  const user = `Facts JSON:\n${JSON.stringify(facts, null, 2)}\n\nWrite the reflection now.`;
 
-        const text = data?.text || "";
-        box.textContent = text || "(empty)";
-      }catch(err){
-        box.textContent = `Mirror failed: ${err.message || String(err)}`;
-      }
-    }
+  const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "authorization": `Bearer ${openaiKey}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      temperature: 0.4,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+    }),
+  });
 
-    // ===== INIT =====
-    function wireUI(){
-      // main tabs
-      els('[data-tab]').forEach(btn => {
-        btn.addEventListener("click", async () => {
-          showTab(btn.dataset.tab);
-          if(state.tab === "now") await loadNow();
-          if(state.tab === "top") await loadTop();
-          if(state.tab === "mirror") await loadMirror();
-          if(state.tab === "history") await loadHistory();
-        });
-      });
+  if (!aiRes.ok) {
+    const t = await aiRes.text().catch(() => "");
+    return json({ ok: false, error: `OpenAI HTTP ${aiRes.status}`, details: t.slice(0, 600) }, 502);
+  }
 
-      // top type subtabs
-      els('[data-toptype]').forEach(btn => {
-        btn.addEventListener("click", async () => {
-          setTopType(btn.dataset.toptype);
-          await loadTop();
-        });
-      });
+  const aiData = await aiRes.json();
+  const text = aiData?.choices?.[0]?.message?.content || "";
 
-      // top period subtabs
-      els('#tab-top [data-period]').forEach(btn => {
-        btn.addEventListener("click", async () => {
-          setTopPeriod(btn.dataset.period);
-          await loadTop();
-        });
-      });
-
-      // mirror period subtabs
-      els('#tab-mirror [data-mperiod]').forEach(btn => {
-        btn.addEventListener("click", async () => {
-          setMirrorPeriod(btn.dataset.mperiod);
-          await loadMirror();
-        });
-      });
-    }
-
-    async function checkApi(){
-      try{
-        const res = await fetch(`${BASE_API}/api/now?t=${Date.now()}`, { method:"GET" });
-        setApiStatus(res.ok, res.ok ? `OK (status ${res.status})` : `FAIL (status ${res.status})`);
-      }catch(e){
-        setApiStatus(false, "FAIL (network error)");
-      }
-    }
-
-    async function bootstrap(){
-      wireUI();
-      await checkApi();
-
-      // Initial load
-      await loadNow();
-
-      // Refresh now every 20s
-      setInterval(loadNow, 20000);
-    }
-
-    bootstrap();
-  </script>
-</body>
-</html>
+  return json({ ok: true, text });
+}

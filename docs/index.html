@@ -128,7 +128,7 @@
       display:grid;place-items:center;
     }
     .cover img{width:100%;height:100%;object-fit:cover;display:block}
-    .ph{width:26px;height:26px;opacity:.65}
+    .ph{ width:26px;height:26px;opacity:.65; }
     .meta{flex:1;min-width:0}
     .title{
       font-weight:850;
@@ -168,12 +168,19 @@
       letter-spacing:.06em;
       margin-left:8px;
     }
-    .bars{width:16px;height:16px;display:inline-grid;grid-auto-flow:column;gap:2px;align-items:end}
+    .bars{
+      width:16px;height:16px;display:inline-grid;grid-auto-flow:column;gap:2px;align-items:end
+    }
     .bars span{width:3px;border-radius:2px;background: var(--live);display:block}
     .bars span:nth-child(1){height:14px}
     .bars span:nth-child(2){height:10px}
     .bars span:nth-child(3){height:12px}
-    .note{margin-top:12px;color:var(--muted2);font-size:14px;line-height:1.3}
+    .note{
+      margin-top:12px;
+      color:var(--muted2);
+      font-size:14px;
+      line-height:1.3;
+    }
     .err{
       margin-top:10px;
       padding:12px 14px;
@@ -233,8 +240,7 @@
       <div class="list" id="topList"></div>
       <div class="err hidden" id="topErr"></div>
     </div>
-
-    <div class="section hidden" id="page-mirror">
+<div class="section hidden" id="page-mirror">
       <h2>Mirror</h2>
       <div class="subtabs" id="mirrorPeriodTabs">
         <div class="subtab active" data-mperiod="today">Today</div>
@@ -252,7 +258,8 @@
       <div class="err hidden" id="historyErr"></div>
     </div>
   </div>
-<script>
+
+  <script>
     // =========================
     // CONFIG
     // =========================
@@ -263,27 +270,44 @@
     // HELPERS
     // =========================
     function tzOffsetMinutes() {
-      // Keep same convention you already use (NL winter shows -60)
       return new Date().getTimezoneOffset();
     }
 
+    // ✅ FIX: if worker returns "/img?u=<encoded>", decode and use the real last.fm URL directly
     function resolveImageUrl(imageValue) {
       if (!imageValue) return "";
-      if (imageValue.startsWith("http://") || imageValue.startsWith("https://")) return imageValue;
-      if (imageValue.startsWith("/")) return BASE_API + imageValue;
-      return imageValue;
-    }
 
-    // If worker /img fails (403/cors/etc), try direct decoded u=... (debug fallback)
-    function decodeWorkerImgToDirectUrl(workerImgUrl) {
-      try {
-        const u = new URL(workerImgUrl);
-        const enc = u.searchParams.get("u");
-        if (!enc) return "";
-        return decodeURIComponent(enc);
-      } catch {
-        return "";
+      // If absolute already:
+      if (imageValue.startsWith("http://") || imageValue.startsWith("https://")) {
+        return imageValue;
       }
+
+      // If worker proxy: "/img?u=..."
+      if (imageValue.startsWith("/img?")) {
+        try {
+          const qs = imageValue.split("?")[1] || "";
+          const params = new URLSearchParams(qs);
+          const u = params.get("u");
+          if (u) {
+            // u may already be encoded
+            const decoded = decodeURIComponent(u);
+            if (decoded.startsWith("http://") || decoded.startsWith("https://")) {
+              return decoded; // <-- bypass proxy
+            }
+            // if it wasn't encoded, still try raw
+            if (u.startsWith("http://") || u.startsWith("https://")) return u;
+          }
+        } catch (e) {
+          // fallback below
+        }
+        // fallback to proxy absolute:
+        return BASE_API + imageValue;
+      }
+
+      // If other relative path (e.g. "/api/..", "/something"):
+      if (imageValue.startsWith("/")) return BASE_API + imageValue;
+
+      return imageValue;
     }
 
     function phSvg() {
@@ -347,26 +371,10 @@ function renderRows(container, items, mode) {
 
         const cover = el("div", { class:"cover" });
         const imgUrl = resolveImageUrl(it.image || "");
-
         if (imgUrl) {
           const img = el("img", { alt: "" });
-
-          // >>> IMPORTANT PATCH <<<
-          img.referrerPolicy = "no-referrer";
-          img.crossOrigin = "anonymous";
-
           img.src = imgUrl;
-
-          img.onerror = () => {
-            // Try direct (decoded) as a confirmation path
-            const direct = decodeWorkerImgToDirectUrl(imgUrl);
-            if (direct && direct !== img.src) {
-              img.src = direct;
-              return;
-            }
-            cover.innerHTML = phSvg();
-          };
-
+          img.onerror = () => { cover.innerHTML = phSvg(); };
           cover.appendChild(img);
         } else {
           cover.innerHTML = phSvg();
@@ -415,7 +423,11 @@ function renderRows(container, items, mode) {
     // =========================
     async function refreshStatus() {
       document.getElementById("baseApiLabel").textContent = BASE_API;
-      const { ok, status } = await apiGet("/api/ping");
+
+      // ✅ FIX: /api/ping doesn't exist -> use a real endpoint for status check
+      const tz = tzOffsetMinutes();
+      const { ok, status } = await apiGet("/api/top", { type:"tracks", period:"today", limit:1, tzOffsetMinutes: tz });
+
       document.getElementById("apiStatus").textContent = ok ? `OK (status ${status})` : `FAIL (status ${status})`;
       document.getElementById("statusDot").style.background = ok ? "var(--ok)" : "var(--live)";
       document.getElementById("statusDot").style.boxShadow = ok ? "0 0 0 6px rgba(49,208,124,.12)" : "0 0 0 6px rgba(255,90,90,.12)";
@@ -463,17 +475,10 @@ function renderRows(container, items, mode) {
       cover.style.width = "68px";
       cover.style.height = "68px";
       const imgUrl = resolveImageUrl(normalized[0].image || "");
-
       if (imgUrl) {
         const img = el("img", { alt:"" });
-        img.referrerPolicy = "no-referrer";
-        img.crossOrigin = "anonymous";
         img.src = imgUrl;
-        img.onerror = () => {
-          const direct = decodeWorkerImgToDirectUrl(imgUrl);
-          if (direct && direct !== img.src) { img.src = direct; return; }
-          cover.innerHTML = phSvg();
-        };
+        img.onerror = () => { cover.innerHTML = phSvg(); };
         cover.appendChild(img);
       } else cover.innerHTML = phSvg();
 
@@ -490,7 +495,8 @@ function renderRows(container, items, mode) {
       row.appendChild(badge);
       list.appendChild(row);
     }
-// =========================
+
+    // =========================
     // TOP
     // =========================
     async function loadTop() {
@@ -516,9 +522,8 @@ function renderRows(container, items, mode) {
       const items = res.json.items || [];
       renderRows(list, items, topType);
     }
-
-    // =========================
-    // HISTORY
+// =========================
+    // HISTORY (optional)
     // =========================
     async function loadHistory() {
       const list = document.getElementById("historyList");
@@ -585,6 +590,9 @@ function renderRows(container, items, mode) {
       });
     });
 
+    // =========================
+    // INIT
+    // =========================
     (async function init(){
       await refreshStatus();
       showPage("now");

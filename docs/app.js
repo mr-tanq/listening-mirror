@@ -1,24 +1,24 @@
 /* Listening Mirror UI (hardcoded Worker base)
-   - No Settings
+   - No Settings (worker base is fixed)
    - Worker: https://i.errtanq9.workers.dev
 */
 (() => {
   "use strict";
 
-  // ✅ Hardcoded Worker base URL (με https)
-  const WORKER_BASE = "https://i.errtanq9.workers.dev";
+  const WORKER_BASE = "https://i.errtanq9.workers.dev"; // no trailing slash
 
   const el = (sel) => document.querySelector(sel);
   const els = (sel) => Array.from(document.querySelectorAll(sel));
 
+  // Header
   const statusLine = el("#statusLine");
-  const workerHint = el("#workerHint");
   const btnRefresh = el("#btnRefresh");
 
+  // Tabs
   const panels = els(".panel");
   const tabBtns = els(".tabBtn");
 
-  // Now UI
+  // Now Playing UI
   const nowUpdated = el("#nowUpdated");
   const nowBadge = el("#nowBadge");
   const nowImg = el("#nowImg");
@@ -27,6 +27,7 @@
   const nowArtist = el("#nowArtist");
   const nowAlbum = el("#nowAlbum");
   const nowMsg = el("#nowMsg");
+  const workerHint = el("#workerHint");
 
   // Top UI
   const topMeta = el("#topMeta");
@@ -40,34 +41,56 @@
   const recentList = el("#recentList");
 
   let currentTab = "now";
-  let topType = "tracks";
-  let topPeriod = "today";
+  let topType = "tracks";     // tracks | artists | albums
+  let topPeriod = "today";    // today | week | year
+  let topLimit = 20;
+  let online = false;
 
-  workerHint.textContent = WORKER_BASE;
-
+  // ---------------------------
+  // Helpers
+  // ---------------------------
   function setSelected(btns, predicate) {
-    btns.forEach(b => b.setAttribute("aria-selected", predicate(b) ? "true" : "false"));
+    btns.forEach((b) => b.setAttribute("aria-selected", predicate(b) ? "true" : "false"));
   }
 
   function showTab(tab) {
     currentTab = tab;
+    setSelected(tabBtns, (b) => b.dataset.tab === tab);
 
-    setSelected(tabBtns, b => b.dataset.tab === tab);
-    panels.forEach(p => {
+    panels.forEach((p) => {
       const isThis = p.dataset.panel === tab;
       p.classList.toggle("hidden", !isThis);
     });
 
-    // Fetch on tab switch
     if (tab === "now") refreshNow();
     if (tab === "top") refreshTop();
     if (tab === "recent") refreshRecent();
   }
 
-  async function safeFetchJson(path) {
+  function fmtTime(ts = Date.now()) {
+    try {
+      return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    } catch {
+      return "--";
+    }
+  }
+
+  function setStatus(text) {
+    if (statusLine) statusLine.textContent = text;
+  }
+
+  // IMPORTANT: Worker returns images like "/img?u=..."
+  // We must turn that into "https://i.errtanq9.workers.dev/img?u=..."
+  function resolveImageUrl(u) {
+    if (!u) return "";
+    const s = String(u);
+    if (s.startsWith("http://") || s.startsWith("https://")) return s;
+    if (s.startsWith("/")) return WORKER_BASE + s;
+    return s;
+  }
+async function safeFetchJson(path) {
     const url = WORKER_BASE + path;
 
-    // 12s timeout για κινητό
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 12000);
 
@@ -76,37 +99,37 @@
       const ct = (r.headers.get("content-type") || "").toLowerCase();
       const text = await r.text();
 
-      if (!r.ok) {
-        // αν μας γύρισε HTML (π.χ. 404 page), δείχνουμε καθαρό error
-        const looksHtml = text.trim().startsWith("<!DOCTYPE") || ct.includes("text/html");
-        const msg = looksHtml ? `HTTP ${r.status} (HTML)` : `HTTP ${r.status}`;
+      // If worker returns HTML (404 page etc.), show clean error
+      if (!r.ok || ct.includes("text/html") || text.trim().startsWith("<!DOCTYPE")) {
+        const msg = !r.ok ? `HTTP ${r.status}` : "HTML returned";
         throw new Error(msg);
       }
 
-      // must be JSON
       let j = null;
       try { j = JSON.parse(text); } catch { j = null; }
       if (!j) throw new Error("Bad JSON");
+
       return j;
     } finally {
       clearTimeout(t);
     }
   }
 
-  function fmtTime(ts = Date.now()) {
-    try {
-      return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    } catch {
-      return "—";
-    }
+  function clearNow() {
+    nowBadge.textContent = "OFF";
+    nowBadge.classList.remove("live");
+    nowUpdated.textContent = "--";
+    nowTrack.textContent = "—";
+    nowArtist.textContent = "—";
+    nowAlbum.textContent = "—";
+    nowMsg.textContent = "";
+    setNowCover("");
   }
 
-  function setStatus(msg) {
-    statusLine.textContent = msg;
-  }
-function setCover(imgUrl) {
-    if (imgUrl) {
-      nowImg.src = imgUrl;
+  function setNowCover(imgUrl) {
+    const u = resolveImageUrl(imgUrl);
+    if (u) {
+      nowImg.src = u;
       nowImg.style.display = "block";
       nowFallback.style.display = "none";
     } else {
@@ -116,218 +139,260 @@ function setCover(imgUrl) {
     }
   }
 
-  function listRow({ title, sub, right, image }) {
-    const row = document.createElement("div");
-    row.className = "rowItem";
+  function rowItem({ idx, title, subtitle, right, imageUrl }) {
+    const wrap = document.createElement("div");
+    wrap.className = "row";
 
     const cover = document.createElement("div");
     cover.className = "cover";
-    cover.style.width = "56px";
-    cover.style.height = "56px";
-    cover.style.borderRadius = "16px";
 
     const img = document.createElement("img");
     img.alt = "";
-    img.style.display = "none";
+    img.loading = "lazy";
 
-    const fallback = document.createElement("div");
-    fallback.className = "coverFallback";
-    fallback.textContent = "♪";
+    const icon = document.createElement("div");
+    icon.className = "coverFallback";
+    icon.textContent = "♪";
 
-    if (image) {
-      img.src = image;
-      img.style.display = "block";
-      fallback.style.display = "none";
+    const u = resolveImageUrl(imageUrl);
+    if (u) {
+      img.src = u;
       cover.appendChild(img);
-      cover.appendChild(fallback);
+      cover.appendChild(icon);
+      img.addEventListener("error", () => {
+        img.removeAttribute("src");
+        img.style.display = "none";
+        icon.style.display = "grid";
+      });
+      icon.style.display = "none";
     } else {
-      cover.appendChild(img);
-      cover.appendChild(fallback);
+      icon.style.display = "grid";
     }
 
-    const main = document.createElement("div");
-    main.className = "rowMain";
+    cover.appendChild(icon);
 
-    const top = document.createElement("div");
-    top.className = "rowTop";
+    const mid = document.createElement("div");
+    mid.className = "mid";
 
     const t = document.createElement("div");
-    t.className = "rowTitle";
-    t.textContent = title || "—";
-
-    const r = document.createElement("div");
-    r.className = "rowRight";
-    r.textContent = right || "";
-
-    top.appendChild(t);
-    top.appendChild(r);
+    t.className = "title";
+    t.textContent = `${idx}. ${title}`;
 
     const s = document.createElement("div");
-    s.className = "rowSub";
-    s.textContent = sub || "";
+    s.className = "sub";
+    s.textContent = subtitle || "";
 
-    main.appendChild(top);
-    if (sub) main.appendChild(s);
+    mid.appendChild(t);
+    mid.appendChild(s);
 
-    row.appendChild(cover);
-    row.appendChild(main);
-    return row;
+    const r = document.createElement("div");
+    r.className = "right";
+    r.textContent = right != null ? String(right) : "";
+
+    wrap.appendChild(cover);
+    wrap.appendChild(mid);
+    wrap.appendChild(r);
+
+    return wrap;
   }
-
+// ---------------------------
+  // Fetch + Render: /api/ping
+  // ---------------------------
   async function refreshPing() {
     try {
       const j = await safeFetchJson("/api/ping");
-      if (j?.ok) setStatus("Online");
-      else setStatus("Offline");
+      online = !!j?.ok;
+      setStatus(online ? "Online" : "Offline");
     } catch {
+      online = false;
       setStatus("Offline");
     }
   }
 
+  // ---------------------------
+  // Fetch + Render: /api/now
+  // ---------------------------
   async function refreshNow() {
-    nowUpdated.textContent = `Updated: ${fmtTime()}`;
-    nowBadge.textContent = "…";
+    clearNow();
+    nowUpdated.textContent = fmtTime(Date.now());
     nowMsg.textContent = "Loading…";
 
     try {
       const j = await safeFetchJson("/api/now");
-      const item = j?.item || null;
+      nowUpdated.textContent = fmtTime(Date.now());
 
+      const item = j?.item;
       if (!item) {
-        nowBadge.textContent = "OFF";
-        nowTrack.textContent = "—";
-        nowArtist.textContent = "—";
-        nowAlbum.textContent = "—";
         nowMsg.textContent = "Not playing now";
-        setCover("");
+        nowBadge.textContent = "OFF";
+        nowBadge.classList.remove("live");
+        setNowCover("");
         return;
       }
 
       nowBadge.textContent = "LIVE";
+      nowBadge.classList.add("live");
+
       nowTrack.textContent = item.name || "—";
       nowArtist.textContent = item.artist || "—";
       nowAlbum.textContent = item.album || "—";
       nowMsg.textContent = "Now playing";
-      setCover(item.image || "");
+
+      setNowCover(item.image || "");
     } catch (e) {
-      nowBadge.textContent = "ERR";
-      nowMsg.textContent = `Error: ${String(e?.message || e)}`;
-      setCover("");
+      nowMsg.textContent = `Error: ${String(e.message || e)}`;
+      nowBadge.textContent = "OFF";
+      nowBadge.classList.remove("live");
+      setNowCover("");
     }
   }
 
-  async function refreshTop() {
-    topMeta.textContent = `${topType} • ${topPeriod}`;
-    topBadge.textContent = "…";
-    topList.innerHTML = "";
-
-    try {
-      const q = `?type=${encodeURIComponent(topType)}&period=${encodeURIComponent(topPeriod)}&limit=20`;
-      const j = await safeFetchJson("/api/top" + q);
-      const items = Array.isArray(j?.items) ? j.items : [];
-
-      topBadge.textContent = items.length ? `${items.length}` : "0";
-
-      if (!items.length) {
-        const empty = document.createElement("div");
-        empty.className = "rowItem";
-        empty.textContent = "No top data returned.";
-        topList.appendChild(empty);
-        return;
-      }
-
-      items.forEach((it, idx) => {
-        if (topType === "artists") {
-          topList.appendChild(listRow({
-            title: `${idx + 1}. ${it?.name || "—"}`,
-            sub: "",
-            right: it?.playcount ? `${it.playcount}` : "",
-            image: it?.image || ""
-          }));
-          return;
-        }
-
-        // tracks / albums
-        const title = `${idx + 1}. ${it?.name || "—"}`;
-        const sub = it?.artist ? it.artist : "";
-        topList.appendChild(listRow({
-          title,
-          sub,
-          right: it?.playcount ? `${it.playcount}` : "",
-          image: it?.image || ""
-        }));
-      });
-    } catch (e) {
-      topBadge.textContent = "ERR";
-      const err = document.createElement("div");
-      err.className = "danger";
-      err.textContent = `Error: ${String(e?.message || e)}`;
-      topList.appendChild(err);
-    }
-  }
-async function refreshRecent() {
+  // ---------------------------
+  // Fetch + Render: /api/history
+  // ---------------------------
+  async function refreshRecent() {
     recentMeta.textContent = "Loading…";
     recentList.innerHTML = "";
 
     try {
       const j = await safeFetchJson("/api/history?limit=10");
-      const items = Array.isArray(j?.items) ? j.items : [];
+      const items = j?.items || [];
 
-      recentMeta.textContent = items.length ? `${items.length} items` : "0 items";
+      recentMeta.textContent = `${items.length} items`;
 
-      if (!items.length) {
-        const empty = document.createElement("div");
-        empty.className = "rowItem";
-        empty.textContent = "No recent history returned.";
-        recentList.appendChild(empty);
-        return;
-      }
-
-      items.forEach((it, idx) => {
-        recentList.appendChild(listRow({
-          title: `${idx + 1}. ${it?.name || "—"}`,
-          sub: it?.artist || "",
-          right: "",
-          image: it?.image || ""
-        }));
+      items.forEach((it, i) => {
+        recentList.appendChild(
+          rowItem({
+            idx: i + 1,
+            title: it.name || "—",
+            subtitle: it.artist || "",
+            right: "",
+            imageUrl: it.image || ""
+          })
+        );
       });
+
+      if (!items.length) recentMeta.textContent = "No recent history returned.";
     } catch (e) {
-      recentMeta.textContent = "Error";
-      const err = document.createElement("div");
-      err.className = "danger";
-      err.textContent = `Error: ${String(e?.message || e)}`;
-      recentList.appendChild(err);
+      recentMeta.textContent = `Error: ${String(e.message || e)}`;
+      recentList.innerHTML = "";
     }
   }
 
-  // Events
-  tabBtns.forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
+  // ---------------------------
+  // Fetch + Render: /api/top
+  // ---------------------------
+  async function refreshTop() {
+    topMeta.textContent = "Loading…";
+    topList.innerHTML = "";
 
-  topTypeBtns.forEach(b => b.addEventListener("click", () => {
-    topType = b.dataset.topType;
-    setSelected(topTypeBtns, x => x.dataset.topType === topType);
-    refreshTop();
-  }));
+    // NOTE: In your Worker, today and week both map to 7day.
+    // So they will match. This is not a UI bug.
+    const path = `/api/top?type=${encodeURIComponent(topType)}&period=${encodeURIComponent(topPeriod)}&limit=${encodeURIComponent(topLimit)}`;
 
-  topPeriodBtns.forEach(b => b.addEventListener("click", () => {
-    topPeriod = b.dataset.topPeriod;
-    setSelected(topPeriodBtns, x => x.dataset.topPeriod === topPeriod);
-    refreshTop();
-  }));
+    try {
+      const j = await safeFetchJson(path);
+      const items = j?.items || [];
 
-  btnRefresh.addEventListener("click", () => {
-    refreshPing();
-    if (currentTab === "now") refreshNow();
-    if (currentTab === "top") refreshTop();
-    if (currentTab === "recent") refreshRecent();
-  });
+      topMeta.textContent = `${topType} • ${topPeriod}`;
+      topBadge.textContent = String(topLimit);
 
-  // Boot
-  refreshPing();
-  showTab("now");
+      items.forEach((it, i) => {
+        if (topType === "artists") {
+          topList.appendChild(
+            rowItem({
+              idx: i + 1,
+              title: it.name || "—",
+              subtitle: "",
+              right: it.playcount ?? "",
+              imageUrl: it.image || ""
+            })
+          );
+        } else if (topType === "albums") {
+          topList.appendChild(
+            rowItem({
+              idx: i + 1,
+              title: it.name || "—",
+              subtitle: it.artist || "",
+              right: it.playcount ?? "",
+              imageUrl: it.image || ""
+            })
+          );
+        } else {
+          // tracks
+          topList.appendChild(
+            rowItem({
+              idx: i + 1,
+              title: it.name || "—",
+              subtitle: it.artist || "",
+              right: it.playcount ?? "",
+              imageUrl: it.image || ""
+            })
+          );
+        }
+      });
 
-  // Optional SW register (αν υπάρχει)
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js").catch(() => {});
+      if (!items.length) topMeta.textContent = "No top data returned.";
+    } catch (e) {
+      topMeta.textContent = `Error: ${String(e.message || e)}`;
+      topList.innerHTML = "";
+    }
   }
+// ---------------------------
+  // Wire UI
+  // ---------------------------
+  function init() {
+    // show worker hint
+    if (workerHint) workerHint.textContent = `Worker: ${WORKER_BASE}`;
+
+    // tabs
+    tabBtns.forEach((b) => {
+      b.addEventListener("click", () => showTab(b.dataset.tab));
+    });
+
+    // top type
+    topTypeBtns.forEach((b) => {
+      b.addEventListener("click", () => {
+        topType = String(b.dataset.topType || "tracks");
+        setSelected(topTypeBtns, (x) => x === b);
+        refreshTop();
+      });
+    });
+
+    // top period
+    topPeriodBtns.forEach((b) => {
+      b.addEventListener("click", () => {
+        topPeriod = String(b.dataset.topPeriod || "today");
+        setSelected(topPeriodBtns, (x) => x === b);
+        refreshTop();
+      });
+    });
+
+    // refresh
+    if (btnRefresh) {
+      btnRefresh.addEventListener("click", async () => {
+        await refreshPing();
+        if (currentTab === "now") refreshNow();
+        if (currentTab === "top") refreshTop();
+        if (currentTab === "recent") refreshRecent();
+      });
+    }
+
+    // initial selected states
+    setSelected(tabBtns, (b) => b.dataset.tab === "now");
+    setSelected(topTypeBtns, (b) => (b.dataset.topType || "") === "tracks");
+    setSelected(topPeriodBtns, (b) => (b.dataset.topPeriod || "") === "today");
+
+    // boot
+    refreshPing();
+    showTab("now");
+
+    // auto refresh ping + now (lightweight)
+    setInterval(refreshPing, 15000);
+    setInterval(() => {
+      if (currentTab === "now") refreshNow();
+    }, 15000);
+  }
+
+  init();
 })();

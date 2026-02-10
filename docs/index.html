@@ -1,539 +1,583 @@
 <!doctype html>
-<html lang="en">
+<html lang="el">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>Listening Mirror</title>
   <style>
     :root{
-      --bg:#0b0c0f;
-      --panel:#14161b;
-      --panel2:#111318;
-      --text:#e9eaec;
-      --muted:#a5a8b0;
-      --line:rgba(255,255,255,0.08);
-      --shadow: 0 12px 40px rgba(0,0,0,0.55);
-      --r:18px;
-      --pad:18px;
-      --live:#ff3b30; /* iOS red */
+      --bg:#0b0c0e;
+      --card:#14161a;
+      --card2:#101215;
+      --text:#e9e9ea;
+      --muted:#a8abb2;
+      --muted2:#7f838c;
+      --line:#242830;
+      --pill:#1a1d22;
+      --pill2:#101216;
+      --ok:#31d07c;
+      --live:#ff5a5a;
+      --shadow: 0 18px 55px rgba(0,0,0,.55);
+      --r:22px;
     }
     *{box-sizing:border-box}
     body{
       margin:0;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-      background: radial-gradient(1200px 800px at 20% 0%, rgba(255,255,255,0.06), transparent 55%),
-                  radial-gradient(1000px 900px at 90% 10%, rgba(255,255,255,0.04), transparent 55%),
-                  var(--bg);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+      background: radial-gradient(1200px 600px at 40% -10%, #1a1d23 0%, rgba(0,0,0,0) 60%) , var(--bg);
       color:var(--text);
+      padding: 22px 16px 40px;
     }
-    .wrap{max-width:980px;margin:0 auto;padding:22px 18px 40px}
+    .wrap{max-width:720px;margin:0 auto}
     h1{
-      margin:18px 0 10px;
-      font-size: clamp(42px, 7vw, 88px);
-      letter-spacing:-0.03em;
-      line-height:1.02;
+      font-weight:800;
+      letter-spacing:-.03em;
+      margin: 10px 0 16px;
+      font-size: 56px;
+      line-height:1;
     }
-    .debug{
-      display:flex;gap:10px;align-items:center;
-      background: rgba(255,255,255,0.04);
-      border:1px solid var(--line);
-      border-radius: 16px;
-      padding: 12px 14px;
+    .status-card{
+      background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+      border:1px solid rgba(255,255,255,.06);
+      border-radius: var(--r);
+      padding:16px;
       box-shadow: var(--shadow);
-      margin: 8px 0 16px;
+      backdrop-filter: blur(10px);
     }
+    .status-row{display:flex;gap:12px;align-items:flex-start}
     .dot{
-      width:14px;height:14px;border-radius:999px;
-      background:#ff3b30;
-      box-shadow: 0 0 0 4px rgba(255,59,48,0.12);
+      width:14px;height:14px;border-radius:50%;
+      background: var(--ok);
+      margin-top:4px;
+      box-shadow: 0 0 0 6px rgba(49,208,124,.12);
       flex:0 0 auto;
     }
-    .dbgtext{font-size:14px;line-height:1.35;color:var(--muted)}
-    .dbgtext b{color:var(--text)}
-    .row{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0}
-    .pillbar{display:flex;gap:10px;flex-wrap:wrap}
-    .pill{
-      background: rgba(255,255,255,0.03);
-      border:1px solid var(--line);
+    .status-lines{flex:1}
+    .status-lines .line1{font-size:18px;font-weight:700;margin:0 0 2px}
+    .status-lines .line2{font-size:16px;font-weight:700;margin:0 0 6px}
+    .status-lines .hint{color:var(--muted);font-size:15px;line-height:1.25;margin:0}
+    .tabs{
+      display:flex;gap:10px;flex-wrap:wrap;
+      margin: 14px 0 18px;
+    }
+    .tab{
+      padding:10px 18px;
+      border-radius:999px;
+      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+      border:1px solid rgba(255,255,255,.07);
       color:var(--text);
-      padding: 10px 18px;
-      border-radius: 999px;
+      font-weight:700;
       cursor:pointer;
       user-select:none;
-      box-shadow: 0 10px 28px rgba(0,0,0,0.35);
-      font-weight:650;
-      letter-spacing:0.01em;
     }
-    .pill[aria-selected="true"]{
-      background: rgba(255,255,255,0.08);
-      border-color: rgba(255,255,255,0.18);
+    .tab.active{
+      background: linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.05));
+      border-color: rgba(255,255,255,.12);
     }
-    .divider{height:2px;background:rgba(255,255,255,0.08);border-radius:999px;margin:14px 0 16px}
-    .card{
-      background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
-      border:1px solid var(--line);
+    .section{
+      background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+      border:1px solid rgba(255,255,255,.06);
       border-radius: var(--r);
-      padding: var(--pad);
+      padding: 18px 16px;
       box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
     }
-    .card h2{
-      margin: 8px 0 2px;
-      font-size: clamp(36px, 5vw, 64px);
-      letter-spacing:-0.03em;
+    .section h2{
+      margin:0 0 14px;
+      font-size: 52px;
+      letter-spacing:-.03em;
+      line-height:1;
     }
-    .subtabs{margin-top:10px;display:flex;gap:10px;flex-wrap:wrap}
-    .subpill{
-      background: rgba(0,0,0,0.12);
-      border:1px solid var(--line);
+    .subtabs{display:flex;gap:10px;flex-wrap:wrap;margin: 10px 0 12px}
+    .subtab{
+      padding:10px 16px;
+      border-radius:999px;
+      background: rgba(255,255,255,.03);
+      border:1px solid rgba(255,255,255,.06);
       color:var(--text);
-      padding: 10px 16px;
-      border-radius: 999px;
+      font-weight:750;
       cursor:pointer;
-      user-select:none;
-      font-weight:650;
     }
-    .subpill[aria-selected="true"]{
-      background: rgba(255,255,255,0.08);
-      border-color: rgba(255,255,255,0.18);
+    .subtab.active{
+      background: rgba(255,255,255,.09);
+      border-color: rgba(255,255,255,.12);
     }
-    .list{margin-top:14px;display:flex;flex-direction:column;gap:12px}
-    .item{
-      display:grid;
-      grid-template-columns: 44px 56px 1fr auto;
-      align-items:center;
-      gap:12px;
+    .list{display:flex;flex-direction:column;gap:12px;margin-top:10px}
+    .row{
+      display:flex;align-items:center;gap:12px;
       padding: 14px;
+      background: rgba(0,0,0,.20);
+      border:1px solid rgba(255,255,255,.05);
       border-radius: 18px;
-      border:1px solid rgba(255,255,255,0.06);
-      background: rgba(0,0,0,0.12);
     }
     .idx{
       width:34px;height:34px;border-radius:12px;
-      display:flex;align-items:center;justify-content:center;
-      background: rgba(255,255,255,0.04);
-      border:1px solid rgba(255,255,255,0.07);
-      color: var(--muted);
+      display:grid;place-items:center;
+      background: rgba(255,255,255,.04);
+      border:1px solid rgba(255,255,255,.06);
+      color:var(--muted);
       font-weight:800;
+      flex:0 0 auto;
     }
-    img.cover{
+    .cover{
       width:56px;height:56px;border-radius:14px;
-      object-fit:cover;
-      background: rgba(255,255,255,0.04);
-      border:1px solid rgba(255,255,255,0.07);
+      background: rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.06);
+      overflow:hidden;
+      flex:0 0 auto;
+      display:grid;place-items:center;
     }
-    .meta{min-width:0}
+    .cover img{width:100%;height:100%;object-fit:cover;display:block}
+    .ph{
+      width:26px;height:26px;opacity:.65;
+    }
+    .meta{flex:1;min-width:0}
     .title{
-      font-size:18px;font-weight:800;letter-spacing:-0.01em;
-      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+      font-weight:850;
+      font-size:20px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      margin:0 0 2px;
     }
     .subtitle{
-      margin-top:3px;
-      font-size:14px;color:var(--muted);
-      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+      color:var(--muted);
+      font-weight:650;
+      font-size:15px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      margin:0;
     }
     .count{
-      font-variant-numeric: tabular-nums;
-      color: var(--muted);
-      font-weight:800;
-      font-size:18px;
-      padding-left:10px;
-    }
-    .nowcard{
-      display:grid;
-      grid-template-columns: 96px 1fr;
-      gap:16px;
-      align-items:center;
-      padding: 18px;
-      border-radius: 22px;
-      border:1px solid rgba(255,255,255,0.06);
-      background: rgba(0,0,0,0.12);
-    }
-    .nowcover{
-      width:96px;height:96px;border-radius:20px;object-fit:cover;
-      background: rgba(255,255,255,0.04);
-      border:1px solid rgba(255,255,255,0.07);
+      color:var(--muted);
+      font-weight:850;
+      font-size:22px;
+      letter-spacing:-.02em;
+      flex:0 0 auto;
+      margin-left:6px;
     }
     .badge{
-      display:inline-flex;align-items:center;gap:8px;
-      padding: 9px 14px;border-radius:999px;
-      border:1px solid rgba(255,255,255,0.10);
-      background: rgba(0,0,0,0.22);
-      margin-top:10px;
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      background: rgba(255,90,90,.14);
+      border:1px solid rgba(255,90,90,.22);
+      color:#ffd7d7;
+      padding:10px 14px;
+      border-radius:999px;
       font-weight:900;
-      letter-spacing:0.02em;
+      letter-spacing:.06em;
+      margin-left:8px;
     }
-    .badge.live{
-      color: var(--live);
-      border-color: rgba(255,59,48,0.35);
-      background: rgba(255,59,48,0.10);
+    .bars{
+      width:16px;height:16px;display:inline-grid;grid-auto-flow:column;gap:2px;align-items:end
     }
-    .badge .bars{
-      display:inline-flex;gap:3px;align-items:flex-end;height:14px
+    .bars span{width:3px;border-radius:2px;background: var(--live);display:block}
+    .bars span:nth-child(1){height:14px}
+    .bars span:nth-child(2){height:10px}
+    .bars span:nth-child(3){height:12px}
+    .note{
+      margin-top:12px;
+      color:var(--muted2);
+      font-size:14px;
+      line-height:1.3;
     }
-    .badge .bars span{
-      width:3px;border-radius:2px;background: currentColor;
-      display:block;
-      animation: bounce 0.9s infinite ease-in-out;
+    .err{
+      margin-top:10px;
+      padding:12px 14px;
+      border-radius:14px;
+      background: rgba(255,90,90,.10);
+      border:1px solid rgba(255,90,90,.20);
+      color:#ffd7d7;
+      font-weight:750;
     }
-    .badge .bars span:nth-child(2){animation-delay:0.12s}
-    .badge .bars span:nth-child(3){animation-delay:0.24s}
-    @keyframes bounce{
-      0%,100%{height:5px;opacity:0.55}
-      50%{height:14px;opacity:1}
-    }
-    .smallmuted{margin-top:8px;color:var(--muted);font-size:14px}
-    .mirrorbox{
-      margin-top:14px;
-      padding: 18px;
-      border-radius: 20px;
-      background: rgba(0,0,0,0.14);
-      border:1px solid rgba(255,255,255,0.06);
-      color: var(--text);
-      font-size: 16px;
-      line-height: 1.55;
-      white-space: pre-wrap;
-    }
-    .footerhint{
-      margin-top:10px;color:rgba(255,255,255,0.35);font-size:12px
-    }
+    .hidden{display:none !important}
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>Listening Mirror</h1>
 
-    <div class="debug">
-      <div class="dot" id="apiDot"></div>
-      <div class="dbgtext">
-        <div><b>API:</b> <span id="apiStatus">Checking…</span></div>
-        <div><b>BASE_API:</b> <span id="apiBase"></span></div>
-        <div style="margin-top:4px;">Αν γράψει status ≠ 200, τότε είναι καθαρά θέμα σύνδεσης site → worker.</div>
+    <div class="status-card" id="statusCard">
+      <div class="status-row">
+        <div class="dot" id="statusDot"></div>
+        <div class="status-lines">
+          <p class="line1"><span style="opacity:.8">API:</span> <span id="apiStatus">checking…</span></p>
+          <p class="line2"><span style="opacity:.8">BASE_API:</span> <span id="baseApiLabel"></span></p>
+          <p class="hint">Αν γράψει status ≠ 200, τότε είναι καθαρά θέμα σύνδεσης site → worker.</p>
+        </div>
       </div>
     </div>
 
-    <div class="row">
-      <div class="pillbar" role="tablist" aria-label="Main tabs">
-        <button class="pill" role="tab" data-tab="now" aria-selected="true">Now</button>
-        <button class="pill" role="tab" data-tab="top" aria-selected="false">Top</button>
-        <button class="pill" role="tab" data-tab="mirror" aria-selected="false">Mirror</button>
-        <button class="pill" role="tab" data-tab="history" aria-selected="false">History</button>
-      </div>
+    <div class="tabs" style="margin-top:16px">
+      <div class="tab active" data-page="now">Now</div>
+      <div class="tab" data-page="top">Top</div>
+      <div class="tab" data-page="mirror">Mirror</div>
+      <div class="tab" data-page="history">History</div>
     </div>
 
-    <div class="divider"></div>
-
-    <!-- NOW -->
-    <section id="tab-now" class="card" style="display:block">
+    <div class="section" id="page-now">
       <h2>Now Playing</h2>
-      <div id="nowArea" class="list"></div>
-    </section>
+      <div class="list" id="nowList"></div>
+      <div class="err hidden" id="nowErr"></div>
+    </div>
 
-    <!-- TOP -->
-    <section id="tab-top" class="card" style="display:none">
+    <div class="section hidden" id="page-top">
       <h2>Top</h2>
 
-      <div class="subtabs" role="tablist" aria-label="Top type tabs">
-        <button class="subpill" role="tab" data-toptype="tracks" aria-selected="true">Tracks</button>
-        <button class="subpill" role="tab" data-toptype="artists" aria-selected="false">Artists</button>
-        <button class="subpill" role="tab" data-toptype="albums" aria-selected="false">Albums</button>
+      <div class="subtabs" id="topTypeTabs">
+        <div class="subtab active" data-toptype="tracks">Tracks</div>
+        <div class="subtab" data-toptype="artists">Artists</div>
+        <div class="subtab" data-toptype="albums">Albums</div>
       </div>
 
-      <div class="subtabs" role="tablist" aria-label="Top period tabs" style="margin-top:10px">
-        <button class="subpill" role="tab" data-period="today" aria-selected="true">Today</button>
-        <button class="subpill" role="tab" data-period="week" aria-selected="false">Week</button>
-        <button class="subpill" role="tab" data-period="year" aria-selected="false">Year</button>
-        <button class="subpill" role="tab" data-period="all" aria-selected="false">All time</button>
+      <div class="subtabs" id="topPeriodTabs">
+        <div class="subtab active" data-period="today">Today</div>
+        <div class="subtab" data-period="week">Week</div>
+        <div class="subtab" data-period="year">Year</div>
+        <div class="subtab" data-period="all">All time</div>
       </div>
 
-      <div id="topArea" class="list"></div>
-      <div class="footerhint">Top/Today υπολογίζεται από τα recent scrobbles της ημέρας (local timezone).</div>
-    </section>
+      <div class="list" id="topList"></div>
+      <div class="err hidden" id="topErr"></div>
+    </div>
 
-    <!-- MIRROR (disabled for now) -->
-    <section id="tab-mirror" class="card" style="display:none">
+    <div class="section hidden" id="page-mirror">
       <h2>Mirror</h2>
-      <div class="subtabs" role="tablist" aria-label="Mirror period tabs">
-        <button class="subpill" role="tab" data-mperiod="today" aria-selected="true">Today</button>
-        <button class="subpill" role="tab" data-mperiod="week" aria-selected="false">Week</button>
-        <button class="subpill" role="tab" data-mperiod="year" aria-selected="false">Year</button>
-        <button class="subpill" role="tab" data-mperiod="all" aria-selected="false">All time</button>
+      <div class="subtabs" id="mirrorPeriodTabs">
+        <div class="subtab active" data-mperiod="today">Today</div>
+        <div class="subtab" data-mperiod="week">Week</div>
+        <div class="subtab" data-mperiod="year">Year</div>
+        <div class="subtab" data-mperiod="all">All time</div>
       </div>
+      <div class="err" id="mirrorMsg">Mirror failed: HTTP 404</div>
+      <div class="note">To Mirror είναι stub ακόμα (/api/reflection).</div>
+    </div>
 
-      <div id="mirrorBox" class="mirrorbox">
-        Mirror is temporarily disabled (we’ll implement it last).
-      </div>
-      <div class="footerhint">Το Mirror θα ενεργοποιηθεί στο τέλος.</div>
-    </section>
-
-    <!-- HISTORY -->
-    <section id="tab-history" class="card" style="display:none">
+    <div class="section hidden" id="page-history">
       <h2>History</h2>
-      <div id="historyArea" class="list"></div>
-    </section>
-
+      <div class="list" id="historyList"></div>
+      <div class="err hidden" id="historyErr"></div>
+    </div>
   </div>
 
   <script>
-    // ===== CONFIG =====
-    const DEFAULT_BASE_API = "https://i.errtanq9.workers.dev";
-    const BASE_API = (window.BASE_API && typeof window.BASE_API === "string" && window.BASE_API.startsWith("http"))
-      ? window.BASE_API
-      : DEFAULT_BASE_API;
+    // =========================
+    // CONFIG
+    // =========================
+    const BASE_API = "https://i.errtanq9.workers.dev";
+    const LIMIT = 20;
 
-    const LIMIT_RECENT = 30;
-    const LIMIT_TOP = 20;
-
-    const state = {
-      tab: "now",
-      topType: "tracks",
-      topPeriod: "today",
-      mirrorPeriod: "today",
-      lastNowTrackKey: "",
-    };
-
-    // ===== HELPERS =====
-    function el(sel){ return document.querySelector(sel); }
-    function els(sel){ return Array.from(document.querySelectorAll(sel)); }
-
-    function setApiStatus(ok, statusText){
-      el("#apiStatus").textContent = statusText;
-      el("#apiBase").textContent = BASE_API;
-      el("#apiDot").style.background = ok ? "#34c759" : "#ff3b30";
-      el("#apiDot").style.boxShadow = ok ? "0 0 0 4px rgba(52,199,89,0.12)" : "0 0 0 4px rgba(255,59,48,0.12)";
+    // =========================
+    // HELPERS (THE FIX IS HERE)
+    // =========================
+    function tzOffsetMinutes() {
+      // JS getTimezoneOffset(): minutes behind UTC (e.g. NL winter = -60? actually returns -60? -> returns -60 for UTC+1? Nope: returns -60 means local is ahead of UTC by 60.
+      // We want the same convention you already use: tzOffsetMinutes=-60 for UTC+1.
+      return new Date().getTimezoneOffset();
     }
 
-    function escapeHtml(s){
-      return String(s ?? "")
-        .replaceAll("&","&amp;").replaceAll("<","&lt;")
-        .replaceAll(">","&gt;").replaceAll('"',"&quot;")
-        .replaceAll("'","&#039;");
+    function resolveImageUrl(imageValue) {
+      if (!imageValue) return "";
+      // If already absolute:
+      if (imageValue.startsWith("http://") || imageValue.startsWith("https://")) return imageValue;
+      // If relative (/img?...):
+      if (imageValue.startsWith("/")) return BASE_API + imageValue;
+      // Otherwise, return as-is
+      return imageValue;
     }
 
-    // ✅ FIX: if worker returns "/img?u=...", make it absolute using BASE_API
-    function safeImg(url){
-      if(!url) return "";
-      const u = String(url);
-      if(u.startsWith("/")) return `${BASE_API}${u}`;
-      return u;
+    function phSvg() {
+      return `
+        <svg class="ph" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M12 17.5l-5.5 3 1-6.1-4.5-4.4 6.2-.9L12 3.5l2.8 5.6 6.2.9-4.5 4.4 1 6.1-5.5-3z"
+            stroke="rgba(255,255,255,.75)" stroke-width="1.6" />
+        </svg>`;
     }
 
-    function formatLocalDateTimeFromUnix(uts){
-      if(!uts) return "";
-      const d = new Date(Number(uts) * 1000);
-      return d.toLocaleString(undefined, { year:"numeric", month:"numeric", day:"numeric", hour:"2-digit", minute:"2-digit", second:"2-digit" });
+    function el(tag, attrs={}, html="") {
+      const n = document.createElement(tag);
+      for (const [k,v] of Object.entries(attrs)) {
+        if (k === "class") n.className = v;
+        else if (k.startsWith("data-")) n.setAttribute(k, v);
+        else n[k] = v;
+      }
+      if (html) n.innerHTML = html;
+      return n;
     }
 
-    async function apiGet(path){
-      const url = `${BASE_API}${path}${path.includes("?") ? "&" : "?"}t=${Date.now()}`;
-      const res = await fetch(url, { method:"GET" });
-      if(!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
+    function setActive(container, selector, targetEl) {
+      container.querySelectorAll(selector).forEach(x => x.classList.remove("active"));
+      targetEl.classList.add("active");
     }
 
-    function showTab(tab){
-      state.tab = tab;
-      els('[role="tab"][data-tab]').forEach(b => b.setAttribute("aria-selected", b.dataset.tab === tab ? "true" : "false"));
-      el("#tab-now").style.display = tab === "now" ? "block" : "none";
-      el("#tab-top").style.display = tab === "top" ? "block" : "none";
-      el("#tab-mirror").style.display = tab === "mirror" ? "block" : "none";
-      el("#tab-history").style.display = tab === "history" ? "block" : "none";
+    async function apiGet(path, params={}) {
+      const url = new URL(BASE_API + path);
+      for (const [k,v] of Object.entries(params)) url.searchParams.set(k, String(v));
+      const res = await fetch(url.toString(), { cache: "no-store" });
+      const text = await res.text();
+      let json = null;
+      try { json = JSON.parse(text); } catch(e) {}
+      return { ok: res.ok, status: res.status, json, text };
     }
 
-    function setTopType(type){
-      state.topType = type;
-      els('[data-toptype]').forEach(b => b.setAttribute("aria-selected", b.dataset.toptype === type ? "true" : "false"));
+    function formatCount(n) {
+      if (n === null || n === undefined) return "";
+      const x = Number(n);
+      if (Number.isNaN(x)) return String(n);
+      return String(x);
     }
 
-    function setTopPeriod(period){
-      state.topPeriod = period;
-      els('#tab-top [data-period]').forEach(b => b.setAttribute("aria-selected", b.dataset.period === period ? "true" : "false"));
-    }
-
-    function setMirrorPeriod(period){
-      state.mirrorPeriod = period;
-      els('#tab-mirror [data-mperiod]').forEach(b => b.setAttribute("aria-selected", b.dataset.mperiod === period ? "true" : "false"));
-      // Mirror disabled: keep message
-      el("#mirrorBox").textContent = "Mirror is temporarily disabled (we’ll implement it last).";
-    }
-  </script>
-
-  <script>
-    // ===== RENDERERS =====
-    function renderNow(track){
-      const area = el("#nowArea");
-      area.innerHTML = "";
-
-      if(!track){
-        area.innerHTML = `<div class="nowcard"><div class="meta"><div class="title">No data</div><div class="subtitle">Couldn’t load /api/now</div></div></div>`;
+    function renderRows(container, items, mode) {
+      container.innerHTML = "";
+      if (!Array.isArray(items) || items.length === 0) {
+        container.appendChild(el("div", { class:"err" }, "No data"));
         return;
       }
 
-      const cover = safeImg(track.image);
-      const title = escapeHtml(track.name);
-      const artist = escapeHtml(track.artist);
-      const album = escapeHtml(track.album || "");
-      const live = !!track.nowplaying;
-      const lastPlayed = track.uts ? formatLocalDateTimeFromUnix(track.uts) : "";
+      items.forEach((it, i) => {
+        const idx = el("div", { class:"idx" }, String(i+1));
 
-      area.innerHTML = `
-        <div class="nowcard">
-          <img class="nowcover" src="${escapeHtml(cover)}" alt="" loading="lazy"
-               onerror="this.onerror=null;this.src='';this.style.display='none';">
-          <div class="meta">
-            <div class="title">${artist} — ${title}</div>
-            <div class="subtitle">${album || "&nbsp;"}</div>
-            ${live
-              ? `<div class="badge live"><span class="bars"><span></span><span></span><span></span></span>LIVE</div>`
-              : (lastPlayed ? `<div class="smallmuted">Last played: ${escapeHtml(lastPlayed)}</div>` : `<div class="smallmuted">&nbsp;</div>`)
-            }
-          </div>
-        </div>
-      `;
-    }
-
-    function renderList(items, mode){
-      const toHtml = (it, i) => {
-        const idx = i + 1;
-        const cover = safeImg(it.image);
-        const count = (it.playcount != null) ? String(it.playcount) : "";
-        const right = count ? `<div class="count">${escapeHtml(count)}</div>` : `<div class="count"></div>`;
-
-        let title = "";
-        let subtitle = "";
-
-        if(mode === "artists"){
-          title = escapeHtml(it.name || "");
-          subtitle = "&nbsp;";
-        } else if(mode === "albums"){
-          title = escapeHtml(it.name || "");
-          subtitle = escapeHtml(it.artist || "");
-        } else if(mode === "history"){
-          title = escapeHtml(it.artist || "") + " — " + escapeHtml(it.name || "");
-          subtitle = escapeHtml(it.album || "");
+        const cover = el("div", { class:"cover" });
+        const imgUrl = resolveImageUrl(it.image || "");
+        if (imgUrl) {
+          const img = el("img", { alt: "" });
+          img.src = imgUrl;
+          img.onerror = () => { cover.innerHTML = phSvg(); };
+          cover.appendChild(img);
         } else {
-          title = escapeHtml(it.name || "");
-          subtitle = escapeHtml(it.artist || "");
+          cover.innerHTML = phSvg();
         }
 
-        return `
-          <div class="item">
-            <div class="idx">${idx}</div>
-            <img class="cover" src="${escapeHtml(cover)}" alt="" loading="lazy"
-                 onerror="this.onerror=null;this.src='';this.style.display='none';">
-            <div class="meta">
-              <div class="title">${title}</div>
-              <div class="subtitle">${subtitle || "&nbsp;"}</div>
-            </div>
-            ${right}
-          </div>
-        `;
-      };
+        let title = it.name ?? "";
+        let subtitle = "";
 
-      return (items || []).map(toHtml).join("");
-    }
+        if (mode === "now") {
+          subtitle = it.album ? it.album : (it.artist ?? "");
+        } else if (mode === "tracks") {
+          subtitle = it.artist ?? "";
+        } else if (mode === "artists") {
+          subtitle = "";
+        } else if (mode === "albums") {
+          // IMPORTANT: your worker returns `artist` as string (as seen in screenshots)
+          subtitle = it.artist ?? "";
+        } else if (mode === "history") {
+          subtitle = it.artist ?? "";
+        }
 
-    async function loadNow(){
-      try{
-        const data = await apiGet("/api/now");
-        const t = data?.track;
-        const normalized = t ? {
-          name: t.name,
-          artist: t.artist?.["#text"] || t.artist || "",
-          album: t.album || "",
-          image: t.image || "",
-          nowplaying: !!t.nowplaying,
-          uts: t.uts || ""
-        } : null;
+        const meta = el("div", { class:"meta" });
+        meta.appendChild(el("p", { class:"title" }, escapeHtml(title)));
+        if (subtitle) meta.appendChild(el("p", { class:"subtitle" }, escapeHtml(subtitle)));
 
-        renderNow(normalized);
-      }catch(err){
-        renderNow(null);
-      }
-    }
+        const count = el("div", { class:"count" }, formatCount(it.playcount ?? it.count ?? ""));
 
-    async function loadTop(){
-      const area = el("#topArea");
-      area.innerHTML = `<div class="mirrorbox">Loading…</div>`;
+        const row = el("div", { class:"row" });
+        row.appendChild(idx);
+        row.appendChild(cover);
+        row.appendChild(meta);
+        if (count.textContent) row.appendChild(count);
 
-      const type = state.topType;
-      const period = state.topPeriod;
-
-      try{
-        const tzOffsetMinutes = new Date().getTimezoneOffset();
-        const data = await apiGet(`/api/top?type=${encodeURIComponent(type)}&period=${encodeURIComponent(period)}&limit=${LIMIT_TOP}&tzOffsetMinutes=${encodeURIComponent(tzOffsetMinutes)}`);
-        const items = data?.items || [];
-        area.innerHTML = renderList(items, type);
-      }catch(err){
-        area.innerHTML = `<div class="mirrorbox">Failed to load top: ${escapeHtml(err.message || String(err))}</div>`;
-      }
-    }
-
-    async function loadHistory(){
-      const area = el("#historyArea");
-      area.innerHTML = `<div class="mirrorbox">Loading…</div>`;
-      try{
-        const data = await apiGet(`/api/recent?limit=${LIMIT_RECENT}`);
-        const items = data?.items || [];
-        area.innerHTML = renderList(items, "history");
-      }catch(err){
-        area.innerHTML = `<div class="mirrorbox">Failed to load history: ${escapeHtml(err.message || String(err))}</div>`;
-      }
-    }
-
-    // Mirror disabled for now
-    async function loadMirror(){
-      el("#mirrorBox").textContent = "Mirror is temporarily disabled (we’ll implement it last).";
-    }
-
-    function wireUI(){
-      els('[data-tab]').forEach(btn => {
-        btn.addEventListener("click", async () => {
-          showTab(btn.dataset.tab);
-          if(state.tab === "now") await loadNow();
-          if(state.tab === "top") await loadTop();
-          if(state.tab === "mirror") await loadMirror();
-          if(state.tab === "history") await loadHistory();
-        });
-      });
-
-      els('[data-toptype]').forEach(btn => {
-        btn.addEventListener("click", async () => {
-          setTopType(btn.dataset.toptype);
-          await loadTop();
-        });
-      });
-
-      els('#tab-top [data-period]').forEach(btn => {
-        btn.addEventListener("click", async () => {
-          setTopPeriod(btn.dataset.period);
-          await loadTop();
-        });
-      });
-
-      els('#tab-mirror [data-mperiod]').forEach(btn => {
-        btn.addEventListener("click", () => {
-          setMirrorPeriod(btn.dataset.mperiod);
-        });
+        container.appendChild(row);
       });
     }
 
-    async function checkApi(){
-      try{
-        const res = await fetch(`${BASE_API}/api/now?t=${Date.now()}`, { method:"GET" });
-        setApiStatus(res.ok, res.ok ? `OK (status ${res.status})` : `FAIL (status ${res.status})`);
-      }catch(e){
-        setApiStatus(false, "FAIL (network error)");
+    function escapeHtml(s) {
+      return String(s)
+        .replaceAll("&","&amp;")
+        .replaceAll("<","&lt;")
+        .replaceAll(">","&gt;")
+        .replaceAll('"',"&quot;")
+        .replaceAll("'","&#039;");
+    }
+
+    // =========================
+    // STATE
+    // =========================
+    let page = "now";
+    let topType = "tracks";
+    let topPeriod = "today";
+
+    // =========================
+    // STATUS CHECK
+    // =========================
+    async function refreshStatus() {
+      document.getElementById("baseApiLabel").textContent = BASE_API;
+      const { ok, status } = await apiGet("/api/ping");
+      document.getElementById("apiStatus").textContent = ok ? `OK (status ${status})` : `FAIL (status ${status})`;
+      document.getElementById("statusDot").style.background = ok ? "var(--ok)" : "var(--live)";
+      document.getElementById("statusDot").style.boxShadow = ok ? "0 0 0 6px rgba(49,208,124,.12)" : "0 0 0 6px rgba(255,90,90,.12)";
+    }
+
+    // =========================
+    // NOW
+    // =========================
+    async function loadNow() {
+      const list = document.getElementById("nowList");
+      const err = document.getElementById("nowErr");
+      err.classList.add("hidden");
+      list.innerHTML = "";
+
+      const tz = tzOffsetMinutes();
+      const res = await apiGet("/api/now", { tzOffsetMinutes: tz });
+
+      if (!res.ok || !res.json || res.json.ok !== true) {
+        err.textContent = `Now failed: HTTP ${res.status}`;
+        err.classList.remove("hidden");
+        return;
       }
+
+      const item = res.json.item;
+      if (!item) {
+        err.textContent = "No now-playing item";
+        err.classList.remove("hidden");
+        return;
+      }
+
+      // normalize for renderer
+      const normalized = [{
+        name: item.name || "Unknown",
+        artist: item.artist || "",
+        album: item.album || "",
+        image: item.image || "",
+        playcount: "" // not needed
+      }];
+
+      // render as single "card", with LIVE badge
+      list.innerHTML = "";
+      const row = el("div", { class:"row" });
+      row.style.padding = "18px";
+      row.style.gap = "14px";
+
+      const cover = el("div", { class:"cover" });
+      cover.style.width = "68px";
+      cover.style.height = "68px";
+      const imgUrl = resolveImageUrl(normalized[0].image || "");
+      if (imgUrl) {
+        const img = el("img", { alt:"" });
+        img.src = imgUrl;
+        img.onerror = () => { cover.innerHTML = phSvg(); };
+        cover.appendChild(img);
+      } else cover.innerHTML = phSvg();
+
+      const meta = el("div", { class:"meta" });
+      meta.appendChild(el("p", { class:"title" }, escapeHtml(normalized[0].name)));
+
+      const sub = normalized[0].album ? `${normalized[0].artist} • ${normalized[0].album}` : normalized[0].artist;
+      meta.appendChild(el("p", { class:"subtitle" }, escapeHtml(sub)));
+
+      const badge = el("span", { class:"badge" }, `<span class="bars"><span></span><span></span><span></span></span>LIVE`);
+
+      row.appendChild(cover);
+      row.appendChild(meta);
+      row.appendChild(badge);
+      list.appendChild(row);
     }
 
-    async function bootstrap(){
-      wireUI();
-      await checkApi();
-      await loadNow();
-      setInterval(loadNow, 20000);
+    // =========================
+    // TOP
+    // =========================
+    async function loadTop() {
+      const list = document.getElementById("topList");
+      const err = document.getElementById("topErr");
+      err.classList.add("hidden");
+      list.innerHTML = "";
+
+      const tz = tzOffsetMinutes();
+      const res = await apiGet("/api/top", {
+        type: topType,
+        period: topPeriod,
+        limit: LIMIT,
+        tzOffsetMinutes: tz
+      });
+
+      if (!res.ok || !res.json || res.json.ok !== true) {
+        err.textContent = `Top failed: HTTP ${res.status}`;
+        err.classList.remove("hidden");
+        return;
+      }
+
+      const items = res.json.items || [];
+      renderRows(list, items, topType);
     }
 
-    bootstrap();
+    // =========================
+    // HISTORY (optional)
+    // =========================
+    async function loadHistory() {
+      const list = document.getElementById("historyList");
+      const err = document.getElementById("historyErr");
+      err.classList.add("hidden");
+      list.innerHTML = "";
+
+      // if you don't have /api/history, this will show a nice error instead of breaking
+      const tz = tzOffsetMinutes();
+      const res = await apiGet("/api/history", { limit: 20, tzOffsetMinutes: tz });
+
+      if (!res.ok || !res.json || res.json.ok !== true) {
+        err.textContent = `History failed: HTTP ${res.status}`;
+        err.classList.remove("hidden");
+        return;
+      }
+
+      const items = res.json.items || [];
+      renderRows(list, items, "history");
+    }
+
+    // =========================
+    // NAVIGATION
+    // =========================
+    function showPage(p) {
+      page = p;
+      document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+      document.querySelector(`.tab[data-page="${p}"]`).classList.add("active");
+
+      ["now","top","mirror","history"].forEach(x => {
+        document.getElementById("page-" + x).classList.toggle("hidden", x !== p);
+      });
+
+      if (p === "now") loadNow();
+      if (p === "top") loadTop();
+      if (p === "history") loadHistory();
+    }
+
+    // =========================
+    // WIRE UP
+    // =========================
+    document.querySelectorAll(".tab").forEach(t => {
+      t.addEventListener("click", () => showPage(t.dataset.page));
+    });
+
+    document.getElementById("topTypeTabs").querySelectorAll(".subtab").forEach(st => {
+      st.addEventListener("click", () => {
+        setActive(document.getElementById("topTypeTabs"), ".subtab", st);
+        topType = st.dataset.toptype;
+        loadTop();
+      });
+    });
+
+    document.getElementById("topPeriodTabs").querySelectorAll(".subtab").forEach(st => {
+      st.addEventListener("click", () => {
+        setActive(document.getElementById("topPeriodTabs"), ".subtab", st);
+        topPeriod = st.dataset.period;
+        loadTop();
+      });
+    });
+
+    // Mirror period tabs are UI-only for now
+    document.getElementById("mirrorPeriodTabs").querySelectorAll(".subtab").forEach(st => {
+      st.addEventListener("click", () => {
+        setActive(document.getElementById("mirrorPeriodTabs"), ".subtab", st);
+      });
+    });
+
+    // =========================
+    // INIT
+    // =========================
+    (async function init(){
+      await refreshStatus();
+      showPage("now");
+    })();
   </script>
 </body>
 </html>

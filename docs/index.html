@@ -3,9 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <meta name="theme-color" content="#0b0c0e" />
   <title>Listening Mirror</title>
-
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="stylesheet" href="./styles.css" />
 </head>
@@ -13,66 +11,66 @@
 <body>
   <header class="topbar">
     <div class="brand">
-      <div class="logo" aria-hidden="true">LM</div>
-      <div class="brandText">
+      <div class="logo">LM</div>
+      <div>
         <div class="brandTitle">Listening Mirror</div>
-        <div class="brandSub" id="statusText">Offline</div>
+        <div id="statusLine" class="brandSub">Loading…</div>
       </div>
     </div>
 
     <div class="actions">
-      <button class="btn" id="refreshBtn" type="button">Refresh</button>
-      <button class="btn btnGhost" id="settingsBtn" type="button">Settings</button>
+      <button id="btnRefresh" class="btn">Refresh</button>
     </div>
   </header>
 
   <main class="wrap">
     <nav class="tabs" role="tablist" aria-label="Main tabs">
-      <button class="tabBtn" role="tab" aria-selected="true" aria-controls="panelNow" id="tabNow" data-tab="now">Now Playing</button>
-      <button class="tabBtn" role="tab" aria-selected="false" aria-controls="panelTop" id="tabTop" data-tab="top">Top</button>
-      <button class="tabBtn" role="tab" aria-selected="false" aria-controls="panelRecent" id="tabRecent" data-tab="recent">Recent</button>
+      <button class="tabBtn" role="tab" aria-selected="true" data-tab="now">Now Playing</button>
+      <button class="tabBtn" role="tab" aria-selected="false" data-tab="top">Top</button>
+      <button class="tabBtn" role="tab" aria-selected="false" data-tab="recent">Recent</button>
     </nav>
 
     <section class="panels">
       <!-- NOW -->
-      <section class="panel" id="panelNow" role="tabpanel" aria-labelledby="tabNow">
+      <section class="panel" data-panel="now">
         <div class="card nowPlaying">
           <div class="cardHeader">
             <div>
               <div class="hTitle">Now Playing</div>
-              <div class="hSub" id="npMeta">—</div>
+              <div id="nowUpdated" class="hSub">Updated: —</div>
             </div>
-            <div class="pill" id="npPill">—</div>
+            <div id="nowBadge" class="pill">OFF</div>
           </div>
 
           <div class="npBody">
-            <div class="cover" id="npCover" aria-hidden="true">
-              <div class="coverFallback">♪</div>
+            <div class="cover">
+              <img id="nowImg" alt="" style="display:none" />
+              <div id="nowFallback" class="coverFallback">♪</div>
             </div>
 
             <div class="npText">
-              <div class="npTrack" id="npTrack">—</div>
-              <div class="npArtist" id="npArtist">—</div>
-              <div class="npAlbum" id="npAlbum">—</div>
-              <div class="npTime" id="npTime">—</div>
+              <div id="nowTrack" class="npTrack">—</div>
+              <div id="nowArtist" class="npArtist">—</div>
+              <div id="nowAlbum" class="npAlbum">—</div>
+              <div id="nowMsg" class="npTime">—</div>
             </div>
           </div>
 
-          <div class="note" id="npNote">
-            Το /api/now επιστρέφει item=null όταν δεν παίζει κάτι live.
+          <div class="note">
+            Worker: <code id="workerHint"></code>
           </div>
         </div>
       </section>
 
       <!-- TOP -->
-      <section class="panel hidden" id="panelTop" role="tabpanel" aria-labelledby="tabTop">
+      <section class="panel hidden" data-panel="top">
         <div class="card">
           <div class="cardHeader">
             <div>
               <div class="hTitle">Top</div>
-              <div class="hSub" id="topMeta">—</div>
+              <div id="topMeta" class="hSub">—</div>
             </div>
-            <div class="pill" id="topPill">—</div>
+            <div id="topBadge" class="pill">—</div>
           </div>
 
           <div class="subtabsRow">
@@ -89,58 +87,35 @@
             </div>
           </div>
 
-          <div class="list" id="topList"></div>
-          <div class="note">Endpoint: <code>/api/top?type=tracks|artists|albums&period=today|week|year</code></div>
+          <div id="topList" class="list"></div>
+
+          <div class="note">
+            Endpoint: <code>/api/top?type=tracks|artists|albums&amp;period=today|week|year&amp;limit=20</code>
+          </div>
         </div>
       </section>
 
       <!-- RECENT -->
-      <section class="panel hidden" id="panelRecent" role="tabpanel" aria-labelledby="tabRecent">
+      <section class="panel hidden" data-panel="recent">
         <div class="card">
           <div class="cardHeader">
             <div>
               <div class="hTitle">Recent</div>
-              <div class="hSub" id="recentMeta">—</div>
+              <div id="recentMeta" class="hSub">—</div>
             </div>
             <div class="pill">last 10</div>
           </div>
 
-          <div class="list" id="recentList"></div>
-          <div class="note">Endpoint: <code>/api/history?limit=10</code></div>
+          <div id="recentList" class="list"></div>
+
+          <div class="note">
+            Endpoint: <code>/api/history?limit=10</code>
+          </div>
         </div>
       </section>
     </section>
   </main>
 
-  <!-- SETTINGS -->
-  <dialog class="modal" id="settingsModal">
-    <form method="dialog" class="modalCard" id="settingsForm">
-      <div class="modalHeader">
-        <div>
-          <div class="hTitle">Settings</div>
-          <div class="hSub">Μόνο Worker Base URL</div>
-        </div>
-        <button class="iconBtn" value="cancel" aria-label="Close">✕</button>
-      </div>
-
-      <label class="field">
-        <span class="fieldLabel">Worker base URL</span>
-        <input class="input" id="baseUrlInput" placeholder="https://your-worker.workers.dev" />
-        <span class="fieldHint">Χωρίς τελικό slash. Παράδειγμα: <code>https://xyz.workers.dev</code></span>
-      </label>
-
-      <div class="row">
-        <button class="btn" id="saveSettingsBtn" value="default" type="submit">Save</button>
-        <button class="btn btnGhost" id="resetBtn" type="button">Reset</button>
-      </div>
-
-      <div class="danger">
-        Το Worker σου έχει routes: <code>/api/now</code>, <code>/api/top</code>, <code>/api/history</code>.
-        Δεν χρειάζεται username γιατί το παίρνει από env (<code>LASTFM_USER</code>).
-      </div>
-    </form>
-  </dialog>
-
-  <script src="./app.js" defer></script>
+  <script src="./apps.js" defer></script>
 </body>
 </html>

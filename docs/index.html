@@ -1,598 +1,422 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Listening Mirror</title>
-  <style>
-    :root{
-      --bg:#0b0c0f;
-      --panel:#14161b;
-      --panel2:#111318;
-      --text:#e9eaec;
-      --muted:#a5a8b0;
-      --line:rgba(255,255,255,0.08);
-      --shadow: 0 12px 40px rgba(0,0,0,0.55);
-      --r:18px;
-      --pad:18px;
-      --live:#ff3b30; /* iOS red */
-    }
-    *{box-sizing:border-box}
-    body{
-      margin:0;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-      background: radial-gradient(1200px 800px at 20% 0%, rgba(255,255,255,0.06), transparent 55%),
-                  radial-gradient(1000px 900px at 90% 10%, rgba(255,255,255,0.04), transparent 55%),
-                  var(--bg);
-      color:var(--text);
-    }
-    .wrap{max-width:980px;margin:0 auto;padding:22px 18px 40px}
-    h1{
-      margin:18px 0 10px;
-      font-size: clamp(42px, 7vw, 88px);
-      letter-spacing:-0.03em;
-      line-height:1.02;
-    }
-    .debug{
-      display:flex;gap:10px;align-items:center;
-      background: rgba(255,255,255,0.04);
-      border:1px solid var(--line);
-      border-radius: 16px;
-      padding: 12px 14px;
-      box-shadow: var(--shadow);
-      margin: 8px 0 16px;
-    }
-    .dot{
-      width:14px;height:14px;border-radius:999px;
-      background:#ff3b30;
-      box-shadow: 0 0 0 4px rgba(255,59,48,0.12);
-      flex:0 0 auto;
-    }
-    .dbgtext{font-size:14px;line-height:1.35;color:var(--muted)}
-    .dbgtext b{color:var(--text)}
-    .row{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0}
-    .pillbar{display:flex;gap:10px;flex-wrap:wrap}
-    .pill{
-      background: rgba(255,255,255,0.03);
-      border:1px solid var(--line);
-      color:var(--text);
-      padding: 10px 18px;
-      border-radius: 999px;
-      cursor:pointer;
-      user-select:none;
-      box-shadow: 0 10px 28px rgba(0,0,0,0.35);
-      font-weight:650;
-      letter-spacing:0.01em;
-    }
-    .pill[aria-selected="true"]{
-      background: rgba(255,255,255,0.08);
-      border-color: rgba(255,255,255,0.18);
-    }
-    .divider{height:2px;background:rgba(255,255,255,0.08);border-radius:999px;margin:14px 0 16px}
-    .card{
-      background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
-      border:1px solid var(--line);
-      border-radius: var(--r);
-      padding: var(--pad);
-      box-shadow: var(--shadow);
-    }
-    .card h2{
-      margin: 8px 0 2px;
-      font-size: clamp(36px, 5vw, 64px);
-      letter-spacing:-0.03em;
-    }
-    .subtabs{margin-top:10px;display:flex;gap:10px;flex-wrap:wrap}
-    .subpill{
-      background: rgba(0,0,0,0.12);
-      border:1px solid var(--line);
-      color:var(--text);
-      padding: 10px 16px;
-      border-radius: 999px;
-      cursor:pointer;
-      user-select:none;
-      font-weight:650;
-    }
-    .subpill[aria-selected="true"]{
-      background: rgba(255,255,255,0.08);
-      border-color: rgba(255,255,255,0.18);
-    }
-    .list{margin-top:14px;display:flex;flex-direction:column;gap:12px}
-    .item{
-      display:grid;
-      grid-template-columns: 44px 56px 1fr auto;
-      align-items:center;
-      gap:12px;
-      padding: 14px;
-      border-radius: 18px;
-      border:1px solid rgba(255,255,255,0.06);
-      background: rgba(0,0,0,0.12);
-    }
-    .idx{
-      width:34px;height:34px;border-radius:12px;
-      display:flex;align-items:center;justify-content:center;
-      background: rgba(255,255,255,0.04);
-      border:1px solid rgba(255,255,255,0.07);
-      color: var(--muted);
-      font-weight:800;
-    }
-    img.cover{
-      width:56px;height:56px;border-radius:14px;
-      object-fit:cover;
-      background: rgba(255,255,255,0.04);
-      border:1px solid rgba(255,255,255,0.07);
-    }
-    .meta{min-width:0}
-    .title{
-      font-size:18px;font-weight:800;letter-spacing:-0.01em;
-      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-    }
-    .subtitle{
-      margin-top:3px;
-      font-size:14px;color:var(--muted);
-      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-    }
-    .count{
-      font-variant-numeric: tabular-nums;
-      color: var(--muted);
-      font-weight:800;
-      font-size:18px;
-      padding-left:10px;
-    }
-    .nowcard{
-      display:grid;
-      grid-template-columns: 96px 1fr;
-      gap:16px;
-      align-items:center;
-      padding: 18px;
-      border-radius: 22px;
-      border:1px solid rgba(255,255,255,0.06);
-      background: rgba(0,0,0,0.12);
-    }
-    .nowcover{
-      width:96px;height:96px;border-radius:20px;object-fit:cover;
-      background: rgba(255,255,255,0.04);
-      border:1px solid rgba(255,255,255,0.07);
-    }
-    .badge{
-      display:inline-flex;align-items:center;gap:8px;
-      padding: 9px 14px;border-radius:999px;
-      border:1px solid rgba(255,255,255,0.10);
-      background: rgba(0,0,0,0.22);
-      margin-top:10px;
-      font-weight:900;
-      letter-spacing:0.02em;
-    }
-    .badge.live{
-      color: var(--live);
-      border-color: rgba(255,59,48,0.35);
-      background: rgba(255,59,48,0.10);
-    }
-    .badge .bars{
-      display:inline-flex;gap:3px;align-items:flex-end;height:14px
-    }
-    .badge .bars span{
-      width:3px;border-radius:2px;background: currentColor;
-      display:block;
-      animation: bounce 0.9s infinite ease-in-out;
-    }
-    .badge .bars span:nth-child(2){animation-delay:0.12s}
-    .badge .bars span:nth-child(3){animation-delay:0.24s}
-    @keyframes bounce{
-      0%,100%{height:5px;opacity:0.55}
-      50%{height:14px;opacity:1}
-    }
-    .smallmuted{margin-top:8px;color:var(--muted);font-size:14px}
-    .mirrorbox{
-      margin-top:14px;
-      padding: 18px;
-      border-radius: 20px;
-      background: rgba(0,0,0,0.14);
-      border:1px solid rgba(255,255,255,0.06);
-      color: var(--text);
-      font-size: 16px;
-      line-height: 1.55;
-      white-space: pre-wrap;
-    }
-    .footerhint{
-      margin-top:10px;color:rgba(255,255,255,0.35);font-size:12px
-    }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <h1>Listening Mirror</h1>
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    let path = url.pathname || "/";
 
-    <div class="debug">
-      <div class="dot" id="apiDot"></div>
-      <div class="dbgtext">
-        <div><b>API:</b> <span id="apiStatus">Checking…</span></div>
-        <div><b>BASE_API:</b> <span id="apiBase"></span></div>
-        <div style="margin-top:4px;">Αν γράψει status ≠ 200, τότε είναι καθαρά θέμα σύνδεσης site → worker.</div>
-      </div>
-    </div>
+    // Accept both /api/* and /*
+    if (path.startsWith("/api/")) path = path.slice(4);
+    if (path === "/api") path = "/";
 
-    <div class="row">
-      <div class="pillbar" role="tablist" aria-label="Main tabs">
-        <button class="pill" role="tab" data-tab="now" aria-selected="true">Now</button>
-        <button class="pill" role="tab" data-tab="top" aria-selected="false">Top</button>
-        <button class="pill" role="tab" data-tab="mirror" aria-selected="false">Mirror</button>
-        <button class="pill" role="tab" data-tab="history" aria-selected="false">History</button>
-      </div>
-    </div>
+    // CORS preflight
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders(env) });
+    }
 
-    <div class="divider"></div>
+    try {
+      // Health
+      if (path === "/" || path === "") {
+        return json({ ok: true, service: "Listening Mirror Worker" }, 200, request, env);
+      }
 
-    <!-- NOW -->
-    <section id="tab-now" class="card" style="display:block">
-      <h2>Now Playing</h2>
-      <div id="nowArea" class="list"></div>
-    </section>
+      // Image proxy: /img?u=<encoded>
+      if (path === "/img") {
+        const u = url.searchParams.get("u");
+        if (!u) return json({ ok: false, error: "Missing u" }, 400, request, env);
+        return proxyImage(request, env, u);
+      }
 
-    <!-- TOP -->
-    <section id="tab-top" class="card" style="display:none">
-      <h2>Top</h2>
+      // Now playing: /now
+      if (path === "/now") {
+        const data = await cachedJson(ctx, request, env, "now", () => getNowPlaying(env));
+        return json({ ok: true, track: data }, 200, request, env);
+      }
 
-      <div class="subtabs" role="tablist" aria-label="Top type tabs">
-        <button class="subpill" role="tab" data-toptype="tracks" aria-selected="true">Tracks</button>
-        <button class="subpill" role="tab" data-toptype="artists" aria-selected="false">Artists</button>
-        <button class="subpill" role="tab" data-toptype="albums" aria-selected="false">Albums</button>
-      </div>
+      // Recent: /recent?limit=40
+      if (path === "/recent") {
+        const limit = clampInt(url.searchParams.get("limit"), 1, 200, 40);
+        const data = await cachedJson(ctx, request, env, `recent:${limit}`, () => getRecent(env, limit));
+        return json({ ok: true, items: data.items }, 200, request, env);
+      }
 
-      <div class="subtabs" role="tablist" aria-label="Top period tabs" style="margin-top:10px">
-        <button class="subpill" role="tab" data-period="today" aria-selected="true">Today</button>
-        <button class="subpill" role="tab" data-period="week" aria-selected="false">Week</button>
-        <button class="subpill" role="tab" data-period="year" aria-selected="false">Year</button>
-        <button class="subpill" role="tab" data-period="all" aria-selected="false">All time</button>
-      </div>
+      // Top: /top?type=tracks|artists&period=today|week|year|all&limit=20
+      if (path === "/top") {
+        const type = (url.searchParams.get("type") || "artists").toLowerCase();
+        const period = (url.searchParams.get("period") || "week").toLowerCase();
+        const limit = clampInt(url.searchParams.get("limit"), 1, 50, 10);
 
-      <div id="topArea" class="list"></div>
-      <div class="footerhint">Top/Today υπολογίζεται από τα recent scrobbles της ημέρας (local timezone).</div>
-    </section>
+        const key = `top:${type}:${period}:${limit}`;
+        const data = await cachedJson(ctx, request, env, key, async () => {
+          if (type === "tracks") return getTopTracksWithAlbumArt(env, period, limit);
+          if (type === "artists") return getTopArtists(env, period, limit);
+          if (type === "albums") return getTopAlbums(env, period, limit);
+          return { items: [] };
+        });
 
-    <!-- MIRROR -->
-    <section id="tab-mirror" class="card" style="display:none">
-      <h2>Mirror</h2>
+        return json({ ok: true, items: data.items }, 200, request, env);
+      }
 
-      <div class="subtabs" role="tablist" aria-label="Mirror period tabs">
-        <button class="subpill" role="tab" data-mperiod="today" aria-selected="true">Today</button>
-        <button class="subpill" role="tab" data-mperiod="week" aria-selected="false">Week</button>
-        <button class="subpill" role="tab" data-mperiod="year" aria-selected="false">Year</button>
-        <button class="subpill" role="tab" data-mperiod="all" aria-selected="false">All time</button>
-      </div>
+      // Reflection stub (θα το κάνουμε “δύσκολο” μετά)
+      if (path === "/reflection" && request.method === "POST") {
+        const body = await safeJson(request);
+        const period = String(body?.period || "today");
+        return json(
+          {
+            ok: true,
+            text: `Mirror is not implemented yet.\n(period: ${period})`
+          },
+          200,
+          request,
+          env
+        );
+      }
 
-      <div id="mirrorBox" class="mirrorbox">Opening mirror…</div>
-      <div class="footerhint">Το Mirror θα ανάψει όταν προσθέσουμε endpoint /reflection στον worker.</div>
-    </section>
+      // Embed: /embed
+      if (path === "/embed") {
+        const now = await cachedJson(ctx, request, env, "now", () => getNowPlaying(env));
+        const html = renderEmbed(now, env);
+        return new Response(html, { headers: corsHeaders(env, { "content-type": "text/html; charset=utf-8" }) });
+      }
 
-    <!-- HISTORY -->
-    <section id="tab-history" class="card" style="display:none">
-      <h2>History</h2>
-      <div id="historyArea" class="list"></div>
-    </section>
+      return json({ ok: false, error: "Not found" }, 404, request, env);
+    } catch (e) {
+      return json({ ok: false, error: String(e?.message || e) }, 500, request, env);
+    }
+  }
+};
 
-  </div>
-<script>
-    // ===== CONFIG =====
-    const DEFAULT_BASE_API = "https://i.errtanq9.workers.dev";
-    const BASE_API = (window.BASE_API && typeof window.BASE_API === "string" && window.BASE_API.startsWith("http"))
-      ? window.BASE_API
-      : DEFAULT_BASE_API;
+// =====================
+// Helpers (HTTP / CORS)
+// =====================
+function corsHeaders(env, extra = {}) {
+  const allowOrigin = env?.CORS_ORIGIN || "*";
+  return new Headers({
+    "access-control-allow-origin": allowOrigin,
+    "access-control-allow-methods": "GET,POST,OPTIONS",
+    "access-control-allow-headers": "content-type",
+    "access-control-max-age": "86400",
+    ...extra
+  });
+}
 
-    const LIMIT_RECENT = 30;
-    const LIMIT_TOP = 20;
+function json(obj, status, request, env) {
+  const headers = corsHeaders(env, { "content-type": "application/json; charset=utf-8" });
+  return new Response(JSON.stringify(obj, null, 2), { status, headers });
+}
 
-    const state = {
-      tab: "now",
-      topType: "tracks",
-      topPeriod: "today",
-      mirrorPeriod: "today",
-      lastNowTrackKey: "",
+async function safeJson(request) {
+  try {
+    return await request.json();
+  } catch {
+    return null;
+  }
+}
+
+function clampInt(v, min, max, fallback) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(n)));
+}
+// =====================
+// Cache helper
+// =====================
+async function cachedJson(ctx, request, env, cacheKey, fn) {
+  const cache = caches.default;
+
+  // Separate cache by pathname+key (avoid mixing different domains)
+  const u = new URL(request.url);
+  const keyUrl = new URL(u.origin + "/__cache/" + encodeURIComponent(cacheKey));
+
+  const hit = await cache.match(keyUrl.toString());
+  if (hit) return await hit.json();
+
+  const data = await fn();
+
+  const ttl = clampInt(env?.CACHE_TTL, 1, 3600, 15);
+  const resp = new Response(JSON.stringify(data), {
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": `public, max-age=${ttl}`
+    }
+  });
+
+  ctx.waitUntil(cache.put(keyUrl.toString(), resp.clone()));
+  return data;
+}
+
+// =====================
+// Image proxy
+// =====================
+async function proxyImage(request, env, rawUrl) {
+  let target;
+  try {
+    target = new URL(rawUrl);
+  } catch {
+    return new Response("Bad url", { status: 400, headers: corsHeaders(env) });
+  }
+
+  // Only allow http(s)
+  if (target.protocol !== "http:" && target.protocol !== "https:") {
+    return new Response("Bad protocol", { status: 400, headers: corsHeaders(env) });
+  }
+
+  // Cache key includes final URL
+  const cache = caches.default;
+  const cacheKey = new Request("https://image-proxy/__img?u=" + encodeURIComponent(target.toString()));
+  const hit = await cache.match(cacheKey);
+  if (hit) return hit;
+
+  const r = await fetch(target.toString(), {
+    headers: {
+      // mimic simple browser fetch
+      "user-agent": "listening-mirror/1.0"
+    }
+  });
+
+  if (!r.ok) {
+    return new Response("Upstream error", { status: 502, headers: corsHeaders(env) });
+  }
+
+  const contentType = r.headers.get("content-type") || "image/*";
+  const body = await r.arrayBuffer();
+
+  const ttl = clampInt(env?.IMG_CACHE_TTL, 60, 86400, 3600);
+
+  const resp = new Response(body, {
+    headers: corsHeaders(env, {
+      "content-type": contentType,
+      "cache-control": `public, max-age=${ttl}`
+    })
+  });
+
+  ctxWait(cache.put(cacheKey, resp.clone()));
+  return resp;
+}
+
+function ctxWait(promise) {
+  // We don't always have ctx here (proxyImage can be called inside fetch)
+  // It's okay: we just don't wait.
+  promise.catch(() => {});
+}
+
+function publicBase(env, request) {
+  // If set, use it; else infer from request host
+  const b = env?.PUBLIC_BASE_URL;
+  if (typeof b === "string" && b.startsWith("http")) return b.replace(/\/+$/, "");
+  const u = new URL(request.url);
+  return u.origin;
+}
+
+function imgProxyUrl(env, request, rawImg) {
+  if (!rawImg) return "";
+  const base = publicBase(env, request);
+  return `${base}/img?u=${encodeURIComponent(rawImg)}`;
+}
+// =====================
+// Last.fm
+// =====================
+async function lastfm(env, method, params = {}) {
+  const apiKey = env.LASTFM_API_KEY;
+  const user = env.LASTFM_USER;
+
+  if (!apiKey) throw new Error("Missing env var: LASTFM_API_KEY");
+  if (!user) throw new Error("Missing env var: LASTFM_USER");
+
+  const u = new URL("https://ws.audioscrobbler.com/2.0/");
+  u.searchParams.set("method", method);
+  u.searchParams.set("api_key", apiKey);
+  u.searchParams.set("format", "json");
+
+  if (method.startsWith("user.")) u.searchParams.set("user", user);
+
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null) u.searchParams.set(k, String(v));
+  }
+
+  const r = await fetch(u.toString(), { headers: { "user-agent": "listening-mirror/1.0" } });
+  if (!r.ok) throw new Error(`Last.fm HTTP ${r.status}`);
+  const data = await r.json();
+  if (data?.error) throw new Error(`Last.fm error: ${data.message || data.error}`);
+  return data;
+}
+
+function pickImage(images) {
+  if (!Array.isArray(images)) return "";
+  for (let i = images.length - 1; i >= 0; i--) {
+    const url = images[i]?.["#text"];
+    if (url) return url;
+  }
+  return "";
+}
+
+function isLastfmPlaceholder(url) {
+  return typeof url === "string" && url.includes("2a96cbd8b46e442fc41c2b86b821562f");
+}
+
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let i = 0;
+
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (i < items.length) {
+      const idx = i++;
+      out[idx] = await fn(items[idx], idx);
+    }
+  });
+
+  await Promise.all(workers);
+  return out;
+}
+
+// =====================
+// Endpoints logic
+// =====================
+async function getNowPlaying(env) {
+  const data = await lastfm(env, "user.getrecenttracks", { limit: 1 });
+  const t = data?.recenttracks?.track?.[0];
+  if (!t) {
+    return { name: "", artist: "", album: "", image: "", nowplaying: false, uts: "" };
+  }
+
+  const nowplaying = Boolean(t?.["@attr"]?.nowplaying === "true");
+  const rawImg = pickImage(t?.image);
+  const uts = t?.date?.uts ? String(t.date.uts) : "";
+
+  return {
+    name: t?.name || "",
+    artist: t?.artist?.["#text"] || "",
+    album: t?.album?.["#text"] || "",
+    image: rawImg || "",
+    nowplaying,
+    uts
+  };
+}
+
+async function getRecent(env, limit) {
+  const data = await lastfm(env, "user.getrecenttracks", { limit });
+  const raw = data?.recenttracks?.track || [];
+
+  const items = raw.map(t => {
+    const rawImg = pickImage(t?.image);
+    return {
+      name: t?.name || "",
+      artist: t?.artist?.["#text"] || "",
+      album: t?.album?.["#text"] || "",
+      nowplaying: Boolean(t?.["@attr"]?.nowplaying === "true"),
+      uts: t?.date?.uts ? String(t.date.uts) : "",
+      image: rawImg || ""
     };
+  });
 
-    // ===== HELPERS =====
-    function el(sel){ return document.querySelector(sel); }
-    function els(sel){ return Array.from(document.querySelectorAll(sel)); }
+  return { items };
+}
+async function getTopArtists(env, period, limit) {
+  // Map UI period -> Last.fm period
+  const p = mapPeriod(period);
+  const data = await lastfm(env, "user.gettopartists", { period: p, limit });
+  const items = (data?.topartists?.artist || []).map(a => {
+    const rawImg = pickImage(a?.image);
+    return {
+      name: a?.name || "",
+      playcount: Number(a?.playcount || 0),
+      image: rawImg || ""
+    };
+  });
 
-    function setApiStatus(ok, statusText){
-      el("#apiStatus").textContent = statusText;
-      el("#apiBase").textContent = BASE_API;
-      el("#apiDot").style.background = ok ? "#34c759" : "#ff3b30";
-      el("#apiDot").style.boxShadow = ok ? "0 0 0 4px rgba(52,199,89,0.12)" : "0 0 0 4px rgba(255,59,48,0.12)";
-    }
+  return { items };
+}
 
-    function escapeHtml(s){
-      return String(s ?? "")
-        .replaceAll("&","&amp;").replaceAll("<","&lt;")
-        .replaceAll(">","&gt;").replaceAll('"',"&quot;")
-        .replaceAll("'","&#039;");
-    }
+async function getTopAlbums(env, period, limit) {
+  const p = mapPeriod(period);
+  const data = await lastfm(env, "user.gettopalbums", { period: p, limit });
+  const items = (data?.topalbums?.album || []).map(a => {
+    const rawImg = pickImage(a?.image);
+    return {
+      name: a?.name || "",
+      artist: a?.artist?.name || a?.artist || "",
+      playcount: Number(a?.playcount || 0),
+      image: rawImg || ""
+    };
+  });
 
-    function safeImg(url){
-      if(!url) return "";
-      return url;
-    }
+  return { items };
+}
 
-    // Accept both seconds and milliseconds (worker returns ms)
-    function formatLocalDateTime(uts){
-      if(!uts) return "";
-      const n = Number(uts);
-      if(!Number.isFinite(n)) return "";
-      const ms = (n > 1e12) ? n : n * 1000;
-      const d = new Date(ms);
-      return d.toLocaleString(undefined, {
-        year:"numeric", month:"numeric", day:"numeric",
-        hour:"2-digit", minute:"2-digit", second:"2-digit"
-      });
-    }
+async function getTopTracksWithAlbumArt(env, period, limit) {
+  const p = mapPeriod(period);
+  const data = await lastfm(env, "user.gettoptracks", { period: p, limit });
+  const raw = (data?.toptracks?.track || []).slice(0, limit);
 
-    async function apiGet(path){
-      const url = `${BASE_API}${path}${path.includes("?") ? "&" : "?"}t=${Date.now()}`;
-      const res = await fetch(url, { method:"GET" });
-      if(!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
-    }
+  const items = await mapLimit(raw, 4, async (t) => {
+    const name = t?.name || "";
+    const artist = t?.artist?.name || t?.artist || "";
+    const playcount = Number(t?.playcount || 0);
 
-    async function apiPost(path, body){
-      const url = `${BASE_API}${path}${path.includes("?") ? "&" : "?"}t=${Date.now()}`;
-      const res = await fetch(url, {
-        method:"POST",
-        headers:{ "content-type":"application/json" },
-        body: JSON.stringify(body ?? {})
-      });
-      if(!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
-    }
+    let rawImg = pickImage(t?.image);
+    let finalImg = rawImg;
 
-    function showTab(tab){
-      state.tab = tab;
-      els('[role="tab"][data-tab]').forEach(b => b.setAttribute("aria-selected", b.dataset.tab === tab ? "true" : "false"));
-      el("#tab-now").style.display = tab === "now" ? "block" : "none";
-      el("#tab-top").style.display = tab === "top" ? "block" : "none";
-      el("#tab-mirror").style.display = tab === "mirror" ? "block" : "none";
-      el("#tab-history").style.display = tab === "history" ? "block" : "none";
-    }
-
-    function setTopType(type){
-      state.topType = type;
-      els('[data-toptype]').forEach(b => b.setAttribute("aria-selected", b.dataset.toptype === type ? "true" : "false"));
-    }
-
-    function setTopPeriod(period){
-      state.topPeriod = period;
-      els('#tab-top [data-period]').forEach(b => b.setAttribute("aria-selected", b.dataset.period === period ? "true" : "false"));
-    }
-
-    function setMirrorPeriod(period){
-      state.mirrorPeriod = period;
-      els('#tab-mirror [data-mperiod]').forEach(b => b.setAttribute("aria-selected", b.dataset.mperiod === period ? "true" : "false"));
-    }
-  </script>
-<script>
-    // ===== RENDERERS =====
-    function renderNow(track){
-      const area = el("#nowArea");
-      area.innerHTML = "";
-
-      if(!track){
-        area.innerHTML = `<div class="nowcard"><div class="meta"><div class="title">No data</div><div class="subtitle">Couldn’t load /now</div></div></div>`;
-        return;
-      }
-
-      const cover = safeImg(track.image);
-      const title = escapeHtml(track.name);
-      const artist = escapeHtml(track.artist);
-      const album = escapeHtml(track.album || "");
-      const live = !!track.nowPlaying;
-      const lastPlayed = track.uts ? formatLocalDateTime(track.uts) : "";
-
-      area.innerHTML = `
-        <div class="nowcard">
-          <img class="nowcover" src="${escapeHtml(cover)}" alt="" loading="lazy"
-               onerror="this.onerror=null;this.src='';this.style.display='none';">
-          <div class="meta">
-            <div class="title">${artist} — ${title}</div>
-            <div class="subtitle">${album || "&nbsp;"}</div>
-            ${live
-              ? `<div class="badge live"><span class="bars"><span></span><span></span><span></span></span>LIVE</div>`
-              : (lastPlayed ? `<div class="smallmuted">Last played: ${escapeHtml(lastPlayed)}</div>` : `<div class="smallmuted">&nbsp;</div>`)
-            }
-          </div>
-        </div>
-      `;
-    }
-
-    function renderList(items, mode){
-      const toHtml = (it, i) => {
-        const idx = i + 1;
-        const cover = safeImg(it.image);
-        const count = (it.playcount != null) ? String(it.playcount) : "";
-        const right = count ? `<div class="count">${escapeHtml(count)}</div>` : `<div class="count"></div>`;
-
-        let title = "";
-        let subtitle = "";
-
-        if(mode === "artists"){
-          title = escapeHtml(it.name || "");
-          subtitle = "&nbsp;";
-        } else if(mode === "albums"){
-          title = escapeHtml(it.name || "");
-          subtitle = escapeHtml(it.artist || "");
-        } else if(mode === "history"){
-          title = escapeHtml(it.artist || "") + " — " + escapeHtml(it.name || "");
-          subtitle = escapeHtml(it.album || "");
-        } else {
-          title = escapeHtml(it.name || "");
-          subtitle = escapeHtml(it.artist || "");
-        }
-
-        return `
-          <div class="item">
-            <div class="idx">${idx}</div>
-            <img class="cover" src="${escapeHtml(cover)}" alt="" loading="lazy"
-                 onerror="this.onerror=null;this.src='';this.style.display='none';">
-            <div class="meta">
-              <div class="title">${title}</div>
-              <div class="subtitle">${subtitle || "&nbsp;"}</div>
-            </div>
-            ${right}
-          </div>
-        `;
-      };
-
-      return (items || []).map(toHtml).join("");
-    }
-
-    // Frontend tab names -> worker period names
-    function mapTopPeriodToWorker(period){
-      // Worker supports: today (special), and Last.fm periods: 7day, 12month, overall
-      if(period === "today") return "today";
-      if(period === "week") return "7day";
-      if(period === "year") return "12month";
-      if(period === "all") return "overall";
-      return "7day";
-    }
-
-    async function loadNow(){
-      try{
-        const data = await apiGet("/now");
-        // worker returns {artist,name,album,image,nowPlaying,uts}
-        const normalized = data ? {
-          name: data.name || "",
-          artist: data.artist || "",
-          album: data.album || "",
-          image: data.image || "",
-          nowPlaying: !!data.nowPlaying,
-          uts: data.uts || null
-        } : null;
-
-        renderNow(normalized);
-
-        // Mirror refresh on track change (if Mirror tab visible)
-        const key = normalized ? `${normalized.artist}||${normalized.name}||${normalized.uts||""}||${normalized.nowPlaying?"1":"0"}` : "";
-        if(key && key !== state.lastNowTrackKey){
-          state.lastNowTrackKey = key;
-          if(state.tab === "mirror"){
-            await loadMirror();
-          }
-        }
-      }catch(err){
-        renderNow(null);
+    if (!finalImg || isLastfmPlaceholder(finalImg)) {
+      try {
+        const info = await lastfm(env, "track.getInfo", { track: name, artist, autocorrect: 1 });
+        const albumImg = pickImage(info?.track?.album?.image);
+        if (albumImg) finalImg = albumImg;
+      } catch {
+        // ignore
       }
     }
 
-    async function loadTop(){
-      const area = el("#topArea");
-      area.innerHTML = `<div class="mirrorbox">Loading…</div>`;
+    return { name, artist, playcount, image: finalImg || "" };
+  });
 
-      const type = state.topType;
-      const period = mapTopPeriodToWorker(state.topPeriod);
+  return { items };
+}
 
-      try{
-        const data = await apiGet(`/top?type=${encodeURIComponent(type)}&period=${encodeURIComponent(period)}&limit=${LIMIT_TOP}`);
+function mapPeriod(period) {
+  // UI: today/week/year/all
+  // Last.fm: 7day, 1month, 3month, 6month, 12month, overall
+  if (period === "today") return "7day"; // “today” we fake it later via recents; for now keep stable
+  if (period === "week") return "7day";
+  if (period === "year") return "12month";
+  if (period === "all") return "overall";
+  return "7day";
+}
 
-        // worker returns {tracks} or {artists} or {albums}
-        let items = [];
-        if(type === "tracks") items = data?.tracks || [];
-        if(type === "artists") items = data?.artists || [];
-        if(type === "albums") items = data?.albums || [];
+// =====================
+// Embed HTML
+// =====================
+function renderEmbed(now, env) {
+  const artist = escapeHtml(now?.artist || "—");
+  const name = escapeHtml(now?.name || "—");
+  const album = escapeHtml(now?.album || "");
+  const img = escapeAttr(now?.image || "");
+  const badge = now?.nowplaying ? "LIVE now playing" : "last played";
 
-        area.innerHTML = renderList(items, type);
-      }catch(err){
-        area.innerHTML = `<div class="mirrorbox">Failed to load top: ${escapeHtml(err.message || String(err))}</div>`;
-      }
-    }
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Now Playing</title>
+<style>
+:root{color-scheme:dark}
+body{margin:0;padding:0;background:#0b0b0b;color:#eaeaea;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+.card{display:flex;gap:12px;align-items:center;background:#141414;border:1px solid #2a2a2a;border-radius:14px;padding:14px;max-width:520px}
+img{width:84px;height:84px;border-radius:12px;border:1px solid #2a2a2a;object-fit:cover;background:#0d0d0d}
+.title{font-weight:700;margin:0 0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sub{margin:0;opacity:.75;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pill{display:inline-block;margin-top:10px;padding:6px 10px;border:1px solid #2a2a2a;border-radius:999px;font-size:12px;opacity:.9}
+</style></head>
+<body>
+<div class="card">
+  <img src="${img}" alt="">
+  <div style="min-width:0">
+    <div class="title">${artist} — ${name}</div>
+    <div class="sub">${album}</div>
+    <div class="pill">${badge}</div>
+  </div>
+</div>
+</body></html>`;
+}
 
-    async function loadHistory(){
-      const area = el("#historyArea");
-      area.innerHTML = `<div class="mirrorbox">Loading…</div>`;
-      try{
-        const data = await apiGet(`/recent?limit=${LIMIT_RECENT}`);
-        const items = data?.tracks || [];
-        area.innerHTML = renderList(items, "history");
-      }catch(err){
-        area.innerHTML = `<div class="mirrorbox">Failed to load history: ${escapeHtml(err.message || String(err))}</div>`;
-      }
-    }
-
-    async function loadMirror(){
-      const box = el("#mirrorBox");
-      box.textContent = "Opening mirror…";
-      try{
-        // NOTE: Not implemented in worker yet
-        const period = state.mirrorPeriod; // today/week/year/all
-        await apiPost("/reflection", { period });
-        box.textContent = "OK";
-      }catch(err){
-        const msg = err?.message || String(err);
-        // If 404, say clearly it's not implemented
-        if(String(msg).includes("HTTP 404")){
-          box.textContent = "Mirror: endpoint /reflection δεν υπάρχει ακόμα στον worker. (Θα το προσθέσουμε μετά.)";
-        } else {
-          box.textContent = `Mirror failed: ${msg}`;
-        }
-      }
-    }
-  </script>
-<script>
-    // ===== INIT =====
-    function wireUI(){
-      // main tabs
-      els('[data-tab]').forEach(btn => {
-        btn.addEventListener("click", async () => {
-          showTab(btn.dataset.tab);
-          if(state.tab === "now") await loadNow();
-          if(state.tab === "top") await loadTop();
-          if(state.tab === "mirror") await loadMirror();
-          if(state.tab === "history") await loadHistory();
-        });
-      });
-
-      // top type subtabs
-      els('[data-toptype]').forEach(btn => {
-        btn.addEventListener("click", async () => {
-          setTopType(btn.dataset.toptype);
-          await loadTop();
-        });
-      });
-
-      // top period subtabs
-      els('#tab-top [data-period]').forEach(btn => {
-        btn.addEventListener("click", async () => {
-          setTopPeriod(btn.dataset.period);
-          await loadTop();
-        });
-      });
-
-      // mirror period subtabs
-      els('#tab-mirror [data-mperiod]').forEach(btn => {
-        btn.addEventListener("click", async () => {
-          setMirrorPeriod(btn.dataset.mperiod);
-          await loadMirror();
-        });
-      });
-    }
-
-    async function checkApi(){
-      try{
-        const res = await fetch(`${BASE_API}/now?t=${Date.now()}`, { method:"GET" });
-        setApiStatus(res.ok, res.ok ? `OK (status ${res.status})` : `FAIL (status ${res.status})`);
-      }catch(e){
-        setApiStatus(false, "FAIL (network error)");
-      }
-    }
-
-    async function bootstrap(){
-      wireUI();
-      await checkApi();
-
-      // Initial load
-      await loadNow();
-
-      // Refresh now every 20s
-      setInterval(loadNow, 20000);
-    }
-
-    bootstrap();
-  </script>
-</body>
-</html>
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+}
+function escapeAttr(s) {
+  return escapeHtml(s).replace(/`/g, "&#96;");
+}

@@ -6,10 +6,16 @@
   <title>Listening Mirror</title>
   <style>
     :root{
-      --bg:#0b0c0f; --panel:#14161b; --panel2:#111318;
-      --text:#e9eaec; --muted:#a5a8b0; --line:rgba(255,255,255,0.08);
+      --bg:#0b0c0f;
+      --panel:#14161b;
+      --panel2:#111318;
+      --text:#e9eaec;
+      --muted:#a5a8b0;
+      --line:rgba(255,255,255,0.08);
       --shadow: 0 12px 40px rgba(0,0,0,0.55);
-      --r:18px; --pad:18px; --live:#ff3b30;
+      --r:18px;
+      --pad:18px;
+      --live:#ff3b30; /* iOS red */
     }
     *{box-sizing:border-box}
     body{
@@ -21,7 +27,12 @@
       color:var(--text);
     }
     .wrap{max-width:980px;margin:0 auto;padding:22px 18px 40px}
-    h1{margin:18px 0 10px;font-size: clamp(42px, 7vw, 88px);letter-spacing:-0.03em;line-height:1.02;}
+    h1{
+      margin:18px 0 10px;
+      font-size: clamp(42px, 7vw, 88px);
+      letter-spacing:-0.03em;
+      line-height:1.02;
+    }
     .debug{
       display:flex;gap:10px;align-items:center;
       background: rgba(255,255,255,0.04);
@@ -31,7 +42,12 @@
       box-shadow: var(--shadow);
       margin: 8px 0 16px;
     }
-    .dot{width:14px;height:14px;border-radius:999px;background:#ff3b30;box-shadow: 0 0 0 4px rgba(255,59,48,0.12);flex:0 0 auto;}
+    .dot{
+      width:14px;height:14px;border-radius:999px;
+      background:#ff3b30;
+      box-shadow: 0 0 0 4px rgba(255,59,48,0.12);
+      flex:0 0 auto;
+    }
     .dbgtext{font-size:14px;line-height:1.35;color:var(--muted)}
     .dbgtext b{color:var(--text)}
     .row{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0}
@@ -48,7 +64,10 @@
       font-weight:650;
       letter-spacing:0.01em;
     }
-    .pill[aria-selected="true"]{background: rgba(255,255,255,0.08);border-color: rgba(255,255,255,0.18);}
+    .pill[aria-selected="true"]{
+      background: rgba(255,255,255,0.08);
+      border-color: rgba(255,255,255,0.18);
+    }
     .divider{height:2px;background:rgba(255,255,255,0.08);border-radius:999px;margin:14px 0 16px}
     .card{
       background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
@@ -57,7 +76,11 @@
       padding: var(--pad);
       box-shadow: var(--shadow);
     }
-    .card h2{margin: 8px 0 2px;font-size: clamp(36px, 5vw, 64px);letter-spacing:-0.03em;}
+    .card h2{
+      margin: 8px 0 2px;
+      font-size: clamp(36px, 5vw, 64px);
+      letter-spacing:-0.03em;
+    }
     .subtabs{margin-top:10px;display:flex;gap:10px;flex-wrap:wrap}
     .subpill{
       background: rgba(0,0,0,0.12);
@@ -69,7 +92,10 @@
       user-select:none;
       font-weight:650;
     }
-    .subpill[aria-selected="true"]{background: rgba(255,255,255,0.08);border-color: rgba(255,255,255,0.18);}
+    .subpill[aria-selected="true"]{
+      background: rgba(255,255,255,0.08);
+      border-color: rgba(255,255,255,0.18);
+    }
     .list{margin-top:14px;display:flex;flex-direction:column;gap:12px}
     .item{
       display:grid;
@@ -89,11 +115,29 @@
       color: var(--muted);
       font-weight:800;
     }
-    img.cover{width:56px;height:56px;border-radius:14px;object-fit:cover;background: rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);}
+    img.cover{
+      width:56px;height:56px;border-radius:14px;
+      object-fit:cover;
+      background: rgba(255,255,255,0.04);
+      border:1px solid rgba(255,255,255,0.07);
+    }
     .meta{min-width:0}
-    .title{font-size:18px;font-weight:800;letter-spacing:-0.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-    .subtitle{margin-top:3px;font-size:14px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-    .count{font-variant-numeric: tabular-nums;color: var(--muted);font-weight:800;font-size:18px;padding-left:10px;}
+    .title{
+      font-size:18px;font-weight:800;letter-spacing:-0.01em;
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    }
+    .subtitle{
+      margin-top:3px;
+      font-size:14px;color:var(--muted);
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    }
+    .count{
+      font-variant-numeric: tabular-nums;
+      color: var(--muted);
+      font-weight:800;
+      font-size:18px;
+      padding-left:10px;
+    }
     .nowcard{
       display:grid;
       grid-template-columns: 96px 1fr;
@@ -104,7 +148,11 @@
       border:1px solid rgba(255,255,255,0.06);
       background: rgba(0,0,0,0.12);
     }
-    .nowcover{width:96px;height:96px;border-radius:20px;object-fit:cover;background: rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);}
+    .nowcover{
+      width:96px;height:96px;border-radius:20px;object-fit:cover;
+      background: rgba(255,255,255,0.04);
+      border:1px solid rgba(255,255,255,0.07);
+    }
     .badge{
       display:inline-flex;align-items:center;gap:8px;
       padding: 9px 14px;border-radius:999px;
@@ -114,12 +162,25 @@
       font-weight:900;
       letter-spacing:0.02em;
     }
-    .badge.live{color: var(--live);border-color: rgba(255,59,48,0.35);background: rgba(255,59,48,0.10);}
-    .badge .bars{display:inline-flex;gap:3px;align-items:flex-end;height:14px}
-    .badge .bars span{width:3px;border-radius:2px;background: currentColor;display:block;animation: bounce 0.9s infinite ease-in-out;}
+    .badge.live{
+      color: var(--live);
+      border-color: rgba(255,59,48,0.35);
+      background: rgba(255,59,48,0.10);
+    }
+    .badge .bars{
+      display:inline-flex;gap:3px;align-items:flex-end;height:14px
+    }
+    .badge .bars span{
+      width:3px;border-radius:2px;background: currentColor;
+      display:block;
+      animation: bounce 0.9s infinite ease-in-out;
+    }
     .badge .bars span:nth-child(2){animation-delay:0.12s}
     .badge .bars span:nth-child(3){animation-delay:0.24s}
-    @keyframes bounce{0%,100%{height:5px;opacity:0.55}50%{height:14px;opacity:1}}
+    @keyframes bounce{
+      0%,100%{height:5px;opacity:0.55}
+      50%{height:14px;opacity:1}
+    }
     .smallmuted{margin-top:8px;color:var(--muted);font-size:14px}
     .mirrorbox{
       margin-top:14px;
@@ -132,7 +193,9 @@
       line-height: 1.55;
       white-space: pre-wrap;
     }
-    .footerhint{margin-top:10px;color:rgba(255,255,255,0.35);font-size:12px}
+    .footerhint{
+      margin-top:10px;color:rgba(255,255,255,0.35);font-size:12px
+    }
   </style>
 </head>
 <body>
@@ -159,11 +222,14 @@
 
     <div class="divider"></div>
 
+    <!-- NOW -->
     <section id="tab-now" class="card" style="display:block">
       <h2>Now Playing</h2>
       <div id="nowArea" class="list"></div>
     </section>
-<section id="tab-top" class="card" style="display:none">
+
+    <!-- TOP -->
+    <section id="tab-top" class="card" style="display:none">
       <h2>Top</h2>
 
       <div class="subtabs" role="tablist" aria-label="Top type tabs">
@@ -180,12 +246,12 @@
       </div>
 
       <div id="topArea" class="list"></div>
-      <div class="footerhint">Top/Today θα γίνει “σωστό” αργότερα. Τώρα είναι stable mapping.</div>
+      <div class="footerhint">Top/Today υπολογίζεται από τα recent scrobbles της ημέρας (local timezone).</div>
     </section>
 
+    <!-- MIRROR (disabled for now) -->
     <section id="tab-mirror" class="card" style="display:none">
       <h2>Mirror</h2>
-
       <div class="subtabs" role="tablist" aria-label="Mirror period tabs">
         <button class="subpill" role="tab" data-mperiod="today" aria-selected="true">Today</button>
         <button class="subpill" role="tab" data-mperiod="week" aria-selected="false">Week</button>
@@ -193,10 +259,13 @@
         <button class="subpill" role="tab" data-mperiod="all" aria-selected="false">All time</button>
       </div>
 
-      <div id="mirrorBox" class="mirrorbox">Opening mirror…</div>
-      <div class="footerhint">Το Mirror είναι stub ακόμα (/api/reflection).</div>
+      <div id="mirrorBox" class="mirrorbox">
+        Mirror is temporarily disabled (we’ll implement it last).
+      </div>
+      <div class="footerhint">Το Mirror θα ενεργοποιηθεί στο τέλος.</div>
     </section>
 
+    <!-- HISTORY -->
     <section id="tab-history" class="card" style="display:none">
       <h2>History</h2>
       <div id="historyArea" class="list"></div>
@@ -222,6 +291,7 @@
       lastNowTrackKey: "",
     };
 
+    // ===== HELPERS =====
     function el(sel){ return document.querySelector(sel); }
     function els(sel){ return Array.from(document.querySelectorAll(sel)); }
 
@@ -239,26 +309,23 @@
         .replaceAll("'","&#039;");
     }
 
-    function formatLocalDateTimeFromUnixSeconds(uts){
+    // ✅ FIX: if worker returns "/img?u=...", make it absolute using BASE_API
+    function safeImg(url){
+      if(!url) return "";
+      const u = String(url);
+      if(u.startsWith("/")) return `${BASE_API}${u}`;
+      return u;
+    }
+
+    function formatLocalDateTimeFromUnix(uts){
       if(!uts) return "";
       const d = new Date(Number(uts) * 1000);
-      return d.toLocaleString(undefined, { year:"numeric", month:"numeric", day:"numeric", hour:"2-digit", minute:"2-digit" });
+      return d.toLocaleString(undefined, { year:"numeric", month:"numeric", day:"numeric", hour:"2-digit", minute:"2-digit", second:"2-digit" });
     }
 
     async function apiGet(path){
       const url = `${BASE_API}${path}${path.includes("?") ? "&" : "?"}t=${Date.now()}`;
       const res = await fetch(url, { method:"GET" });
-      if(!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
-    }
-
-    async function apiPost(path, body){
-      const url = `${BASE_API}${path}${path.includes("?") ? "&" : "?"}t=${Date.now()}`;
-      const res = await fetch(url, {
-        method:"POST",
-        headers:{ "content-type":"application/json" },
-        body: JSON.stringify(body ?? {})
-      });
       if(!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json();
     }
@@ -285,9 +352,12 @@
     function setMirrorPeriod(period){
       state.mirrorPeriod = period;
       els('#tab-mirror [data-mperiod]').forEach(b => b.setAttribute("aria-selected", b.dataset.mperiod === period ? "true" : "false"));
+      // Mirror disabled: keep message
+      el("#mirrorBox").textContent = "Mirror is temporarily disabled (we’ll implement it last).";
     }
   </script>
-<script>
+
+  <script>
     // ===== RENDERERS =====
     function renderNow(track){
       const area = el("#nowArea");
@@ -298,12 +368,12 @@
         return;
       }
 
-      const cover = track.image || "";
+      const cover = safeImg(track.image);
       const title = escapeHtml(track.name);
       const artist = escapeHtml(track.artist);
       const album = escapeHtml(track.album || "");
       const live = !!track.nowplaying;
-      const lastPlayed = track.uts ? formatLocalDateTimeFromUnixSeconds(track.uts) : "";
+      const lastPlayed = track.uts ? formatLocalDateTimeFromUnix(track.uts) : "";
 
       area.innerHTML = `
         <div class="nowcard">
@@ -324,7 +394,7 @@
     function renderList(items, mode){
       const toHtml = (it, i) => {
         const idx = i + 1;
-        const cover = it.image || "";
+        const cover = safeImg(it.image);
         const count = (it.playcount != null) ? String(it.playcount) : "";
         const right = count ? `<div class="count">${escapeHtml(count)}</div>` : `<div class="count"></div>`;
 
@@ -365,16 +435,17 @@
     async function loadNow(){
       try{
         const data = await apiGet("/api/now");
-        const t = data?.track || null;
-        renderNow(t);
+        const t = data?.track;
+        const normalized = t ? {
+          name: t.name,
+          artist: t.artist?.["#text"] || t.artist || "",
+          album: t.album || "",
+          image: t.image || "",
+          nowplaying: !!t.nowplaying,
+          uts: t.uts || ""
+        } : null;
 
-        const key = t ? `${t.artist}||${t.name}||${t.uts||""}||${t.nowplaying?"1":"0"}` : "";
-        if(key && key !== state.lastNowTrackKey){
-          state.lastNowTrackKey = key;
-          if(state.tab === "mirror"){
-            await loadMirror();
-          }
-        }
+        renderNow(normalized);
       }catch(err){
         renderNow(null);
       }
@@ -388,7 +459,8 @@
       const period = state.topPeriod;
 
       try{
-        const data = await apiGet(`/api/top?type=${encodeURIComponent(type)}&period=${encodeURIComponent(period)}&limit=${LIMIT_TOP}`);
+        const tzOffsetMinutes = new Date().getTimezoneOffset();
+        const data = await apiGet(`/api/top?type=${encodeURIComponent(type)}&period=${encodeURIComponent(period)}&limit=${LIMIT_TOP}&tzOffsetMinutes=${encodeURIComponent(tzOffsetMinutes)}`);
         const items = data?.items || [];
         area.innerHTML = renderList(items, type);
       }catch(err){
@@ -408,20 +480,11 @@
       }
     }
 
+    // Mirror disabled for now
     async function loadMirror(){
-      const box = el("#mirrorBox");
-      box.textContent = "Opening mirror…";
-      try{
-        const period = state.mirrorPeriod;
-        const data = await apiPost("/api/reflection", { period });
-        box.textContent = data?.text || "(empty)";
-      }catch(err){
-        box.textContent = `Mirror failed: ${err.message || String(err)}`;
-      }
+      el("#mirrorBox").textContent = "Mirror is temporarily disabled (we’ll implement it last).";
     }
-  </script>
-<script>
-    // ===== INIT =====
+
     function wireUI(){
       els('[data-tab]').forEach(btn => {
         btn.addEventListener("click", async () => {
@@ -448,9 +511,8 @@
       });
 
       els('#tab-mirror [data-mperiod]').forEach(btn => {
-        btn.addEventListener("click", async () => {
+        btn.addEventListener("click", () => {
           setMirrorPeriod(btn.dataset.mperiod);
-          await loadMirror();
         });
       });
     }

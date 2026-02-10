@@ -128,9 +128,7 @@
       display:grid;place-items:center;
     }
     .cover img{width:100%;height:100%;object-fit:cover;display:block}
-    .ph{
-      width:26px;height:26px;opacity:.65;
-    }
+    .ph{width:26px;height:26px;opacity:.65}
     .meta{flex:1;min-width:0}
     .title{
       font-weight:850;
@@ -170,19 +168,12 @@
       letter-spacing:.06em;
       margin-left:8px;
     }
-    .bars{
-      width:16px;height:16px;display:inline-grid;grid-auto-flow:column;gap:2px;align-items:end
-    }
+    .bars{width:16px;height:16px;display:inline-grid;grid-auto-flow:column;gap:2px;align-items:end}
     .bars span{width:3px;border-radius:2px;background: var(--live);display:block}
     .bars span:nth-child(1){height:14px}
     .bars span:nth-child(2){height:10px}
     .bars span:nth-child(3){height:12px}
-    .note{
-      margin-top:12px;
-      color:var(--muted2);
-      font-size:14px;
-      line-height:1.3;
-    }
+    .note{margin-top:12px;color:var(--muted2);font-size:14px;line-height:1.3}
     .err{
       margin-top:10px;
       padding:12px 14px;
@@ -261,8 +252,7 @@
       <div class="err hidden" id="historyErr"></div>
     </div>
   </div>
-
-  <script>
+<script>
     // =========================
     // CONFIG
     // =========================
@@ -270,22 +260,30 @@
     const LIMIT = 20;
 
     // =========================
-    // HELPERS (THE FIX IS HERE)
+    // HELPERS
     // =========================
     function tzOffsetMinutes() {
-      // JS getTimezoneOffset(): minutes behind UTC (e.g. NL winter = -60? actually returns -60? -> returns -60 for UTC+1? Nope: returns -60 means local is ahead of UTC by 60.
-      // We want the same convention you already use: tzOffsetMinutes=-60 for UTC+1.
+      // Keep same convention you already use (NL winter shows -60)
       return new Date().getTimezoneOffset();
     }
 
     function resolveImageUrl(imageValue) {
       if (!imageValue) return "";
-      // If already absolute:
       if (imageValue.startsWith("http://") || imageValue.startsWith("https://")) return imageValue;
-      // If relative (/img?...):
       if (imageValue.startsWith("/")) return BASE_API + imageValue;
-      // Otherwise, return as-is
       return imageValue;
+    }
+
+    // If worker /img fails (403/cors/etc), try direct decoded u=... (debug fallback)
+    function decodeWorkerImgToDirectUrl(workerImgUrl) {
+      try {
+        const u = new URL(workerImgUrl);
+        const enc = u.searchParams.get("u");
+        if (!enc) return "";
+        return decodeURIComponent(enc);
+      } catch {
+        return "";
+      }
     }
 
     function phSvg() {
@@ -329,7 +327,15 @@
       return String(x);
     }
 
-    function renderRows(container, items, mode) {
+    function escapeHtml(s) {
+      return String(s)
+        .replaceAll("&","&amp;")
+        .replaceAll("<","&lt;")
+        .replaceAll(">","&gt;")
+        .replaceAll('"',"&quot;")
+        .replaceAll("'","&#039;");
+    }
+function renderRows(container, items, mode) {
       container.innerHTML = "";
       if (!Array.isArray(items) || items.length === 0) {
         container.appendChild(el("div", { class:"err" }, "No data"));
@@ -341,10 +347,26 @@
 
         const cover = el("div", { class:"cover" });
         const imgUrl = resolveImageUrl(it.image || "");
+
         if (imgUrl) {
           const img = el("img", { alt: "" });
+
+          // >>> IMPORTANT PATCH <<<
+          img.referrerPolicy = "no-referrer";
+          img.crossOrigin = "anonymous";
+
           img.src = imgUrl;
-          img.onerror = () => { cover.innerHTML = phSvg(); };
+
+          img.onerror = () => {
+            // Try direct (decoded) as a confirmation path
+            const direct = decodeWorkerImgToDirectUrl(imgUrl);
+            if (direct && direct !== img.src) {
+              img.src = direct;
+              return;
+            }
+            cover.innerHTML = phSvg();
+          };
+
           cover.appendChild(img);
         } else {
           cover.innerHTML = phSvg();
@@ -360,7 +382,6 @@
         } else if (mode === "artists") {
           subtitle = "";
         } else if (mode === "albums") {
-          // IMPORTANT: your worker returns `artist` as string (as seen in screenshots)
           subtitle = it.artist ?? "";
         } else if (mode === "history") {
           subtitle = it.artist ?? "";
@@ -380,15 +401,6 @@
 
         container.appendChild(row);
       });
-    }
-
-    function escapeHtml(s) {
-      return String(s)
-        .replaceAll("&","&amp;")
-        .replaceAll("<","&lt;")
-        .replaceAll(">","&gt;")
-        .replaceAll('"',"&quot;")
-        .replaceAll("'","&#039;");
     }
 
     // =========================
@@ -434,16 +446,14 @@
         return;
       }
 
-      // normalize for renderer
       const normalized = [{
         name: item.name || "Unknown",
         artist: item.artist || "",
         album: item.album || "",
         image: item.image || "",
-        playcount: "" // not needed
+        playcount: ""
       }];
 
-      // render as single "card", with LIVE badge
       list.innerHTML = "";
       const row = el("div", { class:"row" });
       row.style.padding = "18px";
@@ -453,10 +463,17 @@
       cover.style.width = "68px";
       cover.style.height = "68px";
       const imgUrl = resolveImageUrl(normalized[0].image || "");
+
       if (imgUrl) {
         const img = el("img", { alt:"" });
+        img.referrerPolicy = "no-referrer";
+        img.crossOrigin = "anonymous";
         img.src = imgUrl;
-        img.onerror = () => { cover.innerHTML = phSvg(); };
+        img.onerror = () => {
+          const direct = decodeWorkerImgToDirectUrl(imgUrl);
+          if (direct && direct !== img.src) { img.src = direct; return; }
+          cover.innerHTML = phSvg();
+        };
         cover.appendChild(img);
       } else cover.innerHTML = phSvg();
 
@@ -473,8 +490,7 @@
       row.appendChild(badge);
       list.appendChild(row);
     }
-
-    // =========================
+// =========================
     // TOP
     // =========================
     async function loadTop() {
@@ -502,7 +518,7 @@
     }
 
     // =========================
-    // HISTORY (optional)
+    // HISTORY
     // =========================
     async function loadHistory() {
       const list = document.getElementById("historyList");
@@ -510,7 +526,6 @@
       err.classList.add("hidden");
       list.innerHTML = "";
 
-      // if you don't have /api/history, this will show a nice error instead of breaking
       const tz = tzOffsetMinutes();
       const res = await apiGet("/api/history", { limit: 20, tzOffsetMinutes: tz });
 
@@ -564,16 +579,12 @@
       });
     });
 
-    // Mirror period tabs are UI-only for now
     document.getElementById("mirrorPeriodTabs").querySelectorAll(".subtab").forEach(st => {
       st.addEventListener("click", () => {
         setActive(document.getElementById("mirrorPeriodTabs"), ".subtab", st);
       });
     });
 
-    // =========================
-    // INIT
-    // =========================
     (async function init(){
       await refreshStatus();
       showPage("now");

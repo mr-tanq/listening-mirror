@@ -162,7 +162,6 @@
       font-weight:900;
       letter-spacing:0.02em;
     }
-    /* LIVE badge: red text (requested) */
     .badge.live{
       color: var(--live);
       border-color: rgba(255,59,48,0.35);
@@ -228,18 +227,17 @@
       <h2>Now Playing</h2>
       <div id="nowArea" class="list"></div>
     </section>
-<!-- TOP -->
+
+    <!-- TOP -->
     <section id="tab-top" class="card" style="display:none">
       <h2>Top</h2>
 
-      <!-- Type subtabs -->
       <div class="subtabs" role="tablist" aria-label="Top type tabs">
         <button class="subpill" role="tab" data-toptype="tracks" aria-selected="true">Tracks</button>
         <button class="subpill" role="tab" data-toptype="artists" aria-selected="false">Artists</button>
         <button class="subpill" role="tab" data-toptype="albums" aria-selected="false">Albums</button>
       </div>
 
-      <!-- Period subtabs -->
       <div class="subtabs" role="tablist" aria-label="Top period tabs" style="margin-top:10px">
         <button class="subpill" role="tab" data-period="today" aria-selected="true">Today</button>
         <button class="subpill" role="tab" data-period="week" aria-selected="false">Week</button>
@@ -263,7 +261,7 @@
       </div>
 
       <div id="mirrorBox" class="mirrorbox">Opening mirror…</div>
-      <div class="footerhint">Το Mirror παράγεται από τον worker (/api/reflection) με βάση Top + Recent.</div>
+      <div class="footerhint">Το Mirror θα ανάψει όταν προσθέσουμε endpoint /reflection στον worker.</div>
     </section>
 
     <!-- HISTORY -->
@@ -273,8 +271,7 @@
     </section>
 
   </div>
-
-  <script>
+<script>
     // ===== CONFIG =====
     const DEFAULT_BASE_API = "https://i.errtanq9.workers.dev";
     const BASE_API = (window.BASE_API && typeof window.BASE_API === "string" && window.BASE_API.startsWith("http"))
@@ -315,10 +312,17 @@
       return url;
     }
 
-    function formatLocalDateTimeFromUnix(uts){
+    // Accept both seconds and milliseconds (worker returns ms)
+    function formatLocalDateTime(uts){
       if(!uts) return "";
-      const d = new Date(Number(uts) * 1000);
-      return d.toLocaleString(undefined, { year:"numeric", month:"numeric", day:"numeric", hour:"2-digit", minute:"2-digit", second:"2-digit" });
+      const n = Number(uts);
+      if(!Number.isFinite(n)) return "";
+      const ms = (n > 1e12) ? n : n * 1000;
+      const d = new Date(ms);
+      return d.toLocaleString(undefined, {
+        year:"numeric", month:"numeric", day:"numeric",
+        hour:"2-digit", minute:"2-digit", second:"2-digit"
+      });
     }
 
     async function apiGet(path){
@@ -355,7 +359,6 @@
 
     function setTopPeriod(period){
       state.topPeriod = period;
-      // top period buttons
       els('#tab-top [data-period]').forEach(b => b.setAttribute("aria-selected", b.dataset.period === period ? "true" : "false"));
     }
 
@@ -371,7 +374,7 @@
       area.innerHTML = "";
 
       if(!track){
-        area.innerHTML = `<div class="nowcard"><div class="meta"><div class="title">No data</div><div class="subtitle">Couldn’t load /api/now</div></div></div>`;
+        area.innerHTML = `<div class="nowcard"><div class="meta"><div class="title">No data</div><div class="subtitle">Couldn’t load /now</div></div></div>`;
         return;
       }
 
@@ -379,8 +382,8 @@
       const title = escapeHtml(track.name);
       const artist = escapeHtml(track.artist);
       const album = escapeHtml(track.album || "");
-      const live = !!track.nowplaying;
-      const lastPlayed = track.uts ? formatLocalDateTimeFromUnix(track.uts) : "";
+      const live = !!track.nowPlaying;
+      const lastPlayed = track.uts ? formatLocalDateTime(track.uts) : "";
 
       area.innerHTML = `
         <div class="nowcard">
@@ -399,7 +402,6 @@
     }
 
     function renderList(items, mode){
-      // mode: "tracks" | "artists" | "albums" | "history"
       const toHtml = (it, i) => {
         const idx = i + 1;
         const cover = safeImg(it.image);
@@ -419,7 +421,6 @@
           title = escapeHtml(it.artist || "") + " — " + escapeHtml(it.name || "");
           subtitle = escapeHtml(it.album || "");
         } else {
-          // tracks
           title = escapeHtml(it.name || "");
           subtitle = escapeHtml(it.artist || "");
         }
@@ -441,24 +442,33 @@
       return (items || []).map(toHtml).join("");
     }
 
+    // Frontend tab names -> worker period names
+    function mapTopPeriodToWorker(period){
+      // Worker supports: today (special), and Last.fm periods: 7day, 12month, overall
+      if(period === "today") return "today";
+      if(period === "week") return "7day";
+      if(period === "year") return "12month";
+      if(period === "all") return "overall";
+      return "7day";
+    }
+
     async function loadNow(){
       try{
-        const data = await apiGet("/api/now");
-        const t = data?.track;
-        const normalized = t ? {
-          name: t.name,
-          artist: t.artist?.["#text"] || t.artist || "",
-          album: t.album || "",
-          image: t.image || "",
-          nowplaying: !!t.nowplaying,
-          uts: t.uts || ""
+        const data = await apiGet("/now");
+        // worker returns {artist,name,album,image,nowPlaying,uts}
+        const normalized = data ? {
+          name: data.name || "",
+          artist: data.artist || "",
+          album: data.album || "",
+          image: data.image || "",
+          nowPlaying: !!data.nowPlaying,
+          uts: data.uts || null
         } : null;
 
-        // Update now UI
         renderNow(normalized);
 
-        // Trigger mirror refresh on track change (only if Mirror tab visible)
-        const key = normalized ? `${normalized.artist}||${normalized.name}||${normalized.uts||""}||${normalized.nowplaying?"1":"0"}` : "";
+        // Mirror refresh on track change (if Mirror tab visible)
+        const key = normalized ? `${normalized.artist}||${normalized.name}||${normalized.uts||""}||${normalized.nowPlaying?"1":"0"}` : "";
         if(key && key !== state.lastNowTrackKey){
           state.lastNowTrackKey = key;
           if(state.tab === "mirror"){
@@ -470,11 +480,6 @@
       }
     }
 
-    function mapTopPeriodToWorker(period){
-      // worker supports: today, week, year, all
-      return period;
-    }
-
     async function loadTop(){
       const area = el("#topArea");
       area.innerHTML = `<div class="mirrorbox">Loading…</div>`;
@@ -483,10 +488,14 @@
       const period = mapTopPeriodToWorker(state.topPeriod);
 
       try{
-        const tzOffsetMinutes = new Date().getTimezoneOffset(); // minutes (UTC - local)
-        const data = await apiGet(`/api/top?type=${encodeURIComponent(type)}&period=${encodeURIComponent(period)}&limit=${LIMIT_TOP}&tzOffsetMinutes=${encodeURIComponent(tzOffsetMinutes)}`);
+        const data = await apiGet(`/top?type=${encodeURIComponent(type)}&period=${encodeURIComponent(period)}&limit=${LIMIT_TOP}`);
 
-        const items = data?.items || [];
+        // worker returns {tracks} or {artists} or {albums}
+        let items = [];
+        if(type === "tracks") items = data?.tracks || [];
+        if(type === "artists") items = data?.artists || [];
+        if(type === "albums") items = data?.albums || [];
+
         area.innerHTML = renderList(items, type);
       }catch(err){
         area.innerHTML = `<div class="mirrorbox">Failed to load top: ${escapeHtml(err.message || String(err))}</div>`;
@@ -497,8 +506,8 @@
       const area = el("#historyArea");
       area.innerHTML = `<div class="mirrorbox">Loading…</div>`;
       try{
-        const data = await apiGet(`/api/recent?limit=${LIMIT_RECENT}`);
-        const items = data?.items || [];
+        const data = await apiGet(`/recent?limit=${LIMIT_RECENT}`);
+        const items = data?.tracks || [];
         area.innerHTML = renderList(items, "history");
       }catch(err){
         area.innerHTML = `<div class="mirrorbox">Failed to load history: ${escapeHtml(err.message || String(err))}</div>`;
@@ -509,17 +518,22 @@
       const box = el("#mirrorBox");
       box.textContent = "Opening mirror…";
       try{
-        const tzOffsetMinutes = new Date().getTimezoneOffset();
+        // NOTE: Not implemented in worker yet
         const period = state.mirrorPeriod; // today/week/year/all
-        const data = await apiPost("/api/reflection", { period, tzOffsetMinutes });
-
-        const text = data?.text || "";
-        box.textContent = text || "(empty)";
+        await apiPost("/reflection", { period });
+        box.textContent = "OK";
       }catch(err){
-        box.textContent = `Mirror failed: ${err.message || String(err)}`;
+        const msg = err?.message || String(err);
+        // If 404, say clearly it's not implemented
+        if(String(msg).includes("HTTP 404")){
+          box.textContent = "Mirror: endpoint /reflection δεν υπάρχει ακόμα στον worker. (Θα το προσθέσουμε μετά.)";
+        } else {
+          box.textContent = `Mirror failed: ${msg}`;
+        }
       }
     }
-
+  </script>
+<script>
     // ===== INIT =====
     function wireUI(){
       // main tabs
@@ -560,7 +574,7 @@
 
     async function checkApi(){
       try{
-        const res = await fetch(`${BASE_API}/api/now?t=${Date.now()}`, { method:"GET" });
+        const res = await fetch(`${BASE_API}/now?t=${Date.now()}`, { method:"GET" });
         setApiStatus(res.ok, res.ok ? `OK (status ${res.status})` : `FAIL (status ${res.status})`);
       }catch(e){
         setApiStatus(false, "FAIL (network error)");

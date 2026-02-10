@@ -3,935 +3,961 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Listening Mirror</title>
   <meta name="theme-color" content="#0b0c0e" />
-  <style>
-    :root{
-      --bg:#07080a;
-      --bg2:#0b0c0e;
-      --card: rgba(255,255,255,.06);
-      --card2: rgba(0,0,0,.30);
-      --stroke: rgba(255,255,255,.10);
-      --stroke2: rgba(255,255,255,.06);
+  <title>Listening Mirror</title>
 
-      --text:#eef0f3;
-      --muted:#a7abb4;
-      --muted2:#7d828c;
-
-      --ok:#31d07c;
-      --live:#ff5a5a;
-
-      --shadow: 0 24px 70px rgba(0,0,0,.60);
-      --r: 22px;
-      --r2: 18px;
-
-      --max: 920px;
-    }
-
-    *{ box-sizing:border-box; }
-    html,body{ height:100%; }
-    body{
-      margin:0;
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
-      color:var(--text);
-      background:
-        radial-gradient(1100px 650px at 35% -10%, rgba(255,255,255,.09), rgba(255,255,255,0) 62%),
-        radial-gradient(900px 700px at 95% 15%, rgba(255,255,255,.06), rgba(255,255,255,0) 55%),
-        linear-gradient(180deg, #07080a 0%, #0b0c0e 45%, #07080a 100%);
-      padding: 22px 16px 48px;
-      overflow-x:hidden;
-    }
-
-    .wrap{ max-width: var(--max); margin: 0 auto; }
-
-    .topbar{
-      display:flex; align-items:flex-end; justify-content:space-between;
-      gap:14px;
-      margin: 10px 0 16px;
-    }
-    .brand h1{
-      margin:0;
-      font-weight:900;
-      letter-spacing:-.04em;
-      font-size: clamp(44px, 7vw, 64px);
-      line-height: .95;
-    }
-    .brand .sub{
-      margin-top:8px;
-      color: var(--muted2);
-      font-weight:700;
-      letter-spacing:.02em;
-      font-size: 14px;
-    }
-
-    .status-pill{
-      display:flex; gap:10px; align-items:center;
-      padding: 12px 14px;
-      border-radius: 999px;
-      background: rgba(255,255,255,.05);
-      border: 1px solid var(--stroke2);
-      box-shadow: 0 12px 40px rgba(0,0,0,.35);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      min-width: 240px;
-      justify-content:space-between;
-    }
-    .status-left{ display:flex; gap:10px; align-items:center; min-width:0; }
-    .dot{
-      width:12px; height:12px; border-radius:999px;
-      background: var(--ok);
-      box-shadow: 0 0 0 6px rgba(49,208,124,.14);
-      flex:0 0 auto;
-    }
-    .status-text{
-      min-width:0;
-      display:flex; flex-direction:column;
-      line-height:1.15;
-    }
-    .status-text .line1{
-      font-size:13px; font-weight:800; color: rgba(255,255,255,.92);
-      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-    }
-    .status-text .line2{
-      margin-top:3px;
-      font-size:12px; font-weight:750; color: var(--muted);
-      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-    }
-    .status-right{
-      color: rgba(255,255,255,.55);
-      font-weight:800;
-      font-size:12px;
-      letter-spacing:.02em;
-      flex:0 0 auto;
-      padding-left:10px;
-    }
-
-    .tabs{
-      display:flex; gap:10px; flex-wrap:wrap;
-      margin: 14px 0 18px;
-    }
-    .tab{
-      padding:10px 16px;
-      border-radius:999px;
-      background: rgba(255,255,255,.05);
-      border:1px solid var(--stroke2);
-      color: rgba(255,255,255,.92);
-      font-weight:800;
-      cursor:pointer;
-      user-select:none;
-      transition: transform .08s ease, background .2s ease, border-color .2s ease;
-      box-shadow: 0 10px 30px rgba(0,0,0,.28);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-    }
-    .tab:active{ transform: translateY(1px); }
-    .tab.active{
-      background: rgba(255,255,255,.10);
-      border-color: rgba(255,255,255,.16);
-    }
-
-    .grid{
-      display:grid;
-      grid-template-columns: 1fr;
-      gap: 14px;
-    }
-    @media (min-width: 940px){
-      .grid.nowgrid{
-        grid-template-columns: 1.35fr .85fr;
-        align-items: start;
-      }
-    }
-
-    .card{
-      position:relative;
-      border-radius: var(--r);
-      border: 1px solid var(--stroke);
-      background: var(--card);
-      box-shadow: var(--shadow);
-      overflow:hidden;
-      backdrop-filter: blur(14px);
-      -webkit-backdrop-filter: blur(14px);
-    }
-    .card-inner{ padding: 18px 16px; }
-
-    .card h2{
-      margin:0 0 12px;
-      font-weight: 900;
-      letter-spacing:-.03em;
-      font-size: clamp(36px, 6vw, 52px);
-      line-height:1;
-    }
-
-    .subtabs{ display:flex; gap:10px; flex-wrap:wrap; margin: 10px 0 12px; }
-    .subtab{
-      padding:9px 14px;
-      border-radius:999px;
-      background: rgba(0,0,0,.22);
-      border:1px solid rgba(255,255,255,.07);
-      color: rgba(255,255,255,.90);
-      font-weight:850;
-      cursor:pointer;
-      user-select:none;
-      transition: background .2s ease, border-color .2s ease;
-    }
-    .subtab.active{
-      background: rgba(255,255,255,.10);
-      border-color: rgba(255,255,255,.14);
-    }
-
-    .list{ display:flex; flex-direction:column; gap:12px; margin-top:10px; }
-
-    .row{
-      display:flex; align-items:center; gap:12px;
-      padding: 14px 14px;
-      background: rgba(0,0,0,.28);
-      border:1px solid rgba(255,255,255,.07);
-      border-radius: var(--r2);
-    }
-
-    .idx{
-      width:34px; height:34px; border-radius:12px;
-      display:grid; place-items:center;
-      background: rgba(255,255,255,.05);
-      border:1px solid rgba(255,255,255,.08);
-      color: rgba(255,255,255,.70);
-      font-weight:900;
-      flex:0 0 auto;
-    }
-
-    .cover{
-      width:58px; height:58px; border-radius:16px;
-      background: rgba(255,255,255,.07);
-      border:1px solid rgba(255,255,255,.08);
-      overflow:hidden;
-      flex:0 0 auto;
-      display:grid; place-items:center;
-    }
-    .cover img{ width:100%; height:100%; object-fit:cover; display:block; }
-    .ph{ width:26px; height:26px; opacity:.70; }
-
-    .meta{ flex:1; min-width:0; }
-    .title{
-      font-weight: 900;
-      font-size: 18px;
-      letter-spacing: -.01em;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      margin:0 0 3px;
-    }
-    .subtitle{
-      color: var(--muted);
-      font-weight: 750;
-      font-size: 14px;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      margin:0;
-    }
-
-    .count{
-      color: rgba(255,255,255,.72);
-      font-weight: 900;
-      font-size: 18px;
-      letter-spacing:-.02em;
-      flex:0 0 auto;
-      margin-left:8px;
-    }
-
-    .note{
-      margin-top:12px;
-      color: var(--muted2);
-      font-size: 13px;
-      line-height: 1.35;
-    }
-
-    .err{
-      margin-top:10px;
-      padding:12px 14px;
-      border-radius:14px;
-      background: rgba(255,90,90,.10);
-      border:1px solid rgba(255,90,90,.20);
-      color:#ffd7d7;
-      font-weight:800;
-    }
-    .hidden{ display:none !important; }
-
-    /* ===== HERO NOW CARD ===== */
-    .hero{
-      min-height: 280px;
-    }
-    .hero-bg{
-      position:absolute; inset:-40px;
-      background-size: cover;
-      background-position: center;
-      filter: blur(24px) saturate(1.1);
-      opacity: .38;
-      transform: scale(1.05);
-    }
-    .hero-shade{
-      position:absolute; inset:0;
-      background:
-        radial-gradient(900px 420px at 20% 10%, rgba(0,0,0,0.15), rgba(0,0,0,0.55) 60%),
-        linear-gradient(180deg, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.55) 100%);
-    }
-    .hero-content{
-      position:relative;
-      padding: 18px 16px 16px;
-    }
-    .hero-top{
-      display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
-      margin-bottom: 14px;
-    }
-    .hero-top .label{
-      color: rgba(255,255,255,.78);
-      font-weight:900;
-      letter-spacing:.10em;
-      font-size: 12px;
-      text-transform: uppercase;
-    }
-    .chip{
-      display:inline-flex; align-items:center; gap:8px;
-      padding: 9px 12px;
-      border-radius: 999px;
-      border:1px solid rgba(255,255,255,.14);
-      background: rgba(0,0,0,.30);
-      color: rgba(255,255,255,.92);
-      font-weight: 900;
-      letter-spacing: .08em;
-      text-transform: uppercase;
-      font-size: 12px;
-      user-select:none;
-    }
-    .chip.live{
-      color: var(--live);
-      border-color: rgba(255,90,90,.35);
-      background: rgba(255,90,90,.10);
-    }
-    .chip .bars{
-      width:14px; height:14px;
-      display:inline-grid; grid-auto-flow:column; gap:2px; align-items:end;
-    }
-    .chip .bars span{
-      width:3px; border-radius:2px; background: currentColor; display:block;
-      animation: bounce .9s infinite ease-in-out;
-      opacity:.95;
-    }
-    .chip .bars span:nth-child(2){ animation-delay:.10s; }
-    .chip .bars span:nth-child(3){ animation-delay:.20s; }
-    @keyframes bounce{
-      0%,100%{ height:6px; opacity:.55; }
-      50%{ height:14px; opacity:1; }
-    }
-
-    .hero-main{
-      display:flex; gap:14px; align-items:center;
-      margin-top: 10px;
-    }
-    .hero-cover{
-      width: 96px; height: 96px;
-      border-radius: 22px;
-      border: 1px solid rgba(255,255,255,.12);
-      background: rgba(255,255,255,.06);
-      overflow:hidden;
-      flex:0 0 auto;
-      box-shadow: 0 18px 55px rgba(0,0,0,.45);
-    }
-    .hero-cover img{ width:100%; height:100%; object-fit:cover; display:block; }
-
-    .hero-text{ min-width:0; }
-    .hero-title{
-      margin:0;
-      font-weight: 950;
-      letter-spacing:-.03em;
-      font-size: 26px;
-      line-height: 1.05;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-    }
-    .hero-sub{
-      margin-top: 6px;
-      color: rgba(255,255,255,.78);
-      font-weight: 800;
-      font-size: 14px;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-    }
-    .hero-foot{
-      margin-top: 14px;
-      display:flex;
-      justify-content: space-between;
-      gap: 10px;
-      flex-wrap:wrap;
-      color: rgba(255,255,255,.60);
-      font-weight: 800;
-      font-size: 12px;
-      letter-spacing:.02em;
-    }
-
-    /* ===== MINI CANVAS ===== */
-    .mini{
-      padding: 16px;
-    }
-    .mini h3{
-      margin: 0 0 10px;
-      font-size: 16px;
-      font-weight: 950;
-      letter-spacing: -.02em;
-      color: rgba(255,255,255,.92);
-    }
-    canvas.timeline{
-      width:100%;
-      height:140px;
-      display:block;
-      border-radius: 16px;
-      background: rgba(0,0,0,.22);
-      border: 1px solid rgba(255,255,255,.07);
-    }
-    .mini .note{ margin-top:10px; }
-  </style>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="stylesheet" href="./styles.css" />
 </head>
+
 <body>
-  <div class="wrap">
-    <div class="topbar">
-      <div class="brand">
-        <h1>Listening Mirror</h1>
-        <div class="sub">hi-fi listening console • last.fm powered</div>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">LM</div>
+      <div class="brandText">
+        <div class="brandTitle">Listening Mirror</div>
+        <div class="brandSub" id="statusText">Offline</div>
       </div>
+    </div>
 
-      <div class="status-pill" id="statusCard" title="Αν γράψει status ≠ 200, τότε είναι καθαρά θέμα σύνδεσης site → worker.">
-        <div class="status-left">
-          <div class="dot" id="statusDot"></div>
-          <div class="status-text">
-            <div class="line1">API: <span id="apiStatus">checking…</span></div>
-            <div class="line2">BASE: <span id="baseApiLabel"></span></div>
+    <div class="actions">
+      <button class="btn" id="refreshBtn" type="button">Refresh</button>
+      <button class="btn btnGhost" id="settingsBtn" type="button">Settings</button>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="hero">
+      <div class="card nowPlaying">
+        <div class="cardHeader">
+          <div>
+            <div class="hTitle">Now Playing</div>
+            <div class="hSub" id="npMeta">—</div>
+          </div>
+          <div class="pill" id="npPill">—</div>
+        </div>
+
+        <div class="npBody">
+          <div class="cover" id="npCover" aria-hidden="true">
+            <div class="coverFallback">♪</div>
+          </div>
+
+          <div class="npText">
+            <div class="npTrack" id="npTrack">—</div>
+            <div class="npArtist" id="npArtist">—</div>
+            <div class="npAlbum" id="npAlbum">—</div>
+            <div class="npTime" id="npTime">—</div>
+
+            <div class="npLinks" id="npLinks"></div>
           </div>
         </div>
-        <div class="status-right" id="statusHint">status</div>
       </div>
-    </div>
 
-    <div class="tabs" style="margin-top:16px">
-      <div class="tab active" data-page="now">Now</div>
-      <div class="tab" data-page="top">Top</div>
-      <div class="tab" data-page="mirror">Mirror</div>
-      <div class="tab" data-page="history">History</div>
-    </div>
-
-    <!-- NOW PAGE -->
-    <div class="grid nowgrid" id="page-now">
-      <div class="card hero">
-        <div class="hero-bg" id="heroBg"></div>
-        <div class="hero-shade"></div>
-        <div class="hero-content">
-          <div class="hero-top">
-            <div class="label" id="heroLabel">Now Playing</div>
-            <div class="chip" id="heroChip">…</div>
-          </div>
-
-          <div class="hero-main">
-            <div class="hero-cover" id="heroCover">
-              <div style="width:100%;height:100%;display:grid;place-items:center;opacity:.8" id="heroCoverPh"></div>
+      <div class="grid2">
+        <div class="card">
+          <div class="cardHeader">
+            <div>
+              <div class="hTitle">Last 10 Tracks</div>
+              <div class="hSub" id="listMeta">—</div>
             </div>
-            <div class="hero-text">
-              <p class="hero-title" id="heroTitle">Loading…</p>
-              <div class="hero-sub" id="heroSub">—</div>
+            <div class="pill" id="userPill">—</div>
+          </div>
+
+          <div class="list" id="recentList"></div>
+        </div>
+
+        <div class="card">
+          <div class="cardHeader">
+            <div>
+              <div class="hTitle">Quick Stats</div>
+              <div class="hSub" id="statsMeta">—</div>
+            </div>
+            <div class="pill">v0.1</div>
+          </div>
+
+          <div class="stats">
+            <div class="stat">
+              <div class="statLabel">Scrobbles (last 7 days)</div>
+              <div class="statValue" id="s7">—</div>
+            </div>
+            <div class="stat">
+              <div class="statLabel">Top Artist (last 7 days)</div>
+              <div class="statValue" id="topArtist">—</div>
+            </div>
+            <div class="stat">
+              <div class="statLabel">Top Track (last 7 days)</div>
+              <div class="statValue" id="topTrack">—</div>
             </div>
           </div>
 
-          <div class="hero-foot">
-            <div id="heroFootLeft">—</div>
-            <div id="heroFootRight">—</div>
-          </div>
-
-          <div class="err hidden" id="nowErr"></div>
-        </div>
-      </div>
-
-      <div class="card mini">
-        <div class="card-inner" style="padding:0">
-          <div class="mini" style="padding:16px">
-            <h3>Today • Activity</h3>
-            <canvas id="emotionCanvas" class="timeline" height="140"></canvas>
-            <div class="note">Scrobbles ανά ώρα (local time). Δεν είναι AI — είναι καθαρό listening activity.</div>
-            <div class="err hidden" id="todayErr"></div>
+          <div class="note" id="noteBox">
+            Tip: Αν το Worker σου έχει άλλα routes, πήγαινε Settings και άλλαξε τα paths.
           </div>
         </div>
       </div>
-    </div>
-<!-- TOP PAGE -->
-    <div class="card hidden" id="page-top">
-      <div class="card-inner">
-        <h2>Top</h2>
+    </section>
+  </main>
 
-        <div class="subtabs" id="topTypeTabs">
-          <div class="subtab active" data-toptype="tracks">Tracks</div>
-          <div class="subtab" data-toptype="artists">Artists</div>
-          <div class="subtab" data-toptype="albums">Albums</div>
+  <dialog class="modal" id="settingsModal">
+    <form method="dialog" class="modalCard" id="settingsForm">
+      <div class="modalHeader">
+        <div>
+          <div class="hTitle">Settings</div>
+          <div class="hSub">Αποθήκευση μόνο στη συσκευή σου</div>
         </div>
-
-        <div class="subtabs" id="topPeriodTabs">
-          <div class="subtab active" data-period="today">Today</div>
-          <div class="subtab" data-period="week">Week</div>
-          <div class="subtab" data-period="year">Year</div>
-          <div class="subtab" data-period="all">All time</div>
-        </div>
-
-        <div class="list" id="topList"></div>
-        <div class="err hidden" id="topErr"></div>
-        <div class="note">Τα artworks έρχονται από τον worker (Last.fm + fallbacks + proxy).</div>
+        <button class="iconBtn" value="cancel" aria-label="Close">✕</button>
       </div>
-    </div>
 
-    <!-- MIRROR PAGE (stub for now) -->
-    <div class="card hidden" id="page-mirror">
-      <div class="card-inner">
-        <h2>Mirror</h2>
+      <label class="field">
+        <span class="fieldLabel">Last.fm username</span>
+        <input class="input" id="usernameInput" autocomplete="username" placeholder="e.g. mr-tanq" />
+      </label>
 
-        <div class="subtabs" id="mirrorPeriodTabs">
-          <div class="subtab active" data-mperiod="today">Today</div>
-          <div class="subtab" data-mperiod="week">Week</div>
-          <div class="subtab" data-mperiod="year">Year</div>
-          <div class="subtab" data-mperiod="all">All time</div>
-        </div>
+      <label class="field">
+        <span class="fieldLabel">Worker base URL</span>
+        <input class="input" id="baseUrlInput" placeholder="https://your-worker.example.com" />
+        <span class="fieldHint">Βάλε το base URL του Cloudflare Worker σου (χωρίς τελικό slash).</span>
+      </label>
 
-        <div class="err" id="mirrorMsg">Mirror is not enabled yet (HTTP 404). Αυτό είναι ΟΚ προς το παρόν.</div>
-        <div class="note">Το Mirror θα μπει σωστά όταν αποφασίσουμε τι ακριβώς θέλουμε να “λέει” ή να “δείχνει”.</div>
+      <div class="field">
+        <span class="fieldLabel">Worker paths (JSON)</span>
+        <textarea class="textarea" id="pathsInput" rows="6" spellcheck="false"></textarea>
+        <span class="fieldHint">
+          Default contract:
+          <code>{"recent":"/recent","weekly":"/weekly-stats","top":"/top"}</code>
+        </span>
       </div>
-    </div>
 
-    <!-- HISTORY PAGE -->
-    <div class="card hidden" id="page-history">
-      <div class="card-inner">
-        <h2>History</h2>
-        <div class="list" id="historyList"></div>
-        <div class="err hidden" id="historyErr"></div>
-        <div class="note">Recent scrobbles από το `/api/history`.</div>
+      <div class="row">
+        <button class="btn" id="saveSettingsBtn" value="default" type="submit">Save</button>
+        <button class="btn btnGhost" id="resetBtn" type="button">Reset</button>
       </div>
-    </div>
-  </div>
 
-  <script>
-    // =========================
-    // CONFIG
-    // =========================
-    const BASE_API = "https://i.errtanq9.workers.dev";
-    const LIMIT = 20;
+      <div class="danger">
+        <strong>Αν δεις “Endpoint not found”</strong>, σημαίνει ότι το Worker σου έχει διαφορετικά routes. Αλλάζεις μόνο το JSON εδώ.
+      </div>
+    </form>
+  </dialog>
 
-    // Για timeline: παίρνουμε λίγα παραπάνω, για να έχουμε αρκετά σημεία
-    const LIMIT_TODAY = 120;
-
-    // =========================
-    // HELPERS
-    // =========================
-    function tzOffsetMinutes(){ return new Date().getTimezoneOffset(); }
-
-    function resolveImageUrl(imageValue){
-      if(!imageValue) return "";
-
-      if(imageValue.startsWith("http://") || imageValue.startsWith("https://")) return imageValue;
-
-      if(imageValue.startsWith("/img?")){
-        // προτιμάμε να χρησιμοποιούμε τον proxy (αξιόπιστο)
-        return BASE_API + imageValue;
-      }
-
-      if(imageValue.startsWith("/")) return BASE_API + imageValue;
-
-      return imageValue;
-    }
-
-    function phSvg(){
-      return `
-        <svg class="ph" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M12 17.5l-5.5 3 1-6.1-4.5-4.4 6.2-.9L12 3.5l2.8 5.6 6.2.9-4.5 4.4 1 6.1-5.5-3z"
-            stroke="rgba(255,255,255,.80)" stroke-width="1.6" />
-        </svg>`;
-    }
-
-    function el(tag, attrs={}, html=""){
-      const n = document.createElement(tag);
-      for (const [k,v] of Object.entries(attrs)){
-        if (k === "class") n.className = v;
-        else if (k.startsWith("data-")) n.setAttribute(k, v);
-        else n[k] = v;
-      }
-      if (html) n.innerHTML = html;
-      return n;
-    }
-
-    function setActive(container, selector, targetEl){
-      container.querySelectorAll(selector).forEach(x => x.classList.remove("active"));
-      targetEl.classList.add("active");
-    }
-
-    async function apiGet(path, params={}){
-      const url = new URL(BASE_API + path);
-      for (const [k,v] of Object.entries(params)) url.searchParams.set(k, String(v));
-      const res = await fetch(url.toString(), { cache:"no-store" });
-      const text = await res.text();
-      let json = null;
-      try{ json = JSON.parse(text); }catch(e){ json = null; }
-      return { ok: res.ok, status: res.status, json, text };
-    }
-
-    function escapeHtml(s){
-      return String(s ?? "")
-        .replaceAll("&","&amp;")
-        .replaceAll("<","&lt;")
-        .replaceAll(">","&gt;")
-        .replaceAll('"',"&quot;")
-        .replaceAll("'","&#039;");
-    }
-
-    function formatCount(n){
-      if (n === null || n === undefined) return "";
-      const x = Number(n);
-      if (Number.isNaN(x)) return String(n);
-      return String(x);
-    }
-
-    function localTimeLabel(){
-      try{
-        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        return tz || "local";
-      }catch{ return "local"; }
-    }
-
-    // =========================
-    // UI STATE
-    // =========================
-    let page = "now";
-    let topType = "tracks";
-    let topPeriod = "today";
-
-    // =========================
-    // STATUS
-    // =========================
-    async function refreshStatus(){
-      document.getElementById("baseApiLabel").textContent = BASE_API;
-
-      const tz = tzOffsetMinutes();
-      const { ok, status } = await apiGet("/api/top", { type:"tracks", period:"today", limit:1, tzOffsetMinutes: tz });
-
-      document.getElementById("apiStatus").textContent = ok ? `OK` : `FAIL`;
-      document.getElementById("statusHint").textContent = `HTTP ${status}`;
-
-      const dot = document.getElementById("statusDot");
-      dot.style.background = ok ? "var(--ok)" : "var(--live)";
-      dot.style.boxShadow = ok ? "0 0 0 6px rgba(49,208,124,.14)" : "0 0 0 6px rgba(255,90,90,.14)";
-    }
-
-    // =========================
-    // RENDER LIST
-    // =========================
-    function renderRows(container, items, mode){
-      container.innerHTML = "";
-
-      if(!Array.isArray(items) || items.length === 0){
-        container.appendChild(el("div", { class:"err" }, "No data"));
-        return;
-      }
-
-      items.forEach((it, i) => {
-        const row = el("div", { class:"row" });
-
-        const idx = el("div", { class:"idx" }, String(i+1));
-
-        const cover = el("div", { class:"cover" });
-        const imgUrl = resolveImageUrl(it.image || "");
-        if (imgUrl){
-          const img = el("img", { alt:"" });
-          img.src = imgUrl;
-          img.onerror = () => { cover.innerHTML = phSvg(); };
-          cover.appendChild(img);
-        } else {
-          cover.innerHTML = phSvg();
-        }
-
-        let title = it.name ?? "";
-        let subtitle = "";
-
-        if (mode === "tracks") subtitle = it.artist ?? "";
-        if (mode === "artists") subtitle = "";
-        if (mode === "albums") subtitle = it.artist ?? "";
-        if (mode === "history") subtitle = it.artist ?? "";
-
-        const meta = el("div", { class:"meta" });
-        meta.appendChild(el("p", { class:"title" }, escapeHtml(title)));
-
-        if (subtitle){
-          meta.appendChild(el("p", { class:"subtitle" }, escapeHtml(subtitle)));
-        } else {
-          meta.appendChild(el("p", { class:"subtitle" }, "&nbsp;"));
-        }
-
-        const count = el("div", { class:"count" }, formatCount(it.playcount ?? it.count ?? ""));
-
-        row.appendChild(idx);
-        row.appendChild(cover);
-        row.appendChild(meta);
-        if (count.textContent) row.appendChild(count);
-
-        container.appendChild(row);
-      });
-    }
-  </script>
-<script>
-    // =========================
-    // HERO (NOW / LAST)
-    // =========================
-    function setHeroBackground(url){
-      const bg = document.getElementById("heroBg");
-      if (!url){
-        bg.style.backgroundImage = "none";
-        return;
-      }
-      bg.style.backgroundImage = `url("${url}")`;
-    }
-
-    function setHeroCover(url){
-      const cover = document.getElementById("heroCover");
-      const ph = document.getElementById("heroCoverPh");
-      cover.innerHTML = "";
-      if (!url){
-        ph.innerHTML = phSvg();
-        cover.appendChild(ph);
-        return;
-      }
-      const img = document.createElement("img");
-      img.alt = "";
-      img.src = url;
-      img.onerror = () => {
-        cover.innerHTML = `<div style="width:100%;height:100%;display:grid;place-items:center;opacity:.8">${phSvg()}</div>`;
-      };
-      cover.appendChild(img);
-    }
-
-    function setHeroChip(kind){
-      const chip = document.getElementById("heroChip");
-      chip.className = "chip";
-
-      if (kind === "LIVE"){
-        chip.classList.add("live");
-        chip.innerHTML = `<span class="bars"><span></span><span></span><span></span></span>LIVE`;
-      } else if (kind === "LAST"){
-        chip.innerHTML = `LAST`;
-      } else {
-        chip.innerHTML = `…`;
-      }
-    }
-
-    function setHeroText({ label, title, sub, footLeft, footRight, imageUrl }){
-      document.getElementById("heroLabel").textContent = label || "Now Playing";
-      document.getElementById("heroTitle").textContent = title || "—";
-      document.getElementById("heroSub").textContent = sub || "—";
-      document.getElementById("heroFootLeft").textContent = footLeft || "—";
-      document.getElementById("heroFootRight").textContent = footRight || "—";
-      setHeroCover(imageUrl || "");
-      setHeroBackground(imageUrl || "");
-    }
-
-    async function loadNowOrLast(){
-      const err = document.getElementById("nowErr");
-      err.classList.add("hidden");
-      err.textContent = "";
-
-      const tz = tzOffsetMinutes();
-
-      // try now
-      const resNow = await apiGet("/api/now", { tzOffsetMinutes: tz });
-
-      if (resNow.ok && resNow.json && resNow.json.ok === true && resNow.json.item){
-        const item = resNow.json.item;
-        const imgUrl = resolveImageUrl(item.image || "");
-
-        setHeroChip("LIVE");
-        setHeroText({
-          label: "Now Playing",
-          title: item.name || "Unknown",
-          sub: `${item.artist || "—"}${item.album ? " • " + item.album : ""}`,
-          footLeft: `source: last.fm`,
-          footRight: `tz: ${localTimeLabel()}`,
-          imageUrl: imgUrl
-        });
-        return;
-      }
-
-      // fallback history
-      const resHist = await apiGet("/api/history", { limit: 1, tzOffsetMinutes: tz });
-
-      if (resHist.ok && resHist.json && resHist.json.ok === true && Array.isArray(resHist.json.items) && resHist.json.items[0]){
-        const last = resHist.json.items[0];
-        const imgUrl = resolveImageUrl(last.image || "");
-
-        setHeroChip("LAST");
-        setHeroText({
-          label: "Last Played",
-          title: last.name || "Unknown",
-          sub: `${last.artist || "—"}`,
-          footLeft: `not playing right now`,
-          footRight: `tz: ${localTimeLabel()}`,
-          imageUrl: imgUrl
-        });
-        return;
-      }
-
-      setHeroChip("…");
-      setHeroText({
-        label: "Now",
-        title: "Couldn’t load data",
-        sub: "Check API status / worker",
-        footLeft: "—",
-        footRight: "—",
-        imageUrl: ""
-      });
-
-      err.textContent = `Now failed (and fallback history failed).`;
-      err.classList.remove("hidden");
-    }
-  </script>
-<script>
-    // =========================
-    // TODAY TIMELINE
-    // =========================
-    function drawTimeline(counts){
-      const c = document.getElementById("emotionCanvas");
-      const ctx = c.getContext("2d");
-
-      const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
-      const cssW = c.clientWidth;
-      const cssH = c.clientHeight || 140;
-      c.width = Math.floor(cssW * dpr);
-      c.height = Math.floor(cssH * dpr);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-      const W = cssW;
-      const H = cssH;
-
-      ctx.clearRect(0,0,W,H);
-
-      ctx.strokeStyle = "rgba(255,255,255,0.06)";
-      for (let i=1;i<=3;i++){
-        const y = (H/4)*i;
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(W, y);
-        ctx.stroke();
-      }
-
-      const maxV = Math.max(1, ...counts);
-      const padX = 10;
-      const padY = 14;
-      const innerW = W - padX*2;
-      const innerH = H - padY*2;
-      const n = counts.length;
-      const gap = 6;
-      const barW = Math.max(6, (innerW - gap*(n-1)) / n);
-
-      for (let i=0;i<n;i++){
-        const v = counts[i];
-        const t = v / maxV;
-        const h = Math.round(innerH * t);
-
-        const x = padX + i*(barW + gap);
-        const y = padY + (innerH - h);
-
-        ctx.fillStyle = "rgba(255,255,255,0.16)";
-        ctx.fillRect(x, y, barW, h);
-
-        ctx.fillStyle = "rgba(255,255,255,0.10)";
-        ctx.fillRect(x, y, barW, 2);
-      }
-    }
-
-    async function loadTodayTimeline(){
-      const err = document.getElementById("todayErr");
-      err.classList.add("hidden");
-
-      const counts = new Array(24).fill(0);
-      const tz = tzOffsetMinutes();
-
-      const res = await apiGet("/api/history", { limit: 120, tzOffsetMinutes: tz });
-
-      if (!res.ok || !res.json || res.json.ok !== true){
-        err.textContent = `Today failed: HTTP ${res.status}`;
-        err.classList.remove("hidden");
-        drawTimeline(counts);
-        return;
-      }
-
-      const items = res.json.items || [];
-      const now = new Date();
-
-      if (items.length > 0){
-        const step = 24 / Math.max(1, items.length);
-        for (let i=0;i<items.length;i++){
-          const back = i * step;
-          let hour = now.getHours() - Math.round(back);
-          while (hour < 0) hour += 24;
-          counts[hour] += 1;
-        }
-      }
-
-      drawTimeline(counts);
-    }
-
-    // =========================
-    // NAVIGATION + INIT
-    // =========================
-    function showPage(p){
-      page = p;
-
-      document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
-      document.querySelector(`.tab[data-page="${p}"]`).classList.add("active");
-
-      ["now","top","mirror","history"].forEach(x => {
-        document.getElementById("page-" + x).classList.toggle("hidden", x !== p);
-      });
-
-      if (p === "now"){
-        loadNowOrLast();
-        loadTodayTimeline();
-      }
-      if (p === "top") loadTop();
-      if (p === "history") loadHistory(20);
-    }
-
-    document.querySelectorAll(".tab").forEach(t => {
-      t.addEventListener("click", () => showPage(t.dataset.page));
-    });
-
-    document.getElementById("topTypeTabs").querySelectorAll(".subtab").forEach(st => {
-      st.addEventListener("click", () => {
-        setActive(document.getElementById("topTypeTabs"), ".subtab", st);
-        topType = st.dataset.toptype;
-        loadTop();
-      });
-    });
-
-    document.getElementById("topPeriodTabs").querySelectorAll(".subtab").forEach(st => {
-      st.addEventListener("click", () => {
-        setActive(document.getElementById("topPeriodTabs"), ".subtab", st);
-        topPeriod = st.dataset.period;
-        loadTop();
-      });
-    });
-
-    (async function init(){
-      await refreshStatus();
-      showPage("now");
-
-      setInterval(() => {
-        if (page === "now") loadNowOrLast();
-      }, 20000);
-
-      window.addEventListener("resize", () => {
-        if (page === "now") loadTodayTimeline();
-      });
-    })();
-  </script>
+  <script src="./app.js" defer></script>
 </body>
 </html>
+:root{
+  --bg:#0b0c0e;
+  --card:#14161a;
+  --card2:#101215;
+  --text:#e9e9ea;
+  --muted:#a8abb2;
+  --muted2:#7f838c;
+  --line:#242830;
+  --pill:#1a1d22;
+  --pill2:#101216;
+  --ok:#31d07c;
+  --live:#ff5a5a;
+  --shadow: 0 18px 55px rgba(0,0,0,.55);
+  --r:22px;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  background: radial-gradient(1200px 600px at 20% -10%, rgba(255,255,255,.05), transparent 60%),
+              radial-gradient(900px 500px at 110% 10%, rgba(255,255,255,.03), transparent 60%),
+              var(--bg);
+  color:var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace}
+
+.topbar{
+  position:sticky;
+  top:0;
+  z-index:10;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:14px 14px calc(14px + env(safe-area-inset-top));
+  background: rgba(11,12,14,.72);
+  backdrop-filter: blur(10px);
+  border-bottom:1px solid rgba(255,255,255,.06);
+}
+
+.brand{display:flex; gap:12px; align-items:center}
+.logo{
+  width:40px; height:40px;
+  border-radius:12px;
+  display:grid; place-items:center;
+  background: linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.03));
+  border:1px solid rgba(255,255,255,.08);
+  letter-spacing:.5px;
+  font-weight:800;
+}
+.brandTitle{font-weight:800; letter-spacing:.2px}
+.brandSub{color:var(--muted2); font-size:12px; margin-top:2px}
+
+.actions{display:flex; gap:10px}
+.btn{
+  appearance:none;
+  border:1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.06);
+  color:var(--text);
+  padding:10px 12px;
+  border-radius:14px;
+  cursor:pointer;
+  font-weight:700;
+}
+.btn:hover{background: rgba(255,255,255,.08)}
+.btn:active{transform: translateY(1px)}
+.btnGhost{background: transparent}
+.btnGhost:hover{background: rgba(255,255,255,.05)}
+
+.wrap{
+  max-width:1050px;
+  margin:0 auto;
+  padding:18px 14px 40px;
+}
+
+.hero{display:flex; flex-direction:column; gap:14px}
+
+.card{
+  background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+  border:1px solid rgba(255,255,255,.08);
+  box-shadow: var(--shadow);
+  border-radius: var(--r);
+  overflow:hidden;
+}
+
+.cardHeader{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  padding:16px 16px 12px;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+  background: rgba(0,0,0,.12);
+}
+
+.hTitle{font-weight:900; letter-spacing:.2px}
+.hSub{color:var(--muted2); font-size:12px; margin-top:4px}
+
+.pill{
+  padding:8px 10px;
+  border-radius:999px;
+  background: rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.08);
+  color:var(--muted);
+  font-size:12px;
+  white-space:nowrap;
+}
+
+.nowPlaying .npBody{
+  display:flex;
+  gap:14px;
+  padding:16px;
+}
+
+.cover{
+  width:92px;
+  height:92px;
+  border-radius:18px;
+  overflow:hidden;
+  background: rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.10);
+  flex:0 0 auto;
+  display:grid;
+  place-items:center;
+}
+.cover img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  display:block;
+}
+.coverFallback{
+  font-size:28px;
+  opacity:.7;
+}
+
+.npText{min-width:0}
+.npTrack{
+  font-size:20px;
+  font-weight:950;
+  letter-spacing:.2px;
+  line-height:1.15;
+  word-break:break-word;
+}
+.npArtist{margin-top:6px; color:var(--muted); font-weight:800}
+.npAlbum{margin-top:4px; color:var(--muted2); font-size:13px}
+.npTime{margin-top:10px; color:var(--muted2); font-size:12px}
+.npLinks{margin-top:10px; display:flex; gap:8px; flex-wrap:wrap}
+.linkPill{
+  text-decoration:none;
+  color:var(--text);
+  font-weight:800;
+  font-size:12px;
+  padding:8px 10px;
+  border-radius:999px;
+  background: rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.08);
+}
+.linkPill:hover{background: rgba(255,255,255,.09)}
+
+.grid2{
+  display:grid;
+  grid-template-columns: 1.2fr .8fr;
+  gap:14px;
+}
+@media (max-width: 900px){
+  .grid2{grid-template-columns: 1fr}
+}
+
+.list{padding:8px}
+.rowItem{
+  display:flex;
+  gap:12px;
+  padding:10px 10px;
+  border-radius:16px;
+}
+.rowItem:hover{background: rgba(255,255,255,.03)}
+.rowMain{min-width:0; flex:1}
+.rowTop{
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  align-items:baseline;
+}
+.rowTrack{
+  font-weight:900;
+  word-break:break-word;
+}
+.rowTime{
+  color:var(--muted2);
+  font-size:12px;
+  white-space:nowrap;
+}
+.rowArtist{
+  margin-top:4px;
+  color:var(--muted);
+  font-size:13px;
+  font-weight:800;
+}
+.badge{
+  display:inline-block;
+  margin-left:8px;
+  font-size:11px;
+  font-weight:900;
+  color: white;
+  padding:4px 8px;
+  border-radius:999px;
+  background: rgba(255,90,90,.18);
+  border:1px solid rgba(255,90,90,.30);
+  vertical-align:middle;
+}
+
+.stats{padding:14px 16px 4px; display:flex; flex-direction:column; gap:12px}
+.stat{display:flex; justify-content:space-between; gap:12px; align-items:baseline}
+.statLabel{color:var(--muted2); font-size:12px}
+.statValue{font-weight:950; letter-spacing:.2px; text-align:right}
+
+.note{
+  padding:12px 16px 16px;
+  color: var(--muted2);
+  font-size:12px;
+  border-top: 1px solid rgba(255,255,255,.06);
+}
+
+.modal::backdrop{background: rgba(0,0,0,.55)}
+.modal{
+  border:none;
+  padding:0;
+  background: transparent;
+}
+.modalCard{
+  width:min(560px, calc(100vw - 28px));
+  border-radius: var(--r);
+  background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
+  border:1px solid rgba(255,255,255,.10);
+  box-shadow: var(--shadow);
+  overflow:hidden;
+}
+.modalHeader{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  padding:16px;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+  background: rgba(0,0,0,.12);
+}
+.iconBtn{
+  border:none;
+  background: rgba(255,255,255,.06);
+  color:var(--text);
+  border:1px solid rgba(255,255,255,.10);
+  width:38px; height:38px;
+  border-radius:14px;
+  cursor:pointer;
+  font-weight:900;
+}
+.iconBtn:hover{background: rgba(255,255,255,.09)}
+
+.field{display:block; padding:14px 16px 0}
+.fieldLabel{display:block; font-size:12px; color:var(--muted2); margin-bottom:8px; font-weight:800}
+.fieldHint{display:block; margin-top:8px; font-size:12px; color:var(--muted2); line-height:1.3}
+.input, .textarea{
+  width:100%;
+  background: rgba(0,0,0,.20);
+  border:1px solid rgba(255,255,255,.10);
+  color:var(--text);
+  padding:12px 12px;
+  border-radius:16px;
+  outline:none;
+}
+.input:focus, .textarea:focus{border-color: rgba(255,255,255,.18)}
+.textarea{resize:vertical}
+
+.row{
+  display:flex;
+  gap:10px;
+  padding:16px;
+}
+
+.danger{
+  margin:0 16px 16px;
+  padding:12px 12px;
+  border-radius:16px;
+  background: rgba(255,90,90,.08);
+  border:1px solid rgba(255,90,90,.20);
+  color: rgba(255,255,255,.92);
+  font-size:12px;
+  line-height:1.35;
+}
+/* Listening Mirror (MVP) – Frontend only
+   - Settings: username + worker base URL + configurable paths
+   - Fetches: recent tracks + optional weekly/top endpoints
+   - Offline: last successful payload cached in localStorage
+*/
+
+const $ = (id) => document.getElementById(id);
+
+const LS_KEYS = {
+  settings: "lm_settings_v1",
+  cache_recent: "lm_cache_recent_v1",
+  cache_weekly: "lm_cache_weekly_v1",
+  cache_top: "lm_cache_top_v1",
+};
+
+const DEFAULT_SETTINGS = {
+  username: "",
+  baseUrl: "",
+  paths: {
+    recent: "/recent",
+    weekly: "/weekly-stats",
+    top: "/top",
+  },
+};
+
+function safeJsonParse(str, fallback) {
+  try { return JSON.parse(str); } catch { return fallback; }
+}
+
+function loadSettings() {
+  const raw = localStorage.getItem(LS_KEYS.settings);
+  if (!raw) return structuredClone(DEFAULT_SETTINGS);
+
+  const parsed = safeJsonParse(raw, null);
+  if (!parsed) return structuredClone(DEFAULT_SETTINGS);
+
+  return {
+    username: (parsed.username ?? "").trim(),
+    baseUrl: (parsed.baseUrl ?? "").trim().replace(/\/+$/, ""),
+    paths: {
+      ...DEFAULT_SETTINGS.paths,
+      ...(parsed.paths || {}),
+    },
+  };
+}
+
+function saveSettings(s) {
+  localStorage.setItem(LS_KEYS.settings, JSON.stringify(s));
+}
+
+function setStatus(text, ok = false) {
+  const el = $("statusText");
+  el.textContent = text;
+  el.style.color = ok ? "var(--ok)" : "var(--muted2)";
+}
+
+function fmtErr(e) {
+  if (!e) return "Unknown error";
+  if (typeof e === "string") return e;
+  return e.message || String(e);
+}
+
+function withTimeout(ms, promise) {
+  let t;
+  const timeout = new Promise((_, rej) => {
+    t = setTimeout(() => rej(new Error("Request timeout")), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(t));
+}
+
+async function fetchJson(url, opts = {}) {
+  const res = await withTimeout(
+    opts.timeoutMs ?? 12000,
+    fetch(url, {
+      method: "GET",
+      headers: { "accept": "application/json" },
+      cache: "no-store",
+    })
+  );
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status} – ${txt.slice(0, 160)}`);
+  }
+  return res.json();
+}
+
+function pickImageUrl(track) {
+  // Last.fm format often: track.image = [{#text:"...", size:"small"}, ...]
+  const imgs = track?.image || track?.images || [];
+  if (!Array.isArray(imgs)) return "";
+
+  const pref = ["extralarge", "large", "medium", "small"];
+  for (const size of pref) {
+    const hit = imgs.find((x) => (x?.size || "").toLowerCase() === size);
+    const u = hit?.["#text"] || hit?.url || "";
+    if (u) return u;
+  }
+  const any = imgs.find((x) => (x?.["#text"] || x?.url));
+  return any?.["#text"] || any?.url || "";
+}
+
+function normalizeRecentPayload(payload) {
+  // We support:
+  // A) Worker returns raw Last.fm: { recenttracks: { track: [...] } }
+  // B) Worker returns direct: { tracks: [...] }
+  // C) Worker returns array: [...]
+  const tracks =
+    payload?.recenttracks?.track ??
+    payload?.tracks ??
+    (Array.isArray(payload) ? payload : null);
+
+  if (!Array.isArray(tracks)) return [];
+
+  return tracks.map((t) => {
+    const nowplaying =
+      t?.["@attr"]?.nowplaying === "true" ||
+      t?.nowplaying === true ||
+      t?.nowPlaying === true;
+
+    const artist =
+      (typeof t?.artist === "string" ? t.artist : t?.artist?.["#text"]) ||
+      t?.artist?.name ||
+      t?.artistName ||
+      "";
+
+    const album =
+      (typeof t?.album === "string" ? t.album : t?.album?.["#text"]) ||
+      t?.album?.name ||
+      t?.albumName ||
+      "";
+
+    const name = t?.name || t?.track || t?.title || "";
+    const url = t?.url || t?.link || "";
+
+    // Last.fm date: { uts: "1700000000", "#text": "..." }
+    const uts =
+      Number(t?.date?.uts) ||
+      Number(t?.uts) ||
+      Number(t?.timestamp) ||
+      0;
+
+    return {
+      nowplaying,
+      name,
+      artist,
+      album,
+      url,
+      uts,
+      imageUrl: pickImageUrl(t),
+      raw: t,
+    };
+  });
+}
+
+function unixToRelative(uts) {
+  if (!uts) return "—";
+  const now = Math.floor(Date.now() / 1000);
+  const diff = now - uts;
+
+  if (diff < 0) return "just now";
+
+  const m = Math.floor(diff / 60);
+  const h = Math.floor(diff / 3600);
+  const d = Math.floor(diff / 86400);
+
+  if (diff < 45) return "just now";
+  if (m < 60) return `${m}m ago`;
+  if (h < 24) return `${h}h ago`;
+  return `${d}d ago`;
+}
+
+function setCover(imageUrl) {
+  const box = $("npCover");
+  box.innerHTML = "";
+
+  if (!imageUrl) {
+    const f = document.createElement("div");
+    f.className = "coverFallback";
+    f.textContent = "♪";
+    box.appendChild(f);
+    return;
+  }
+
+  const img = document.createElement("img");
+  img.src = imageUrl;
+  img.alt = "Cover";
+  img.loading = "lazy";
+  img.referrerPolicy = "no-referrer";
+  img.onerror = () => {
+    box.innerHTML = "";
+    const f = document.createElement("div");
+    f.className = "coverFallback";
+    f.textContent = "♪";
+    box.appendChild(f);
+  };
+  box.appendChild(img);
+}
+
+function setNowPlaying(track, username) {
+  $("npTrack").textContent = track?.name || "—";
+  $("npArtist").textContent = track?.artist || "—";
+  $("npAlbum").textContent = track?.album ? `Album: ${track.album}` : "—";
+
+  if (track?.nowplaying) {
+    $("npPill").textContent = "LIVE";
+    $("npPill").style.borderColor = "rgba(255,90,90,.35)";
+    $("npPill").style.color = "rgba(255,255,255,.95)";
+    $("npPill").style.background = "rgba(255,90,90,.12)";
+    $("npTime").textContent = "Playing now";
+  } else {
+    $("npPill").textContent = "LAST";
+    $("npPill").style.borderColor = "rgba(255,255,255,.08)";
+    $("npPill").style.color = "var(--muted)";
+    $("npPill").style.background = "rgba(255,255,255,.06)";
+    $("npTime").textContent = track?.uts ? unixToRelative(track.uts) : "—";
+  }
+
+  const metaBits = [];
+  if (username) metaBits.push(`@${username}`);
+  metaBits.push(new Date().toLocaleString());
+  $("npMeta").textContent = metaBits.join(" • ");
+
+  setCover(track?.imageUrl || "");
+
+  const links = $("npLinks");
+  links.innerHTML = "";
+  if (track?.url) {
+    const a = document.createElement("a");
+    a.href = track.url;
+    a.target = "_blank";
+    a.rel = "noreferrer";
+    a.className = "linkPill";
+    a.textContent = "Open on Last.fm";
+    links.appendChild(a);
+  }
+}
+
+function renderRecentList(tracks) {
+  const wrap = $("recentList");
+  wrap.innerHTML = "";
+
+  tracks.slice(0, 10).forEach((t, idx) => {
+    const row = document.createElement("div");
+    row.className = "rowItem";
+
+    const main = document.createElement("div");
+    main.className = "rowMain";
+
+    const top = document.createElement("div");
+    top.className = "rowTop";
+
+    const title = document.createElement("div");
+    title.className = "rowTrack";
+    title.textContent = t.name || "—";
+
+    if (t.nowplaying && idx === 0) {
+      const badge = document.createElement("span");
+      badge.className = "badge";
+      badge.textContent = "LIVE";
+      title.appendChild(badge);
+    }
+
+    const time = document.createElement("div");
+    time.className = "rowTime";
+    time.textContent = t.nowplaying ? "now" : unixToRelative(t.uts);
+
+    top.appendChild(title);
+    top.appendChild(time);
+
+    const artist = document.createElement("div");
+    artist.className = "rowArtist";
+    artist.textContent = t.artist || "—";
+
+    main.appendChild(top);
+    main.appendChild(artist);
+
+    row.appendChild(main);
+
+    if (t.url) {
+      row.style.cursor = "pointer";
+      row.onclick = () => window.open(t.url, "_blank", "noreferrer");
+    }
+
+    wrap.appendChild(row);
+  });
+}
+
+function computeFallbackStats(tracks) {
+  // Fallback = count items in recent list, and pick most frequent artist + track
+  const artistCount = new Map();
+  const trackCount = new Map();
+
+  for (const t of tracks) {
+    const a = (t.artist || "").trim();
+    const n = (t.name || "").trim();
+
+    if (a) artistCount.set(a, (artistCount.get(a) || 0) + 1);
+    if (a && n) trackCount.set(`${a} — ${n}`, (trackCount.get(`${a} — ${n}`) || 0) + 1);
+  }
+
+  const topArtist = [...artistCount.entries()].sort((x,y)=>y[1]-x[1])[0]?.[0] || "—";
+  const topTrack = [...trackCount.entries()].sort((x,y)=>y[1]-x[1])[0]?.[0] || "—";
+
+  return {
+    scrobbles7d: tracks.length ? String(tracks.length) : "—",
+    topArtist,
+    topTrack,
+  };
+}
+
+function renderStats(stats, metaText) {
+  $("s7").textContent = stats?.scrobbles7d ?? "—";
+  $("topArtist").textContent = stats?.topArtist ?? "—";
+  $("topTrack").textContent = stats?.topTrack ?? "—";
+  $("statsMeta").textContent = metaText || "—";
+}
+
+function setUserPill(username) {
+  $("userPill").textContent = username ? `@${username}` : "no user";
+}
+
+function setListMeta(text) {
+  $("listMeta").textContent = text;
+}
+
+function normalizeWeeklyPayload(payload) {
+  // We accept:
+  // A) { scrobbles7d, topArtist, topTrack }
+  // B) { weekly: { scrobbles7d, ... } }
+  // C) raw Last.fm user.getWeeklyChartList style (unlikely) — we won't invent parsing here
+  const obj = payload?.weekly || payload;
+  if (!obj || typeof obj !== "object") return null;
+
+  const sc = obj.scrobbles7d ?? obj.scrobbles_7d ?? obj.scrobbles ?? null;
+  const ta = obj.topArtist ?? obj.top_artist ?? null;
+  const tt = obj.topTrack ?? obj.top_track ?? null;
+
+  if (sc == null && ta == null && tt == null) return null;
+
+  return {
+    scrobbles7d: sc != null ? String(sc) : "—",
+    topArtist: ta ?? "—",
+    topTrack: tt ?? "—",
+  };
+}
+
+async function loadAll() {
+  const s = loadSettings();
+  setUserPill(s.username);
+
+  if (!s.baseUrl || !s.username) {
+    setStatus("Set username + Worker URL in Settings", false);
+
+    // try to show cached recent
+    const cached = safeJsonParse(localStorage.getItem(LS_KEYS.cache_recent) || "", null);
+    const tracks = normalizeRecentPayload(cached || {});
+    if (tracks.length) {
+      setListMeta("Showing cached tracks");
+      setNowPlaying(tracks[0], s.username);
+      renderRecentList(tracks);
+      renderStats(computeFallbackStats(tracks), "Stats: cached fallback");
+    }
+    return;
+  }
+
+  const base = s.baseUrl.replace(/\/+$/, "");
+  const pRecent = s.paths?.recent || DEFAULT_SETTINGS.paths.recent;
+  const pWeekly = s.paths?.weekly || DEFAULT_SETTINGS.paths.weekly;
+
+  const urlRecent = `${base}${pRecent}?user=${encodeURIComponent(s.username)}`;
+  const urlWeekly = `${base}${pWeekly}?user=${encodeURIComponent(s.username)}`;
+
+  setStatus("Loading…", true);
+  setListMeta("—");
+
+  try {
+    // 1) Recent
+    const recentPayload = await fetchJson(urlRecent, { timeoutMs: 12000 });
+    localStorage.setItem(LS_KEYS.cache_recent, JSON.stringify(recentPayload));
+
+    const tracks = normalizeRecentPayload(recentPayload);
+    if (!tracks.length) throw new Error("No tracks found in recent payload");
+
+    const now = tracks.find((t) => t.nowplaying) || tracks[0];
+    setNowPlaying(now, s.username);
+    renderRecentList(tracks);
+    setListMeta(`Updated: ${new Date().toLocaleTimeString()}`);
+
+    // 2) Weekly (optional)
+    let weeklyStats = null;
+    try {
+      const weeklyPayload = await fetchJson(urlWeekly, { timeoutMs: 12000 });
+      localStorage.setItem(LS_KEYS.cache_weekly, JSON.stringify(weeklyPayload));
+      weeklyStats = normalizeWeeklyPayload(weeklyPayload);
+    } catch {
+      weeklyStats = null;
+    }
+
+    if (weeklyStats) {
+      renderStats(weeklyStats, "Stats: worker weekly endpoint");
+    } else {
+      renderStats(computeFallbackStats(tracks), "Stats: fallback from recent list");
+    }
+
+    setStatus("Online", true);
+  } catch (e) {
+    setStatus(`Error: ${fmtErr(e)}`, false);
+
+    // fallback to cache
+    const cachedRecent = safeJsonParse(localStorage.getItem(LS_KEYS.cache_recent) || "", null);
+    const tracks = normalizeRecentPayload(cachedRecent || {});
+    if (tracks.length) {
+      setListMeta("Showing cached tracks (offline)");
+      setNowPlaying(tracks[0], s.username);
+      renderRecentList(tracks);
+      renderStats(computeFallbackStats(tracks), "Stats: cached fallback");
+    } else {
+      $("recentList").innerHTML = "";
+      $("npTrack").textContent = "—";
+      $("npArtist").textContent = "—";
+      $("npAlbum").textContent = "—";
+      $("npTime").textContent = "—";
+      setCover("");
+      renderStats(null, "—");
+    }
+  }
+}
+
+function openSettings() {
+  const s = loadSettings();
+  $("usernameInput").value = s.username || "";
+  $("baseUrlInput").value = s.baseUrl || "";
+  $("pathsInput").value = JSON.stringify(s.paths || DEFAULT_SETTINGS.paths, null, 2);
+  $("settingsModal").showModal();
+}
+
+function wireUi() {
+  $("refreshBtn").addEventListener("click", loadAll);
+  $("settingsBtn").addEventListener("click", openSettings);
+
+  $("settingsForm").addEventListener("submit", () => {
+    const username = ($("usernameInput").value || "").trim();
+    const baseUrl = ($("baseUrlInput").value || "").trim().replace(/\/+$/, "");
+    const pathsRaw = $("pathsInput").value || "";
+    const paths = safeJsonParse(pathsRaw, DEFAULT_SETTINGS.paths);
+
+    const s = { username, baseUrl, paths };
+    saveSettings(s);
+    setUserPill(s.username);
+    loadAll();
+  });
+
+  $("resetBtn").addEventListener("click", () => {
+    saveSettings(structuredClone(DEFAULT_SETTINGS));
+    $("usernameInput").value = "";
+    $("baseUrlInput").value = "";
+    $("pathsInput").value = JSON.stringify(DEFAULT_SETTINGS.paths, null, 2);
+  });
+}
+
+function registerSW() {
+  if (!("serviceWorker" in navigator)) return;
+  window.addEventListener("load", async () => {
+    try {
+      await navigator.serviceWorker.register("./sw.js");
+    } catch {
+      // ignore
+    }
+  });
+}
+
+wireUi();
+registerSW();
+loadAll();
+// Simple PWA cache for static assets (network-first for navigation)
+// We do NOT cache API responses here to avoid stale data; app.js caches last JSON in localStorage.
+
+const CACHE = "lm-cache-v1";
+const ASSETS = [
+  "./",
+  "./index.html",
+  "./styles.css",
+  "./app.js",
+  "./manifest.webmanifest",
+];
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting())
+  );
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(keys.map((k) => (k === CACHE ? null : caches.delete(k))))
+    ).then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener("fetch", (event) => {
+  const req = event.request;
+  const url = new URL(req.url);
+
+  // Only handle same-origin
+  if (url.origin !== self.location.origin) return;
+
+  // Navigation: network-first
+  if (req.mode === "navigate") {
+    event.respondWith(
+      fetch(req).then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put("./", copy)).catch(()=>{});
+        return res;
+      }).catch(() => caches.match("./"))
+    );
+    return;
+  }
+
+  // Static assets: cache-first
+  event.respondWith(
+    caches.match(req).then((cached) => cached || fetch(req).then((res) => {
+      const copy = res.clone();
+      caches.open(CACHE).then((c) => c.put(req, copy)).catch(()=>{});
+      return res;
+    }))
+  );
+});

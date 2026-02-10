@@ -1,229 +1,148 @@
-/* Listening Mirror UI (fits your Cloudflare Worker contract)
-  - /api/now -> { ok, item|null }
-  - /api/history?limit=10 -> { ok, items[] }
-  - /api/top?type=tracks|artists|albums&period=today|week|year&limit=20 -> { ok, items[] }
-  - /img?u=... is already returned as `image` paths by Worker (e.g. "/img?u=...") so we prefix baseUrl.
+/* Listening Mirror UI (hardcoded Worker base)
+   - No Settings
+   - Worker: https://i.errtanq9.workers.dev
 */
+(() => {
+  "use strict";
 
-const $ = (id) => document.getElementById(id);
+  // ✅ Hardcoded Worker base URL (με https)
+  const WORKER_BASE = "https://i.errtanq9.workers.dev";
 
-const LS = {
-  settings: "lm_settings_worker_v1",
-  cache_now: "lm_cache_now_v1",
-  cache_recent: "lm_cache_recent_v1",
-  cache_top: "lm_cache_top_v1",
-};
+  const el = (sel) => document.querySelector(sel);
+  const els = (sel) => Array.from(document.querySelectorAll(sel));
 
-const DEFAULT = {
-  baseUrl: "",
-};
+  const statusLine = el("#statusLine");
+  const workerHint = el("#workerHint");
+  const btnRefresh = el("#btnRefresh");
 
-let state = {
-  tab: "now",
-  topType: "tracks",
-  topPeriod: "today",
-};
+  const panels = els(".panel");
+  const tabBtns = els(".tabBtn");
 
-function safeJsonParse(str, fallback) {
-  try { return JSON.parse(str); } catch { return fallback; }
-}
+  // Now UI
+  const nowUpdated = el("#nowUpdated");
+  const nowBadge = el("#nowBadge");
+  const nowImg = el("#nowImg");
+  const nowFallback = el("#nowFallback");
+  const nowTrack = el("#nowTrack");
+  const nowArtist = el("#nowArtist");
+  const nowAlbum = el("#nowAlbum");
+  const nowMsg = el("#nowMsg");
 
-function loadSettings() {
-  const raw = localStorage.getItem(LS.settings);
-  const parsed = raw ? safeJsonParse(raw, null) : null;
-  const baseUrl = (parsed?.baseUrl || DEFAULT.baseUrl || "").trim().replace(/\/+$/, "");
-  return { baseUrl };
-}
+  // Top UI
+  const topMeta = el("#topMeta");
+  const topBadge = el("#topBadge");
+  const topList = el("#topList");
+  const topTypeBtns = els("[data-top-type]");
+  const topPeriodBtns = els("[data-top-period]");
 
-function saveSettings(s) {
-  localStorage.setItem(LS.settings, JSON.stringify(s));
-}
+  // Recent UI
+  const recentMeta = el("#recentMeta");
+  const recentList = el("#recentList");
 
-function setStatus(text, ok = false) {
-  const el = $("statusText");
-  el.textContent = text;
-  el.style.color = ok ? "var(--ok)" : "var(--muted2)";
-}
+  let currentTab = "now";
+  let topType = "tracks";
+  let topPeriod = "today";
 
-function fmtErr(e) {
-  if (!e) return "Unknown error";
-  if (typeof e === "string") return e;
-  return e.message || String(e);
-}
+  workerHint.textContent = WORKER_BASE;
 
-function withTimeout(ms, promise) {
-  let t;
-  const timeout = new Promise((_, rej) => {
-    t = setTimeout(() => rej(new Error("Request timeout")), ms);
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(t));
-}
-
-async function fetchJson(url, timeoutMs = 12000) {
-  const res = await withTimeout(
-    timeoutMs,
-    fetch(url, { method: "GET", headers: { "accept": "application/json" }, cache: "no-store" })
-  );
-
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status} – ${txt.slice(0, 180)}`);
+  function setSelected(btns, predicate) {
+    btns.forEach(b => b.setAttribute("aria-selected", predicate(b) ? "true" : "false"));
   }
 
-  const j = await res.json();
-  if (j && j.ok === false) throw new Error(j.error || "API returned ok:false");
-  return j;
-}
+  function showTab(tab) {
+    currentTab = tab;
 
-function joinBase(baseUrl, maybePath) {
-  if (!baseUrl) return "";
-  if (!maybePath) return "";
-  // Worker returns image paths like "/img?u=..."
-  if (String(maybePath).startsWith("http")) return String(maybePath);
-  if (String(maybePath).startsWith("/")) return baseUrl + String(maybePath);
-  return baseUrl + "/" + String(maybePath);
-}
+    setSelected(tabBtns, b => b.dataset.tab === tab);
+    panels.forEach(p => {
+      const isThis = p.dataset.panel === tab;
+      p.classList.toggle("hidden", !isThis);
+    });
 
-/* ---------- UI helpers ---------- */
-
-function setCover(imageUrl) {
-  const box = $("npCover");
-  box.innerHTML = "";
-  if (!imageUrl) {
-    const f = document.createElement("div");
-    f.className = "coverFallback";
-    f.textContent = "♪";
-    box.appendChild(f);
-    return;
-  }
-  const img = document.createElement("img");
-  img.src = imageUrl;
-  img.alt = "Cover";
-  img.loading = "lazy";
-  img.referrerPolicy = "no-referrer";
-  img.onerror = () => {
-    box.innerHTML = "";
-    const f = document.createElement("div");
-    f.className = "coverFallback";
-    f.textContent = "♪";
-    box.appendChild(f);
-  };
-  box.appendChild(img);
-}
-
-function renderNow(item, baseUrl) {
-  if (!item) {
-    $("npTrack").textContent = "—";
-    $("npArtist").textContent = "—";
-    $("npAlbum").textContent = "—";
-    $("npTime").textContent = "Not playing now";
-    $("npPill").textContent = "OFF";
-    setCover("");
-    $("npMeta").textContent = `Updated: ${new Date().toLocaleTimeString()}`;
-    return;
+    // Fetch on tab switch
+    if (tab === "now") refreshNow();
+    if (tab === "top") refreshTop();
+    if (tab === "recent") refreshRecent();
   }
 
-  $("npTrack").textContent = item.name || "—";
-  $("npArtist").textContent = item.artist || "—";
-  $("npAlbum").textContent = item.album ? `Album: ${item.album}` : "—";
-  $("npTime").textContent = "Playing now";
-  $("npPill").textContent = "LIVE";
-  $("npMeta").textContent = `Updated: ${new Date().toLocaleTimeString()}`;
+  async function safeFetchJson(path) {
+    const url = WORKER_BASE + path;
 
-  setCover(joinBase(baseUrl, item.image));
-}
+    // 12s timeout για κινητό
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 12000);
 
-function renderRecent(items, baseUrl) {
-  const wrap = $("recentList");
-  wrap.innerHTML = "";
+    try {
+      const r = await fetch(url, { signal: ctrl.signal, cache: "no-store" });
+      const ct = (r.headers.get("content-type") || "").toLowerCase();
+      const text = await r.text();
 
-  if (!items?.length) {
-    const d = document.createElement("div");
-    d.className = "note";
-    d.textContent = "No recent history returned.";
-    wrap.appendChild(d);
-    return;
-  }
+      if (!r.ok) {
+        // αν μας γύρισε HTML (π.χ. 404 page), δείχνουμε καθαρό error
+        const looksHtml = text.trim().startsWith("<!DOCTYPE") || ct.includes("text/html");
+        const msg = looksHtml ? `HTTP ${r.status} (HTML)` : `HTTP ${r.status}`;
+        throw new Error(msg);
+      }
 
-  items.slice(0, 10).forEach((t, i) => {
-    const row = document.createElement("div");
-    row.className = "rowItem";
-
-    const main = document.createElement("div");
-    main.className = "rowMain";
-
-    const top = document.createElement("div");
-    top.className = "rowTop";
-
-    const title = document.createElement("div");
-    title.className = "rowTitle";
-    title.textContent = `${i + 1}. ${t.name || "—"}`;
-
-    const right = document.createElement("div");
-    right.className = "rowRight";
-    right.textContent = "";
-
-    top.appendChild(title);
-    top.appendChild(right);
-
-    const sub = document.createElement("div");
-    sub.className = "rowSub";
-    sub.textContent = t.artist || "—";
-
-    main.appendChild(top);
-    main.appendChild(sub);
-
-    row.appendChild(main);
-
-    // small cover on the left (optional, but looks nice)
-    if (t.image) {
-      const c = document.createElement("div");
-      c.className = "cover";
-      c.style.width = "44px";
-      c.style.height = "44px";
-      c.style.borderRadius = "12px";
-      const img = document.createElement("img");
-      img.src = joinBase(baseUrl, t.image);
-      img.alt = "art";
-      img.loading = "lazy";
-      img.referrerPolicy = "no-referrer";
-      c.appendChild(img);
-      row.prepend(c);
+      // must be JSON
+      let j = null;
+      try { j = JSON.parse(text); } catch { j = null; }
+      if (!j) throw new Error("Bad JSON");
+      return j;
+    } finally {
+      clearTimeout(t);
     }
-
-    wrap.appendChild(row);
-  });
-}
-
-function renderTop(items, baseUrl, type) {
-  const wrap = $("topList");
-  wrap.innerHTML = "";
-
-  if (!items?.length) {
-    const d = document.createElement("div");
-    d.className = "note";
-    d.textContent = "No top data returned.";
-    wrap.appendChild(d);
-    return;
   }
 
-  items.slice(0, 50).forEach((it, idx) => {
+  function fmtTime(ts = Date.now()) {
+    try {
+      return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    } catch {
+      return "—";
+    }
+  }
+
+  function setStatus(msg) {
+    statusLine.textContent = msg;
+  }
+function setCover(imgUrl) {
+    if (imgUrl) {
+      nowImg.src = imgUrl;
+      nowImg.style.display = "block";
+      nowFallback.style.display = "none";
+    } else {
+      nowImg.removeAttribute("src");
+      nowImg.style.display = "none";
+      nowFallback.style.display = "grid";
+    }
+  }
+
+  function listRow({ title, sub, right, image }) {
     const row = document.createElement("div");
     row.className = "rowItem";
 
-    if (it.image) {
-      const c = document.createElement("div");
-      c.className = "cover";
-      c.style.width = "44px";
-      c.style.height = "44px";
-      c.style.borderRadius = "12px";
-      const img = document.createElement("img");
-      img.src = joinBase(baseUrl, it.image);
-      img.alt = "art";
-      img.loading = "lazy";
-      img.referrerPolicy = "no-referrer";
-      c.appendChild(img);
-      row.appendChild(c);
+    const cover = document.createElement("div");
+    cover.className = "cover";
+    cover.style.width = "56px";
+    cover.style.height = "56px";
+    cover.style.borderRadius = "16px";
+
+    const img = document.createElement("img");
+    img.alt = "";
+    img.style.display = "none";
+
+    const fallback = document.createElement("div");
+    fallback.className = "coverFallback";
+    fallback.textContent = "♪";
+
+    if (image) {
+      img.src = image;
+      img.style.display = "block";
+      fallback.style.display = "none";
+      cover.appendChild(img);
+      cover.appendChild(fallback);
+    } else {
+      cover.appendChild(img);
+      cover.appendChild(fallback);
     }
 
     const main = document.createElement("div");
@@ -232,207 +151,183 @@ function renderTop(items, baseUrl, type) {
     const top = document.createElement("div");
     top.className = "rowTop";
 
-    const title = document.createElement("div");
-    title.className = "rowTitle";
-    title.textContent =
-      type === "artists"
-        ? `${idx + 1}. ${it.name || "—"}`
-        : `${idx + 1}. ${it.name || "—"}`;
+    const t = document.createElement("div");
+    t.className = "rowTitle";
+    t.textContent = title || "—";
 
-    const right = document.createElement("div");
-    right.className = "rowRight";
-    right.textContent = it.playcount != null ? `${it.playcount} plays` : "";
+    const r = document.createElement("div");
+    r.className = "rowRight";
+    r.textContent = right || "";
 
-    top.appendChild(title);
-    top.appendChild(right);
+    top.appendChild(t);
+    top.appendChild(r);
 
-    const sub = document.createElement("div");
-    sub.className = "rowSub";
-    if (type === "tracks") sub.textContent = it.artist || " ";
-    else if (type === "albums") sub.textContent = it.artist || " ";
-    else sub.textContent = " ";
+    const s = document.createElement("div");
+    s.className = "rowSub";
+    s.textContent = sub || "";
 
     main.appendChild(top);
-    main.appendChild(sub);
+    if (sub) main.appendChild(s);
 
+    row.appendChild(cover);
     row.appendChild(main);
-    wrap.appendChild(row);
-  });
-}
-
-/* ---------- Tabs ---------- */
-
-function setMainTab(tab) {
-  state.tab = tab;
-
-  const map = [
-    ["now", "tabNow", "panelNow"],
-    ["top", "tabTop", "panelTop"],
-    ["recent", "tabRecent", "panelRecent"],
-  ];
-
-  for (const [key, tabId, panelId] of map) {
-    const isOn = key === tab;
-    $(tabId).setAttribute("aria-selected", isOn ? "true" : "false");
-    $(panelId).classList.toggle("hidden", !isOn);
+    return row;
   }
 
-  if (tab === "now") loadNow();
-  if (tab === "top") loadTop();
-  if (tab === "recent") loadRecent();
-}
-
-function setTopType(type) {
-  state.topType = type;
-  document.querySelectorAll("[data-top-type]").forEach(btn => {
-    btn.setAttribute("aria-selected", btn.dataset.topType === type ? "true" : "false");
-  });
-  loadTop();
-}
-
-function setTopPeriod(period) {
-  state.topPeriod = period;
-  document.querySelectorAll("[data-top-period]").forEach(btn => {
-    btn.setAttribute("aria-selected", btn.dataset.topPeriod === period ? "true" : "false");
-  });
-  loadTop();
-}
-
-/* ---------- Loaders ---------- */
-
-async function loadNow() {
-  const { baseUrl } = loadSettings();
-
-  if (!baseUrl) {
-    setStatus("Set Worker URL in Settings", false);
-    const cached = safeJsonParse(localStorage.getItem(LS.cache_now) || "", null);
-    renderNow(cached?.item ?? null, baseUrl);
-    return;
+  async function refreshPing() {
+    try {
+      const j = await safeFetchJson("/api/ping");
+      if (j?.ok) setStatus("Online");
+      else setStatus("Offline");
+    } catch {
+      setStatus("Offline");
+    }
   }
 
-  const url = baseUrl + "/api/now";
-  setStatus("Loading…", true);
+  async function refreshNow() {
+    nowUpdated.textContent = `Updated: ${fmtTime()}`;
+    nowBadge.textContent = "…";
+    nowMsg.textContent = "Loading…";
 
-  try {
-    const j = await fetchJson(url);
-    localStorage.setItem(LS.cache_now, JSON.stringify(j));
-    renderNow(j.item ?? null, baseUrl);
-    setStatus("Online", true);
-  } catch (e) {
-    setStatus(`Error: ${fmtErr(e)}`, false);
-    const cached = safeJsonParse(localStorage.getItem(LS.cache_now) || "", null);
-    renderNow(cached?.item ?? null, baseUrl);
-  }
-}
+    try {
+      const j = await safeFetchJson("/api/now");
+      const item = j?.item || null;
 
-async function loadRecent() {
-  const { baseUrl } = loadSettings();
+      if (!item) {
+        nowBadge.textContent = "OFF";
+        nowTrack.textContent = "—";
+        nowArtist.textContent = "—";
+        nowAlbum.textContent = "—";
+        nowMsg.textContent = "Not playing now";
+        setCover("");
+        return;
+      }
 
-  if (!baseUrl) {
-    $("recentMeta").textContent = "Set Worker URL in Settings";
-    const cached = safeJsonParse(localStorage.getItem(LS.cache_recent) || "", null);
-    renderRecent(cached?.items ?? [], baseUrl);
-    return;
-  }
-
-  const url = baseUrl + "/api/history?limit=10";
-  $("recentMeta").textContent = "Loading…";
-  setStatus("Loading…", true);
-
-  try {
-    const j = await fetchJson(url);
-    localStorage.setItem(LS.cache_recent, JSON.stringify(j));
-    renderRecent(j.items ?? [], baseUrl);
-    $("recentMeta").textContent = `Updated: ${new Date().toLocaleTimeString()}`;
-    setStatus("Online", true);
-  } catch (e) {
-    $("recentMeta").textContent = `Error: ${fmtErr(e)}`;
-    setStatus(`Error: ${fmtErr(e)}`, false);
-    const cached = safeJsonParse(localStorage.getItem(LS.cache_recent) || "", null);
-    renderRecent(cached?.items ?? [], baseUrl);
-  }
-}
-
-async function loadTop() {
-  const { baseUrl } = loadSettings();
-  const type = state.topType;
-  const period = state.topPeriod;
-
-  $("topPill").textContent = `${type} • ${period}`;
-
-  if (!baseUrl) {
-    $("topMeta").textContent = "Set Worker URL in Settings";
-    const cached = safeJsonParse(localStorage.getItem(LS.cache_top) || "", null);
-    renderTop(cached?.items ?? [], baseUrl, type);
-    return;
+      nowBadge.textContent = "LIVE";
+      nowTrack.textContent = item.name || "—";
+      nowArtist.textContent = item.artist || "—";
+      nowAlbum.textContent = item.album || "—";
+      nowMsg.textContent = "Now playing";
+      setCover(item.image || "");
+    } catch (e) {
+      nowBadge.textContent = "ERR";
+      nowMsg.textContent = `Error: ${String(e?.message || e)}`;
+      setCover("");
+    }
   }
 
-  const url = `${baseUrl}/api/top?type=${encodeURIComponent(type)}&period=${encodeURIComponent(period)}&limit=20`;
-  $("topMeta").textContent = "Loading…";
-  setStatus("Loading…", true);
+  async function refreshTop() {
+    topMeta.textContent = `${topType} • ${topPeriod}`;
+    topBadge.textContent = "…";
+    topList.innerHTML = "";
 
-  try {
-    const j = await fetchJson(url);
-    localStorage.setItem(LS.cache_top, JSON.stringify(j));
-    renderTop(j.items ?? [], baseUrl, type);
-    $("topMeta").textContent = `Updated: ${new Date().toLocaleTimeString()}`;
-    setStatus("Online", true);
-  } catch (e) {
-    $("topMeta").textContent = `Error: ${fmtErr(e)}`;
-    setStatus(`Error: ${fmtErr(e)}`, false);
-    const cached = safeJsonParse(localStorage.getItem(LS.cache_top) || "", null);
-    renderTop(cached?.items ?? [], baseUrl, type);
+    try {
+      const q = `?type=${encodeURIComponent(topType)}&period=${encodeURIComponent(topPeriod)}&limit=20`;
+      const j = await safeFetchJson("/api/top" + q);
+      const items = Array.isArray(j?.items) ? j.items : [];
+
+      topBadge.textContent = items.length ? `${items.length}` : "0";
+
+      if (!items.length) {
+        const empty = document.createElement("div");
+        empty.className = "rowItem";
+        empty.textContent = "No top data returned.";
+        topList.appendChild(empty);
+        return;
+      }
+
+      items.forEach((it, idx) => {
+        if (topType === "artists") {
+          topList.appendChild(listRow({
+            title: `${idx + 1}. ${it?.name || "—"}`,
+            sub: "",
+            right: it?.playcount ? `${it.playcount}` : "",
+            image: it?.image || ""
+          }));
+          return;
+        }
+
+        // tracks / albums
+        const title = `${idx + 1}. ${it?.name || "—"}`;
+        const sub = it?.artist ? it.artist : "";
+        topList.appendChild(listRow({
+          title,
+          sub,
+          right: it?.playcount ? `${it.playcount}` : "",
+          image: it?.image || ""
+        }));
+      });
+    } catch (e) {
+      topBadge.textContent = "ERR";
+      const err = document.createElement("div");
+      err.className = "danger";
+      err.textContent = `Error: ${String(e?.message || e)}`;
+      topList.appendChild(err);
+    }
   }
-}
+async function refreshRecent() {
+    recentMeta.textContent = "Loading…";
+    recentList.innerHTML = "";
 
-/* ---------- Settings ---------- */
+    try {
+      const j = await safeFetchJson("/api/history?limit=10");
+      const items = Array.isArray(j?.items) ? j.items : [];
 
-function openSettings() {
-  const s = loadSettings();
-  $("baseUrlInput").value = s.baseUrl || "";
-  $("settingsModal").showModal();
-}
+      recentMeta.textContent = items.length ? `${items.length} items` : "0 items";
 
-/* ---------- Wire ---------- */
+      if (!items.length) {
+        const empty = document.createElement("div");
+        empty.className = "rowItem";
+        empty.textContent = "No recent history returned.";
+        recentList.appendChild(empty);
+        return;
+      }
 
-function wire() {
-  document.querySelectorAll("[data-tab]").forEach(btn => {
-    btn.addEventListener("click", () => setMainTab(btn.dataset.tab));
+      items.forEach((it, idx) => {
+        recentList.appendChild(listRow({
+          title: `${idx + 1}. ${it?.name || "—"}`,
+          sub: it?.artist || "",
+          right: "",
+          image: it?.image || ""
+        }));
+      });
+    } catch (e) {
+      recentMeta.textContent = "Error";
+      const err = document.createElement("div");
+      err.className = "danger";
+      err.textContent = `Error: ${String(e?.message || e)}`;
+      recentList.appendChild(err);
+    }
+  }
+
+  // Events
+  tabBtns.forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
+
+  topTypeBtns.forEach(b => b.addEventListener("click", () => {
+    topType = b.dataset.topType;
+    setSelected(topTypeBtns, x => x.dataset.topType === topType);
+    refreshTop();
+  }));
+
+  topPeriodBtns.forEach(b => b.addEventListener("click", () => {
+    topPeriod = b.dataset.topPeriod;
+    setSelected(topPeriodBtns, x => x.dataset.topPeriod === topPeriod);
+    refreshTop();
+  }));
+
+  btnRefresh.addEventListener("click", () => {
+    refreshPing();
+    if (currentTab === "now") refreshNow();
+    if (currentTab === "top") refreshTop();
+    if (currentTab === "recent") refreshRecent();
   });
 
-  document.querySelectorAll("[data-top-type]").forEach(btn => {
-    btn.addEventListener("click", () => setTopType(btn.dataset.topType));
-  });
+  // Boot
+  refreshPing();
+  showTab("now");
 
-  document.querySelectorAll("[data-top-period]").forEach(btn => {
-    btn.addEventListener("click", () => setTopPeriod(btn.dataset.topPeriod));
-  });
-
-  $("refreshBtn").addEventListener("click", () => {
-    if (state.tab === "now") loadNow();
-    if (state.tab === "top") loadTop();
-    if (state.tab === "recent") loadRecent();
-  });
-
-  $("settingsBtn").addEventListener("click", openSettings);
-
-  $("settingsForm").addEventListener("submit", () => {
-    const baseUrl = ($("baseUrlInput").value || "").trim().replace(/\/+$/, "");
-    saveSettings({ baseUrl });
-
-    if (state.tab === "now") loadNow();
-    if (state.tab === "top") loadTop();
-    if (state.tab === "recent") loadRecent();
-  });
-
-  $("resetBtn").addEventListener("click", () => {
-    saveSettings({ baseUrl: "" });
-    $("baseUrlInput").value = "";
-  });
-}
-
-wire();
-setMainTab("now");
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("./sw.js").catch(()=>{});
-}
+  // Optional SW register (αν υπάρχει)
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  }
+})();

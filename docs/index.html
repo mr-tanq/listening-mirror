@@ -4,183 +4,248 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>Listening Mirror</title>
+  <meta name="theme-color" content="#0b0c0e" />
   <style>
     :root{
-      --bg:#0b0c0e;
-      --card:#14161a;
-      --card2:#101215;
-      --text:#e9e9ea;
-      --muted:#a8abb2;
-      --muted2:#7f838c;
-      --line:#242830;
-      --pill:#1a1d22;
-      --pill2:#101216;
+      --bg:#07080a;
+      --bg2:#0b0c0e;
+      --card: rgba(255,255,255,.06);
+      --card2: rgba(0,0,0,.30);
+      --stroke: rgba(255,255,255,.10);
+      --stroke2: rgba(255,255,255,.06);
+
+      --text:#eef0f3;
+      --muted:#a7abb4;
+      --muted2:#7d828c;
+
       --ok:#31d07c;
       --live:#ff5a5a;
-      --shadow: 0 18px 55px rgba(0,0,0,.55);
-      --r:22px;
+
+      --shadow: 0 24px 70px rgba(0,0,0,.60);
+      --r: 22px;
+      --r2: 18px;
+
+      --max: 920px;
     }
-    *{box-sizing:border-box}
+
+    *{ box-sizing:border-box; }
+    html,body{ height:100%; }
     body{
       margin:0;
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
-      background: radial-gradient(1200px 600px at 40% -10%, #1a1d23 0%, rgba(0,0,0,0) 60%) , var(--bg);
       color:var(--text);
-      padding: 22px 16px 40px;
+      background:
+        radial-gradient(1100px 650px at 35% -10%, rgba(255,255,255,.09), rgba(255,255,255,0) 62%),
+        radial-gradient(900px 700px at 95% 15%, rgba(255,255,255,.06), rgba(255,255,255,0) 55%),
+        linear-gradient(180deg, #07080a 0%, #0b0c0e 45%, #07080a 100%);
+      padding: 22px 16px 48px;
+      overflow-x:hidden;
     }
-    .wrap{max-width:720px;margin:0 auto}
-    h1{
-      font-weight:800;
-      letter-spacing:-.03em;
+
+    .wrap{ max-width: var(--max); margin: 0 auto; }
+
+    .topbar{
+      display:flex; align-items:flex-end; justify-content:space-between;
+      gap:14px;
       margin: 10px 0 16px;
-      font-size: 56px;
-      line-height:1;
     }
-    .status-card{
-      background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
-      border:1px solid rgba(255,255,255,.06);
-      border-radius: var(--r);
-      padding:16px;
-      box-shadow: var(--shadow);
+    .brand h1{
+      margin:0;
+      font-weight:900;
+      letter-spacing:-.04em;
+      font-size: clamp(44px, 7vw, 64px);
+      line-height: .95;
+    }
+    .brand .sub{
+      margin-top:8px;
+      color: var(--muted2);
+      font-weight:700;
+      letter-spacing:.02em;
+      font-size: 14px;
+    }
+
+    .status-pill{
+      display:flex; gap:10px; align-items:center;
+      padding: 12px 14px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.05);
+      border: 1px solid var(--stroke2);
+      box-shadow: 0 12px 40px rgba(0,0,0,.35);
       backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      min-width: 240px;
+      justify-content:space-between;
     }
-    .status-row{display:flex;gap:12px;align-items:flex-start}
+    .status-left{ display:flex; gap:10px; align-items:center; min-width:0; }
     .dot{
-      width:14px;height:14px;border-radius:50%;
+      width:12px; height:12px; border-radius:999px;
       background: var(--ok);
-      margin-top:4px;
-      box-shadow: 0 0 0 6px rgba(49,208,124,.12);
+      box-shadow: 0 0 0 6px rgba(49,208,124,.14);
       flex:0 0 auto;
     }
-    .status-lines{flex:1}
-    .status-lines .line1{font-size:18px;font-weight:700;margin:0 0 2px}
-    .status-lines .line2{font-size:16px;font-weight:700;margin:0 0 6px}
-    .status-lines .hint{color:var(--muted);font-size:15px;line-height:1.25;margin:0}
+    .status-text{
+      min-width:0;
+      display:flex; flex-direction:column;
+      line-height:1.15;
+    }
+    .status-text .line1{
+      font-size:13px; font-weight:800; color: rgba(255,255,255,.92);
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    }
+    .status-text .line2{
+      margin-top:3px;
+      font-size:12px; font-weight:750; color: var(--muted);
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    }
+    .status-right{
+      color: rgba(255,255,255,.55);
+      font-weight:800;
+      font-size:12px;
+      letter-spacing:.02em;
+      flex:0 0 auto;
+      padding-left:10px;
+    }
+
     .tabs{
-      display:flex;gap:10px;flex-wrap:wrap;
+      display:flex; gap:10px; flex-wrap:wrap;
       margin: 14px 0 18px;
     }
     .tab{
-      padding:10px 18px;
-      border-radius:999px;
-      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
-      border:1px solid rgba(255,255,255,.07);
-      color:var(--text);
-      font-weight:700;
-      cursor:pointer;
-      user-select:none;
-    }
-    .tab.active{
-      background: linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.05));
-      border-color: rgba(255,255,255,.12);
-    }
-    .section{
-      background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
-      border:1px solid rgba(255,255,255,.06);
-      border-radius: var(--r);
-      padding: 18px 16px;
-      box-shadow: var(--shadow);
-      backdrop-filter: blur(10px);
-    }
-    .section h2{
-      margin:0 0 14px;
-      font-size: 52px;
-      letter-spacing:-.03em;
-      line-height:1;
-    }
-    .subtabs{display:flex;gap:10px;flex-wrap:wrap;margin: 10px 0 12px}
-    .subtab{
       padding:10px 16px;
       border-radius:999px;
-      background: rgba(255,255,255,.03);
-      border:1px solid rgba(255,255,255,.06);
-      color:var(--text);
-      font-weight:750;
+      background: rgba(255,255,255,.05);
+      border:1px solid var(--stroke2);
+      color: rgba(255,255,255,.92);
+      font-weight:800;
       cursor:pointer;
+      user-select:none;
+      transition: transform .08s ease, background .2s ease, border-color .2s ease;
+      box-shadow: 0 10px 30px rgba(0,0,0,.28);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+    .tab:active{ transform: translateY(1px); }
+    .tab.active{
+      background: rgba(255,255,255,.10);
+      border-color: rgba(255,255,255,.16);
+    }
+
+    .grid{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+    @media (min-width: 940px){
+      .grid.nowgrid{
+        grid-template-columns: 1.35fr .85fr;
+        align-items: start;
+      }
+    }
+
+    .card{
+      position:relative;
+      border-radius: var(--r);
+      border: 1px solid var(--stroke);
+      background: var(--card);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+    }
+    .card-inner{ padding: 18px 16px; }
+
+    .card h2{
+      margin:0 0 12px;
+      font-weight: 900;
+      letter-spacing:-.03em;
+      font-size: clamp(36px, 6vw, 52px);
+      line-height:1;
+    }
+
+    .subtabs{ display:flex; gap:10px; flex-wrap:wrap; margin: 10px 0 12px; }
+    .subtab{
+      padding:9px 14px;
+      border-radius:999px;
+      background: rgba(0,0,0,.22);
+      border:1px solid rgba(255,255,255,.07);
+      color: rgba(255,255,255,.90);
+      font-weight:850;
+      cursor:pointer;
+      user-select:none;
+      transition: background .2s ease, border-color .2s ease;
     }
     .subtab.active{
-      background: rgba(255,255,255,.09);
-      border-color: rgba(255,255,255,.12);
+      background: rgba(255,255,255,.10);
+      border-color: rgba(255,255,255,.14);
     }
-    .list{display:flex;flex-direction:column;gap:12px;margin-top:10px}
+
+    .list{ display:flex; flex-direction:column; gap:12px; margin-top:10px; }
+
     .row{
-      display:flex;align-items:center;gap:12px;
-      padding: 14px;
-      background: rgba(0,0,0,.20);
-      border:1px solid rgba(255,255,255,.05);
-      border-radius: 18px;
+      display:flex; align-items:center; gap:12px;
+      padding: 14px 14px;
+      background: rgba(0,0,0,.28);
+      border:1px solid rgba(255,255,255,.07);
+      border-radius: var(--r2);
     }
+
     .idx{
-      width:34px;height:34px;border-radius:12px;
-      display:grid;place-items:center;
-      background: rgba(255,255,255,.04);
-      border:1px solid rgba(255,255,255,.06);
-      color:var(--muted);
-      font-weight:800;
+      width:34px; height:34px; border-radius:12px;
+      display:grid; place-items:center;
+      background: rgba(255,255,255,.05);
+      border:1px solid rgba(255,255,255,.08);
+      color: rgba(255,255,255,.70);
+      font-weight:900;
       flex:0 0 auto;
     }
+
     .cover{
-      width:56px;height:56px;border-radius:14px;
-      background: rgba(255,255,255,.06);
-      border:1px solid rgba(255,255,255,.06);
+      width:58px; height:58px; border-radius:16px;
+      background: rgba(255,255,255,.07);
+      border:1px solid rgba(255,255,255,.08);
       overflow:hidden;
       flex:0 0 auto;
-      display:grid;place-items:center;
+      display:grid; place-items:center;
     }
-    .cover img{width:100%;height:100%;object-fit:cover;display:block}
-    .ph{ width:26px;height:26px;opacity:.65; }
-    .meta{flex:1;min-width:0}
+    .cover img{ width:100%; height:100%; object-fit:cover; display:block; }
+    .ph{ width:26px; height:26px; opacity:.70; }
+
+    .meta{ flex:1; min-width:0; }
     .title{
-      font-weight:850;
-      font-size:20px;
+      font-weight: 900;
+      font-size: 18px;
+      letter-spacing: -.01em;
       white-space:nowrap;
       overflow:hidden;
       text-overflow:ellipsis;
-      margin:0 0 2px;
+      margin:0 0 3px;
     }
     .subtitle{
-      color:var(--muted);
-      font-weight:650;
-      font-size:15px;
+      color: var(--muted);
+      font-weight: 750;
+      font-size: 14px;
       white-space:nowrap;
       overflow:hidden;
       text-overflow:ellipsis;
       margin:0;
     }
+
     .count{
-      color:var(--muted);
-      font-weight:850;
-      font-size:22px;
+      color: rgba(255,255,255,.72);
+      font-weight: 900;
+      font-size: 18px;
       letter-spacing:-.02em;
       flex:0 0 auto;
-      margin-left:6px;
-    }
-    .badge{
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
-      background: rgba(255,90,90,.14);
-      border:1px solid rgba(255,90,90,.22);
-      color:#ffd7d7;
-      padding:10px 14px;
-      border-radius:999px;
-      font-weight:900;
-      letter-spacing:.06em;
       margin-left:8px;
     }
-    .bars{
-      width:16px;height:16px;display:inline-grid;grid-auto-flow:column;gap:2px;align-items:end
-    }
-    .bars span{width:3px;border-radius:2px;background: var(--live);display:block}
-    .bars span:nth-child(1){height:14px}
-    .bars span:nth-child(2){height:10px}
-    .bars span:nth-child(3){height:12px}
+
     .note{
       margin-top:12px;
-      color:var(--muted2);
-      font-size:14px;
-      line-height:1.3;
+      color: var(--muted2);
+      font-size: 13px;
+      line-height: 1.35;
     }
+
     .err{
       margin-top:10px;
       padding:12px 14px;
@@ -188,40 +253,166 @@
       background: rgba(255,90,90,.10);
       border:1px solid rgba(255,90,90,.20);
       color:#ffd7d7;
-      font-weight:750;
+      font-weight:800;
     }
-    .hidden{display:none !important}
+    .hidden{ display:none !important; }
+
+    /* ===== HERO NOW CARD ===== */
+    .hero{
+      min-height: 280px;
+    }
+    .hero-bg{
+      position:absolute; inset:-40px;
+      background-size: cover;
+      background-position: center;
+      filter: blur(24px) saturate(1.1);
+      opacity: .38;
+      transform: scale(1.05);
+    }
+    .hero-shade{
+      position:absolute; inset:0;
+      background:
+        radial-gradient(900px 420px at 20% 10%, rgba(0,0,0,0.15), rgba(0,0,0,0.55) 60%),
+        linear-gradient(180deg, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.55) 100%);
+    }
+    .hero-content{
+      position:relative;
+      padding: 18px 16px 16px;
+    }
+    .hero-top{
+      display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
+      margin-bottom: 14px;
+    }
+    .hero-top .label{
+      color: rgba(255,255,255,.78);
+      font-weight:900;
+      letter-spacing:.10em;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+    .chip{
+      display:inline-flex; align-items:center; gap:8px;
+      padding: 9px 12px;
+      border-radius: 999px;
+      border:1px solid rgba(255,255,255,.14);
+      background: rgba(0,0,0,.30);
+      color: rgba(255,255,255,.92);
+      font-weight: 900;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      font-size: 12px;
+      user-select:none;
+    }
+    .chip.live{
+      color: var(--live);
+      border-color: rgba(255,90,90,.35);
+      background: rgba(255,90,90,.10);
+    }
+    .chip .bars{
+      width:14px; height:14px;
+      display:inline-grid; grid-auto-flow:column; gap:2px; align-items:end;
+    }
+    .chip .bars span{
+      width:3px; border-radius:2px; background: currentColor; display:block;
+      animation: bounce .9s infinite ease-in-out;
+      opacity:.95;
+    }
+    .chip .bars span:nth-child(2){ animation-delay:.10s; }
+    .chip .bars span:nth-child(3){ animation-delay:.20s; }
+    @keyframes bounce{
+      0%,100%{ height:6px; opacity:.55; }
+      50%{ height:14px; opacity:1; }
+    }
+
+    .hero-main{
+      display:flex; gap:14px; align-items:center;
+      margin-top: 10px;
+    }
+    .hero-cover{
+      width: 96px; height: 96px;
+      border-radius: 22px;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.06);
+      overflow:hidden;
+      flex:0 0 auto;
+      box-shadow: 0 18px 55px rgba(0,0,0,.45);
+    }
+    .hero-cover img{ width:100%; height:100%; object-fit:cover; display:block; }
+
+    .hero-text{ min-width:0; }
+    .hero-title{
+      margin:0;
+      font-weight: 950;
+      letter-spacing:-.03em;
+      font-size: 26px;
+      line-height: 1.05;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .hero-sub{
+      margin-top: 6px;
+      color: rgba(255,255,255,.78);
+      font-weight: 800;
+      font-size: 14px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .hero-foot{
+      margin-top: 14px;
+      display:flex;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap:wrap;
+      color: rgba(255,255,255,.60);
+      font-weight: 800;
+      font-size: 12px;
+      letter-spacing:.02em;
+    }
+
+    /* ===== MINI CANVAS ===== */
+    .mini{
+      padding: 16px;
+    }
+    .mini h3{
+      margin: 0 0 10px;
+      font-size: 16px;
+      font-weight: 950;
+      letter-spacing: -.02em;
+      color: rgba(255,255,255,.92);
+    }
+    canvas.timeline{
+      width:100%;
+      height:140px;
+      display:block;
+      border-radius: 16px;
+      background: rgba(0,0,0,.22);
+      border: 1px solid rgba(255,255,255,.07);
+    }
+    .mini .note{ margin-top:10px; }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>Listening Mirror</h1>
+    <div class="topbar">
+      <div class="brand">
+        <h1>Listening Mirror</h1>
+        <div class="sub">hi-fi listening console • last.fm powered</div>
+      </div>
 
-    <div class="status-card" id="statusCard">
-      <div class="status-row">
-        <div class="dot" id="statusDot"></div>
-        <div class="status-lines">
-          <p class="line1"><span style="opacity:.8">API:</span> <span id="apiStatus">checking…</span></p>
-          <p class="line2"><span style="opacity:.8">BASE_API:</span> <span id="baseApiLabel"></span></p>
-          <p class="hint">Αν γράψει status ≠ 200, τότε είναι καθαρά θέμα σύνδεσης site → worker.</p>
+      <div class="status-pill" id="statusCard" title="Αν γράψει status ≠ 200, τότε είναι καθαρά θέμα σύνδεσης site → worker.">
+        <div class="status-left">
+          <div class="dot" id="statusDot"></div>
+          <div class="status-text">
+            <div class="line1">API: <span id="apiStatus">checking…</span></div>
+            <div class="line2">BASE: <span id="baseApiLabel"></span></div>
+          </div>
         </div>
+        <div class="status-right" id="statusHint">status</div>
       </div>
     </div>
-<div class="section" id="page-today">
-  <h2>Today</h2>
 
-  <canvas id="emotionCanvas" height="140" style="
-    width:100%;
-    margin-top:10px;
-    border-radius:18px;
-    background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
-    border:1px solid rgba(255,255,255,.05);
-  "></canvas>
-
-  <div class="note">
-    Your engagement with music across the day.
-  </div>
-</div>
     <div class="tabs" style="margin-top:16px">
       <div class="tab active" data-page="now">Now</div>
       <div class="tab" data-page="top">Top</div>
@@ -229,47 +420,96 @@
       <div class="tab" data-page="history">History</div>
     </div>
 
-    <div class="section" id="page-now">
-      <h2>Now Playing</h2>
-      <div class="list" id="nowList"></div>
-      <div class="err hidden" id="nowErr"></div>
-    </div>
+    <!-- NOW PAGE -->
+    <div class="grid nowgrid" id="page-now">
+      <div class="card hero">
+        <div class="hero-bg" id="heroBg"></div>
+        <div class="hero-shade"></div>
+        <div class="hero-content">
+          <div class="hero-top">
+            <div class="label" id="heroLabel">Now Playing</div>
+            <div class="chip" id="heroChip">…</div>
+          </div>
 
-    <div class="section hidden" id="page-top">
-      <h2>Top</h2>
+          <div class="hero-main">
+            <div class="hero-cover" id="heroCover">
+              <div style="width:100%;height:100%;display:grid;place-items:center;opacity:.8" id="heroCoverPh"></div>
+            </div>
+            <div class="hero-text">
+              <p class="hero-title" id="heroTitle">Loading…</p>
+              <div class="hero-sub" id="heroSub">—</div>
+            </div>
+          </div>
 
-      <div class="subtabs" id="topTypeTabs">
-        <div class="subtab active" data-toptype="tracks">Tracks</div>
-        <div class="subtab" data-toptype="artists">Artists</div>
-        <div class="subtab" data-toptype="albums">Albums</div>
+          <div class="hero-foot">
+            <div id="heroFootLeft">—</div>
+            <div id="heroFootRight">—</div>
+          </div>
+
+          <div class="err hidden" id="nowErr"></div>
+        </div>
       </div>
 
-      <div class="subtabs" id="topPeriodTabs">
-        <div class="subtab active" data-period="today">Today</div>
-        <div class="subtab" data-period="week">Week</div>
-        <div class="subtab" data-period="year">Year</div>
-        <div class="subtab" data-period="all">All time</div>
+      <div class="card mini">
+        <div class="card-inner" style="padding:0">
+          <div class="mini" style="padding:16px">
+            <h3>Today • Activity</h3>
+            <canvas id="emotionCanvas" class="timeline" height="140"></canvas>
+            <div class="note">Scrobbles ανά ώρα (local time). Δεν είναι AI — είναι καθαρό listening activity.</div>
+            <div class="err hidden" id="todayErr"></div>
+          </div>
+        </div>
       </div>
-
-      <div class="list" id="topList"></div>
-      <div class="err hidden" id="topErr"></div>
     </div>
-<div class="section hidden" id="page-mirror">
-      <h2>Mirror</h2>
-      <div class="subtabs" id="mirrorPeriodTabs">
-        <div class="subtab active" data-mperiod="today">Today</div>
-        <div class="subtab" data-mperiod="week">Week</div>
-        <div class="subtab" data-mperiod="year">Year</div>
-        <div class="subtab" data-mperiod="all">All time</div>
+<!-- TOP PAGE -->
+    <div class="card hidden" id="page-top">
+      <div class="card-inner">
+        <h2>Top</h2>
+
+        <div class="subtabs" id="topTypeTabs">
+          <div class="subtab active" data-toptype="tracks">Tracks</div>
+          <div class="subtab" data-toptype="artists">Artists</div>
+          <div class="subtab" data-toptype="albums">Albums</div>
+        </div>
+
+        <div class="subtabs" id="topPeriodTabs">
+          <div class="subtab active" data-period="today">Today</div>
+          <div class="subtab" data-period="week">Week</div>
+          <div class="subtab" data-period="year">Year</div>
+          <div class="subtab" data-period="all">All time</div>
+        </div>
+
+        <div class="list" id="topList"></div>
+        <div class="err hidden" id="topErr"></div>
+        <div class="note">Τα artworks έρχονται από τον worker (Last.fm + fallbacks + proxy).</div>
       </div>
-      <div class="err" id="mirrorMsg">Mirror failed: HTTP 404</div>
-      <div class="note">To Mirror είναι stub ακόμα (/api/reflection).</div>
     </div>
 
-    <div class="section hidden" id="page-history">
-      <h2>History</h2>
-      <div class="list" id="historyList"></div>
-      <div class="err hidden" id="historyErr"></div>
+    <!-- MIRROR PAGE (stub for now) -->
+    <div class="card hidden" id="page-mirror">
+      <div class="card-inner">
+        <h2>Mirror</h2>
+
+        <div class="subtabs" id="mirrorPeriodTabs">
+          <div class="subtab active" data-mperiod="today">Today</div>
+          <div class="subtab" data-mperiod="week">Week</div>
+          <div class="subtab" data-mperiod="year">Year</div>
+          <div class="subtab" data-mperiod="all">All time</div>
+        </div>
+
+        <div class="err" id="mirrorMsg">Mirror is not enabled yet (HTTP 404). Αυτό είναι ΟΚ προς το παρόν.</div>
+        <div class="note">Το Mirror θα μπει σωστά όταν αποφασίσουμε τι ακριβώς θέλουμε να “λέει” ή να “δείχνει”.</div>
+      </div>
+    </div>
+
+    <!-- HISTORY PAGE -->
+    <div class="card hidden" id="page-history">
+      <div class="card-inner">
+        <h2>History</h2>
+        <div class="list" id="historyList"></div>
+        <div class="err hidden" id="historyErr"></div>
+        <div class="note">Recent scrobbles από το `/api/history`.</div>
+      </div>
     </div>
   </div>
 
@@ -280,61 +520,40 @@
     const BASE_API = "https://i.errtanq9.workers.dev";
     const LIMIT = 20;
 
+    // Για timeline: παίρνουμε λίγα παραπάνω, για να έχουμε αρκετά σημεία
+    const LIMIT_TODAY = 120;
+
     // =========================
     // HELPERS
     // =========================
-    function tzOffsetMinutes() {
-      return new Date().getTimezoneOffset();
-    }
+    function tzOffsetMinutes(){ return new Date().getTimezoneOffset(); }
 
-    // ✅ FIX: if worker returns "/img?u=<encoded>", decode and use the real last.fm URL directly
-    function resolveImageUrl(imageValue) {
-      if (!imageValue) return "";
+    function resolveImageUrl(imageValue){
+      if(!imageValue) return "";
 
-      // If absolute already:
-      if (imageValue.startsWith("http://") || imageValue.startsWith("https://")) {
-        return imageValue;
-      }
+      if(imageValue.startsWith("http://") || imageValue.startsWith("https://")) return imageValue;
 
-      // If worker proxy: "/img?u=..."
-      if (imageValue.startsWith("/img?")) {
-        try {
-          const qs = imageValue.split("?")[1] || "";
-          const params = new URLSearchParams(qs);
-          const u = params.get("u");
-          if (u) {
-            // u may already be encoded
-            const decoded = decodeURIComponent(u);
-            if (decoded.startsWith("http://") || decoded.startsWith("https://")) {
-              return decoded; // <-- bypass proxy
-            }
-            // if it wasn't encoded, still try raw
-            if (u.startsWith("http://") || u.startsWith("https://")) return u;
-          }
-        } catch (e) {
-          // fallback below
-        }
-        // fallback to proxy absolute:
+      if(imageValue.startsWith("/img?")){
+        // προτιμάμε να χρησιμοποιούμε τον proxy (αξιόπιστο)
         return BASE_API + imageValue;
       }
 
-      // If other relative path (e.g. "/api/..", "/something"):
-      if (imageValue.startsWith("/")) return BASE_API + imageValue;
+      if(imageValue.startsWith("/")) return BASE_API + imageValue;
 
       return imageValue;
     }
 
-    function phSvg() {
+    function phSvg(){
       return `
         <svg class="ph" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M12 17.5l-5.5 3 1-6.1-4.5-4.4 6.2-.9L12 3.5l2.8 5.6 6.2.9-4.5 4.4 1 6.1-5.5-3z"
-            stroke="rgba(255,255,255,.75)" stroke-width="1.6" />
+            stroke="rgba(255,255,255,.80)" stroke-width="1.6" />
         </svg>`;
     }
 
-    function el(tag, attrs={}, html="") {
+    function el(tag, attrs={}, html=""){
       const n = document.createElement(tag);
-      for (const [k,v] of Object.entries(attrs)) {
+      for (const [k,v] of Object.entries(attrs)){
         if (k === "class") n.className = v;
         else if (k.startsWith("data-")) n.setAttribute(k, v);
         else n[k] = v;
@@ -343,50 +562,88 @@
       return n;
     }
 
-    function setActive(container, selector, targetEl) {
+    function setActive(container, selector, targetEl){
       container.querySelectorAll(selector).forEach(x => x.classList.remove("active"));
       targetEl.classList.add("active");
     }
 
-    async function apiGet(path, params={}) {
+    async function apiGet(path, params={}){
       const url = new URL(BASE_API + path);
       for (const [k,v] of Object.entries(params)) url.searchParams.set(k, String(v));
-      const res = await fetch(url.toString(), { cache: "no-store" });
+      const res = await fetch(url.toString(), { cache:"no-store" });
       const text = await res.text();
       let json = null;
-      try { json = JSON.parse(text); } catch(e) {}
+      try{ json = JSON.parse(text); }catch(e){ json = null; }
       return { ok: res.ok, status: res.status, json, text };
     }
 
-    function formatCount(n) {
-      if (n === null || n === undefined) return "";
-      const x = Number(n);
-      if (Number.isNaN(x)) return String(n);
-      return String(x);
-    }
-
-    function escapeHtml(s) {
-      return String(s)
+    function escapeHtml(s){
+      return String(s ?? "")
         .replaceAll("&","&amp;")
         .replaceAll("<","&lt;")
         .replaceAll(">","&gt;")
         .replaceAll('"',"&quot;")
         .replaceAll("'","&#039;");
     }
-function renderRows(container, items, mode) {
+
+    function formatCount(n){
+      if (n === null || n === undefined) return "";
+      const x = Number(n);
+      if (Number.isNaN(x)) return String(n);
+      return String(x);
+    }
+
+    function localTimeLabel(){
+      try{
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        return tz || "local";
+      }catch{ return "local"; }
+    }
+
+    // =========================
+    // UI STATE
+    // =========================
+    let page = "now";
+    let topType = "tracks";
+    let topPeriod = "today";
+
+    // =========================
+    // STATUS
+    // =========================
+    async function refreshStatus(){
+      document.getElementById("baseApiLabel").textContent = BASE_API;
+
+      const tz = tzOffsetMinutes();
+      const { ok, status } = await apiGet("/api/top", { type:"tracks", period:"today", limit:1, tzOffsetMinutes: tz });
+
+      document.getElementById("apiStatus").textContent = ok ? `OK` : `FAIL`;
+      document.getElementById("statusHint").textContent = `HTTP ${status}`;
+
+      const dot = document.getElementById("statusDot");
+      dot.style.background = ok ? "var(--ok)" : "var(--live)";
+      dot.style.boxShadow = ok ? "0 0 0 6px rgba(49,208,124,.14)" : "0 0 0 6px rgba(255,90,90,.14)";
+    }
+
+    // =========================
+    // RENDER LIST
+    // =========================
+    function renderRows(container, items, mode){
       container.innerHTML = "";
-      if (!Array.isArray(items) || items.length === 0) {
+
+      if(!Array.isArray(items) || items.length === 0){
         container.appendChild(el("div", { class:"err" }, "No data"));
         return;
       }
 
       items.forEach((it, i) => {
+        const row = el("div", { class:"row" });
+
         const idx = el("div", { class:"idx" }, String(i+1));
 
         const cover = el("div", { class:"cover" });
         const imgUrl = resolveImageUrl(it.image || "");
-        if (imgUrl) {
-          const img = el("img", { alt: "" });
+        if (imgUrl){
+          const img = el("img", { alt:"" });
           img.src = imgUrl;
           img.onerror = () => { cover.innerHTML = phSvg(); };
           cover.appendChild(img);
@@ -397,25 +654,22 @@ function renderRows(container, items, mode) {
         let title = it.name ?? "";
         let subtitle = "";
 
-        if (mode === "now") {
-          subtitle = it.album ? it.album : (it.artist ?? "");
-        } else if (mode === "tracks") {
-          subtitle = it.artist ?? "";
-        } else if (mode === "artists") {
-          subtitle = "";
-        } else if (mode === "albums") {
-          subtitle = it.artist ?? "";
-        } else if (mode === "history") {
-          subtitle = it.artist ?? "";
-        }
+        if (mode === "tracks") subtitle = it.artist ?? "";
+        if (mode === "artists") subtitle = "";
+        if (mode === "albums") subtitle = it.artist ?? "";
+        if (mode === "history") subtitle = it.artist ?? "";
 
         const meta = el("div", { class:"meta" });
         meta.appendChild(el("p", { class:"title" }, escapeHtml(title)));
-        if (subtitle) meta.appendChild(el("p", { class:"subtitle" }, escapeHtml(subtitle)));
+
+        if (subtitle){
+          meta.appendChild(el("p", { class:"subtitle" }, escapeHtml(subtitle)));
+        } else {
+          meta.appendChild(el("p", { class:"subtitle" }, "&nbsp;"));
+        }
 
         const count = el("div", { class:"count" }, formatCount(it.playcount ?? it.count ?? ""));
 
-        const row = el("div", { class:"row" });
         row.appendChild(idx);
         row.appendChild(cover);
         row.appendChild(meta);
@@ -424,145 +678,213 @@ function renderRows(container, items, mode) {
         container.appendChild(row);
       });
     }
-
+  </script>
+<script>
     // =========================
-    // STATE
+    // HERO (NOW / LAST)
     // =========================
-    let page = "now";
-    let topType = "tracks";
-    let topPeriod = "today";
-
-    // =========================
-    // STATUS CHECK
-    // =========================
-    async function refreshStatus() {
-      document.getElementById("baseApiLabel").textContent = BASE_API;
-
-      // ✅ FIX: /api/ping doesn't exist -> use a real endpoint for status check
-      const tz = tzOffsetMinutes();
-      const { ok, status } = await apiGet("/api/top", { type:"tracks", period:"today", limit:1, tzOffsetMinutes: tz });
-
-      document.getElementById("apiStatus").textContent = ok ? `OK (status ${status})` : `FAIL (status ${status})`;
-      document.getElementById("statusDot").style.background = ok ? "var(--ok)" : "var(--live)";
-      document.getElementById("statusDot").style.boxShadow = ok ? "0 0 0 6px rgba(49,208,124,.12)" : "0 0 0 6px rgba(255,90,90,.12)";
+    function setHeroBackground(url){
+      const bg = document.getElementById("heroBg");
+      if (!url){
+        bg.style.backgroundImage = "none";
+        return;
+      }
+      bg.style.backgroundImage = `url("${url}")`;
     }
 
-    // =========================
-    // NOW
-    // =========================
-    async function loadNow() {
-      const list = document.getElementById("nowList");
+    function setHeroCover(url){
+      const cover = document.getElementById("heroCover");
+      const ph = document.getElementById("heroCoverPh");
+      cover.innerHTML = "";
+      if (!url){
+        ph.innerHTML = phSvg();
+        cover.appendChild(ph);
+        return;
+      }
+      const img = document.createElement("img");
+      img.alt = "";
+      img.src = url;
+      img.onerror = () => {
+        cover.innerHTML = `<div style="width:100%;height:100%;display:grid;place-items:center;opacity:.8">${phSvg()}</div>`;
+      };
+      cover.appendChild(img);
+    }
+
+    function setHeroChip(kind){
+      const chip = document.getElementById("heroChip");
+      chip.className = "chip";
+
+      if (kind === "LIVE"){
+        chip.classList.add("live");
+        chip.innerHTML = `<span class="bars"><span></span><span></span><span></span></span>LIVE`;
+      } else if (kind === "LAST"){
+        chip.innerHTML = `LAST`;
+      } else {
+        chip.innerHTML = `…`;
+      }
+    }
+
+    function setHeroText({ label, title, sub, footLeft, footRight, imageUrl }){
+      document.getElementById("heroLabel").textContent = label || "Now Playing";
+      document.getElementById("heroTitle").textContent = title || "—";
+      document.getElementById("heroSub").textContent = sub || "—";
+      document.getElementById("heroFootLeft").textContent = footLeft || "—";
+      document.getElementById("heroFootRight").textContent = footRight || "—";
+      setHeroCover(imageUrl || "");
+      setHeroBackground(imageUrl || "");
+    }
+
+    async function loadNowOrLast(){
       const err = document.getElementById("nowErr");
       err.classList.add("hidden");
-      list.innerHTML = "";
+      err.textContent = "";
 
       const tz = tzOffsetMinutes();
-      const res = await apiGet("/api/now", { tzOffsetMinutes: tz });
 
-      if (!res.ok || !res.json || res.json.ok !== true) {
-        err.textContent = `Now failed: HTTP ${res.status}`;
-        err.classList.remove("hidden");
+      // try now
+      const resNow = await apiGet("/api/now", { tzOffsetMinutes: tz });
+
+      if (resNow.ok && resNow.json && resNow.json.ok === true && resNow.json.item){
+        const item = resNow.json.item;
+        const imgUrl = resolveImageUrl(item.image || "");
+
+        setHeroChip("LIVE");
+        setHeroText({
+          label: "Now Playing",
+          title: item.name || "Unknown",
+          sub: `${item.artist || "—"}${item.album ? " • " + item.album : ""}`,
+          footLeft: `source: last.fm`,
+          footRight: `tz: ${localTimeLabel()}`,
+          imageUrl: imgUrl
+        });
         return;
       }
 
-      const item = res.json.item;
-      if (!item) {
-        err.textContent = "No now-playing item";
-        err.classList.remove("hidden");
+      // fallback history
+      const resHist = await apiGet("/api/history", { limit: 1, tzOffsetMinutes: tz });
+
+      if (resHist.ok && resHist.json && resHist.json.ok === true && Array.isArray(resHist.json.items) && resHist.json.items[0]){
+        const last = resHist.json.items[0];
+        const imgUrl = resolveImageUrl(last.image || "");
+
+        setHeroChip("LAST");
+        setHeroText({
+          label: "Last Played",
+          title: last.name || "Unknown",
+          sub: `${last.artist || "—"}`,
+          footLeft: `not playing right now`,
+          footRight: `tz: ${localTimeLabel()}`,
+          imageUrl: imgUrl
+        });
         return;
       }
 
-      const normalized = [{
-        name: item.name || "Unknown",
-        artist: item.artist || "",
-        album: item.album || "",
-        image: item.image || "",
-        playcount: ""
-      }];
-
-      list.innerHTML = "";
-      const row = el("div", { class:"row" });
-      row.style.padding = "18px";
-      row.style.gap = "14px";
-
-      const cover = el("div", { class:"cover" });
-      cover.style.width = "68px";
-      cover.style.height = "68px";
-      const imgUrl = resolveImageUrl(normalized[0].image || "");
-      if (imgUrl) {
-        const img = el("img", { alt:"" });
-        img.src = imgUrl;
-        img.onerror = () => { cover.innerHTML = phSvg(); };
-        cover.appendChild(img);
-      } else cover.innerHTML = phSvg();
-
-      const meta = el("div", { class:"meta" });
-      meta.appendChild(el("p", { class:"title" }, escapeHtml(normalized[0].name)));
-
-      const sub = normalized[0].album ? `${normalized[0].artist} • ${normalized[0].album}` : normalized[0].artist;
-      meta.appendChild(el("p", { class:"subtitle" }, escapeHtml(sub)));
-
-      const badge = el("span", { class:"badge" }, `<span class="bars"><span></span><span></span><span></span></span>LIVE`);
-
-      row.appendChild(cover);
-      row.appendChild(meta);
-      row.appendChild(badge);
-      list.appendChild(row);
-    }
-
-    // =========================
-    // TOP
-    // =========================
-    async function loadTop() {
-      const list = document.getElementById("topList");
-      const err = document.getElementById("topErr");
-      err.classList.add("hidden");
-      list.innerHTML = "";
-
-      const tz = tzOffsetMinutes();
-      const res = await apiGet("/api/top", {
-        type: topType,
-        period: topPeriod,
-        limit: LIMIT,
-        tzOffsetMinutes: tz
+      setHeroChip("…");
+      setHeroText({
+        label: "Now",
+        title: "Couldn’t load data",
+        sub: "Check API status / worker",
+        footLeft: "—",
+        footRight: "—",
+        imageUrl: ""
       });
 
-      if (!res.ok || !res.json || res.json.ok !== true) {
-        err.textContent = `Top failed: HTTP ${res.status}`;
-        err.classList.remove("hidden");
-        return;
+      err.textContent = `Now failed (and fallback history failed).`;
+      err.classList.remove("hidden");
+    }
+  </script>
+<script>
+    // =========================
+    // TODAY TIMELINE
+    // =========================
+    function drawTimeline(counts){
+      const c = document.getElementById("emotionCanvas");
+      const ctx = c.getContext("2d");
+
+      const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
+      const cssW = c.clientWidth;
+      const cssH = c.clientHeight || 140;
+      c.width = Math.floor(cssW * dpr);
+      c.height = Math.floor(cssH * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      const W = cssW;
+      const H = cssH;
+
+      ctx.clearRect(0,0,W,H);
+
+      ctx.strokeStyle = "rgba(255,255,255,0.06)";
+      for (let i=1;i<=3;i++){
+        const y = (H/4)*i;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(W, y);
+        ctx.stroke();
       }
 
-      const items = res.json.items || [];
-      renderRows(list, items, topType);
+      const maxV = Math.max(1, ...counts);
+      const padX = 10;
+      const padY = 14;
+      const innerW = W - padX*2;
+      const innerH = H - padY*2;
+      const n = counts.length;
+      const gap = 6;
+      const barW = Math.max(6, (innerW - gap*(n-1)) / n);
+
+      for (let i=0;i<n;i++){
+        const v = counts[i];
+        const t = v / maxV;
+        const h = Math.round(innerH * t);
+
+        const x = padX + i*(barW + gap);
+        const y = padY + (innerH - h);
+
+        ctx.fillStyle = "rgba(255,255,255,0.16)";
+        ctx.fillRect(x, y, barW, h);
+
+        ctx.fillStyle = "rgba(255,255,255,0.10)";
+        ctx.fillRect(x, y, barW, 2);
+      }
     }
-// =========================
-    // HISTORY (optional)
-    // =========================
-    async function loadHistory() {
-      const list = document.getElementById("historyList");
-      const err = document.getElementById("historyErr");
+
+    async function loadTodayTimeline(){
+      const err = document.getElementById("todayErr");
       err.classList.add("hidden");
-      list.innerHTML = "";
 
+      const counts = new Array(24).fill(0);
       const tz = tzOffsetMinutes();
-      const res = await apiGet("/api/history", { limit: 20, tzOffsetMinutes: tz });
 
-      if (!res.ok || !res.json || res.json.ok !== true) {
-        err.textContent = `History failed: HTTP ${res.status}`;
+      const res = await apiGet("/api/history", { limit: 120, tzOffsetMinutes: tz });
+
+      if (!res.ok || !res.json || res.json.ok !== true){
+        err.textContent = `Today failed: HTTP ${res.status}`;
         err.classList.remove("hidden");
+        drawTimeline(counts);
         return;
       }
 
       const items = res.json.items || [];
-      renderRows(list, items, "history");
+      const now = new Date();
+
+      if (items.length > 0){
+        const step = 24 / Math.max(1, items.length);
+        for (let i=0;i<items.length;i++){
+          const back = i * step;
+          let hour = now.getHours() - Math.round(back);
+          while (hour < 0) hour += 24;
+          counts[hour] += 1;
+        }
+      }
+
+      drawTimeline(counts);
     }
 
     // =========================
-    // NAVIGATION
+    // NAVIGATION + INIT
     // =========================
-    function showPage(p) {
+    function showPage(p){
       page = p;
+
       document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
       document.querySelector(`.tab[data-page="${p}"]`).classList.add("active");
 
@@ -570,14 +892,14 @@ function renderRows(container, items, mode) {
         document.getElementById("page-" + x).classList.toggle("hidden", x !== p);
       });
 
-      if (p === "now") loadNow();
+      if (p === "now"){
+        loadNowOrLast();
+        loadTodayTimeline();
+      }
       if (p === "top") loadTop();
-      if (p === "history") loadHistory();
+      if (p === "history") loadHistory(20);
     }
 
-    // =========================
-    // WIRE UP
-    // =========================
     document.querySelectorAll(".tab").forEach(t => {
       t.addEventListener("click", () => showPage(t.dataset.page));
     });
@@ -598,18 +920,17 @@ function renderRows(container, items, mode) {
       });
     });
 
-    document.getElementById("mirrorPeriodTabs").querySelectorAll(".subtab").forEach(st => {
-      st.addEventListener("click", () => {
-        setActive(document.getElementById("mirrorPeriodTabs"), ".subtab", st);
-      });
-    });
-
-    // =========================
-    // INIT
-    // =========================
     (async function init(){
       await refreshStatus();
       showPage("now");
+
+      setInterval(() => {
+        if (page === "now") loadNowOrLast();
+      }, 20000);
+
+      window.addEventListener("resize", () => {
+        if (page === "now") loadTodayTimeline();
+      });
     })();
   </script>
 </body>

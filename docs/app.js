@@ -1,7 +1,4 @@
-/* Listening Mirror UI (premium)
-   - Sticky tabs
-   - Live sheen when LIVE
-   - Pull-to-refresh
+/* Listening Mirror UI (premium, no pull-to-refresh)
    Worker: https://i.errtanq9.workers.dev
 */
 (() => {
@@ -20,12 +17,6 @@
   const panels = els(".panel");
   const tabBtns = els(".tabBtn");
 
-  // Pull-to-refresh UI
-  const pullUI = el("#pullUI");
-  const pullDot = el("#pullDot");
-  const pullFill = el("#pullFill");
-  const pullText = el("#pullText");
-
   // Now UI
   const nowCard = el("#nowCard");
   const nowUpdated = el("#nowUpdated");
@@ -36,7 +27,6 @@
   const nowArtist = el("#nowArtist");
   const nowAlbum = el("#nowAlbum");
   const nowMsg = el("#nowMsg");
-  const workerHint = el("#workerHint");
 
   // Top UI
   const topMeta = el("#topMeta");
@@ -55,9 +45,9 @@
   let currentTab = "now";
   let topType = "tracks";   // tracks | artists | albums
   let topPeriod = "today";  // today | week | year
-  let topLimit = 20;
 
-  let refreshing = false;
+  // ✅ default TOP limit now 10
+  let topLimit = 10;
 
   // ---------------------------
   // Helpers
@@ -130,8 +120,7 @@
       clearTimeout(t);
     }
   }
-
-  // ---------------------------
+// ---------------------------
   // Marquee logic (only if overflow)
   // ---------------------------
   function setupMarquee(block) {
@@ -208,7 +197,8 @@
       }
     });
   }
-// ---------------------------
+
+  // ---------------------------
   // Now UI
   // ---------------------------
   function clearNow() {
@@ -368,8 +358,7 @@
       container.appendChild(row);
     }
   }
-
-  // ---------------------------
+// ---------------------------
   // Fetch + Render: /api/ping
   // ---------------------------
   async function refreshPing() {
@@ -406,7 +395,6 @@
 
       nowBadge.textContent = "LIVE";
       nowBadge.classList.add("live");
-
       if (nowCard) nowCard.classList.add("liveSheen");
 
       nowTrack.textContent = item.name || "—";
@@ -430,7 +418,8 @@
   // Fetch + Render: /api/history
   // ---------------------------
   async function refreshRecent() {
-    recentMeta.textContent = "Loading…";
+    // ✅ remove "10 items" completely (leave meta empty)
+    if (recentMeta) recentMeta.textContent = "";
     addSkeletonRows(recentList, 7);
 
     try {
@@ -438,7 +427,6 @@
       const items = j?.items || [];
 
       recentList.innerHTML = "";
-      recentMeta.textContent = `${items.length} items`;
 
       items.forEach((it, i) => {
         recentList.appendChild(
@@ -452,12 +440,11 @@
         );
       });
 
+      // no "No recent..." text either (keep it clean)
       if (!items.length) {
-        recentMeta.textContent = "No recent history returned.";
         recentList.innerHTML = "";
       }
     } catch (e) {
-      recentMeta.textContent = `Error: ${String(e.message || e)}`;
       recentList.innerHTML = "";
     }
   }
@@ -508,105 +495,18 @@
       });
 
       if (!items.length) {
-        topMeta.textContent = "No top data returned.";
         topList.innerHTML = "";
       }
     } catch (e) {
-      topMeta.textContent = `Error: ${String(e.message || e)}`;
+      topMeta.textContent = "";
       topList.innerHTML = "";
     }
   }
-// ---------------------------
-  // Pull-to-refresh (touch)
-  // ---------------------------
-  function setPullUI(on, pct, ready, text) {
-    if (!pullUI || !pullFill || !pullDot || !pullText) return;
-    pullUI.classList.toggle("on", !!on);
-
-    const clamped = Math.max(0, Math.min(100, pct));
-    pullFill.style.width = `${clamped}%`;
-    pullDot.classList.toggle("ready", !!ready);
-    pullText.textContent = text || (ready ? "Release to refresh" : "Pull to refresh");
-  }
-
-  async function hardRefreshCurrent() {
-    if (refreshing) return;
-    refreshing = true;
-
-    setPullUI(true, 100, true, "Refreshing…");
-
-    try {
-      await refreshPing();
-      if (currentTab === "now") await refreshNow();
-      if (currentTab === "top") await refreshTop();
-      if (currentTab === "recent") await refreshRecent();
-    } finally {
-      // small delay for “premium feel”
-      setTimeout(() => {
-        setPullUI(false, 0, false, "Pull to refresh");
-        refreshing = false;
-      }, 350);
-    }
-  }
-
-  function initPullToRefresh() {
-    let startY = 0;
-    let pulling = false;
-    let lastPct = 0;
-
-    const max = 110;
-    const threshold = 78;
-
-    window.addEventListener("touchstart", (e) => {
-      if (refreshing) return;
-      // only when at top
-      if ((window.scrollY || document.documentElement.scrollTop || 0) > 0) return;
-      if (!e.touches || !e.touches.length) return;
-
-      startY = e.touches[0].clientY;
-      pulling = true;
-      lastPct = 0;
-      setPullUI(true, 0, false, "Pull to refresh");
-    }, { passive: true });
-
-    window.addEventListener("touchmove", (e) => {
-      if (!pulling || refreshing) return;
-      if (!e.touches || !e.touches.length) return;
-
-      const y = e.touches[0].clientY;
-      const dy = Math.max(0, y - startY);
-
-      // if user scrolls down, reflect progress (no blocking)
-      const eased = Math.min(max, dy);
-      const pct = (eased / threshold) * 100;
-      const ready = eased >= threshold;
-
-      lastPct = pct;
-      setPullUI(true, pct, ready, ready ? "Release to refresh" : "Pull to refresh");
-    }, { passive: true });
-
-    window.addEventListener("touchend", async () => {
-      if (!pulling || refreshing) {
-        pulling = false;
-        return;
-      }
-      pulling = false;
-
-      const ready = (lastPct >= 100);
-      if (ready) {
-        await hardRefreshCurrent();
-      } else {
-        setPullUI(false, 0, false, "Pull to refresh");
-      }
-    }, { passive: true });
-  }
 
   // ---------------------------
-  // Wire UI
+  // Init
   // ---------------------------
   function init() {
-    if (workerHint) workerHint.textContent = `Worker: ${WORKER_BASE}`;
-
     tabBtns.forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
 
     topTypeBtns.forEach((b) => {
@@ -625,21 +525,15 @@
       });
     });
 
-    // initial states
     setSelected(tabBtns, (b) => b.dataset.tab === "now");
     setSelected(topTypeBtns, (b) => (b.dataset.topType || "") === "tracks");
     setSelected(topPeriodBtns, (b) => (b.dataset.topPeriod || "") === "today");
 
-    // boot
     refreshPing();
     showTab("now");
     refreshAllMarquees();
 
-    // keep marquees correct on resize
     window.addEventListener("resize", refreshAllMarquees);
-
-    // pull-to-refresh
-    initPullToRefresh();
 
     // auto refresh ping + now
     setInterval(refreshPing, 15000);

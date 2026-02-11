@@ -1,4 +1,7 @@
-/* Listening Mirror UI (premium, hardcoded Worker base)
+/* Listening Mirror UI (premium)
+   - Sticky tabs
+   - Live sheen when LIVE
+   - Pull-to-refresh
    Worker: https://i.errtanq9.workers.dev
 */
 (() => {
@@ -9,16 +12,22 @@
   const el = (sel) => document.querySelector(sel);
   const els = (sel) => Array.from(document.querySelectorAll(sel));
 
-  // Header
+  // Header/status
   const statusLine = el("#statusLine");
   const statusDot = el("#statusDot");
-  const btnRefresh = el("#btnRefresh");
 
   // Tabs
   const panels = els(".panel");
   const tabBtns = els(".tabBtn");
 
+  // Pull-to-refresh UI
+  const pullUI = el("#pullUI");
+  const pullDot = el("#pullDot");
+  const pullFill = el("#pullFill");
+  const pullText = el("#pullText");
+
   // Now UI
+  const nowCard = el("#nowCard");
   const nowUpdated = el("#nowUpdated");
   const nowBadge = el("#nowBadge");
   const nowImg = el("#nowImg");
@@ -47,6 +56,8 @@
   let topType = "tracks";   // tracks | artists | albums
   let topPeriod = "today";  // today | week | year
   let topLimit = 20;
+
+  let refreshing = false;
 
   // ---------------------------
   // Helpers
@@ -131,41 +142,28 @@
     const dup = inner.querySelector(".dup");
     if (!span || !dup) return;
 
-    // Reset
     block.classList.remove("animate");
     block.style.removeProperty("--shift");
 
-    // If empty or very short
     const text = (span.textContent || "").trim();
     if (!text) {
       dup.textContent = "";
       return;
     }
 
-    // Duplicate text for seamless loop
     dup.textContent = text;
 
-    // Measure overflow
-    // Temporarily ensure layout is stable
     const blockW = block.clientWidth;
     const textW = span.scrollWidth;
 
-    // Only animate if text actually overflows container
     if (textW > blockW + 6) {
-      // Shift = width of the first text + gap (we set gap via CSS variable)
-      // We'll compute the transform distance precisely: span width + CSS gap (approx)
       const gap = 28;
       const shift = textW + gap;
       block.style.setProperty("--shift", `${shift}px`);
-
-      // Duration proportional to width (premium feel)
-      // 70px/sec roughly, clamped
       const seconds = Math.max(7, Math.min(18, shift / 70));
       block.style.setProperty("--duration", `${seconds}s`);
-
       block.classList.add("animate");
     } else {
-      // No animation; remove duplicate to avoid subtle ghosting
       dup.textContent = "";
     }
   }
@@ -174,7 +172,6 @@
     marqBlocks.forEach(setupMarquee);
   }
 
-  // Also for list rows
   function makeRowMarquee(node) {
     const blocks = node.querySelectorAll("[data-row-marq]");
     blocks.forEach((b) => {
@@ -211,8 +208,7 @@
       }
     });
   }
-
-  // ---------------------------
+// ---------------------------
   // Now UI
   // ---------------------------
   function clearNow() {
@@ -224,6 +220,8 @@
     nowAlbum.textContent = "—";
     nowMsg.textContent = "";
     setNowCover("");
+
+    if (nowCard) nowCard.classList.remove("liveSheen");
     refreshAllMarquees();
   }
 
@@ -280,7 +278,6 @@
     const mid = document.createElement("div");
     mid.className = "mid";
 
-    // Title marquee container (row)
     const tWrap = document.createElement("div");
     tWrap.className = "marq rowTitle";
     tWrap.setAttribute("data-row-marq", "1");
@@ -298,7 +295,6 @@
     tInner.appendChild(tDup);
     tWrap.appendChild(tInner);
 
-    // Subtitle marquee container (row)
     const sWrap = document.createElement("div");
     sWrap.className = "marq rowSub";
     sWrap.setAttribute("data-row-marq", "1");
@@ -327,9 +323,7 @@
     wrap.appendChild(mid);
     wrap.appendChild(r);
 
-    // Activate marquee in this row only if needed
     queueMicrotask(() => makeRowMarquee(wrap));
-
     return wrap;
   }
 
@@ -405,12 +399,15 @@
         nowBadge.textContent = "OFF";
         nowBadge.classList.remove("live");
         setNowCover("");
+        if (nowCard) nowCard.classList.remove("liveSheen");
         refreshAllMarquees();
         return;
       }
 
       nowBadge.textContent = "LIVE";
       nowBadge.classList.add("live");
+
+      if (nowCard) nowCard.classList.add("liveSheen");
 
       nowTrack.textContent = item.name || "—";
       nowArtist.textContent = item.artist || "—";
@@ -423,6 +420,7 @@
       nowMsg.textContent = `Error: ${String(e.message || e)}`;
       nowBadge.textContent = "OFF";
       nowBadge.classList.remove("live");
+      if (nowCard) nowCard.classList.remove("liveSheen");
       setNowCover("");
       refreshAllMarquees();
     }
@@ -483,36 +481,29 @@
 
       items.forEach((it, i) => {
         if (topType === "artists") {
-          topList.appendChild(
-            rowItem({
-              idx: i + 1,
-              title: it.name || "—",
-              subtitle: "",
-              right: it.playcount ?? "",
-              imageUrl: it.image || ""
-            })
-          );
+          topList.appendChild(rowItem({
+            idx: i + 1,
+            title: it.name || "—",
+            subtitle: "",
+            right: it.playcount ?? "",
+            imageUrl: it.image || ""
+          }));
         } else if (topType === "albums") {
-          topList.appendChild(
-            rowItem({
-              idx: i + 1,
-              title: it.name || "—",
-              subtitle: it.artist || "",
-              right: it.playcount ?? "",
-              imageUrl: it.image || ""
-            })
-          );
+          topList.appendChild(rowItem({
+            idx: i + 1,
+            title: it.name || "—",
+            subtitle: it.artist || "",
+            right: it.playcount ?? "",
+            imageUrl: it.image || ""
+          }));
         } else {
-          // tracks
-          topList.appendChild(
-            rowItem({
-              idx: i + 1,
-              title: it.name || "—",
-              subtitle: it.artist || "",
-              right: it.playcount ?? "",
-              imageUrl: it.image || ""
-            })
-          );
+          topList.appendChild(rowItem({
+            idx: i + 1,
+            title: it.name || "—",
+            subtitle: it.artist || "",
+            right: it.playcount ?? "",
+            imageUrl: it.image || ""
+          }));
         }
       });
 
@@ -525,6 +516,90 @@
       topList.innerHTML = "";
     }
   }
+// ---------------------------
+  // Pull-to-refresh (touch)
+  // ---------------------------
+  function setPullUI(on, pct, ready, text) {
+    if (!pullUI || !pullFill || !pullDot || !pullText) return;
+    pullUI.classList.toggle("on", !!on);
+
+    const clamped = Math.max(0, Math.min(100, pct));
+    pullFill.style.width = `${clamped}%`;
+    pullDot.classList.toggle("ready", !!ready);
+    pullText.textContent = text || (ready ? "Release to refresh" : "Pull to refresh");
+  }
+
+  async function hardRefreshCurrent() {
+    if (refreshing) return;
+    refreshing = true;
+
+    setPullUI(true, 100, true, "Refreshing…");
+
+    try {
+      await refreshPing();
+      if (currentTab === "now") await refreshNow();
+      if (currentTab === "top") await refreshTop();
+      if (currentTab === "recent") await refreshRecent();
+    } finally {
+      // small delay for “premium feel”
+      setTimeout(() => {
+        setPullUI(false, 0, false, "Pull to refresh");
+        refreshing = false;
+      }, 350);
+    }
+  }
+
+  function initPullToRefresh() {
+    let startY = 0;
+    let pulling = false;
+    let lastPct = 0;
+
+    const max = 110;
+    const threshold = 78;
+
+    window.addEventListener("touchstart", (e) => {
+      if (refreshing) return;
+      // only when at top
+      if ((window.scrollY || document.documentElement.scrollTop || 0) > 0) return;
+      if (!e.touches || !e.touches.length) return;
+
+      startY = e.touches[0].clientY;
+      pulling = true;
+      lastPct = 0;
+      setPullUI(true, 0, false, "Pull to refresh");
+    }, { passive: true });
+
+    window.addEventListener("touchmove", (e) => {
+      if (!pulling || refreshing) return;
+      if (!e.touches || !e.touches.length) return;
+
+      const y = e.touches[0].clientY;
+      const dy = Math.max(0, y - startY);
+
+      // if user scrolls down, reflect progress (no blocking)
+      const eased = Math.min(max, dy);
+      const pct = (eased / threshold) * 100;
+      const ready = eased >= threshold;
+
+      lastPct = pct;
+      setPullUI(true, pct, ready, ready ? "Release to refresh" : "Pull to refresh");
+    }, { passive: true });
+
+    window.addEventListener("touchend", async () => {
+      if (!pulling || refreshing) {
+        pulling = false;
+        return;
+      }
+      pulling = false;
+
+      const ready = (lastPct >= 100);
+      if (ready) {
+        await hardRefreshCurrent();
+      } else {
+        setPullUI(false, 0, false, "Pull to refresh");
+      }
+    }, { passive: true });
+  }
 
   // ---------------------------
   // Wire UI
@@ -532,9 +607,7 @@
   function init() {
     if (workerHint) workerHint.textContent = `Worker: ${WORKER_BASE}`;
 
-    tabBtns.forEach((b) => {
-      b.addEventListener("click", () => showTab(b.dataset.tab));
-    });
+    tabBtns.forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
 
     topTypeBtns.forEach((b) => {
       b.addEventListener("click", () => {
@@ -552,15 +625,6 @@
       });
     });
 
-    if (btnRefresh) {
-      btnRefresh.addEventListener("click", async () => {
-        await refreshPing();
-        if (currentTab === "now") refreshNow();
-        if (currentTab === "top") refreshTop();
-        if (currentTab === "recent") refreshRecent();
-      });
-    }
-
     // initial states
     setSelected(tabBtns, (b) => b.dataset.tab === "now");
     setSelected(topTypeBtns, (b) => (b.dataset.topType || "") === "tracks");
@@ -571,10 +635,11 @@
     showTab("now");
     refreshAllMarquees();
 
-    // keep marquees correct on resize / orientation changes
-    window.addEventListener("resize", () => {
-      refreshAllMarquees();
-    });
+    // keep marquees correct on resize
+    window.addEventListener("resize", refreshAllMarquees);
+
+    // pull-to-refresh
+    initPullToRefresh();
 
     // auto refresh ping + now
     setInterval(refreshPing, 15000);

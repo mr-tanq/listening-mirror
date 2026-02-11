@@ -26,6 +26,9 @@
       --safeR: max(14px, env(safe-area-inset-right));
       --safeT: max(14px, env(safe-area-inset-top));
       --safeB: max(14px, env(safe-area-inset-bottom));
+
+      /* how faint the full-card artwork layer should be (ghost print) */
+      --art-faint: .09;
     }
 
     *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
@@ -159,7 +162,10 @@
       overflow:hidden;
       position:relative;
     }
-/* NOW ambient */
+
+    /* =========================
+       NOW: premium ambient layers
+       ========================= */
     .nowAmbient{
       position:absolute;
       inset:-1px;
@@ -168,51 +174,89 @@
       transition: opacity .25s ease;
     }
     .nowAmbient.on{ opacity: 1; }
+
+    /* 1) blur “aura” */
     .nowAmbient:before{
       content:"";
       position:absolute;
-      inset:-40px;
+      inset:-42px;
       background-image: var(--ambient-url, none);
       background-size: cover;
       background-position: center;
-      filter: blur(28px) saturate(1.12);
-      transform: scale(1.10);
-      opacity:.42;
+      transform: scale(1.12);
+      filter: blur(30px) saturate(1.02);
+      opacity: .34;
     }
+
+    /* 2) faint full-card artwork (ghost print) + gradients */
     .nowAmbient:after{
       content:"";
       position:absolute;
       inset:0;
-      background:
-        radial-gradient(900px 500px at 20% 10%, rgba(255,255,255,.06), transparent 55%),
-        linear-gradient(180deg, rgba(10,11,13,.55), rgba(10,11,13,.88));
+
+      /* layer stack: faint artwork first, then gradients */
+      background-image:
+        var(--ambient-url, none),
+        radial-gradient(900px 520px at 22% 12%, rgba(255,255,255,.055), transparent 58%),
+        radial-gradient(900px 520px at 85% 18%, rgba(255,255,255,.04), transparent 62%),
+        linear-gradient(180deg, rgba(10,11,13,.52), rgba(10,11,13,.90));
+
+      background-size: cover, auto, auto, auto;
+      background-position: center, center, center, center;
+      background-repeat: no-repeat;
+
+      /* makes artwork “ghosty” */
+      opacity: 1;
+      filter: contrast(.96) saturate(1.02);
     }
 
-    .nowWrap{ position:relative; padding: 18px; min-height: 180px; }
+    /* This is the important part: we “dim” the artwork layer by using an overlay tint.
+       The gradients already darken it; this keeps it premium, not loud. */
+    .nowAmbient.on:after{
+      /* keep this var here so you can tune it later without hunting CSS */
+      --art-faint: .09;
+    }
+
+    /* The dimming happens via an extra overlay inside nowWrap (below) */
+    .nowWrap{
+      position:relative;
+      padding: 16px;
+      min-height: 168px;
+    }
+    .nowWrap:before{
+      content:"";
+      position:absolute;
+      inset:0;
+      /* This overlay controls how visible the sharp artwork layer is */
+      background: rgba(10,11,13, calc(1 - var(--art-faint)));
+      pointer-events:none;
+      z-index:1;
+    }
 
     /* LIVE chip — top right */
     .chip{
       position:absolute;
-      top: 14px;
-      right: 14px;
+      top: 12px;
+      right: 12px;
       display:inline-flex;
       align-items:center;
       gap:8px;
-      padding: 7px 10px;
+      padding: 6px 9px;
       border-radius: 999px;
-      background: rgba(255,255,255,.045);
-      outline: 1px solid rgba(255,255,255,.085);
+      background: rgba(255,255,255,.035);
+      outline: 1px solid rgba(255,255,255,.07);
+      backdrop-filter: blur(10px);
       color: rgba(255,255,255,.78);
-      font-size: 12px;
+      font-size: 11.5px;
       letter-spacing:.25px;
       white-space:nowrap;
       z-index:3;
     }
-    .chip .miniDot{ width:6px;height:6px;border-radius:999px; background: rgba(255,255,255,.18); }
+    .chip .miniDot{ width:5px;height:5px;border-radius:999px; background: rgba(255,255,255,.18); }
     .chip.live{
       color: rgba(255,255,255,.95);
-      outline-color: var(--liveBd);
-      background: var(--liveBg);
+      outline-color: rgba(255,59,59,.22);
+      background: rgba(255,59,59,.08);
     }
     .chip.live .miniDot{
       background: var(--live);
@@ -225,7 +269,7 @@
       gap: 14px;
       align-items:center;
       position:relative;
-      z-index:2;
+      z-index:2; /* above overlay */
       padding-top: 10px;
     }
 
@@ -237,7 +281,7 @@
       overflow:hidden;
       outline: 1px solid rgba(255,255,255,.12);
       background: rgba(255,255,255,.03);
-      box-shadow: 0 18px 55px rgba(0,0,0,.55);
+      box-shadow: 0 18px 60px rgba(0,0,0,.60);
     }
     /* artwork glow */
     .coverWrap:before{
@@ -277,6 +321,7 @@
     .idle .idleOrb{
       opacity: 1;
       transform: scale(1);
+      animation: orbBreath 3.8s ease-in-out infinite;
     }
     .idleOrb{
       position:absolute;
@@ -310,10 +355,16 @@
       mask-image: radial-gradient(circle, #000 55%, transparent 75%);
     }
 
+    @keyframes orbBreath{
+      0%{ transform: scale(1); opacity:.95; }
+      50%{ transform: scale(1.02); opacity:1; }
+      100%{ transform: scale(1); opacity:.95; }
+    }
+
     .nowText{ min-width:0; padding-left: 4px; }
-    .line1{ font-size: 15px; font-weight: 680; letter-spacing: .15px; }
-    .line2{ margin-top: 6px; font-size: 13px; color: rgba(255,255,255,.72); }
-    .line3{ margin-top: 6px; font-size: 12px; color: var(--muted2); }
+    .line1{ font-size: 16px; font-weight: 740; letter-spacing: .10px; }
+    .line2{ margin-top: 6px; font-size: 13.2px; color: rgba(255,255,255,.72); }
+    .line3{ margin-top: 6px; font-size: 12.2px; color: var(--muted2); }
 
     /* Marquee — RIGHT fade only (no first-letter cut) */
     .marq{ display:inline-block; white-space:nowrap; will-change:transform; }
@@ -420,14 +471,69 @@
       color: rgba(255,214,102,.92);
     }
 
+    /* Pull-to-refresh indicator (visual; app.js will toggle .on/.loading) */
+    .ptr{
+      position: fixed;
+      left: 50%;
+      top: calc(env(safe-area-inset-top) + 10px);
+      transform: translate(-50%, -24px);
+      opacity: 0;
+      pointer-events: none;
+      z-index: 9999;
+      transition: transform .18s ease, opacity .18s ease;
+    }
+    .ptr.on{
+      opacity: 1;
+      transform: translate(-50%, 0px);
+    }
+    .ptrPill{
+      display:inline-flex;
+      align-items:center;
+      gap:10px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.05);
+      outline: 1px solid rgba(255,255,255,.09);
+      backdrop-filter: blur(12px);
+      color: rgba(255,255,255,.82);
+      font-size: 12px;
+      letter-spacing: .2px;
+      box-shadow: 0 18px 55px rgba(0,0,0,.45);
+    }
+    .ptrDot{
+      width:6px;height:6px;border-radius:999px;
+      background: rgba(255,255,255,.22);
+    }
+    .ptrSpin{
+      width:14px;height:14px;border-radius:999px;
+      border: 2px solid rgba(255,255,255,.22);
+      border-top-color: rgba(255,255,255,.72);
+      animation: ptrSpin 0.9s linear infinite;
+      display:none;
+    }
+    .ptr.loading .ptrSpin{ display:inline-block; }
+    @keyframes ptrSpin{ to{ transform: rotate(360deg); } }
+
     @media (max-width: 520px){
       .nowMain{ grid-template-columns: 106px 1fr; }
       .coverWrap{ width:106px;height:106px;border-radius:18px; }
       .tabs{ width: 100%; justify-content: space-between; }
+      .nowWrap{ padding: 14px; min-height: 160px; }
+      .chip{ top: 10px; right: 10px; }
     }
   </style>
 </head>
+
 <body>
+  <!-- Pull-to-refresh UI (app.js can show/hide) -->
+  <div id="ptr" class="ptr" aria-hidden="true">
+    <div class="ptrPill">
+      <span class="ptrDot" aria-hidden="true"></span>
+      <span class="ptrSpin" aria-hidden="true"></span>
+      <span id="ptrText">Pull to refresh</span>
+    </div>
+  </div>
+
   <div class="app">
     <header>
       <div class="brand">
@@ -476,7 +582,6 @@
               <div class="line3 marqWrap" id="nowAlbumWrap">
                 <span class="marq" id="nowAlbum"></span>
               </div>
-              <!-- no messages in premium UI -->
             </div>
           </div>
         </div>

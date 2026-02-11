@@ -1,6 +1,5 @@
-/* Listening Mirror UI (hardcoded Worker base)
-   - No Settings (worker base is fixed)
-   - Worker: https://i.errtanq9.workers.dev
+/* Listening Mirror UI
+   - Dynamic artwork tint (with safe fallback)
 */
 (() => {
   "use strict";
@@ -14,6 +13,7 @@
   const statusLine = el("#statusLine");
   const statusDot = el("#statusDot");
   const toast = el("#toast");
+  const bgTint = el("#bgTint");
 
   // Tabs
   const panels = els(".panel");
@@ -45,18 +45,20 @@
   const recentList = el("#recentList");
 
   let currentTab = "now";
-  let topType = "tracks";   // tracks | artists | albums
-  let topPeriod = "today";  // today | week | year
-  const topLimit = 10;      // forced to 10
+  let topType = "tracks";
+  let topPeriod = "today";
+  const topLimit = 10;
   let online = false;
+
+  // Tint state (avoid reprocessing same artwork)
+  let lastTintKey = "";
+  let tintCooldownUntil = 0;
 
   // ---------------------------
   // Helpers
   // ---------------------------
   function vibrate(ms = 10) {
-    try {
-      if (navigator.vibrate) navigator.vibrate(ms);
-    } catch {}
+    try { if (navigator.vibrate) navigator.vibrate(ms); } catch {}
   }
 
   function showToast(text) {
@@ -80,7 +82,6 @@
       p.classList.toggle("hidden", !isThis);
     });
 
-    // light haptic
     vibrate(8);
 
     if (tab === "now") refreshNow();
@@ -107,8 +108,6 @@
     if (!online) showToast("Offline. Retrying…");
   }
 
-  // IMPORTANT: Worker returns images like "/img?u=..."
-  // We must turn that into "https://i.errtanq9.workers.dev/img?u=..."
   function resolveImageUrl(u) {
     if (!u) return "";
     const s = String(u);
@@ -127,7 +126,6 @@
       const ct = (r.headers.get("content-type") || "").toLowerCase();
       const text = await r.text();
 
-      // If worker returns HTML (404 page etc.), show clean error
       if (!r.ok || ct.includes("text/html") || text.trim().startsWith("<!DOCTYPE")) {
         const msg = !r.ok ? `HTTP ${r.status}` : "HTML returned";
         throw new Error(msg);
@@ -142,7 +140,6 @@
     }
   }
 
-  // Spotify search (open on tap)
   function openSpotifySearch(query) {
     if (!query) return;
     const q = encodeURIComponent(query);
@@ -150,27 +147,130 @@
     window.open(url, "_blank", "noopener,noreferrer");
   }
 // ---------------------------
-  // Marquee: activate only when overflow happens
+  // Dynamic Tint (artwork -> CSS vars)
+  // ---------------------------
+  function setTintRGB(r, g, b) {
+    const root = document.documentElement;
+    root.style.setProperty("--tint-r", String(r));
+    root.style.setProperty("--tint-g", String(g));
+    root.style.setProperty("--tint-b", String(b));
+  }
+
+  function clamp01(x) { return Math.max(0, Math.min(1, x)); }
+
+  // Deterministic fallback color from text (no "random", always same for same key)
+  function hashTintFromString(str) {
+    const s = String(str || "");
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    // spread into RGB but keep "premium" range (not neon)
+    const r = 50 + (h & 0xff) * 0.55;
+    const g = 60 + ((h >> 8) & 0xff) * 0.50;
+    const b = 70 + ((h >> 16) & 0xff) * 0.60;
+    return {
+      r: Math.max(40, Math.min(220, Math.round(r))),
+      g: Math.max(40, Math.min(220, Math.round(g))),
+      b: Math.max(40, Math.min(220, Math.round(b))),
+    };
+  }
+
+  // Try to sample pixels (requires CORS). If blocked -> return null
+  async function sampleAverageColorFromImage(url) {
+    const u = resolveImageUrl(url);
+    if (!u) return null;
+
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous"; // will work only if server allows it
+      img.decoding = "async";
+      img.referrerPolicy = "no-referrer";
+
+      img.onload = () => {
+        try {
+          const w = 32, h = 32;
+          const c = document.createElement("canvas");
+          c.width = w; c.height = h;
+          const ctx = c.getContext("2d", { willReadFrequently: true });
+          if (!ctx) return resolve(null);
+
+          ctx.drawImage(img, 0, 0, w, h);
+          const data = ctx.getImageData(0, 0, w, h).data;
+
+          let r = 0, g = 0, b = 0, n = 0;
+          for (let i = 0; i < data.length; i += 4) {
+            const a = data[i + 3] / 255;
+            if (a < 0.15) continue;
+
+            const rr = data[i], gg = data[i + 1], bb = data[i + 2];
+            // ignore near-black pixels to avoid muddy tint
+            const lum = 0.2126 * rr + 0.7152 * gg + 0.0722 * bb;
+            if (lum < 18) continue;
+
+            r += rr; g += gg; b += bb;
+            n++;
+          }
+          if (n < 20) return resolve(null);
+
+          r = Math.round(r / n);
+          g = Math.round(g / n);
+          b = Math.round(b / n);
+
+          // "premium" shaping: slightly darker + less harsh
+          r = Math.round(r * 0.88);
+          g = Math.round(g * 0.88);
+          b = Math.round(b * 0.88);
+
+          resolve({ r, g, b });
+        } catch {
+          // likely canvas is tainted by CORS
+          resolve(null);
+        }
+      };
+
+      img.onerror = () => resolve(null);
+
+      // cache-bust lightly so you get updated images if needed
+      img.src = u;
+    });
+  }
+
+  async function updateTint({ imageUrl, keyString }) {
+    const now = Date.now();
+    if (now < tintCooldownUntil) return;
+
+    const key = `${keyString || ""}::${imageUrl || ""}`;
+    if (key && key === lastTintKey) return;
+    lastTintKey = key;
+
+    // avoid spamming if user flips tabs fast
+    tintCooldownUntil = now + 500;
+
+    let rgb = await sampleAverageColorFromImage(imageUrl);
+    if (!rgb) {
+      rgb = hashTintFromString(keyString || imageUrl || "Listening Mirror");
+    }
+    setTintRGB(rgb.r, rgb.g, rgb.b);
+  }
+
+  // ---------------------------
+  // Marquee
   // ---------------------------
   function applyMarquee(wrapperEl) {
     if (!wrapperEl) return;
-
     const inner = wrapperEl.querySelector(".marqueeInner");
     if (!inner) return;
 
-    // reset
     wrapperEl.classList.remove("marqueeOn");
     wrapperEl.style.removeProperty("--marquee-shift");
 
-    // measure after layout
     requestAnimationFrame(() => {
       const wrapW = wrapperEl.clientWidth;
       const innerW = inner.scrollWidth;
-
-      // If no overflow, do nothing
       if (!wrapW || innerW <= wrapW + 2) return;
 
-      // amount to travel (keep some slack)
       const shift = Math.max(0, innerW - wrapW + 18);
       wrapperEl.style.setProperty("--marquee-shift", `${shift}px`);
       wrapperEl.classList.add("marqueeOn");
@@ -178,12 +278,10 @@
   }
 
   function applyMarqueeAll() {
-    // rows
     els(".titleMarquee").forEach(applyMarquee);
     els(".subMarquee").forEach(applyMarquee);
   }
-
-  // ---------------------------
+// ---------------------------
   // Skeleton builders
   // ---------------------------
   function skeletonRow() {
@@ -226,7 +324,6 @@
   }
 
   function skeletonNow() {
-    // Cover
     if (nowImg) nowImg.style.display = "none";
     if (nowFallback) {
       nowFallback.style.display = "grid";
@@ -234,7 +331,6 @@
       nowFallback.textContent = "";
     }
 
-    // Text
     [nowTrack, nowArtist, nowAlbum].forEach((x) => {
       if (!x) return;
       x.classList.add("skeleton");
@@ -268,17 +364,6 @@
     });
   }
 
-  function clearNow() {
-    nowBadge.textContent = "OFF";
-    nowBadge.classList.remove("badgeLive");
-    nowUpdated.textContent = "--";
-    nowTrack.textContent = "—";
-    nowArtist.textContent = "—";
-    nowAlbum.textContent = "—";
-    nowMsg.textContent = "";
-    setNowCover("");
-  }
-
   function setNowCover(imgUrl) {
     const u = resolveImageUrl(imgUrl);
     if (u) {
@@ -292,7 +377,7 @@
     }
   }
 
-  function rowItem({ idx, title, subtitle, right, imageUrl, spotifyQuery }) {
+  function rowItem({ idx, title, subtitle, right, imageUrl, spotifyQuery, tintKey }) {
     const wrap = document.createElement("div");
     wrap.className = "row";
     wrap.tabIndex = 0;
@@ -329,7 +414,6 @@
     const mid = document.createElement("div");
     mid.className = "mid";
 
-    // Title marquee wrapper
     const tWrap = document.createElement("div");
     tWrap.className = "titleMarquee";
     const t = document.createElement("div");
@@ -337,7 +421,6 @@
     t.textContent = `${idx}. ${title}`;
     tWrap.appendChild(t);
 
-    // Subtitle marquee wrapper
     const sWrap = document.createElement("div");
     sWrap.className = "subMarquee";
     const s = document.createElement("div");
@@ -356,8 +439,9 @@
     wrap.appendChild(mid);
     wrap.appendChild(r);
 
-    // Tap → Spotify search
     const q = spotifyQuery || `${title} ${subtitle || ""}`.trim();
+
+    // Tap → Spotify
     wrap.addEventListener("click", () => {
       vibrate(12);
       openSpotifySearch(q);
@@ -370,7 +454,12 @@
       }
     });
 
-    // Apply marquee (after mount)
+    // Premium: on hover/tap focus, tint follows this item artwork
+    // (on mobile it triggers when you tap)
+    const tintStr = tintKey || q;
+    wrap.addEventListener("pointerenter", () => updateTint({ imageUrl, keyString: tintStr }));
+    wrap.addEventListener("focus", () => updateTint({ imageUrl, keyString: tintStr }));
+
     requestAnimationFrame(() => {
       applyMarquee(tWrap);
       applyMarquee(sWrap);
@@ -379,7 +468,7 @@
     return wrap;
   }
 // ---------------------------
-  // Fetch + Render: /api/ping
+  // Fetch + Render
   // ---------------------------
   async function refreshPing() {
     try {
@@ -390,15 +479,10 @@
     }
   }
 
-  // ---------------------------
-  // Fetch + Render: /api/now
-  // ---------------------------
   async function refreshNow() {
-    clearNow();
     nowUpdated.textContent = fmtTime(Date.now());
     nowBadge.textContent = "…";
-    nowBadge.classList.add("badgeLive"); // subtle live look while loading
-
+    nowBadge.classList.add("badgeLive");
     skeletonNow();
 
     try {
@@ -414,6 +498,8 @@
         nowBadge.textContent = "OFF";
         nowBadge.classList.remove("badgeLive");
         setNowCover("");
+        // neutral tint fallback
+        updateTint({ imageUrl: "", keyString: "Listening Mirror" });
         applyMarquee(nowTrackWrap);
         applyMarquee(nowArtistWrap);
         applyMarquee(nowAlbumWrap);
@@ -430,20 +516,23 @@
 
       setNowCover(item.image || "");
 
-      // Marquee for Now Playing lines
+      // Update tint from current artwork (or fallback)
+      updateTint({
+        imageUrl: item.image || "",
+        keyString: `${item.name || ""} ${item.artist || ""}`.trim()
+      });
+
       applyMarquee(nowTrackWrap);
       applyMarquee(nowArtistWrap);
       applyMarquee(nowAlbumWrap);
 
-      // Tap Now Playing → Spotify search
+      // Tap Now card → Spotify search
       const q = `${item.name || ""} ${item.artist || ""}`.trim();
       const card = nowTrackWrap?.closest(".card");
       if (card && !card.dataset.spotifyBound) {
         card.dataset.spotifyBound = "1";
-        card.addEventListener("click", (e) => {
-          // avoid clicks from tab area etc. (only inside now panel card)
+        card.addEventListener("click", () => {
           if (currentTab !== "now") return;
-          // allow clicking anywhere in the Now card
           vibrate(12);
           openSpotifySearch(q);
         });
@@ -455,17 +544,13 @@
       nowBadge.textContent = "OFF";
       nowBadge.classList.remove("badgeLive");
       setNowCover("");
+      updateTint({ imageUrl: "", keyString: "Listening Mirror" });
     }
   }
 
-  // ---------------------------
-  // Fetch + Render: /api/history
-  // ---------------------------
   async function refreshRecent() {
     recentMeta.textContent = "";
     recentList.innerHTML = "";
-
-    // Skeleton
     for (let i = 0; i < 6; i++) recentList.appendChild(skeletonRow());
 
     try {
@@ -483,30 +568,33 @@
             subtitle: it.artist || "",
             right: "",
             imageUrl: it.image || "",
-            spotifyQuery: `${it.name || ""} ${it.artist || ""}`.trim()
+            spotifyQuery: `${it.name || ""} ${it.artist || ""}`.trim(),
+            tintKey: `${it.name || ""} ${it.artist || ""}`.trim()
           })
         );
       });
 
-      // No "10 items" text (kept empty)
       recentMeta.textContent = items.length ? "" : "No recent history returned.";
+      // tint from first visible item (nice default)
+      if (items[0]) {
+        updateTint({
+          imageUrl: items[0].image || "",
+          keyString: `${items[0].name || ""} ${items[0].artist || ""}`.trim()
+        });
+      }
       applyMarqueeAll();
     } catch (e) {
       setStatus(false);
       recentMeta.textContent = `Error: ${String(e.message || e)}`;
       recentList.innerHTML = "";
+      updateTint({ imageUrl: "", keyString: "Listening Mirror" });
     }
   }
 
-  // ---------------------------
-  // Fetch + Render: /api/top
-  // ---------------------------
   async function refreshTop() {
     topMeta.textContent = "";
     topList.innerHTML = "";
     topBadge.textContent = String(topLimit);
-
-    // Skeleton
     for (let i = 0; i < 6; i++) topList.appendChild(skeletonRow());
 
     const path = `/api/top?type=${encodeURIComponent(topType)}&period=${encodeURIComponent(topPeriod)}&limit=${encodeURIComponent(topLimit)}`;
@@ -517,7 +605,6 @@
 
       const items = j?.items || [];
       topList.innerHTML = "";
-
       topMeta.textContent = `${topType} • ${topPeriod}`;
 
       items.forEach((it, i) => {
@@ -529,7 +616,8 @@
               subtitle: "",
               right: it.playcount ?? "",
               imageUrl: it.image || "",
-              spotifyQuery: `${it.name || ""}`.trim()
+              spotifyQuery: `${it.name || ""}`.trim(),
+              tintKey: `${it.name || ""}`.trim()
             })
           );
         } else if (topType === "albums") {
@@ -540,11 +628,11 @@
               subtitle: it.artist || "",
               right: it.playcount ?? "",
               imageUrl: it.image || "",
-              spotifyQuery: `${it.name || ""} ${it.artist || ""}`.trim()
+              spotifyQuery: `${it.name || ""} ${it.artist || ""}`.trim(),
+              tintKey: `${it.name || ""} ${it.artist || ""}`.trim()
             })
           );
         } else {
-          // tracks
           topList.appendChild(
             rowItem({
               idx: i + 1,
@@ -552,30 +640,40 @@
               subtitle: it.artist || "",
               right: it.playcount ?? "",
               imageUrl: it.image || "",
-              spotifyQuery: `${it.name || ""} ${it.artist || ""}`.trim()
+              spotifyQuery: `${it.name || ""} ${it.artist || ""}`.trim(),
+              tintKey: `${it.name || ""} ${it.artist || ""}`.trim()
             })
           );
         }
       });
 
       if (!items.length) topMeta.textContent = "No top data returned.";
+
+      // tint from first item (default)
+      if (items[0]) {
+        const key = topType === "artists"
+          ? `${items[0].name || ""}`.trim()
+          : `${items[0].name || ""} ${items[0].artist || ""}`.trim();
+        updateTint({ imageUrl: items[0].image || "", keyString: key });
+      } else {
+        updateTint({ imageUrl: "", keyString: "Listening Mirror" });
+      }
+
       applyMarqueeAll();
     } catch (e) {
       setStatus(false);
       topMeta.textContent = `Error: ${String(e.message || e)}`;
       topList.innerHTML = "";
+      updateTint({ imageUrl: "", keyString: "Listening Mirror" });
     }
   }
-// ---------------------------
+
+  // ---------------------------
   // Wire UI
   // ---------------------------
   function init() {
-    // tabs
-    tabBtns.forEach((b) => {
-      b.addEventListener("click", () => showTab(b.dataset.tab));
-    });
+    tabBtns.forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
 
-    // top type
     topTypeBtns.forEach((b) => {
       b.addEventListener("click", () => {
         topType = String(b.dataset.topType || "tracks");
@@ -585,7 +683,6 @@
       });
     });
 
-    // top period
     topPeriodBtns.forEach((b) => {
       b.addEventListener("click", () => {
         topPeriod = String(b.dataset.topPeriod || "today");
@@ -595,22 +692,16 @@
       });
     });
 
-    // initial selected states
     setSelected(tabBtns, (b) => b.dataset.tab === "now");
     setSelected(topTypeBtns, (b) => (b.dataset.topType || "") === "tracks");
     setSelected(topPeriodBtns, (b) => (b.dataset.topPeriod || "") === "today");
 
-    // boot
     refreshPing();
     showTab("now");
 
-    // auto refresh ping + now (lightweight)
     setInterval(refreshPing, 15000);
-    setInterval(() => {
-      if (currentTab === "now") refreshNow();
-    }, 15000);
+    setInterval(() => { if (currentTab === "now") refreshNow(); }, 15000);
 
-    // Re-evaluate marquee on resize/orientation
     window.addEventListener("resize", () => {
       applyMarqueeAll();
       applyMarquee(nowTrackWrap);
@@ -618,8 +709,10 @@
       applyMarquee(nowAlbumWrap);
     }, { passive: true });
 
-    // Prevent the browser "pull to refresh" bounce from feeling like a UI feature
     window.addEventListener("touchmove", () => {}, { passive: true });
+
+    // initial neutral tint
+    updateTint({ imageUrl: "", keyString: "Listening Mirror" });
   }
 
   init();

@@ -1,4 +1,4 @@
-/* Listening Mirror UI (premium, no pull-to-refresh)
+/* Listening Mirror UI (minimal high-end)
    Worker: https://i.errtanq9.workers.dev
 */
 (() => {
@@ -9,7 +9,7 @@
   const el = (sel) => document.querySelector(sel);
   const els = (sel) => Array.from(document.querySelectorAll(sel));
 
-  // Header/status
+  // Status
   const statusLine = el("#statusLine");
   const statusDot = el("#statusDot");
 
@@ -18,7 +18,6 @@
   const tabBtns = els(".tabBtn");
 
   // Now UI
-  const nowCard = el("#nowCard");
   const nowUpdated = el("#nowUpdated");
   const nowBadge = el("#nowBadge");
   const nowImg = el("#nowImg");
@@ -36,22 +35,16 @@
   const topPeriodBtns = els("[data-top-period]");
 
   // Recent UI
-  const recentMeta = el("#recentMeta");
   const recentList = el("#recentList");
 
-  // Marquee elements
+  // Marquee
   const marqBlocks = els("[data-marq]");
 
   let currentTab = "now";
   let topType = "tracks";   // tracks | artists | albums
   let topPeriod = "today";  // today | week | year
-
-  // ✅ default TOP limit now 10
   let topLimit = 10;
 
-  // ---------------------------
-  // Helpers
-  // ---------------------------
   function setSelected(btns, predicate) {
     btns.forEach((b) => b.setAttribute("aria-selected", predicate(b) ? "true" : "false"));
   }
@@ -86,7 +79,6 @@
     }
   }
 
-  // Worker returns images like "/img?u=..."
   function resolveImageUrl(u) {
     if (!u) return "";
     const s = String(u);
@@ -121,7 +113,7 @@
     }
   }
 // ---------------------------
-  // Marquee logic (only if overflow)
+  // Marquee (only if overflow)
   // ---------------------------
   function setupMarquee(block) {
     const inner = block.querySelector(".inner");
@@ -210,8 +202,6 @@
     nowAlbum.textContent = "—";
     nowMsg.textContent = "";
     setNowCover("");
-
-    if (nowCard) nowCard.classList.remove("liveSheen");
     refreshAllMarquees();
   }
 
@@ -234,9 +224,9 @@
   }
 
   // ---------------------------
-  // Row builder (Top/Recent)
+  // Row builder
   // ---------------------------
-  function rowItem({ idx, title, subtitle, right, imageUrl }) {
+  function rowItem({ idx, title, subtitle, right, imageUrl, rightClass = "" }) {
     const wrap = document.createElement("div");
     wrap.className = "row";
 
@@ -307,6 +297,7 @@
 
     const r = document.createElement("div");
     r.className = "right";
+    if (rightClass) r.classList.add(rightClass);
     r.textContent = right != null ? String(right) : "";
 
     wrap.appendChild(cover);
@@ -354,13 +345,10 @@
       row.appendChild(c);
       row.appendChild(mid);
       row.appendChild(right);
-
       container.appendChild(row);
     }
   }
-// ---------------------------
-  // Fetch + Render: /api/ping
-  // ---------------------------
+
   async function refreshPing() {
     try {
       const j = await safeFetchJson("/api/ping");
@@ -370,9 +358,6 @@
     }
   }
 
-  // ---------------------------
-  // Fetch + Render: /api/now
-  // ---------------------------
   async function refreshNow() {
     clearNow();
     nowUpdated.textContent = fmtTime(Date.now());
@@ -388,14 +373,12 @@
         nowBadge.textContent = "OFF";
         nowBadge.classList.remove("live");
         setNowCover("");
-        if (nowCard) nowCard.classList.remove("liveSheen");
         refreshAllMarquees();
         return;
       }
 
       nowBadge.textContent = "LIVE";
       nowBadge.classList.add("live");
-      if (nowCard) nowCard.classList.add("liveSheen");
 
       nowTrack.textContent = item.name || "—";
       nowArtist.textContent = item.artist || "—";
@@ -408,18 +391,12 @@
       nowMsg.textContent = `Error: ${String(e.message || e)}`;
       nowBadge.textContent = "OFF";
       nowBadge.classList.remove("live");
-      if (nowCard) nowCard.classList.remove("liveSheen");
       setNowCover("");
       refreshAllMarquees();
     }
   }
 
-  // ---------------------------
-  // Fetch + Render: /api/history
-  // ---------------------------
   async function refreshRecent() {
-    // ✅ remove "10 items" completely (leave meta empty)
-    if (recentMeta) recentMeta.textContent = "";
     addSkeletonRows(recentList, 7);
 
     try {
@@ -427,7 +404,6 @@
       const items = j?.items || [];
 
       recentList.innerHTML = "";
-
       items.forEach((it, i) => {
         recentList.appendChild(
           rowItem({
@@ -439,19 +415,11 @@
           })
         );
       });
-
-      // no "No recent..." text either (keep it clean)
-      if (!items.length) {
-        recentList.innerHTML = "";
-      }
-    } catch (e) {
+    } catch {
       recentList.innerHTML = "";
     }
   }
 
-  // ---------------------------
-  // Fetch + Render: /api/top
-  // ---------------------------
   async function refreshTop() {
     topMeta.textContent = "Loading…";
     addSkeletonRows(topList, 8);
@@ -473,6 +441,7 @@
             title: it.name || "—",
             subtitle: "",
             right: it.playcount ?? "",
+            rightClass: "count",
             imageUrl: it.image || ""
           }));
         } else if (topType === "albums") {
@@ -481,6 +450,7 @@
             title: it.name || "—",
             subtitle: it.artist || "",
             right: it.playcount ?? "",
+            rightClass: "count",
             imageUrl: it.image || ""
           }));
         } else {
@@ -489,23 +459,17 @@
             title: it.name || "—",
             subtitle: it.artist || "",
             right: it.playcount ?? "",
+            rightClass: "count",
             imageUrl: it.image || ""
           }));
         }
       });
-
-      if (!items.length) {
-        topList.innerHTML = "";
-      }
-    } catch (e) {
+    } catch {
       topMeta.textContent = "";
       topList.innerHTML = "";
     }
   }
 
-  // ---------------------------
-  // Init
-  // ---------------------------
   function init() {
     tabBtns.forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
 
@@ -535,7 +499,6 @@
 
     window.addEventListener("resize", refreshAllMarquees);
 
-    // auto refresh ping + now
     setInterval(refreshPing, 15000);
     setInterval(() => {
       if (currentTab === "now") refreshNow();

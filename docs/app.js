@@ -1,25 +1,10 @@
-// PART 1/4 : app.js (FULL REPLACE)
+// PART 1/4 — app.js (FULL REPLACE)
 (() => {
   "use strict";
 
-  // ---------- API BASE (flexible, no backend changes) ----------
-  const qs = new URLSearchParams(location.search);
-  const apiFromQuery = (qs.get("api") || "").trim();
-  const apiFromWindow = (window.API_BASE || window.__API_BASE__ || "").toString().trim();
-
-  const RAW_BASE = apiFromQuery || apiFromWindow || "";
-  const API_BASE = upgradeToHttps(RAW_BASE).replace(/\/+$/, "");
-
-  // Endpoints (generic). Adjust ONLY if your backend uses different paths.
-  const EP = {
-    now:  "/now",
-    recent: "/recent",
-    top:  "/top"
-  };
-
-  // ---------- DOM ----------
   const $ = (id) => document.getElementById(id);
 
+  // ---- DOM (matches your index.html exactly) ----
   const statusDot = $("statusDot");
   const statusLine = $("statusLine");
 
@@ -38,40 +23,32 @@
   const nowTrack = $("nowTrack");
   const nowArtist = $("nowArtist");
   const nowAlbum = $("nowAlbum");
-  const nowMsg = $("nowMsg"); // (hidden in CSS in your current index)
+  const nowMsg = $("nowMsg");
 
   const topList = $("topList");
   const recentList = $("recentList");
 
-  // Tabs
   const tabBtns = Array.from(document.querySelectorAll(".tabBtn"));
   const panels = Array.from(document.querySelectorAll("[data-panel]"));
 
-  // Top controls
   const topTypeBtns = Array.from(document.querySelectorAll('[data-top-type]'));
   const topPeriodBtns = Array.from(document.querySelectorAll('[data-top-period]'));
 
   let topType = "tracks";
   let topPeriod = "today";
 
-  // ---------- Helpers ----------
+  // ---- helpers ----
   function upgradeToHttps(url) {
     if (!url) return "";
-    const u = url.toString().trim();
+    const u = String(url).trim();
+    if (!u) return "";
     if (u.startsWith("//")) return "https:" + u;
     if (u.startsWith("http://")) return u.replace("http://", "https://");
     return u;
   }
 
-  function joinUrl(base, path) {
-    if (!base) return path; // same-origin
-    if (!path) return base;
-    return base + (path.startsWith("/") ? path : ("/" + path));
-  }
-
   function fmtTime(d = new Date()) {
     try {
-      // Keep it simple: 02:37:00 PM style like your UI
       return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     } catch {
       return "--";
@@ -107,7 +84,6 @@
 
   function enableMarqueeIfNeeded(wrapperEl, textEl) {
     if (!wrapperEl || !textEl) return;
-    // If content overflows, add class "marqOn"
     requestAnimationFrame(() => {
       const over = textEl.scrollWidth > wrapperEl.clientWidth + 6;
       wrapperEl.classList.toggle("marqOn", over);
@@ -120,118 +96,257 @@
     });
   }
 
-  // Robust artwork setter (NOW + lists)
-  function applyArtwork({ imgEl, fallbackEl, wrapEl, url, alsoAmbientEl }) {
-    const safe = upgradeToHttps(url || "");
-    if (!imgEl || !fallbackEl || !wrapEl) return;
+  function applyArtworkNow(url) {
+    const safe = upgradeToHttps(url);
+    if (!nowImg || !nowFallback || !nowCoverWrap) return;
 
     if (!safe) {
-      imgEl.style.display = "none";
-      fallbackEl.style.display = "grid";
-      wrapEl.style.setProperty("--cover-url", "none");
-      if (alsoAmbientEl) {
-        alsoAmbientEl.classList.remove("on");
-        alsoAmbientEl.style.setProperty("--ambient-url", "none");
+      nowImg.style.display = "none";
+      nowFallback.style.display = "grid";
+      nowCoverWrap.style.setProperty("--cover-url", "none");
+      if (nowAmbient) {
+        nowAmbient.classList.remove("on");
+        nowAmbient.style.setProperty("--ambient-url", "none");
       }
       return;
     }
 
-    // show loading state (fallback visible until load)
-    imgEl.style.display = "none";
-    fallbackEl.style.display = "grid";
+    nowImg.style.display = "none";
+    nowFallback.style.display = "grid";
 
-    // Set CSS blur backgrounds
-    wrapEl.style.setProperty("--cover-url", `url("${safe}")`);
-    if (alsoAmbientEl) {
-      alsoAmbientEl.style.setProperty("--ambient-url", `url("${safe}")`);
-      alsoAmbientEl.classList.add("on");
+    nowCoverWrap.style.setProperty("--cover-url", `url("${safe}")`);
+    if (nowAmbient) {
+      nowAmbient.style.setProperty("--ambient-url", `url("${safe}")`);
+      nowAmbient.classList.add("on");
     }
 
-    // Ensure image loads; only then show it
-    imgEl.onload = () => {
-      imgEl.style.display = "block";
-      fallbackEl.style.display = "none";
+    nowImg.onload = () => {
+      nowImg.style.display = "block";
+      nowFallback.style.display = "none";
     };
-    imgEl.onerror = () => {
-      imgEl.style.display = "none";
-      fallbackEl.style.display = "grid";
+    nowImg.onerror = () => {
+      nowImg.style.display = "none";
+      nowFallback.style.display = "grid";
     };
 
-    // IMPORTANT: set src last
-    imgEl.src = safe;
+    nowImg.src = safe;
   }
 
-  async function fetchJSON(path, params = {}) {
-    const url = new URL(joinUrl(API_BASE, path), location.origin);
+  // ---- IMPORTANT: endpoint auto-detect (no backend changes needed) ----
+  const LS_KEY = "lm_endpoints_v1";
+
+  const CANDIDATES = {
+    now: [
+      "/now", "/api/now", "/lastfm/now", "/now-playing", "/nowplaying", "/np"
+    ],
+    recent: [
+      "/recent", "/api/recent", "/lastfm/recent", "/recent-tracks", "/recenttracks", "/recent/tracks"
+    ],
+    top: [
+      "/top", "/api/top", "/lastfm/top", "/top-tracks", "/toptracks", "/top/tracks"
+    ]
+  };
+
+  function loadSavedEndpoints() {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (!raw) return null;
+      const obj = JSON.parse(raw);
+      if (!obj || typeof obj !== "object") return null;
+      return obj;
+    } catch {
+      return null;
+    }
+  }
+
+  function saveEndpoints(obj) {
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify(obj));
+    } catch {}
+  }
+
+  let EP = loadSavedEndpoints() || { now: null, recent: null, top: null };
+
+  async function fetchJSON(path, params = {}, timeoutMs = 8000) {
+    const url = new URL(path, location.origin);
     Object.entries(params).forEach(([k, v]) => {
-      if (v !== undefined && v !== null && `${v}`.length) url.searchParams.set(k, v);
+      if (v !== undefined && v !== null && String(v).length) url.searchParams.set(k, v);
     });
 
-    const res = await fetch(url.toString(), {
-      method: "GET",
-      headers: { "Accept": "application/json" },
-      cache: "no-store",
-    });
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
 
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      throw new Error(`HTTP ${res.status} ${res.statusText}${txt ? ` — ${txt.slice(0, 120)}` : ""}`);
-    }
-    return res.json();
-  }
-// PART 2/4 : app.js (FULL REPLACE)
-  // ---------- Data shape normalizer ----------
-  // Accepts multiple possible backend shapes without breaking
-  function pickArtwork(item) {
-    if (!item) return "";
-    // Common candidates:
-    // item.image, item.artwork, item.cover, item.albumArt, item.art, item.album?.image, item.images?.[0]
-    const candidates = [
-      item.image,
-      item.artwork,
-      item.cover,
-      item.albumArt,
-      item.art,
-      item?.album?.image,
-      item?.album?.artwork,
-      item?.album?.cover,
-      item?.images?.[0],
-      item?.images?.[1],
-    ];
-    // Sometimes last.fm gives array of objects: [{size:"small", "#text":"..."}]
-    for (const c of candidates) {
-      if (!c) continue;
-      if (typeof c === "string") return c;
-      if (Array.isArray(c)) {
-        const best = c.slice().reverse().find(x => x && (x["#text"] || x.url));
-        if (best) return best["#text"] || best.url || "";
+    try {
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        headers: { "Accept": "application/json" },
+        cache: "no-store",
+        signal: ctrl.signal,
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
       }
-      if (typeof c === "object") {
-        if (c["#text"]) return c["#text"];
-        if (c.url) return c.url;
-      }
+      return await res.json();
+    } finally {
+      clearTimeout(t);
     }
-    return "";
   }
 
-  function pickName(item, keys = []) {
+  async function fetchWithAutoDetect(kind, params = {}) {
+    // If we already know the endpoint, use it.
+    if (EP[kind]) return await fetchJSON(EP[kind], params);
+
+    // Otherwise try candidates until one works, then lock it.
+    const list = CANDIDATES[kind] || [];
+    let lastErr = null;
+
+    for (const p of list) {
+      try {
+        const data = await fetchJSON(p, params);
+        EP[kind] = p;
+        saveEndpoints(EP);
+        return data;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+
+    throw lastErr || new Error("No endpoint worked");
+  }
+// PART 2/4 — app.js (FULL REPLACE)
+
+  // ---- Last.fm shape normalization + artwork extraction ----
+  function pickName(obj, keys = []) {
     for (const k of keys) {
-      const v = item?.[k];
+      const v = obj?.[k];
       if (typeof v === "string" && v.trim()) return v.trim();
-      if (v && typeof v === "object" && typeof v.name === "string" && v.name.trim()) return v.name.trim();
+      if (v && typeof v === "object") {
+        if (typeof v.name === "string" && v.name.trim()) return v.name.trim();
+        if (typeof v["#text"] === "string" && v["#text"].trim()) return v["#text"].trim();
+      }
     }
     return "";
   }
 
-  function pickCount(item) {
-    const c = item?.playcount ?? item?.count ?? item?.plays ?? item?.scrobbles ?? item?.value;
+  function pickCount(obj) {
+    const c = obj?.playcount ?? obj?.count ?? obj?.plays ?? obj?.scrobbles ?? obj?.["playCount"];
     if (c === 0) return 0;
-    if (!c) return null;
+    if (c === undefined || c === null) return null;
     const n = Number(c);
     return Number.isFinite(n) ? n : c;
   }
 
-  // ---------- UI builders ----------
+  function bestFromImageArray(arr) {
+    if (!Array.isArray(arr)) return "";
+    // Last.fm: [{size:"small", "#text":"..."}, ...]
+    for (let i = arr.length - 1; i >= 0; i--) {
+      const it = arr[i];
+      if (!it) continue;
+      const u = it["#text"] || it.url || "";
+      if (u && String(u).trim()) return u;
+    }
+    return "";
+  }
+
+  function pickArtwork(obj) {
+    if (!obj) return "";
+
+    // 1) direct strings
+    const direct = [
+      obj.image, obj.artwork, obj.cover, obj.albumArt, obj.art, obj.img, obj.thumbnail
+    ].find(v => typeof v === "string" && v.trim());
+    if (direct) return direct;
+
+    // 2) direct object forms
+    const directObj = [obj.image, obj.artwork, obj.cover, obj.albumArt, obj.art, obj.img]
+      .find(v => v && typeof v === "object" && (v["#text"] || v.url));
+    if (directObj) return directObj["#text"] || directObj.url || "";
+
+    // 3) last.fm arrays
+    const a1 = bestFromImageArray(obj.image);
+    if (a1) return a1;
+
+    // 4) nested album/track containers (last.fm likes these)
+    const a2 = bestFromImageArray(obj?.album?.image);
+    if (a2) return a2;
+
+    const a3 = bestFromImageArray(obj?.track?.image);
+    if (a3) return a3;
+
+    // sometimes recenttracks: track has album with image
+    const a4 = bestFromImageArray(obj?.track?.album?.image);
+    if (a4) return a4;
+
+    // sometimes: obj.album is a string but artwork elsewhere
+    const a5 = bestFromImageArray(obj?.["@attr"]?.image);
+    if (a5) return a5;
+
+    return "";
+  }
+
+  function unwrapLastFmList(data) {
+    // Handles:
+    // recenttracks.track[]
+    // toptracks.track[]
+    // topalbums.album[]
+    // topartists.artist[]
+    if (!data || typeof data !== "object") return [];
+
+    if (Array.isArray(data)) return data;
+
+    const recent = data?.recenttracks?.track;
+    if (recent) return Array.isArray(recent) ? recent : [recent];
+
+    const topTracks = data?.toptracks?.track;
+    if (topTracks) return Array.isArray(topTracks) ? topTracks : [topTracks];
+
+    const topAlbums = data?.topalbums?.album;
+    if (topAlbums) return Array.isArray(topAlbums) ? topAlbums : [topAlbums];
+
+    const topArtists = data?.topartists?.artist;
+    if (topArtists) return Array.isArray(topArtists) ? topArtists : [topArtists];
+
+    // fallback common keys
+    const items = data?.items || data?.list || data?.top || data?.recent;
+    if (items) return Array.isArray(items) ? items : [items];
+
+    return [];
+  }
+
+  // ---- list UI ----
+  function setListLoading(container, label) {
+    if (!container) return;
+    container.innerHTML = "";
+    const row = document.createElement("div");
+    row.className = "row";
+    row.style.opacity = "0.8";
+    row.innerHTML = `
+      <div class="thumb"><div class="thumbFallback">…</div></div>
+      <div class="mid">
+        <div class="title">${label}</div>
+        <div class="sub"></div>
+      </div>
+      <div class="right"></div>
+    `;
+    container.appendChild(row);
+  }
+
+  function setListError(container, msg) {
+    if (!container) return;
+    container.innerHTML = "";
+    const row = document.createElement("div");
+    row.className = "row";
+    row.style.opacity = "0.85";
+    row.innerHTML = `
+      <div class="mid" style="grid-column:1/-1">
+        <div class="title">${msg}</div>
+        <div class="sub"></div>
+      </div>
+    `;
+    container.appendChild(row);
+  }
+
   function makeRow({ index, title, sub, count, artUrl }) {
     const row = document.createElement("div");
     row.className = "row";
@@ -239,12 +354,11 @@
     const thumb = document.createElement("div");
     thumb.className = "thumb";
 
-    // IMPORTANT: always create img (so artwork CAN show)
     const img = document.createElement("img");
     img.alt = "";
     img.decoding = "async";
     img.loading = "lazy";
-    img.referrerPolicy = "no-referrer"; // avoids some CDNs blocking
+    img.referrerPolicy = "no-referrer"; // helps with some CDNs
 
     const fb = document.createElement("div");
     fb.className = "thumbFallback";
@@ -253,7 +367,6 @@
     thumb.appendChild(img);
     thumb.appendChild(fb);
 
-    // middle
     const mid = document.createElement("div");
     mid.className = "mid";
 
@@ -272,7 +385,7 @@
     right.className = "right";
     if (count !== null && count !== undefined && count !== "") {
       right.classList.add("count");
-      right.textContent = `${count}`;
+      right.textContent = String(count);
     } else {
       right.textContent = "";
     }
@@ -281,14 +394,13 @@
     row.appendChild(mid);
     row.appendChild(right);
 
-    // apply art
-    const safe = pickArtwork({ image: artUrl });
+    const safe = upgradeToHttps(artUrl);
     if (safe) {
-      img.onload = () => { fb.style.display = "none"; img.style.display = "block"; };
-      img.onerror = () => { img.style.display = "none"; fb.style.display = "grid"; };
       img.style.display = "none";
       fb.style.display = "grid";
-      img.src = upgradeToHttps(safe);
+      img.onload = () => { fb.style.display = "none"; img.style.display = "block"; };
+      img.onerror = () => { img.style.display = "none"; fb.style.display = "grid"; };
+      img.src = safe;
     } else {
       img.style.display = "none";
       fb.style.display = "grid";
@@ -296,58 +408,21 @@
 
     return row;
   }
+// PART 3/4 — app.js (FULL REPLACE)
 
-  function setListLoading(container, label = "Loading…") {
-    if (!container) return;
-    container.innerHTML = "";
-    const row = document.createElement("div");
-    row.className = "row";
-    row.style.opacity = "0.8";
-    row.innerHTML = `
-      <div class="thumb"><div class="thumbFallback">…</div></div>
-      <div class="mid">
-        <div class="title">${label}</div>
-        <div class="sub"> </div>
-      </div>
-      <div class="right"></div>
-    `;
-    container.appendChild(row);
-  }
-
-  function setListError(container, msg) {
-    if (!container) return;
-    container.innerHTML = "";
-    const row = document.createElement("div");
-    row.className = "row";
-    row.style.opacity = "0.85";
-    row.innerHTML = `
-      <div class="mid" style="grid-column:1/-1">
-        <div class="title">${msg}</div>
-        <div class="sub"> </div>
-      </div>
-    `;
-    container.appendChild(row);
-  }
-
-  // ---------- Tabs ----------
+  // ---- tabs ----
   function selectTab(name) {
     tabBtns.forEach(btn => {
       const on = btn.dataset.tab === name;
       btn.setAttribute("aria-selected", on ? "true" : "false");
     });
-    panels.forEach(p => {
-      const on = p.dataset.panel === name;
-      p.classList.toggle("hidden", !on);
-    });
+    panels.forEach(p => p.classList.toggle("hidden", p.dataset.panel !== name));
 
-    // Lazy load lists when tab selected
     if (name === "top") loadTop().catch(() => {});
     if (name === "recent") loadRecent().catch(() => {});
   }
 
-  tabBtns.forEach(btn => {
-    btn.addEventListener("click", () => selectTab(btn.dataset.tab));
-  });
+  tabBtns.forEach(btn => btn.addEventListener("click", () => selectTab(btn.dataset.tab)));
 
   topTypeBtns.forEach(btn => {
     btn.addEventListener("click", () => {
@@ -364,32 +439,37 @@
       loadTop().catch(() => {});
     });
   });
-// PART 3/4 : app.js (FULL REPLACE)
-  // ---------- Loaders ----------
+
+  // ---- loaders ----
   async function loadNow() {
     try {
-      const data = await fetchJSON(EP.now);
+      const data = await fetchWithAutoDetect("now", {});
 
-      // Online status
-      const online = !!(data?.online ?? data?.status === "ok" ?? data?.ok);
+      // online + now-playing shape variants
+      const online = !!(data?.online ?? data?.ok ?? data?.status === "ok");
       setOnline(online);
 
-      // Now-playing object can be:
-      // data.now, data.track, data.nowPlaying, data.item
       const np = data?.now || data?.track || data?.nowPlaying || data?.item || data;
 
-      // Live flag can be:
-      // data.isPlaying, np.isPlaying, data.playing
-      const isLive = !!(data?.isPlaying ?? np?.isPlaying ?? data?.playing ?? np?.playing);
+      const isLive = !!(
+        data?.isPlaying ??
+        np?.isPlaying ??
+        data?.playing ??
+        np?.playing ??
+        (np?.["@attr"]?.nowplaying === "true")
+      );
       setBadgeLive(isLive);
 
-      // Updated time
       if (nowUpdated) nowUpdated.textContent = fmtTime(new Date());
 
-      // Text
       const trackName = pickName(np, ["name", "track", "title"]);
-      const artistName = pickName(np, ["artist", "artistName"]);
-      const albumName = pickName(np, ["album", "albumName"]);
+      const artistName =
+        pickName(np, ["artist", "artistName"]) ||
+        pickName(np?.artist, ["name", "#text"]);
+
+      const albumName =
+        pickName(np, ["album", "albumName"]) ||
+        pickName(np?.album, ["name", "#text"]);
 
       setText(nowTrack, trackName);
       setText(nowArtist, artistName);
@@ -399,40 +479,57 @@
       enableMarqueeIfNeeded(nowArtistWrap, nowArtist);
       enableMarqueeIfNeeded(nowAlbumWrap, nowAlbum);
 
-      // Artwork
       const art = pickArtwork(np);
-      applyArtwork({
-        imgEl: nowImg,
-        fallbackEl: nowFallback,
-        wrapEl: nowCoverWrap,
-        url: art,
-        alsoAmbientEl: nowAmbient
-      });
+      applyArtworkNow(art);
 
-      // Optional message (kept but your CSS hides it)
       if (nowMsg) {
         if (!online) nowMsg.textContent = "Offline";
         else if (!isLive) nowMsg.textContent = "Not playing";
         else nowMsg.textContent = "Now playing";
       }
-    } catch (err) {
+    } catch {
       setOnline(false);
       setBadgeLive(false);
       if (nowUpdated) nowUpdated.textContent = fmtTime(new Date());
-
-      // Keep previous text; only show fallbacks if totally empty
-      if (nowTrack && nowTrack.textContent === "—") nowTrack.textContent = "—";
-      if (nowArtist && nowArtist.textContent === "—") nowArtist.textContent = "—";
-      if (nowAlbum && nowAlbum.textContent === "—") nowAlbum.textContent = "—";
-
-      applyArtwork({
-        imgEl: nowImg,
-        fallbackEl: nowFallback,
-        wrapEl: nowCoverWrap,
-        url: "",
-        alsoAmbientEl: nowAmbient
-      });
+      applyArtworkNow("");
+      if (nowMsg) nowMsg.textContent = "Offline";
     }
+  }
+
+  function mapTopRow(it) {
+    // For Last.fm:
+    // toptracks.track: { name, artist:{name}, image:[...] , playcount }
+    // topalbums.album: { name, artist:{name}, image:[...], playcount }
+    // topartists.artist: { name, image:[...], playcount }
+    if (topType === "artists") {
+      const title = pickName(it, ["name"]) || "—";
+      const sub = ""; // artist has no subline
+      const count = pickCount(it);
+      const artUrl = pickArtwork(it);
+      return { title, sub, count, artUrl };
+    }
+
+    if (topType === "albums") {
+      const title = pickName(it, ["name"]) || "—";
+      const sub =
+        pickName(it, ["artist"]) ||
+        pickName(it?.artist, ["name", "#text"]) ||
+        "—";
+      const count = pickCount(it);
+      const artUrl = pickArtwork(it);
+      return { title, sub, count, artUrl };
+    }
+
+    // tracks
+    const title = pickName(it, ["name"]) || pickName(it, ["track", "title"]) || "—";
+    const sub =
+      pickName(it, ["artist"]) ||
+      pickName(it?.artist, ["name", "#text"]) ||
+      pickName(it?.["@attr"], ["artist"]) ||
+      "—";
+    const count = pickCount(it);
+    const artUrl = pickArtwork(it);
+    return { title, sub, count, artUrl };
   }
 
   async function loadTop() {
@@ -440,83 +537,78 @@
     setListLoading(topList, "Loading Top…");
 
     try {
-      const data = await fetchJSON(EP.top, {
-        type: topType,
-        period: topPeriod,
-        limit: 10
-      });
+      // send params (harmless if backend ignores)
+      const data = await fetchWithAutoDetect("top", { type: topType, period: topPeriod, limit: 10 });
 
-      // items array can be: data.items, data.top, data.list, data
-      const items =
-        data?.items ||
-        data?.top ||
-        data?.list ||
-        (Array.isArray(data) ? data : []) ||
-        [];
-
+      const items = unwrapLastFmList(data);
       topList.innerHTML = "";
 
-      items.slice(0, 10).forEach((it, i) => {
-        const title =
-          pickName(it, ["name", "track", "title", "album"]) ||
-          pickName(it?.track, ["name", "title"]) ||
-          "—";
+      const slice = items.slice(0, 10);
+      if (!slice.length) {
+        setListError(topList, "No Top data.");
+        return;
+      }
 
-        // For tracks: artist usually sits in it.artist.name or it.artist
-        const sub =
-          pickName(it, ["artist", "artistName"]) ||
-          pickName(it?.artist, ["name"]) ||
-          pickName(it?.track, ["artist"]) ||
-          "—";
+      slice.forEach((it, i) => {
+        const { title, sub, count, artUrl } = mapTopRow(it);
 
-        const count = pickCount(it);
-
-        const artUrl = pickArtwork(it);
+        // 🔥 IMPORTANT FIX: if artwork is empty at this level, try nested common nodes
+        const fallbackArt =
+          artUrl ||
+          pickArtwork(it?.track) ||
+          pickArtwork(it?.album) ||
+          pickArtwork(it?.image) ||
+          "";
 
         topList.appendChild(makeRow({
           index: i + 1,
           title,
           sub,
           count,
-          artUrl
+          artUrl: fallbackArt
         }));
       });
-
-      if (!items.length) setListError(topList, "No Top data.");
-    } catch (err) {
+    } catch {
       setListError(topList, "Couldn’t load Top.");
     }
   }
+// PART 4/4 — app.js (FULL REPLACE)
 
   async function loadRecent() {
     if (!recentList) return;
     setListLoading(recentList, "Loading Recent…");
 
     try {
-      const data = await fetchJSON(EP.recent, { limit: 10 });
+      const data = await fetchWithAutoDetect("recent", { limit: 10 });
 
-      const items =
-        data?.items ||
-        data?.recent ||
-        data?.list ||
-        (Array.isArray(data) ? data : []) ||
-        [];
-
+      const items = unwrapLastFmList(data);
       recentList.innerHTML = "";
 
-      items.slice(0, 10).forEach((it, i) => {
+      const slice = items.slice(0, 10);
+      if (!slice.length) {
+        setListError(recentList, "No Recent data.");
+        return;
+      }
+
+      slice.forEach((it, i) => {
+        // recenttracks.track: { name, artist:{#text}, album:{#text}, image:[...] }
         const title =
-          pickName(it, ["name", "track", "title"]) ||
+          pickName(it, ["name"]) ||
           pickName(it?.track, ["name", "title"]) ||
           "—";
 
         const sub =
-          pickName(it, ["artist", "artistName"]) ||
-          pickName(it?.artist, ["name"]) ||
-          pickName(it?.track, ["artist"]) ||
+          pickName(it, ["artist"]) ||
+          pickName(it?.artist, ["name", "#text"]) ||
+          pickName(it?.track?.artist, ["name", "#text"]) ||
           "—";
 
-        const artUrl = pickArtwork(it);
+        const artUrl =
+          pickArtwork(it) ||
+          pickArtwork(it?.track) ||
+          pickArtwork(it?.album) ||
+          pickArtwork(it?.track?.album) ||
+          "";
 
         recentList.appendChild(makeRow({
           index: i + 1,
@@ -526,33 +618,26 @@
           artUrl
         }));
       });
-
-      if (!items.length) setListError(recentList, "No Recent data.");
-    } catch (err) {
+    } catch {
       setListError(recentList, "Couldn’t load Recent.");
     }
   }
-// PART 4/4 : app.js (FULL REPLACE)
-  // ---------- Polling ----------
+
+  // ---- polling ----
   let nowTimer = null;
 
   function start() {
-    // Default selected tab is "Now"
     selectTab("now");
 
-    // Initial loads
     loadNow().catch(() => {});
-    // Preload top/recent lightly after first paint (optional)
-    setTimeout(() => loadTop().catch(() => {}), 600);
-    setTimeout(() => loadRecent().catch(() => {}), 900);
+    setTimeout(() => loadTop().catch(() => {}), 700);
+    setTimeout(() => loadRecent().catch(() => {}), 1000);
 
-    // Poll now every 10s (safe)
     nowTimer = setInterval(() => {
       loadNow().catch(() => {});
     }, 10000);
   }
 
-  // If page is hidden, stop heavy work
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       if (nowTimer) clearInterval(nowTimer);

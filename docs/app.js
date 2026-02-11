@@ -1,8 +1,5 @@
 /* Listening Mirror - app.js (UI only)
-   - A: Sticky tabs handled in CSS
-   - B: LIVE pulse handled in CSS
-   - C: Skeleton loading for Top/Recent
-   - E: Smaller index number via .idx span
+   Robust parsing for /api/now (handles multiple JSON shapes)
 */
 
 (() => {
@@ -52,7 +49,6 @@
   // ---------- Utils ----------
   const pad2 = (n) => String(n).padStart(2, "0");
   function fmtTime(d = new Date()) {
-    // keep it simple: 24h time
     return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
   }
 
@@ -100,11 +96,10 @@
     setSelected(tabBtns, (b) => b.dataset.tab === name);
   }
 
-  // Marquee helper: enable animation only if overflow
+  // Marquee helper
   function setupMarquee(wrapEl, textEl) {
     if (!wrapEl || !textEl) return;
     wrapEl.classList.remove("marqOn");
-    // next frame after DOM updates
     requestAnimationFrame(() => {
       const wrapW = wrapEl.clientWidth;
       const textW = textEl.scrollWidth;
@@ -116,6 +111,72 @@
         wrapEl.classList.add("marqOn");
       }
     });
+  }
+
+  // ---------- ✅ Robust NOW parsing ----------
+  function pick(obj, keys) {
+    for (const k of keys) {
+      const v = obj?.[k];
+      if (v !== undefined && v !== null && String(v).trim() !== "") return v;
+    }
+    return "";
+  }
+
+  function toBool(v) {
+    if (typeof v === "boolean") return v;
+    if (typeof v === "number") return v !== 0;
+    if (typeof v === "string") return ["true","1","yes","y","playing","nowplaying"].includes(v.toLowerCase());
+    return false;
+  }
+
+  function parseNowPayload(j) {
+    // Accept many shapes:
+    // 1) { playing, track, artist, album, image, message }
+    // 2) { ok, now: {...} } or { ok, item: {...} } or { ok, data: {...} }
+    // 3) last.fm-like: { recenttracks: { track: [...] } } (fallback)
+    const core =
+      j?.now ||
+      j?.item ||
+      j?.data ||
+      j?.result ||
+      j;
+
+    // playing flags (different possible names)
+    const playing =
+      toBool(pick(core, ["playing", "isPlaying", "nowplaying", "nowPlaying", "live"])) ||
+      toBool(pick(j, ["playing", "isPlaying", "nowplaying", "nowPlaying", "live"]));
+
+    // Track name: sometimes "name" or "track"
+    const track =
+      pick(core, ["track", "name", "title"]) ||
+      pick(core?.track, ["name", "#text"]) ||
+      "—";
+
+    // Artist: sometimes string, sometimes {name}
+    const artist =
+      pick(core, ["artist"]) ||
+      pick(core?.artist, ["name", "#text"]) ||
+      pick(core, ["artistName"]) ||
+      "—";
+
+    // Album: sometimes string, sometimes {name}
+    const album =
+      pick(core, ["album"]) ||
+      pick(core?.album, ["name", "#text"]) ||
+      pick(core, ["albumName"]) ||
+      "—";
+
+    // Image keys: "image" or "cover" or "art" etc.
+    const image =
+      pick(core, ["image", "cover", "coverUrl", "art", "artwork", "albumArt", "img"]) ||
+      "";
+
+    // message
+    const message =
+      pick(core, ["message", "status", "note"]) ||
+      "";
+
+    return { playing, track, artist, album, image, message };
   }
 // ---------- Skeleton UI ----------
   function renderSkeleton(listEl, rows = 8) {
@@ -181,7 +242,6 @@
     const t = document.createElement("div");
     t.className = "title";
 
-    // ✅ E: small index
     if (typeof idx === "number") {
       const s = document.createElement("span");
       s.className = "idx";
@@ -227,14 +287,15 @@
       const j = await fetchJSON("/api/now");
       setOnline(true);
 
-      const playing = !!j?.playing;
-      const track = j?.track || "—";
-      const artist = j?.artist || "—";
-      const album = j?.album || "—";
-      const msg = j?.message || (playing ? "" : "Not playing now");
-      const img = normalizeImg(j?.image || "");
+      const parsed = parseNowPayload(j);
 
-      // badge
+      const playing = !!parsed.playing;
+      const track = parsed.track || "—";
+      const artist = parsed.artist || "—";
+      const album = parsed.album || "—";
+      const msg = parsed.message || (playing ? "" : "Not playing now");
+      const img = normalizeImg(parsed.image || "");
+
       if (playing) {
         nowBadge.classList.add("live");
         nowBadgeText.textContent = "LIVE";
@@ -248,7 +309,6 @@
       nowAlbum.textContent = album;
       nowMsg.textContent = msg || "—";
 
-      // cover / ambient (keep artwork stable)
       if (img) {
         nowImg.src = img;
         nowImg.style.display = "block";
@@ -269,7 +329,6 @@
 
       nowUpdated.textContent = fmtTime(new Date());
 
-      // marquee checks
       setupMarquee(nowTrackWrap, nowTrack);
       setupMarquee(nowArtistWrap, nowArtist);
       setupMarquee(nowAlbumWrap, nowAlbum);
@@ -318,7 +377,6 @@
         const img = normalizeImg(it?.image || "");
         const rightText = String(it?.playcount ?? "");
 
-        // for artists we want subtitle to be empty (clean)
         const finalTitle = topType === "artists" ? (it?.name || "—") : title;
         const finalSub = topType === "artists" ? "" : subtitle;
 
@@ -380,7 +438,6 @@
       b.addEventListener("click", () => {
         const tab = b.dataset.tab;
         showPanel(tab);
-        // lazy load when entering
         if (tab === "top") loadTop();
         if (tab === "recent") loadRecent();
       });
@@ -404,20 +461,16 @@
       });
     });
   }
-
-  // ---------- Boot ----------
+// ---------- Boot ----------
   async function boot() {
     wireTabs();
     wireTopControls();
 
-    // initial panel
     showPanel("now");
 
-    // initial selected states
     setSelected(topTypeBtns, (x) => x.dataset.topType === topType);
     setSelected(topPeriodBtns, (x) => x.dataset.topPeriod === topPeriod);
 
-    // quick ping (optional) + load Now
     try {
       await fetchJSON("/api/ping", { timeoutMs: 6000 });
       setOnline(true);
@@ -426,8 +479,6 @@
     }
 
     await loadNow();
-
-    // refresh Now periodically
     setInterval(loadNow, 15000);
   }
 

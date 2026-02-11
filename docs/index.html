@@ -1,1031 +1,473 @@
-<!-- PART 1/4 — index.html (FULL REPLACE) -->
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <meta name="theme-color" content="#0b0c10" />
+  <meta name="theme-color" content="#0b0c0e" />
   <title>Listening Mirror</title>
 
   <style>
     :root{
-      --bg:#090a0d;
-      --text:#e9e9ea;
+      --bg:#0b0c0e;
+      --bg2:#090a0c;
+      --card: rgba(255,255,255,.055);
+      --card2: rgba(255,255,255,.035);
+      --text:#ececee;
       --muted:#a7abb4;
-      --muted2:#7c818c;
-
-      --glassFill: rgba(18, 20, 26, .55);
-      --glassStroke: rgba(255,255,255,.12);
-
-      --r:22px;
-      --r2:26px;
+      --muted2:#7d828d;
       --shadow: 0 18px 55px rgba(0,0,0,.55);
+      --r: 22px;
 
-      --red:#ff4d4d;
-      --green:#2fd178;
+      --live:#ff3b3b;
+      --liveBg: rgba(255,59,59,.10);
+      --liveBd: rgba(255,59,59,.30);
 
-      --safeL: max(16px, env(safe-area-inset-left));
-      --safeR: max(16px, env(safe-area-inset-right));
+      --safeL: max(14px, env(safe-area-inset-left));
+      --safeR: max(14px, env(safe-area-inset-right));
       --safeT: max(14px, env(safe-area-inset-top));
-      --safeB: max(18px, env(safe-area-inset-bottom));
-
-      --nowArt: none;
+      --safeB: max(14px, env(safe-area-inset-bottom));
     }
 
-    *{ box-sizing:border-box; }
+    *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
     html,body{ height:100%; }
+    html{ overscroll-behavior-y:none; }
     body{
       margin:0;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-      color:var(--text);
-      background: radial-gradient(1200px 900px at 30% -10%, rgba(76, 102, 255, .18), transparent 65%),
-                  radial-gradient(900px 650px at 90% 10%, rgba(255, 77, 77, .10), transparent 60%),
-                  #05060a;
       overflow-x:hidden;
+      overscroll-behavior-y:none;
+      background:
+        radial-gradient(1200px 700px at 25% -10%, rgba(255,255,255,.06), transparent 60%),
+        radial-gradient(900px 600px at 90% 0%, rgba(255,255,255,.04), transparent 55%),
+        linear-gradient(180deg, var(--bg), var(--bg2));
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
     }
 
-    /* NOW-only artwork glow */
-    body.now-mode::before{
-      content:"";
-      position:fixed;
-      inset:0;
-      pointer-events:none;
-      background-image: var(--nowArt);
-      background-size: cover;
-      background-position: center;
-      filter: blur(34px) saturate(1.05);
-      opacity:.18;
-      transform: scale(1.08);
-      z-index:-2;
-    }
-    body::after{
-      content:"";
-      position:fixed;
-      inset:0;
-      pointer-events:none;
-      background: radial-gradient(900px 700px at 30% 0%, rgba(255,255,255,.08), transparent 60%),
-                  radial-gradient(900px 700px at 85% 35%, rgba(255,255,255,.05), transparent 60%),
-                  linear-gradient(to bottom, rgba(0,0,0,.25), rgba(0,0,0,.72));
-      z-index:-1;
-    }
-
-    .wrap{
-      width: min(980px, 100%);
+    .app{
+      min-height:100%;
+      padding: calc(var(--safeT) + 14px) var(--safeR) calc(var(--safeB) + 18px) var(--safeL);
+      max-width: 920px;
       margin: 0 auto;
-      padding: calc(var(--safeT) + 14px) var(--safeR) var(--safeB) var(--safeL);
     }
 
-    .topbar{
+    header{
       display:flex;
-      align-items:center;
-      gap:12px;
-      margin-bottom:14px;
+      align-items:flex-start;
+      gap:14px;
+      margin-bottom: 14px;
     }
 
     .brand{
       display:flex;
-      align-items:baseline;
+      align-items:center;
       gap:10px;
-      min-width: 0;
-    }
-    .brandTitle{
-      font-size: 24px;
-      font-weight: 760;
-      letter-spacing: .2px;
-      line-height: 1.05;
-      margin:0;
       padding-left: 2px;
     }
-    .brandSub{
+
+    .glyph{
+      width: 16px;
+      height: 16px;
+      border-radius: 999px;
+      position:relative;
+      background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.22), rgba(255,255,255,.05) 55%, rgba(255,255,255,.03) 70%);
+      outline: 1px solid rgba(255,255,255,.10);
+      box-shadow: 0 10px 35px rgba(0,0,0,.45);
+      flex: 0 0 auto;
+    }
+    .glyph:before{
+      content:"";
+      position:absolute;
+      inset:3px;
+      border-radius: 999px;
+      outline: 1px solid rgba(255,255,255,.10);
+      background: radial-gradient(circle at 65% 35%, rgba(255,255,255,.10), transparent 60%);
+      opacity:.9;
+    }
+
+    .wordmark{
+      display:flex;
+      flex-direction:column;
+      line-height: 1.15;
+    }
+    .wordmark .title{
+      font-size: 18px;
+      font-weight: 720;
+      letter-spacing: .35px;
+      margin:0;
+      background: linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.70));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .wordmark .sub{
+      margin-top: 6px;
       display:flex;
       align-items:center;
       gap:8px;
       color: var(--muted2);
-      font-size: 13px;
-      margin-top: 4px;
-      padding-left: 2px;
+      font-size: 12px;
+      letter-spacing: .2px;
     }
     .dot{
-      width:10px;
-      height:10px;
-      border-radius:999px;
-      background: var(--green);
-      box-shadow: 0 0 0 4px rgba(47,209,120,.14);
+      width: 7px;
+      height: 7px;
+      border-radius: 99px;
+      background: rgba(255,255,255,.14);
+      outline: 1px solid rgba(255,255,255,.10);
+    }
+    .dot.on{
+      background: rgba(49,208,124,.75);
+      outline-color: rgba(49,208,124,.35);
+      box-shadow: 0 0 0 3px rgba(49,208,124,.10);
     }
 
-    /* segmented tabs */
-    .seg{
-      position:relative;
+    .tabs{
       display:flex;
-      padding:8px;
+      gap:10px;
+      padding: 8px;
       border-radius: 999px;
-      gap:8px;
-      margin: 12px 0 18px;
+      background: rgba(255,255,255,.04);
+      outline: 1px solid rgba(255,255,255,.08);
+      box-shadow: 0 16px 45px rgba(0,0,0,.35);
+      width: fit-content;
+      margin: 12px 0 16px 0;
     }
-    .seg.glass::before{
-      content:"";
-      position:absolute;
-      inset:0;
-      border-radius:999px;
-      background: rgba(12, 14, 18, .42);
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
-      border: 1px solid rgba(255,255,255,.08);
-      box-shadow: 0 14px 40px rgba(0,0,0,.40);
-    }
-    .seg > *{ position:relative; z-index:1; }
-
-    .seg button{
-      flex:1;
+    .tabBtn{
       border:0;
       background: transparent;
-      color: rgba(233,233,234,.72);
-      padding: 12px 10px;
+      color: rgba(255,255,255,.72);
+      padding: 10px 14px;
       border-radius: 999px;
-      font-weight: 650;
-      letter-spacing:.2px;
-      font-size: 14px;
+      font-size: 13px;
+      letter-spacing: .2px;
       cursor:pointer;
-      -webkit-tap-highlight-color: transparent;
     }
-    .seg button.active{
-      color: var(--text);
-      background: rgba(255,255,255,.07);
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,.12);
+    .tabBtn[aria-selected="true"]{
+      background: rgba(255,255,255,.085);
+      outline: 1px solid rgba(255,255,255,.10);
+      color: rgba(255,255,255,.95);
     }
 
-    /* glass card */
+    .panel{ display:block; }
+    .hidden{ display:none; }
+
     .card{
+      border-radius: var(--r);
+      background: linear-gradient(180deg, var(--card), var(--card2));
+      outline: 1px solid rgba(255,255,255,.08);
+      box-shadow: var(--shadow);
+      overflow:hidden;
       position:relative;
-      border-radius: var(--r2);
-      padding: 18px;
-      margin: 14px 0;
     }
-    .card.glass::before{
+
+    /* NOW ambient */
+    .nowAmbient{
+      position:absolute;
+      inset:-1px;
+      opacity: 0;
+      pointer-events:none;
+      transition: opacity .25s ease;
+    }
+    .nowAmbient.on{ opacity: 1; }
+    .nowAmbient:before{
+      content:"";
+      position:absolute;
+      inset:-40px;
+      background-image: var(--ambient-url, none);
+      background-size: cover;
+      background-position: center;
+      filter: blur(28px) saturate(1.12);
+      transform: scale(1.10);
+      opacity:.42;
+    }
+    .nowAmbient:after{
       content:"";
       position:absolute;
       inset:0;
-      border-radius: var(--r2);
-      background: var(--glassFill);
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
-      border: 1px solid var(--glassStroke);
-      box-shadow: var(--shadow);
-    }
-    .card > *{ position:relative; z-index:1; }
-
-    .sectionTitle{
-      margin: 0 0 4px;
-      font-size: 22px;
-      font-weight: 820;
-      letter-spacing:.15px;
-      padding-left: 2px;
-    }
-    .sectionMeta{
-      color: var(--muted2);
-      font-size: 13px;
-      display:flex;
-      align-items:center;
-      gap:10px;
-      padding-left: 2px;
+      background:
+        radial-gradient(900px 500px at 20% 10%, rgba(255,255,255,.06), transparent 55%),
+        linear-gradient(180deg, rgba(10,11,13,.55), rgba(10,11,13,.85));
     }
 
-    /* Now hero layout */
-    .nowRow{
-      display:flex;
-      gap:14px;
-      align-items:center;
-      min-width:0;
-    }
-    .art{
-      width:76px;
-      height:76px;
-      border-radius: 18px;
-      overflow:hidden;
-      flex:0 0 auto;
-      box-shadow: 0 12px 30px rgba(0,0,0,.45);
-      background: rgba(255,255,255,.06);
-      position:relative;
-    }
-    .art img{
-      width:100%;
-      height:100%;
-      object-fit:cover;
-      display:block;
-    }
-    .artFallback{
-      position:absolute;
-      inset:0;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      color: rgba(233,233,234,.38);
-      font-weight: 850;
-      letter-spacing:.06em;
-      font-size: 14px;
-      background: rgba(255,255,255,.04);
-      border: 1px solid rgba(255,255,255,.06);
-      border-radius: 18px;
-    }
-
-    .nowText{
-      min-width:0;
-      flex: 1 1 auto;
-      padding-left: 2px;
-    }
-
-    /* Live indicator */
-    .liveLine{
+    .nowWrap{ position:relative; padding: 18px; }
+    .nowTop{
       display:flex;
       align-items:center;
       justify-content:space-between;
-      gap:10px;
-      margin-bottom: 10px;
-    }
-    .liveLeft{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      min-width:0;
-    }
-    .liveDot{
-      width:8px;
-      height:8px;
-      border-radius:999px;
-      background: var(--red);
-      box-shadow: 0 0 0 5px rgba(255,77,77,.14);
-    }
-    .liveLabel{
-      font-size: 12px;
-      font-weight: 820;
-      letter-spacing: .24em;
-      text-transform: uppercase;
-      color: rgba(255,255,255,.82);
-    }
-    .updated{
-      font-size: 12px;
-      color: var(--muted2);
-      white-space: nowrap;
-      padding-left: 2px;
-    }
-
-    .title{
-      font-size: 22px;
-      font-weight: 860;
-      letter-spacing: .15px;
-      margin: 0;
-      line-height: 1.15;
-    }
-    .sub{
-      margin: 6px 0 0;
-      color: rgba(233,233,234,.75);
-      font-size: 15px;
-      font-weight: 650;
-      line-height: 1.2;
-    }
-    .sub2{
-      margin: 6px 0 0;
-      color: rgba(233,233,234,.55);
-      font-size: 14px;
-      font-weight: 600;
-      line-height: 1.2;
-    }
-
-    /* list items */
-    .list{
-      margin-top: 12px;
-      display:flex;
-      flex-direction:column;
-      gap:10px;
-    }
-    .item{
+      gap:12px;
+      margin-bottom: 14px;
       position:relative;
-      border-radius: var(--r);
-      padding: 12px 14px;
-      cursor: default;
+      z-index:2;
     }
-    .item.glass::before{
+
+    .chip{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.045);
+      outline: 1px solid rgba(255,255,255,.085);
+      color: rgba(255,255,255,.78);
+      font-size: 12px;
+      letter-spacing:.25px;
+      white-space:nowrap;
+    }
+    .chip .miniDot{ width:6px;height:6px;border-radius:999px; background: rgba(255,255,255,.18); }
+    .chip.live{
+      color: rgba(255,255,255,.95);
+      outline-color: var(--liveBd);
+      background: var(--liveBg);
+    }
+    .chip.live .miniDot{
+      background: var(--live);
+      box-shadow: 0 0 0 3px rgba(255,59,59,.12);
+    }
+
+    .updated{ color: var(--muted2); font-size: 12px; letter-spacing:.2px; white-space:nowrap; }
+
+    .nowMain{
+      display:grid;
+      grid-template-columns: 120px 1fr;
+      gap: 14px;
+      align-items:center;
+      position:relative;
+      z-index:2;
+    }
+
+    .coverWrap{
+      width: 120px;
+      height: 120px;
+      border-radius: 20px;
+      position:relative;
+      overflow:hidden;
+      outline: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.03);
+      box-shadow: 0 18px 55px rgba(0,0,0,.55);
+    }
+    .coverWrap:before{
       content:"";
       position:absolute;
-      inset:0;
-      border-radius: var(--r);
-      background: rgba(15, 17, 22, .50);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1px solid rgba(255,255,255,.09);
-      box-shadow: 0 12px 34px rgba(0,0,0,.38);
+      inset:-30px;
+      background-image: var(--cover-url, none);
+      background-size: cover;
+      background-position:center;
+      filter: blur(20px) saturate(1.15);
+      opacity:.26;
+      transform: scale(1.10);
+      -webkit-mask-image: radial-gradient(circle at 50% 50%, rgba(0,0,0,.55) 0%, rgba(0,0,0,.25) 35%, rgba(0,0,0,0) 68%);
+      mask-image: radial-gradient(circle at 50% 50%, rgba(0,0,0,.55) 0%, rgba(0,0,0,.25) 35%, rgba(0,0,0,0) 68%);
+      pointer-events:none;
     }
-    .item > *{ position:relative; z-index:1; }
 
-    .itemRow{
-      display:flex;
-      align-items:center;
-      gap:12px;
-      min-width:0;
+    .coverImg{ width:100%; height:100%; object-fit:cover; display:none; position:relative; z-index:2; }
+    .coverFallback{
+      position:absolute; inset:0; display:grid; place-items:center;
+      color: rgba(255,255,255,.35); font-size: 30px; z-index:3;
     }
-    .thumb{
-      width:54px;
-      height:54px;
-      border-radius: 16px;
-      overflow:hidden;
-      flex:0 0 auto;
-      background: rgba(255,255,255,.06);
-      box-shadow: 0 10px 24px rgba(0,0,0,.35);
+
+    .nowText{ min-width:0; padding-left: 4px; } /* <-- fixes first letter */
+    .line1{ font-size: 15px; font-weight: 680; letter-spacing: .15px; }
+    .line2{ margin-top: 6px; font-size: 13px; color: rgba(255,255,255,.72); }
+    .line3{ margin-top: 6px; font-size: 12px; color: var(--muted2); }
+
+    /* Marquee: NO left fade. Fade only on the RIGHT end (prevents first char cutting) */
+    .marq{ display:inline-block; white-space:nowrap; will-change:transform; }
+    .marqWrap{
       position:relative;
-    }
-    .thumb img{
-      width:100%;
-      height:100%;
-      object-fit:cover;
-      display:block;
-    }
-    .thumb.placeholder{
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      color: rgba(233,233,234,.30);
-      font-size: 18px;
-      font-weight: 860;
-      letter-spacing:.02em;
-      background: rgba(255,255,255,.04);
-      border: 1px solid rgba(255,255,255,.06);
-    }
-
-    .itemText{
-      min-width:0;
-      flex: 1 1 auto;
-      padding-left: 2px;
-    }
-    .itemTitle{
-      margin:0;
-      font-size: 16px;
-      font-weight: 820;
-      color: rgba(233,233,234,.92);
-      line-height:1.15;
-    }
-    .itemMeta{
-      margin: 6px 0 0;
-      font-size: 13px;
-      color: rgba(233,233,234,.56);
-      font-weight: 650;
-      line-height:1.15;
-    }
-
-    .count{
-      flex:0 0 auto;
-      font-variant-numeric: tabular-nums;
-      font-size: 15px;
-      font-weight: 860;
-      letter-spacing:.2px;
-      padding-left: 10px;
-      color: rgba(255,200,120,.95);
-      text-shadow: 0 10px 30px rgba(0,0,0,.45);
-    }
-
-    /* marquee */
-    .mq{
-      display:block;
-      max-width:100%;
       overflow:hidden;
-      white-space:nowrap;
-      position:relative;
-      padding-left: 2px;
+      padding-left: 3px; /* <-- fixes first letter universally */
+      -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 86%, transparent 100%);
+      mask-image: linear-gradient(90deg, #000 0%, #000 86%, transparent 100%);
     }
-    .mq > span{ display:inline-block; transform: translateZ(0); }
-    .mq.marquee > span{
-      padding-right: 40px;
-      animation: scrollText 9s linear infinite;
-    }
-    @keyframes scrollText{
+    .marqOn .marq{ animation: marqMove var(--marqDur, 10s) linear infinite; }
+    @keyframes marqMove{
       0%{ transform: translateX(0); }
-      100%{ transform: translateX(-50%); }
+      100%{ transform: translateX(calc(-1 * var(--marqShift, 60px))); }
     }
 
-    /* top controls */
     .controls{
+      padding: 14px;
       display:flex;
-      flex-direction:column;
       gap:10px;
-      margin-top: 12px;
+      flex-wrap:wrap;
+      border-bottom: 1px solid rgba(255,255,255,.07);
     }
-    .pills{
-      position:relative;
+    .seg{
       display:flex;
       gap:8px;
-      padding:8px;
+      padding: 7px;
       border-radius: 999px;
+      background: rgba(255,255,255,.04);
+      outline: 1px solid rgba(255,255,255,.08);
+      width: fit-content;
     }
-    .pills.glass::before{
-      content:"";
-      position:absolute;
-      inset:0;
-      border-radius: 999px;
-      background: rgba(12, 14, 18, .35);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1px solid rgba(255,255,255,.08);
-    }
-    .pills > *{ position:relative; z-index:1; }
-    .pills button{
-      flex:1;
+    .seg button{
       border:0;
       background: transparent;
-      color: rgba(233,233,234,.66);
-      padding: 10px 10px;
+      color: rgba(255,255,255,.74);
+      padding: 9px 12px;
       border-radius: 999px;
-      font-weight: 760;
-      font-size: 13px;
+      font-size: 12.5px;
       cursor:pointer;
-      -webkit-tap-highlight-color: transparent;
+      letter-spacing:.2px;
     }
-    .pills button.active{
-      color: var(--text);
-      background: rgba(255,255,255,.07);
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,.12);
+    .seg button[aria-selected="true"]{
+      background: rgba(255,255,255,.085);
+      outline: 1px solid rgba(255,255,255,.10);
+      color: rgba(255,255,255,.95);
     }
 
-    .hint{
-      color: rgba(233,233,234,.46);
+    .list{ padding: 10px; }
+
+    .row{
+      display:grid;
+      grid-template-columns: 52px 1fr auto;
+      gap: 12px;
+      padding: 12px 12px 12px 16px; /* extra left padding */
+      border-radius: 16px;
+      align-items:center;
+      user-select:none;
+    }
+    .row:hover{ background: rgba(255,255,255,.035); }
+    .row:active{ background: rgba(255,255,255,.045); }
+
+    .thumb{
+      width: 44px; height: 44px;
+      border-radius: 14px;
+      overflow:hidden;
+      position:relative;
+      outline: 1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.03);
+      box-shadow: 0 10px 30px rgba(0,0,0,.40);
+    }
+    .thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+    .thumbFallback{
+      position:absolute; inset:0; display:grid; place-items:center;
+      color: rgba(255,255,255,.35); font-size: 18px;
+    }
+
+    .mid{ min-width:0; padding-left: 3px; } /* <-- fixes first letter on list text */
+    .title{
+      font-size: 13.5px;
+      font-weight: 650;
+      color: rgba(255,255,255,.92);
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .sub{
+      margin-top: 6px;
       font-size: 12px;
-      margin-top: 10px;
-      padding-left: 2px;
+      color: var(--muted2);
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
     }
-    .hidden{ display:none !important; }
 
-    @media (max-width:420px){
-      .wrap{ padding-left: max(14px, env(safe-area-inset-left)); padding-right:max(14px, env(safe-area-inset-right)); }
-      .title{ font-size: 20px; }
-      .brandTitle{ font-size: 22px; }
-      .art{ width:72px; height:72px; }
+    .right{
+      font-size: 12.5px;
+      font-weight: 700;
+      color: rgba(255,255,255,.80);
+      padding-left: 8px;
+      white-space:nowrap;
+    }
+    .right.count{
+      color: rgba(255,214,102,.92);
+    }
+
+    @media (max-width: 520px){
+      .nowMain{ grid-template-columns: 106px 1fr; }
+      .coverWrap{ width:106px;height:106px;border-radius:18px; }
+      .tabs{ width: 100%; justify-content: space-between; }
     }
   </style>
 </head>
 
 <body>
-  <div class="wrap">
-    <header class="topbar">
+  <div class="app">
+    <header>
       <div class="brand">
-        <div>
-          <h1 class="brandTitle">Listening Mirror</h1>
-          <div class="brandSub"><span class="dot" aria-hidden="true"></span><span id="statusText">Online</span></div>
+        <div class="glyph" aria-hidden="true"></div>
+        <div class="wordmark">
+          <div class="title">Listening Mirror</div>
+          <div class="sub">
+            <span id="statusDot" class="dot" aria-hidden="true"></span>
+            <span id="statusLine">Offline</span>
+          </div>
         </div>
       </div>
     </header>
 
-    <nav class="seg glass" aria-label="Tabs">
-      <button id="tabNow" class="active" data-tab="now">Now</button>
-      <button id="tabTop" data-tab="top">Top</button>
-      <button id="tabRecent" data-tab="recent">Recent</button>
-    </nav>
+    <div class="tabs" role="tablist" aria-label="Main tabs">
+      <button class="tabBtn" data-tab="now" aria-selected="true" role="tab">Now</button>
+      <button class="tabBtn" data-tab="top" aria-selected="false" role="tab">Top</button>
+      <button class="tabBtn" data-tab="recent" aria-selected="false" role="tab">Recent</button>
+    </div>
 
-    <!-- NOW -->
-    <section id="viewNow">
-      <div class="card glass" id="nowCard">
-        <div class="liveLine">
-          <div class="liveLeft">
-            <span class="liveDot" aria-hidden="true"></span>
-            <span class="liveLabel">LIVE</span>
-          </div>
-          <div class="updated" id="nowUpdated">Updated: —</div>
-        </div>
+    <section class="panel" data-panel="now">
+      <div class="card">
+        <div id="nowAmbient" class="nowAmbient"></div>
 
-        <div class="nowRow">
-          <div class="art" id="nowArt">
-            <img id="nowArtImg" alt="" />
-            <div class="artFallback" id="nowArtFallback">NO ART</div>
+        <div class="nowWrap">
+          <div class="nowTop">
+            <div id="nowBadge" class="chip">
+              <span class="miniDot" aria-hidden="true"></span>
+              <span id="nowBadgeText">OFF</span>
+            </div>
+            <div class="updated">Updated: <span id="nowUpdated">--</span></div>
           </div>
 
-          <div class="nowText">
-            <div class="mq" id="nowTitleMq"><span id="nowTitle">—</span></div>
-            <div class="mq" id="nowArtistMq" style="margin-top:8px;"><span id="nowArtist" class="sub">—</span></div>
-            <div class="mq" id="nowAlbumMq" style="margin-top:6px;"><span id="nowAlbum" class="sub2">—</span></div>
-          </div>
-        </div>
-      </div>
-    </section>
+          <div class="nowMain">
+            <div class="coverWrap" id="nowCoverWrap">
+              <img id="nowImg" class="coverImg" alt="" />
+              <div id="nowFallback" class="coverFallback">♪</div>
+            </div>
 
-    <!-- TOP -->
-    <section id="viewTop" class="hidden">
-      <div class="card glass">
-        <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:12px; min-width:0;">
-          <div style="min-width:0;">
-            <h2 class="sectionTitle">Top</h2>
-            <div class="sectionMeta">
-              <span id="topMeta">tracks • year</span>
+            <div class="nowText">
+              <div class="line1 marqWrap" id="nowTrackWrap">
+                <span class="marq" id="nowTrack">—</span>
+              </div>
+              <div class="line2 marqWrap" id="nowArtistWrap">
+                <span class="marq" id="nowArtist">—</span>
+              </div>
+              <div class="line3 marqWrap" id="nowAlbumWrap">
+                <span class="marq" id="nowAlbum">—</span>
+              </div>
+              <div class="sub" id="nowMsg" style="margin-top:12px;">—</div>
             </div>
           </div>
-          <div class="sectionMeta" style="opacity:.9; font-weight:800;">10</div>
         </div>
+      </div>
+    </section>
 
+    <section class="panel hidden" data-panel="top">
+      <div class="card">
         <div class="controls">
-          <div class="pills glass" aria-label="Top type">
-            <button id="topTypeTracks" class="active" data-type="tracks">Track</button>
-            <button id="topTypeArtists" data-type="artists">Artist</button>
-            <button id="topTypeAlbums" data-type="albums">Album</button>
+          <div class="seg" aria-label="Top type">
+            <button data-top-type="tracks" aria-selected="true">Track</button>
+            <button data-top-type="artists" aria-selected="false">Artist</button>
+            <button data-top-type="albums" aria-selected="false">Album</button>
           </div>
 
-          <div class="pills glass" aria-label="Top period">
-            <button id="topPeriodToday" data-period="today">Today</button>
-            <button id="topPeriodWeek" data-period="week">Week</button>
-            <button id="topPeriodYear" class="active" data-period="year">Year</button>
+          <div class="seg" aria-label="Top period">
+            <button data-top-period="today" aria-selected="true">Today</button>
+            <button data-top-period="week" aria-selected="false">Week</button>
+            <button data-top-period="year" aria-selected="false">Year</button>
           </div>
         </div>
 
-        <div class="list" id="topList"></div>
-        <div class="hint" id="topHint"></div>
+        <div class="list" id="topList" aria-live="polite"></div>
       </div>
     </section>
 
-    <!-- RECENT -->
-    <section id="viewRecent" class="hidden">
-      <div class="card glass">
-        <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:12px; min-width:0;">
-          <div style="min-width:0;">
-            <h2 class="sectionTitle">Recent</h2>
-            <div class="sectionMeta">last 10</div>
-          </div>
-          <div class="sectionMeta" style="opacity:.9; font-weight:800;">10</div>
-        </div>
-
-        <div class="list" id="recentList"></div>
-        <div class="hint" id="recentHint"></div>
+    <section class="panel hidden" data-panel="recent">
+      <div class="card">
+        <div class="list" id="recentList" aria-live="polite"></div>
       </div>
     </section>
-<!-- PART 2/4 — index.html (FULL REPLACE CONT.) -->
-    <script>
-      // ===== CONFIG =====
-      // NOTE: backend stays as-is. We only adapt frontend to whatever endpoints exist.
-      const WORKER_BASE = "https://i.errtanq9.workers.dev";
-      const LIMIT_TOP = 10;
-      const LIMIT_RECENT = 10;
-
-      const state = {
-        tab: "now",
-        topType: "tracks",
-        topPeriod: "year",
-        timers: { now: null }
-      };
-
-      const $ = (id) => document.getElementById(id);
-
-      function safeText(v){
-        if (v === null || v === undefined) return "";
-        return String(v);
-      }
-
-      function ensureHttps(url){
-        const u = safeText(url).trim();
-        if(!u) return "";
-        if(u.startsWith("//")) return "https:" + u;
-        if(u.startsWith("http://")) return "https://" + u.slice("http://".length);
-        return u;
-      }
-
-      async function fetchJson(url){
-        const res = await fetch(url, { cache: "no-store" });
-        if(!res.ok) throw new Error(`HTTP ${res.status}`);
-        return await res.json();
-      }
-
-      // Try multiple endpoints until one works
-      async function fetchJsonProbe(paths){
-        let lastErr = null;
-        for(const p of paths){
-          const url = WORKER_BASE.replace(/\/+$/,"") + p;
-          try{
-            return await fetchJson(url);
-          }catch(e){
-            lastErr = e;
-          }
-        }
-        throw lastErr || new Error("All endpoints failed");
-      }
-
-      function fmtTime(ts){
-        try{
-          const d = ts ? new Date(ts) : new Date();
-          return d.toLocaleTimeString([], { hour:"2-digit", minute:"2-digit", second:"2-digit" });
-        }catch{
-          return "—";
-        }
-      }
-
-      function setupMarquee(mqEl){
-        if(!mqEl) return;
-        const span = mqEl.querySelector("span");
-        if(!span) return;
-
-        mqEl.classList.remove("marquee");
-
-        // If we previously duplicated, restore to original first (safe)
-        if(span.dataset.orig){
-          span.textContent = span.dataset.orig;
-        } else {
-          span.dataset.orig = span.textContent;
-        }
-
-        requestAnimationFrame(() => {
-          const needs = span.scrollWidth > mqEl.clientWidth + 2;
-          if(!needs) return;
-
-          const orig = span.dataset.orig || span.textContent;
-          span.textContent = orig + "   •   " + orig;
-          mqEl.classList.add("marquee");
-        });
-      }
-
-      function setupAllMarquees(){
-        setupMarquee($("nowTitleMq"));
-        setupMarquee($("nowArtistMq"));
-        setupMarquee($("nowAlbumMq"));
-      }
-
-      function setTab(tab){
-        state.tab = tab;
-
-        $("tabNow").classList.toggle("active", tab === "now");
-        $("tabTop").classList.toggle("active", tab === "top");
-        $("tabRecent").classList.toggle("active", tab === "recent");
-
-        $("viewNow").classList.toggle("hidden", tab !== "now");
-        $("viewTop").classList.toggle("hidden", tab !== "top");
-        $("viewRecent").classList.toggle("hidden", tab !== "recent");
-
-        document.body.classList.toggle("now-mode", tab === "now");
-      }
-
-      // ---- IMAGE PICKER (covers more schemas) ----
-      function pickImage(obj){
-        if(!obj) return "";
-
-        // direct string
-        if(typeof obj.image === "string") return obj.image;
-
-        // common: { image: { url: "..." } }
-        if(obj.image && typeof obj.image.url === "string") return obj.image.url;
-
-        // common: { images: [{url:"..."}] }
-        if(Array.isArray(obj.images) && obj.images.length){
-          for(const cand of obj.images){
-            const u = cand?.url || cand?.src || cand?.href || cand;
-            if(typeof u === "string" && u.trim()) return u;
-          }
-        }
-
-        // Last.fm: image: [ { "#text": "...", size:"extralarge" }, ... ]
-        if(Array.isArray(obj.image) && obj.image.length){
-          // prefer last non-empty
-          for(let i=obj.image.length-1; i>=0; i--){
-            const cand = obj.image[i];
-            const u = cand && (cand["#text"] || cand.url);
-            if(typeof u === "string" && u.trim()) return u;
-          }
-        }
-
-        // Sometimes image comes as object with sizes: { small:"", medium:"", extralarge:"" }
-        if(obj.image && typeof obj.image === "object" && !Array.isArray(obj.image)){
-          const pref = ["extralarge","large","medium","small","mega","original"];
-          for(const k of pref){
-            const u = obj.image[k];
-            if(typeof u === "string" && u.trim()) return u;
-          }
-          // any string field
-          for(const k of Object.keys(obj.image)){
-            const u = obj.image[k];
-            if(typeof u === "string" && u.trim()) return u;
-          }
-        }
-
-        return "";
-      }
-
-      function makeThumb(url, fallbackChar="♪"){
-        const finalUrl = ensureHttps(url);
-        const div = document.createElement("div");
-
-        if(finalUrl){
-          div.className = "thumb";
-          const img = document.createElement("img");
-          img.loading = "lazy";
-          img.alt = "";
-          img.referrerPolicy = "no-referrer";
-          img.src = finalUrl;
-          img.onerror = () => {
-            div.innerHTML = "";
-            div.className = "thumb placeholder";
-            div.textContent = fallbackChar;
-          };
-          div.appendChild(img);
-        } else {
-          div.className = "thumb placeholder";
-          div.textContent = fallbackChar;
-        }
-
-        return div;
-      }
-
-      function makeListItem({ index, title, meta, image, countText }){
-        const wrap = document.createElement("div");
-        wrap.className = "item glass";
-
-        const row = document.createElement("div");
-        row.className = "itemRow";
-
-        const thumb = makeThumb(image, "♪");
-
-        const txt = document.createElement("div");
-        txt.className = "itemText";
-
-        const t = document.createElement("p");
-        t.className = "itemTitle mq";
-        const tSpan = document.createElement("span");
-        tSpan.textContent = `${index}. ${title}`;
-        t.appendChild(tSpan);
-
-        const m = document.createElement("p");
-        m.className = "itemMeta mq";
-        const mSpan = document.createElement("span");
-        mSpan.textContent = meta || " ";
-        m.appendChild(mSpan);
-
-        txt.appendChild(t);
-        txt.appendChild(m);
-
-        row.appendChild(thumb);
-        row.appendChild(txt);
-
-        if(countText){
-          const c = document.createElement("div");
-          c.className = "count";
-          c.textContent = countText;
-          row.appendChild(c);
-        }
-
-        wrap.appendChild(row);
-        wrap._mqEls = [t, m];
-        return wrap;
-      }
-<!-- PART 3/4 — index.html (FULL REPLACE CONT.) -->
-      function normalizeNow(data){
-        // accept many shapes
-        const n = data?.now || data?.track || data?.item || data?.data || data || {};
-        const title = safeText(n?.name || n?.title || n?.track || n?.song || "—");
-        const artist = safeText(n?.artist?.name || n?.artist || n?.creator || "—");
-        const album = safeText(n?.album?.name || n?.album || n?.release || "");
-        const image =
-          pickImage(n) ||
-          pickImage(n?.album) ||
-          pickImage(n?.track) ||
-          pickImage(data?.album) ||
-          pickImage(data?.track);
-        const ts = n?.ts || n?.timestamp || n?.playedAt || data?.ts || Date.now();
-        return { title, artist, album, image, ts };
-      }
-
-      function normalizeTopList(data){
-        const arr = data?.items || data?.top || data?.list || data?.data || data || [];
-        if(!Array.isArray(arr)) return [];
-        return arr.map((it) => {
-          const title = safeText(it?.name || it?.title || "—");
-          const artist = safeText(it?.artist?.name || it?.artist || "");
-          const album = safeText(it?.album?.name || it?.album || "");
-          const image = pickImage(it) || pickImage(it?.album) || pickImage(it?.artist);
-          const count = it?.plays || it?.playcount || it?.count || it?.listeners || it?.scrobbles;
-          return { title, artist, album, image, count };
-        });
-      }
-
-      function normalizeRecentList(data){
-        const arr = data?.items || data?.recent || data?.list || data?.data || data || [];
-        if(!Array.isArray(arr)) return [];
-        return arr.map((it) => {
-          const title = safeText(it?.name || it?.title || "—");
-          const artist = safeText(it?.artist?.name || it?.artist || "");
-          const album = safeText(it?.album?.name || it?.album || "");
-          const image = pickImage(it) || pickImage(it?.album);
-          return { title, artist, album, image };
-        });
-      }
-
-      async function loadNow(){
-        try{
-          const data = await fetchJsonProbe([
-            "/api/now",
-            "/now",
-            "/api/now-playing",
-            "/now-playing",
-            "/api/np",
-            "/np"
-          ]);
-
-          const now = normalizeNow(data);
-
-          $("nowTitle").textContent = now.title || "—";
-          $("nowArtist").textContent = now.artist || "—";
-          $("nowAlbum").textContent = now.album || "";
-
-          $("nowUpdated").textContent = `Updated: ${fmtTime(Date.now())}`;
-
-          const imgEl = $("nowArtImg");
-          const fallback = $("nowArtFallback");
-          const imgUrl = ensureHttps(now.image);
-
-          // reset
-          fallback.style.display = "flex";
-          imgEl.style.display = "none";
-          imgEl.removeAttribute("src");
-          document.documentElement.style.setProperty("--nowArt", "none");
-
-          if(imgUrl){
-            imgEl.referrerPolicy = "no-referrer";
-
-            imgEl.onerror = () => {
-              imgEl.style.display = "none";
-              fallback.style.display = "flex";
-              document.documentElement.style.setProperty("--nowArt", "none");
-              setupAllMarquees();
-            };
-
-            imgEl.onload = () => {
-              fallback.style.display = "none";
-              imgEl.style.display = "block";
-
-              const encoded = imgUrl.replace(/"/g, "%22");
-              document.documentElement.style.setProperty("--nowArt", `url("${encoded}")`);
-              setupAllMarquees();
-            };
-
-            imgEl.src = imgUrl;
-          } else {
-            setupAllMarquees();
-          }
-
-          $("statusText").textContent = "Online";
-          return true;
-        }catch(err){
-          $("statusText").textContent = "Offline";
-          return false;
-        }
-      }
-
-      async function loadTop(){
-        const type = state.topType;
-        const period = state.topPeriod;
-
-        $("topMeta").textContent = `${type} • ${period}`;
-
-        const hint = $("topHint");
-        hint.textContent = "";
-
-        const list = $("topList");
-        list.innerHTML = "";
-
-        try{
-          const qs = `?type=${encodeURIComponent(type)}&period=${encodeURIComponent(period)}&limit=${LIMIT_TOP}`;
-
-          const data = await fetchJsonProbe([
-            `/api/top${qs}`,
-            `/top${qs}`,
-            `/api/stats/top${qs}`,
-            `/stats/top${qs}`
-          ]);
-
-          const items = normalizeTopList(data).slice(0, LIMIT_TOP);
-
-          if(items.length === 0){
-            hint.textContent = "No data.";
-            $("statusText").textContent = "Online";
-            return;
-          }
-
-          const nodes = [];
-          items.forEach((it, idx) => {
-            const meta =
-              type === "albums" ? (it.artist ? it.artist : "—") :
-              type === "artists" ? "" :
-              (it.artist ? it.artist : "—");
-
-            const countText = (it.count !== undefined && it.count !== null) ? String(it.count) : "";
-
-            const node = makeListItem({
-              index: idx + 1,
-              title: it.title,
-              meta: meta.trim() ? meta : " ",
-              image: it.image,
-              countText
-            });
-
-            nodes.push(node);
-            list.appendChild(node);
-          });
-
-          requestAnimationFrame(() => {
-            nodes.forEach(n => (n._mqEls || []).forEach(mqEl => setupMarquee(mqEl)));
-          });
-
-          $("statusText").textContent = "Online";
-        }catch(err){
-          $("statusText").textContent = "Offline";
-          hint.textContent = "Couldn’t load Top.";
-        }
-      }
-<!-- PART 4/4 — index.html (FULL REPLACE CONT.) -->
-      async function loadRecent(){
-        const hint = $("recentHint");
-        hint.textContent = "";
-
-        const list = $("recentList");
-        list.innerHTML = "";
-
-        try{
-          const qs = `?limit=${LIMIT_RECENT}`;
-
-          const data = await fetchJsonProbe([
-            `/api/recent${qs}`,
-            `/recent${qs}`,
-            `/api/recent-tracks${qs}`,
-            `/recent-tracks${qs}`,
-            `/api/scrobbles${qs}`,
-            `/scrobbles${qs}`
-          ]);
-
-          const items = normalizeRecentList(data).slice(0, LIMIT_RECENT);
-
-          if(items.length === 0){
-            hint.textContent = "No recent items.";
-            $("statusText").textContent = "Online";
-            return;
-          }
-
-          const nodes = [];
-          items.forEach((it, idx) => {
-            const node = makeListItem({
-              index: idx + 1,
-              title: it.title,
-              meta: it.artist || "—",
-              image: it.image,
-              countText: ""
-            });
-            nodes.push(node);
-            list.appendChild(node);
-          });
-
-          requestAnimationFrame(() => {
-            nodes.forEach(n => (n._mqEls || []).forEach(mqEl => setupMarquee(mqEl)));
-          });
-
-          $("statusText").textContent = "Online";
-        }catch(err){
-          $("statusText").textContent = "Offline";
-          hint.textContent = "Couldn’t load Recent.";
-        }
-      }
-
-      function bindTabs(){
-        document.querySelectorAll(".seg button").forEach(btn => {
-          btn.addEventListener("click", () => {
-            setTab(btn.dataset.tab);
-            if(btn.dataset.tab === "top") loadTop();
-            if(btn.dataset.tab === "recent") loadRecent();
-          }, { passive:true });
-        });
-      }
-
-      function bindTopControls(){
-        document.querySelectorAll("[data-type]").forEach(btn => {
-          btn.addEventListener("click", () => {
-            state.topType = btn.dataset.type;
-            ["topTypeTracks","topTypeArtists","topTypeAlbums"].forEach(id => $(id).classList.remove("active"));
-            btn.classList.add("active");
-            loadTop();
-          }, { passive:true });
-        });
-
-        document.querySelectorAll("[data-period]").forEach(btn => {
-          btn.addEventListener("click", () => {
-            state.topPeriod = btn.dataset.period;
-            ["topPeriodToday","topPeriodWeek","topPeriodYear"].forEach(id => $(id).classList.remove("active"));
-            btn.classList.add("active");
-            loadTop();
-          }, { passive:true });
-        });
-      }
-
-      function startNowPolling(){
-        if(state.timers.now) clearInterval(state.timers.now);
-        state.timers.now = setInterval(() => {
-          loadNow();
-        }, 12000);
-      }
-
-      (function init(){
-        bindTabs();
-        bindTopControls();
-        setTab("now");
-        loadNow();
-        startNowPolling();
-      })();
-    </script>
   </div>
+
+  <script src="./app.js"></script>
 </body>
 </html>

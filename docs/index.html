@@ -120,7 +120,7 @@
       outline-color: rgba(49,208,124,.35);
       box-shadow: 0 0 0 3px rgba(49,208,124,.10);
     }
-
+/* ✅ A) Sticky tabs */
     .tabs{
       display:flex;
       gap:10px;
@@ -131,7 +131,14 @@
       box-shadow: 0 16px 45px rgba(0,0,0,.35);
       width: fit-content;
       margin: 12px 0 16px 0;
+
+      position: sticky;
+      top: calc(var(--safeT) + 8px);
+      z-index: 30;
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
     }
+
     .tabBtn{
       border:0;
       background: transparent;
@@ -171,7 +178,8 @@
       opacity:.65;
       mix-blend-mode: screen;
     }
-/* NOW ambient */
+
+    /* NOW ambient */
     .nowAmbient{
       position:absolute;
       inset:-1px;
@@ -225,17 +233,24 @@
       white-space:nowrap;
     }
     .chip .miniDot{ width:6px;height:6px;border-radius:999px; background: rgba(255,255,255,.18); }
+
+    /* ✅ B) Subtle LIVE pulse (not kitsch) */
     .chip.live{
       color: rgba(255,255,255,.95);
       outline-color: var(--liveBd);
       background: var(--liveBg);
+      animation: livePulse 2.4s ease-in-out infinite;
     }
     .chip.live .miniDot{
       background: var(--live);
       box-shadow: 0 0 0 3px rgba(255,59,59,.12);
     }
+    @keyframes livePulse{
+      0%,100% { box-shadow: 0 0 0 0 rgba(255,59,59,.00); }
+      50%     { box-shadow: 0 0 0 6px rgba(255,59,59,.07); }
+    }
 
-    /* ✅ Updated moved to bottom-right (small + premium) */
+    /* Updated bottom-right */
     .updatedCorner{
       position:absolute;
       right: 14px;
@@ -257,8 +272,7 @@
       font-weight: 650;
       color: rgba(255,255,255,.72);
     }
-
-    .nowMain{
+.nowMain{
       display:grid;
       grid-template-columns: 120px 1fr;
       gap: 14px;
@@ -327,7 +341,8 @@
       position:relative;
       z-index:1;
     }
-.seg{
+
+    .seg{
       display:flex;
       gap:8px;
       padding: 7px;
@@ -367,7 +382,7 @@
     .row:hover{ background: rgba(255,255,255,.030); }
     .row:active{ background: rgba(255,255,255,.040); }
 
-    /* subtle divider for premium rhythm */
+    /* subtle divider */
     .row:after{
       content:"";
       position:absolute;
@@ -396,6 +411,17 @@
     }
 
     .mid{ min-width:0; padding-left: 3px; }
+
+    /* ✅ E) Small refined index number */
+    .idx{
+      display:inline-block;
+      font-size: 12px;
+      font-weight: 650;
+      color: rgba(255,255,255,.52);
+      margin-right: 6px;
+      transform: translateY(-0.5px);
+    }
+
     .title{
       font-size: 13.5px;
       font-weight: 680;
@@ -423,6 +449,31 @@
     .right.count{
       color: rgba(255,214,102,.90);
     }
+
+    /* ✅ C) Skeleton rows */
+    .skeleton .thumb{ background: rgba(255,255,255,.025); }
+    .skLine{
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.06);
+      position:relative;
+      overflow:hidden;
+    }
+    .skLine:after{
+      content:"";
+      position:absolute;
+      inset:0;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.08), transparent);
+      transform: translateX(-60%);
+      animation: shimmer 1.05s linear infinite;
+    }
+    @keyframes shimmer{
+      0%{ transform: translateX(-60%); }
+      100%{ transform: translateX(60%); }
+    }
+    .skW1{ width: 64%; }
+    .skW2{ width: 42%; margin-top: 8px; }
+    .skCount{ width: 26px; height: 10px; border-radius: 999px; background: rgba(255,255,255,.06); }
 
     @media (max-width: 520px){
       .nowMain{ grid-template-columns: 106px 1fr; }
@@ -486,7 +537,6 @@
             </div>
           </div>
 
-          <!-- ✅ moved here -->
           <div class="updatedCorner">Updated <b id="nowUpdated">--</b></div>
         </div>
       </div>

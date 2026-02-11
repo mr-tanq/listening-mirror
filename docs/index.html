@@ -1,3 +1,4 @@
+<!-- PART 1/4 : index.html (FULL REPLACE) -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -10,17 +11,21 @@
     :root{
       --bg:#0b0c0e;
       --bg2:#090a0c;
+
       --card: rgba(255,255,255,.055);
       --card2: rgba(255,255,255,.035);
+
       --text:#ececee;
       --muted:#a7abb4;
       --muted2:#7d828d;
+
       --shadow: 0 18px 55px rgba(0,0,0,.55);
       --r: 22px;
 
+      /* LIVE premium (minimal, red) */
       --live:#ff3b3b;
-      --liveBg: rgba(255,59,59,.10);
-      --liveBd: rgba(255,59,59,.30);
+      --liveDotShadow: rgba(255,59,59,.20);
+      --liveInk: rgba(255,255,255,.90);
 
       --safeL: max(14px, env(safe-area-inset-left));
       --safeR: max(14px, env(safe-area-inset-right));
@@ -41,26 +46,30 @@
         linear-gradient(180deg, var(--bg), var(--bg2));
       color: var(--text);
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      text-rendering: geometricPrecision;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
 
     .app{
       min-height:100%;
-      padding: calc(var(--safeT) + 14px) var(--safeR) calc(var(--safeB) + 18px) var(--safeL);
+      padding: calc(var(--safeT) + 16px) var(--safeR) calc(var(--safeB) + 20px) var(--safeL);
       max-width: 920px;
       margin: 0 auto;
     }
 
+    /* HEADER: more high-end */
     header{
       display:flex;
       align-items:flex-start;
       gap:14px;
-      margin-bottom: 14px;
+      margin-bottom: 12px;
     }
 
     .brand{
       display:flex;
       align-items:center;
-      gap:10px;
+      gap:12px;
       padding-left: 2px;
     }
 
@@ -73,6 +82,7 @@
       outline: 1px solid rgba(255,255,255,.10);
       box-shadow: 0 10px 35px rgba(0,0,0,.45);
       flex: 0 0 auto;
+      opacity: .9;
     }
     .glyph:before{
       content:"";
@@ -87,27 +97,28 @@
     .wordmark{
       display:flex;
       flex-direction:column;
-      line-height: 1.15;
+      line-height: 1.06;
     }
     .wordmark .title{
-      font-size: 18px;
-      font-weight: 720;
-      letter-spacing: .35px;
       margin:0;
-      background: linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.70));
+      font-size: clamp(22px, 4.2vw, 30px);
+      font-weight: 780;
+      letter-spacing: .15px;
+      background: linear-gradient(180deg, rgba(255,255,255,.94), rgba(255,255,255,.72));
       -webkit-background-clip: text;
       background-clip: text;
       color: transparent;
     }
     .wordmark .sub{
-      margin-top: 6px;
+      margin-top: 8px;
       display:flex;
       align-items:center;
-      gap:8px;
-      color: var(--muted2);
+      gap:10px;
+      color: rgba(255,255,255,.55);
       font-size: 12px;
-      letter-spacing: .2px;
+      letter-spacing: .35px;
     }
+
     .dot{
       width: 7px;
       height: 7px;
@@ -116,11 +127,12 @@
       outline: 1px solid rgba(255,255,255,.10);
     }
     .dot.on{
-      background: rgba(49,208,124,.75);
+      background: rgba(49,208,124,.80);
       outline-color: rgba(49,208,124,.35);
       box-shadow: 0 0 0 3px rgba(49,208,124,.10);
     }
-
+<!-- PART 2/4 -->
+    /* Tabs: more premium / consistent */
     .tabs{
       display:flex;
       gap:10px;
@@ -130,22 +142,24 @@
       outline: 1px solid rgba(255,255,255,.08);
       box-shadow: 0 16px 45px rgba(0,0,0,.35);
       width: fit-content;
-      margin: 12px 0 16px 0;
+      margin: 14px 0 18px 0;
     }
     .tabBtn{
       border:0;
       background: transparent;
-      color: rgba(255,255,255,.72);
-      padding: 10px 14px;
+      color: rgba(255,255,255,.70);
+      padding: 12px 16px;
       border-radius: 999px;
       font-size: 13px;
-      letter-spacing: .2px;
+      font-weight: 650;
+      letter-spacing: .25px;
       cursor:pointer;
     }
     .tabBtn[aria-selected="true"]{
-      background: rgba(255,255,255,.085);
-      outline: 1px solid rgba(255,255,255,.10);
-      color: rgba(255,255,255,.95);
+      background: rgba(255,255,255,.090);
+      outline: 1px solid rgba(255,255,255,.12);
+      color: rgba(255,255,255,.96);
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,.12);
     }
 
     .panel{ display:block; }
@@ -160,7 +174,7 @@
       position:relative;
     }
 
-    /* NOW ambient */
+    /* NOW ambient (unchanged logic) */
     .nowAmbient{
       position:absolute;
       inset:-1px;
@@ -189,7 +203,8 @@
         linear-gradient(180deg, rgba(10,11,13,.55), rgba(10,11,13,.85));
     }
 
-    .nowWrap{ position:relative; padding: 18px; }
+    /* Now card spacing a bit more premium */
+    .nowWrap{ position:relative; padding: 20px; }
     .nowTop{
       display:flex;
       align-items:center;
@@ -200,44 +215,58 @@
       z-index:2;
     }
 
+    /* Badge base */
     .chip{
       display:inline-flex;
       align-items:center;
-      gap:8px;
-      padding: 7px 10px;
+      gap:10px;
+      padding: 8px 10px;
       border-radius: 999px;
-      background: rgba(255,255,255,.045);
-      outline: 1px solid rgba(255,255,255,.085);
-      color: rgba(255,255,255,.78);
+      background: transparent;
+      outline: 1px solid rgba(255,255,255,.10);
+      color: rgba(255,255,255,.72);
       font-size: 12px;
-      letter-spacing:.25px;
+      font-weight: 700;
+      letter-spacing:.38px;
       white-space:nowrap;
+      backdrop-filter: blur(10px);
     }
-    .chip .miniDot{ width:6px;height:6px;border-radius:999px; background: rgba(255,255,255,.18); }
+    .chip .miniDot{
+      width:6px;height:6px;border-radius:999px;
+      background: rgba(255,255,255,.18);
+    }
+
+    /* LIVE premium redesign (A) */
     .chip.live{
-      color: rgba(255,255,255,.95);
-      outline-color: var(--liveBd);
-      background: var(--liveBg);
+      outline-color: rgba(255,255,255,.12);
+      color: var(--liveInk);
+      background: rgba(0,0,0,.10);
     }
     .chip.live .miniDot{
       background: var(--live);
-      box-shadow: 0 0 0 3px rgba(255,59,59,.12);
+      box-shadow: 0 0 0 4px var(--liveDotShadow);
     }
 
-    .updated{ color: var(--muted2); font-size: 12px; letter-spacing:.2px; white-space:nowrap; }
+    .updated{
+      color: rgba(255,255,255,.52);
+      font-size: 12px;
+      letter-spacing:.32px;
+      white-space:nowrap;
+      font-variant-numeric: tabular-nums;
+    }
 
     .nowMain{
       display:grid;
-      grid-template-columns: 120px 1fr;
-      gap: 14px;
+      grid-template-columns: 122px 1fr;
+      gap: 16px;
       align-items:center;
       position:relative;
       z-index:2;
     }
 
     .coverWrap{
-      width: 120px;
-      height: 120px;
+      width: 122px;
+      height: 122px;
       border-radius: 20px;
       position:relative;
       overflow:hidden;
@@ -266,17 +295,21 @@
       color: rgba(255,255,255,.35); font-size: 30px; z-index:3;
     }
 
-    .nowText{ min-width:0; padding-left: 4px; } /* <-- fixes first letter */
-    .line1{ font-size: 15px; font-weight: 680; letter-spacing: .15px; }
-    .line2{ margin-top: 6px; font-size: 13px; color: rgba(255,255,255,.72); }
-    .line3{ margin-top: 6px; font-size: 12px; color: var(--muted2); }
+    .nowText{ min-width:0; padding-left: 6px; } /* typography/spacing polish */
+    .line1{ font-size: 15px; font-weight: 760; letter-spacing: .12px; }
+    .line2{ margin-top: 7px; font-size: 13px; color: rgba(255,255,255,.70); font-weight: 650; }
+    .line3{ margin-top: 7px; font-size: 12px; color: rgba(255,255,255,.50); letter-spacing:.15px; }
 
-    /* Marquee: NO left fade. Fade only on the RIGHT end (prevents first char cutting) */
+    /* Remove "Now playing" line completely (as requested) */
+    #nowMsg{ display:none !important; }
+
+    /* Marquee: right fade only (keeps first char safe) */
     .marq{ display:inline-block; white-space:nowrap; will-change:transform; }
     .marqWrap{
       position:relative;
       overflow:hidden;
-      padding-left: 3px; /* <-- fixes first letter universally */
+      padding-left: 6px;
+      transform: translateZ(0);
       -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 86%, transparent 100%);
       mask-image: linear-gradient(90deg, #000 0%, #000 86%, transparent 100%);
     }
@@ -285,7 +318,7 @@
       0%{ transform: translateX(0); }
       100%{ transform: translateX(calc(-1 * var(--marqShift, 60px))); }
     }
-
+<!-- PART 3/4 -->
     .controls{
       padding: 14px;
       display:flex;
@@ -293,6 +326,7 @@
       flex-wrap:wrap;
       border-bottom: 1px solid rgba(255,255,255,.07);
     }
+
     .seg{
       display:flex;
       gap:8px;
@@ -306,16 +340,17 @@
       border:0;
       background: transparent;
       color: rgba(255,255,255,.74);
-      padding: 9px 12px;
+      padding: 10px 13px;
       border-radius: 999px;
       font-size: 12.5px;
+      font-weight: 680;
       cursor:pointer;
-      letter-spacing:.2px;
+      letter-spacing:.22px;
     }
     .seg button[aria-selected="true"]{
-      background: rgba(255,255,255,.085);
-      outline: 1px solid rgba(255,255,255,.10);
-      color: rgba(255,255,255,.95);
+      background: rgba(255,255,255,.090);
+      outline: 1px solid rgba(255,255,255,.12);
+      color: rgba(255,255,255,.96);
     }
 
     .list{ padding: 10px; }
@@ -324,7 +359,7 @@
       display:grid;
       grid-template-columns: 52px 1fr auto;
       gap: 12px;
-      padding: 12px 12px 12px 16px; /* extra left padding */
+      padding: 12px 12px 12px 16px;
       border-radius: 16px;
       align-items:center;
       user-select:none;
@@ -347,38 +382,46 @@
       color: rgba(255,255,255,.35); font-size: 18px;
     }
 
-    .mid{ min-width:0; padding-left: 3px; } /* <-- fixes first letter on list text */
+    /* Typography polish in lists */
+    .mid{
+      min-width:0;
+      padding-left: 6px;
+      transform: translateZ(0);
+    }
     .title{
-      font-size: 13.5px;
-      font-weight: 650;
+      font-size: 13.8px;
+      font-weight: 760;
       color: rgba(255,255,255,.92);
       white-space:nowrap;
       overflow:hidden;
       text-overflow:ellipsis;
+      letter-spacing:.10px;
     }
     .sub{
       margin-top: 6px;
       font-size: 12px;
-      color: var(--muted2);
+      color: rgba(255,255,255,.52);
       white-space:nowrap;
       overflow:hidden;
       text-overflow:ellipsis;
+      letter-spacing:.18px;
     }
 
     .right{
       font-size: 12.5px;
-      font-weight: 700;
-      color: rgba(255,255,255,.80);
+      font-weight: 800;
+      color: rgba(255,255,255,.75);
       padding-left: 8px;
       white-space:nowrap;
+      font-variant-numeric: tabular-nums;
     }
     .right.count{
       color: rgba(255,214,102,.92);
     }
 
     @media (max-width: 520px){
-      .nowMain{ grid-template-columns: 106px 1fr; }
-      .coverWrap{ width:106px;height:106px;border-radius:18px; }
+      .nowMain{ grid-template-columns: 108px 1fr; }
+      .coverWrap{ width:108px;height:108px;border-radius:18px; }
       .tabs{ width: 100%; justify-content: space-between; }
     }
   </style>
@@ -440,7 +483,7 @@
         </div>
       </div>
     </section>
-
+<!-- PART 4/4 -->
     <section class="panel hidden" data-panel="top">
       <div class="card">
         <div class="controls">

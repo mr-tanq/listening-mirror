@@ -15,13 +15,12 @@
       --text:#ececee;
       --muted:#a7abb4;
       --muted2:#7d828d;
-      --line: rgba(255,255,255,.08);
       --shadow: 0 18px 55px rgba(0,0,0,.55);
       --r: 22px;
 
-      --live:#ff3b3b;          /* premium red */
-      --live2:#ff6b6b;
-      --accent: rgba(255,255,255,.12);
+      --live:#ff3b3b;
+      --liveBg: rgba(255,59,59,.10);
+      --liveBd: rgba(255,59,59,.30);
 
       --safeL: max(14px, env(safe-area-inset-left));
       --safeR: max(14px, env(safe-area-inset-right));
@@ -31,20 +30,18 @@
 
     *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
     html,body{ height:100%; }
+    html{ overscroll-behavior-y:none; }
     body{
       margin:0;
+      overflow-x:hidden;
+      overscroll-behavior-y:none;
       background:
         radial-gradient(1200px 700px at 25% -10%, rgba(255,255,255,.06), transparent 60%),
         radial-gradient(900px 600px at 90% 0%, rgba(255,255,255,.04), transparent 55%),
         linear-gradient(180deg, var(--bg), var(--bg2));
       color: var(--text);
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
-      overflow-x:hidden;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
     }
-
-    /* Remove “pull to refresh” feel on mobile */
-    html{ overscroll-behavior-y: none; }
-    body{ overscroll-behavior-y: none; }
 
     .app{
       min-height:100%;
@@ -53,11 +50,9 @@
       margin: 0 auto;
     }
 
-    /* ---------- Header (micro-glyph + wordmark) ---------- */
     header{
       display:flex;
       align-items:flex-start;
-      justify-content:space-between;
       gap:14px;
       margin-bottom: 14px;
     }
@@ -66,7 +61,7 @@
       display:flex;
       align-items:center;
       gap:10px;
-      padding-left: 2px; /* prevents first letter clipping */
+      padding-left: 2px;
     }
 
     .glyph{
@@ -74,10 +69,10 @@
       height: 16px;
       border-radius: 999px;
       position:relative;
-      flex:0 0 auto;
       background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.22), rgba(255,255,255,.05) 55%, rgba(255,255,255,.03) 70%);
       outline: 1px solid rgba(255,255,255,.10);
       box-shadow: 0 10px 35px rgba(0,0,0,.45);
+      flex: 0 0 auto;
     }
     .glyph:before{
       content:"";
@@ -87,18 +82,6 @@
       outline: 1px solid rgba(255,255,255,.10);
       background: radial-gradient(circle at 65% 35%, rgba(255,255,255,.10), transparent 60%);
       opacity:.9;
-    }
-    .glyph:after{
-      content:"";
-      position:absolute;
-      left: 7px;
-      top: -3px;
-      width: 2px;
-      height: 22px;
-      background: linear-gradient(180deg, rgba(255,255,255,.0), rgba(255,255,255,.18), rgba(255,255,255,.0));
-      transform: rotate(18deg);
-      opacity: .55;
-      filter: blur(.2px);
     }
 
     .wordmark{
@@ -138,7 +121,6 @@
       box-shadow: 0 0 0 3px rgba(49,208,124,.10);
     }
 
-    /* ---------- Tabs ---------- */
     .tabs{
       display:flex;
       gap:10px;
@@ -166,7 +148,6 @@
       color: rgba(255,255,255,.95);
     }
 
-    /* ---------- Panels ---------- */
     .panel{ display:block; }
     .hidden{ display:none; }
 
@@ -179,7 +160,7 @@
       position:relative;
     }
 
-    /* NOW panel ambient layer (only visible in Now tab) */
+    /* NOW ambient */
     .nowAmbient{
       position:absolute;
       inset:-1px;
@@ -208,11 +189,7 @@
         linear-gradient(180deg, rgba(10,11,13,.55), rgba(10,11,13,.85));
     }
 
-    /* ---------- Now layout ---------- */
-    .nowWrap{
-      position:relative;
-      padding: 18px;
-    }
+    .nowWrap{ position:relative; padding: 18px; }
     .nowTop{
       display:flex;
       align-items:center;
@@ -222,6 +199,7 @@
       position:relative;
       z-index:2;
     }
+
     .chip{
       display:inline-flex;
       align-items:center;
@@ -235,31 +213,24 @@
       letter-spacing:.25px;
       white-space:nowrap;
     }
-    .chip .miniDot{
-      width:6px;height:6px;border-radius:999px;
-      background: rgba(255,255,255,.18);
-    }
+    .chip .miniDot{ width:6px;height:6px;border-radius:999px; background: rgba(255,255,255,.18); }
     .chip.live{
-      color: rgba(255,255,255,.92);
-      outline-color: rgba(255,59,59,.28);
-      background: rgba(255,59,59,.08);
+      color: rgba(255,255,255,.95);
+      outline-color: var(--liveBd);
+      background: var(--liveBg);
     }
     .chip.live .miniDot{
-      background: rgba(255,59,59,.95);
+      background: var(--live);
       box-shadow: 0 0 0 3px rgba(255,59,59,.12);
     }
-    .updated{
-      color: var(--muted2);
-      font-size: 12px;
-      letter-spacing:.2px;
-      white-space:nowrap;
-    }
+
+    .updated{ color: var(--muted2); font-size: 12px; letter-spacing:.2px; white-space:nowrap; }
 
     .nowMain{
       display:grid;
       grid-template-columns: 120px 1fr;
       gap: 14px;
-      align-items: center;
+      align-items:center;
       position:relative;
       z-index:2;
     }
@@ -274,8 +245,6 @@
       background: rgba(255,255,255,.03);
       box-shadow: 0 18px 55px rgba(0,0,0,.55);
     }
-
-    /* Hollow premium aura */
     .coverWrap:before{
       content:"";
       position:absolute;
@@ -286,38 +255,37 @@
       filter: blur(20px) saturate(1.15);
       opacity:.26;
       transform: scale(1.10);
-      /* hollow-ish vignette */
       -webkit-mask-image: radial-gradient(circle at 50% 50%, rgba(0,0,0,.55) 0%, rgba(0,0,0,.25) 35%, rgba(0,0,0,0) 68%);
       mask-image: radial-gradient(circle at 50% 50%, rgba(0,0,0,.55) 0%, rgba(0,0,0,.25) 35%, rgba(0,0,0,0) 68%);
       pointer-events:none;
     }
 
-    .coverImg{
-      width:100%;
-      height:100%;
-      object-fit: cover;
-      display:none;
-      position:relative;
-      z-index:2;
-    }
+    .coverImg{ width:100%; height:100%; object-fit:cover; display:none; position:relative; z-index:2; }
     .coverFallback{
-      position:absolute;
-      inset:0;
-      display:grid;
-      place-items:center;
-      color: rgba(255,255,255,.35);
-      font-size: 30px;
-      z-index:3;
+      position:absolute; inset:0; display:grid; place-items:center;
+      color: rgba(255,255,255,.35); font-size: 30px; z-index:3;
     }
 
-    .nowText{
-      min-width:0;
-    }
+    .nowText{ min-width:0; padding-left: 4px; } /* <-- fixes first letter */
     .line1{ font-size: 15px; font-weight: 680; letter-spacing: .15px; }
     .line2{ margin-top: 6px; font-size: 13px; color: rgba(255,255,255,.72); }
     .line3{ margin-top: 6px; font-size: 12px; color: var(--muted2); }
 
-    /* ---------- Top controls ---------- */
+    /* Marquee: NO left fade. Fade only on the RIGHT end (prevents first char cutting) */
+    .marq{ display:inline-block; white-space:nowrap; will-change:transform; }
+    .marqWrap{
+      position:relative;
+      overflow:hidden;
+      padding-left: 3px; /* <-- fixes first letter universally */
+      -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 86%, transparent 100%);
+      mask-image: linear-gradient(90deg, #000 0%, #000 86%, transparent 100%);
+    }
+    .marqOn .marq{ animation: marqMove var(--marqDur, 10s) linear infinite; }
+    @keyframes marqMove{
+      0%{ transform: translateX(0); }
+      100%{ transform: translateX(calc(-1 * var(--marqShift, 60px))); }
+    }
+
     .controls{
       padding: 14px;
       display:flex;
@@ -350,50 +318,36 @@
       color: rgba(255,255,255,.95);
     }
 
-    /* ---------- List ---------- */
-    .list{
-      padding: 10px;
-    }
+    .list{ padding: 10px; }
+
     .row{
       display:grid;
       grid-template-columns: 52px 1fr auto;
       gap: 12px;
-      padding: 12px 12px 12px 16px; /* extra left padding = fixes first char/number */
+      padding: 12px 12px 12px 16px; /* extra left padding */
       border-radius: 16px;
       align-items:center;
-      cursor: default;
       user-select:none;
     }
     .row:hover{ background: rgba(255,255,255,.035); }
     .row:active{ background: rgba(255,255,255,.045); }
 
     .thumb{
-      width: 44px;
-      height: 44px;
+      width: 44px; height: 44px;
       border-radius: 14px;
       overflow:hidden;
       position:relative;
       outline: 1px solid rgba(255,255,255,.10);
       background: rgba(255,255,255,.03);
       box-shadow: 0 10px 30px rgba(0,0,0,.40);
-      flex: 0 0 auto;
     }
-    .thumb img{
-      width:100%;
-      height:100%;
-      object-fit: cover;
-      display:block;
-    }
-    .thumb .thumbFallback{
-      position:absolute;
-      inset:0;
-      display:grid;
-      place-items:center;
-      color: rgba(255,255,255,.35);
-      font-size: 18px;
+    .thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+    .thumbFallback{
+      position:absolute; inset:0; display:grid; place-items:center;
+      color: rgba(255,255,255,.35); font-size: 18px;
     }
 
-    .mid{ min-width:0; }
+    .mid{ min-width:0; padding-left: 3px; } /* <-- fixes first letter on list text */
     .title{
       font-size: 13.5px;
       font-weight: 650;
@@ -411,7 +365,6 @@
       text-overflow:ellipsis;
     }
 
-    /* playcount (different color) */
     .right{
       font-size: 12.5px;
       font-weight: 700;
@@ -420,33 +373,8 @@
       white-space:nowrap;
     }
     .right.count{
-      color: rgba(255,214,102,.92); /* warm premium highlight */
-      text-shadow: 0 0 0 rgba(0,0,0,0);
+      color: rgba(255,214,102,.92);
     }
-
-    /* ---------- Marquee (only when needed) ---------- */
-    .marq{
-      display:inline-block;
-      vertical-align:bottom;
-      white-space:nowrap;
-      will-change: transform;
-    }
-    .marqWrap{
-      position:relative;
-      overflow:hidden;
-      mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
-      -webkit-mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
-    }
-    .marqOn .marq{
-      animation: marqMove var(--marqDur, 10s) linear infinite;
-    }
-    @keyframes marqMove{
-      0%{ transform: translateX(0); }
-      100%{ transform: translateX(calc(-1 * var(--marqShift, 60px))); }
-    }
-
-    /* ---------- Footer spacing ---------- */
-    .spacer{ height: 14px; }
 
     @media (max-width: 520px){
       .nowMain{ grid-template-columns: 106px 1fr; }
@@ -477,7 +405,6 @@
       <button class="tabBtn" data-tab="recent" aria-selected="false" role="tab">Recent</button>
     </div>
 
-    <!-- NOW -->
     <section class="panel" data-panel="now">
       <div class="card">
         <div id="nowAmbient" class="nowAmbient"></div>
@@ -507,15 +434,13 @@
               <div class="line3 marqWrap" id="nowAlbumWrap">
                 <span class="marq" id="nowAlbum">—</span>
               </div>
-              <div class="spacer"></div>
-              <div id="nowMsg" class="sub" style="margin-top:0;">—</div>
+              <div class="sub" id="nowMsg" style="margin-top:12px;">—</div>
             </div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- TOP -->
     <section class="panel hidden" data-panel="top">
       <div class="card">
         <div class="controls">
@@ -536,7 +461,6 @@
       </div>
     </section>
 
-    <!-- RECENT -->
     <section class="panel hidden" data-panel="recent">
       <div class="card">
         <div class="list" id="recentList" aria-live="polite"></div>

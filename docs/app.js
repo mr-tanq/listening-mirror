@@ -12,11 +12,16 @@
 
   // Header
   const statusLine = el("#statusLine");
+  const statusDot = el("#statusDot");
   const btnRefresh = el("#btnRefresh");
 
   // Tabs
   const panels = els(".panel");
-  const tabBtns = els(".tabBtn");
+  const tabBtns = els(".segBtn");
+
+  // Toast
+  const toast = el("#toast");
+  let toastTimer = null;
 
   // Now Playing UI
   const nowUpdated = el("#nowUpdated");
@@ -47,6 +52,17 @@
   let online = false;
 
   // ---------------------------
+  // Toast
+  // ---------------------------
+  function showToast(msg) {
+    if (!toast) return;
+    toast.textContent = String(msg || "");
+    toast.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove("show"), 2200);
+  }
+
+  // ---------------------------
   // Helpers
   // ---------------------------
   function setSelected(btns, predicate) {
@@ -66,7 +82,6 @@
     if (tab === "top") refreshTop();
     if (tab === "recent") refreshRecent();
 
-    // re-evaluate marquee when changing panels
     requestAnimationFrame(() => refreshAllMarquees());
   }
 
@@ -78,8 +93,12 @@
     }
   }
 
-  function setStatus(text) {
+  function setStatus(text, isOn) {
     if (statusLine) statusLine.textContent = text;
+    if (statusDot) {
+      statusDot.classList.remove("on", "off");
+      statusDot.classList.add(isOn ? "on" : "off");
+    }
   }
 
   // IMPORTANT: Worker returns images like "/img?u=..."
@@ -103,7 +122,6 @@
       const ct = (r.headers.get("content-type") || "").toLowerCase();
       const text = await r.text();
 
-      // If worker returns HTML (404 page etc.), show clean error
       if (!r.ok || ct.includes("text/html") || text.trim().startsWith("<!DOCTYPE")) {
         const msg = !r.ok ? `HTTP ${r.status}` : "HTML returned";
         throw new Error(msg);
@@ -119,27 +137,18 @@
     }
   }
 // ---------------------------
-  // Marquee (only when overflow)
+  // Marquee (only when overflow) + pause on touch
   // ---------------------------
-  function clearMarquee(node, plainText) {
-    node.classList.remove("marquee", "fast", "slow");
-    node.textContent = plainText ?? "";
-  }
-
   function applyMarquee(node, text, speed = "slow") {
-    // set plain text first (so we can measure)
-    node.classList.remove("marquee", "fast", "slow");
+    node.classList.remove("marquee", "fast", "slow", "pause");
     node.textContent = text;
 
-    // measure overflow (needs layout)
     const overflow = node.scrollWidth > node.clientWidth + 2;
     if (!overflow) return;
 
-    // build marquee DOM
     node.innerHTML = "";
     node.classList.add("marquee");
-    if (speed === "fast") node.classList.add("fast");
-    if (speed === "slow") node.classList.add("slow");
+    node.classList.add(speed === "fast" ? "fast" : "slow");
 
     const track = document.createElement("div");
     track.className = "marqueeTrack";
@@ -153,42 +162,66 @@
     track.appendChild(a);
     track.appendChild(b);
     node.appendChild(track);
+
+    // Pause while pressing (mobile-friendly)
+    const pause = () => node.classList.add("pause");
+    const resume = () => node.classList.remove("pause");
+
+    node.addEventListener("pointerdown", pause, { passive: true });
+    node.addEventListener("pointerup", resume, { passive: true });
+    node.addEventListener("pointercancel", resume, { passive: true });
+    node.addEventListener("pointerleave", resume, { passive: true });
   }
 
   function setSmartText(node, text, speed = "slow") {
     if (!node) return;
     const t = (text == null ? "" : String(text));
-    // try marquee on next frame so the element has proper width
     requestAnimationFrame(() => applyMarquee(node, t, speed));
   }
 
   function refreshAllMarquees() {
-    // Now Playing
     setSmartText(nowTrack, nowTrack?.dataset?.rawText || nowTrack?.textContent || "—", "fast");
     setSmartText(nowArtist, nowArtist?.dataset?.rawText || nowArtist?.textContent || "—", "slow");
     setSmartText(nowAlbum, nowAlbum?.dataset?.rawText || nowAlbum?.textContent || "—", "slow");
 
-    // List rows (titles/subtitles)
     els("[data-marquee='title']").forEach((n) => setSmartText(n, n.dataset.rawText || n.textContent || "", "fast"));
     els("[data-marquee='sub']").forEach((n) => setSmartText(n, n.dataset.rawText || n.textContent || "", "slow"));
   }
 
-  function clearNow() {
-    nowBadge.textContent = "OFF";
-    nowBadge.classList.remove("live");
-    nowUpdated.textContent = "--";
-    nowMsg.textContent = "";
-    setNowCover("");
+  // ---------------------------
+  // Skeletons
+  // ---------------------------
+  function mountListSkeleton(container, rows = 8) {
+    if (!container) return;
+    container.innerHTML = "";
+    for (let i = 0; i < rows; i++) {
+      const r = document.createElement("div");
+      r.className = "skRow";
 
-    // set placeholders + marquee
-    nowTrack.dataset.rawText = "—";
-    nowArtist.dataset.rawText = "—";
-    nowAlbum.dataset.rawText = "—";
-    setSmartText(nowTrack, "—", "fast");
-    setSmartText(nowArtist, "—", "slow");
-    setSmartText(nowAlbum, "—", "slow");
+      const c = document.createElement("div");
+      c.className = "skCover skeleton";
+
+      const mid = document.createElement("div");
+      const l1 = document.createElement("div");
+      l1.className = "skLine big skeleton";
+      const l2 = document.createElement("div");
+      l2.className = "skLine small skeleton";
+      mid.appendChild(l1);
+      mid.appendChild(l2);
+
+      const right = document.createElement("div");
+      right.className = "skRight skeleton";
+
+      r.appendChild(c);
+      r.appendChild(mid);
+      r.appendChild(right);
+      container.appendChild(r);
+    }
   }
 
+  // ---------------------------
+  // Now helpers
+  // ---------------------------
   function setNowCover(imgUrl) {
     const u = resolveImageUrl(imgUrl);
     if (u) {
@@ -200,6 +233,21 @@
       nowImg.style.display = "none";
       nowFallback.style.display = "grid";
     }
+  }
+
+  function clearNow() {
+    nowBadge.textContent = "OFF";
+    nowBadge.classList.remove("live");
+    nowUpdated.textContent = "--";
+    nowMsg.textContent = "";
+    setNowCover("");
+
+    nowTrack.dataset.rawText = "—";
+    nowArtist.dataset.rawText = "—";
+    nowAlbum.dataset.rawText = "—";
+    setSmartText(nowTrack, "—", "fast");
+    setSmartText(nowArtist, "—", "slow");
+    setSmartText(nowAlbum, "—", "slow");
   }
 
   function rowItem({ idx, title, subtitle, right, imageUrl }) {
@@ -221,7 +269,6 @@
     if (u) {
       img.src = u;
       cover.appendChild(img);
-      cover.appendChild(icon);
       img.addEventListener("error", () => {
         img.removeAttribute("src");
         img.style.display = "none";
@@ -258,7 +305,6 @@
     wrap.appendChild(mid);
     wrap.appendChild(r);
 
-    // apply marquee after layout
     requestAnimationFrame(() => {
       applyMarquee(t, t.dataset.rawText || "", "fast");
       applyMarquee(s, s.dataset.rawText || "", "slow");
@@ -267,21 +313,21 @@
     return wrap;
   }
 // ---------------------------
-  // Fetch + Render: /api/ping
+  // /api/ping
   // ---------------------------
   async function refreshPing() {
     try {
       const j = await safeFetchJson("/api/ping");
       online = !!j?.ok;
-      setStatus(online ? "Online" : "Offline");
+      setStatus(online ? "Online" : "Offline", online);
     } catch {
       online = false;
-      setStatus("Offline");
+      setStatus("Offline", false);
     }
   }
 
   // ---------------------------
-  // Fetch + Render: /api/now
+  // /api/now
   // ---------------------------
   async function refreshNow() {
     clearNow();
@@ -303,10 +349,8 @@
 
       nowBadge.textContent = "LIVE";
       nowBadge.classList.add("live");
-
       nowMsg.textContent = "Now playing";
 
-      // store raw text for marquee refresh
       nowTrack.dataset.rawText = item.name || "—";
       nowArtist.dataset.rawText = item.artist || "—";
       nowAlbum.dataset.rawText = item.album || "—";
@@ -321,21 +365,23 @@
       nowBadge.textContent = "OFF";
       nowBadge.classList.remove("live");
       setNowCover("");
+      showToast(`Now Playing: ${String(e.message || e)}`);
     }
   }
 
   // ---------------------------
-  // Fetch + Render: /api/history
+  // /api/history
   // ---------------------------
   async function refreshRecent() {
     recentMeta.textContent = "Loading…";
-    recentList.innerHTML = "";
+    mountListSkeleton(recentList, 8);
 
     try {
       const j = await safeFetchJson("/api/history?limit=10");
       const items = j?.items || [];
 
       recentMeta.textContent = `${items.length} items`;
+      recentList.innerHTML = "";
 
       items.forEach((it, i) => {
         recentList.appendChild(
@@ -350,20 +396,20 @@
       });
 
       if (!items.length) recentMeta.textContent = "No recent history returned.";
-
       requestAnimationFrame(() => refreshAllMarquees());
     } catch (e) {
       recentMeta.textContent = `Error: ${String(e.message || e)}`;
       recentList.innerHTML = "";
+      showToast(`Recent: ${String(e.message || e)}`);
     }
   }
 
   // ---------------------------
-  // Fetch + Render: /api/top
+  // /api/top
   // ---------------------------
   async function refreshTop() {
     topMeta.textContent = "Loading…";
-    topList.innerHTML = "";
+    mountListSkeleton(topList, 10);
 
     const path = `/api/top?type=${encodeURIComponent(topType)}&period=${encodeURIComponent(topPeriod)}&limit=${encodeURIComponent(topLimit)}`;
 
@@ -373,6 +419,8 @@
 
       topMeta.textContent = `${topType} • ${topPeriod}`;
       topBadge.textContent = String(topLimit);
+
+      topList.innerHTML = "";
 
       items.forEach((it, i) => {
         if (topType === "artists") {
@@ -409,11 +457,11 @@
       });
 
       if (!items.length) topMeta.textContent = "No top data returned.";
-
       requestAnimationFrame(() => refreshAllMarquees());
     } catch (e) {
       topMeta.textContent = `Error: ${String(e.message || e)}`;
       topList.innerHTML = "";
+      showToast(`Top: ${String(e.message || e)}`);
     }
   }
 // ---------------------------
@@ -422,32 +470,35 @@
   function init() {
     if (workerHint) workerHint.textContent = `Worker: ${WORKER_BASE}`;
 
-    // tabs
+    // Tabs
     tabBtns.forEach((b) => {
       b.addEventListener("click", () => showTab(b.dataset.tab));
     });
 
-    // top type
+    // Top type
     topTypeBtns.forEach((b) => {
       b.addEventListener("click", () => {
         topType = String(b.dataset.topType || "tracks");
         setSelected(topTypeBtns, (x) => x === b);
+        showToast(`Top: ${topType}`);
         refreshTop();
       });
     });
 
-    // top period
+    // Top period
     topPeriodBtns.forEach((b) => {
       b.addEventListener("click", () => {
         topPeriod = String(b.dataset.topPeriod || "today");
         setSelected(topPeriodBtns, (x) => x === b);
+        showToast(`Period: ${topPeriod}`);
         refreshTop();
       });
     });
 
-    // refresh
+    // Refresh
     if (btnRefresh) {
       btnRefresh.addEventListener("click", async () => {
+        showToast("Refreshing…");
         await refreshPing();
         if (currentTab === "now") refreshNow();
         if (currentTab === "top") refreshTop();
@@ -455,28 +506,24 @@
       });
     }
 
-    // initial selected states
+    // Initial selected states
     setSelected(tabBtns, (b) => b.dataset.tab === "now");
     setSelected(topTypeBtns, (b) => (b.dataset.topType || "") === "tracks");
     setSelected(topPeriodBtns, (b) => (b.dataset.topPeriod || "") === "today");
 
-    // boot
+    // Boot
     refreshPing();
     showTab("now");
 
-    // auto refresh ping + now (lightweight)
+    // Auto refresh
     setInterval(refreshPing, 15000);
     setInterval(() => {
       if (currentTab === "now") refreshNow();
     }, 15000);
 
-    // re-evaluate marquee on resize/orientation change
-    window.addEventListener("resize", () => {
-      requestAnimationFrame(() => refreshAllMarquees());
-    });
-    window.addEventListener("orientationchange", () => {
-      setTimeout(() => refreshAllMarquees(), 200);
-    });
+    // Re-evaluate marquee on resize/orientation change
+    window.addEventListener("resize", () => requestAnimationFrame(() => refreshAllMarquees()));
+    window.addEventListener("orientationchange", () => setTimeout(() => refreshAllMarquees(), 200));
   }
 
   init();

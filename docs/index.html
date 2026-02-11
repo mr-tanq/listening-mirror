@@ -1,3 +1,4 @@
+<!-- index.html — FULL REPLACE (Part 1/4) -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -26,9 +27,6 @@
       --safeR: max(14px, env(safe-area-inset-right));
       --safeT: max(14px, env(safe-area-inset-top));
       --safeB: max(14px, env(safe-area-inset-bottom));
-
-      /* how faint the full-card artwork layer should be (ghost print) */
-      --art-faint: .09;
     }
 
     *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
@@ -162,10 +160,8 @@
       overflow:hidden;
       position:relative;
     }
-
-    /* =========================
-       NOW: premium ambient layers
-       ========================= */
+<!-- index.html — FULL REPLACE (Part 2/4) -->
+    /* NOW full-card ambient */
     .nowAmbient{
       position:absolute;
       inset:-1px;
@@ -175,65 +171,41 @@
     }
     .nowAmbient.on{ opacity: 1; }
 
-    /* 1) blur “aura” */
+    /* blurred layer */
     .nowAmbient:before{
       content:"";
       position:absolute;
-      inset:-42px;
+      inset:-40px;
       background-image: var(--ambient-url, none);
       background-size: cover;
       background-position: center;
-      transform: scale(1.12);
       filter: blur(30px) saturate(1.02);
+      transform: scale(1.12);
       opacity: .34;
     }
 
-    /* 2) faint full-card artwork (ghost print) + gradients */
+    /* faint sharp artwork + premium gradients */
     .nowAmbient:after{
       content:"";
       position:absolute;
       inset:0;
-
-      /* layer stack: faint artwork first, then gradients */
       background-image:
         var(--ambient-url, none),
         radial-gradient(900px 520px at 22% 12%, rgba(255,255,255,.055), transparent 58%),
         radial-gradient(900px 520px at 85% 18%, rgba(255,255,255,.04), transparent 62%),
         linear-gradient(180deg, rgba(10,11,13,.52), rgba(10,11,13,.90));
-
       background-size: cover, auto, auto, auto;
       background-position: center, center, center, center;
       background-repeat: no-repeat;
-
-      /* makes artwork “ghosty” */
-      opacity: 1;
-      filter: contrast(.96) saturate(1.02);
     }
 
-    /* This is the important part: we “dim” the artwork layer by using an overlay tint.
-       The gradients already darken it; this keeps it premium, not loud. */
-    .nowAmbient.on:after{
-      /* keep this var here so you can tune it later without hunting CSS */
-      --art-faint: .09;
-    }
-
-    /* The dimming happens via an extra overlay inside nowWrap (below) */
     .nowWrap{
       position:relative;
       padding: 16px;
       min-height: 168px;
     }
-    .nowWrap:before{
-      content:"";
-      position:absolute;
-      inset:0;
-      /* This overlay controls how visible the sharp artwork layer is */
-      background: rgba(10,11,13, calc(1 - var(--art-faint)));
-      pointer-events:none;
-      z-index:1;
-    }
 
-    /* LIVE chip — top right */
+    /* LIVE chip top-right (status style, not button style) */
     .chip{
       position:absolute;
       top: 12px;
@@ -246,7 +218,7 @@
       background: rgba(255,255,255,.035);
       outline: 1px solid rgba(255,255,255,.07);
       backdrop-filter: blur(10px);
-      color: rgba(255,255,255,.78);
+      color: rgba(255,255,255,.92);
       font-size: 11.5px;
       letter-spacing:.25px;
       white-space:nowrap;
@@ -254,7 +226,6 @@
     }
     .chip .miniDot{ width:5px;height:5px;border-radius:999px; background: rgba(255,255,255,.18); }
     .chip.live{
-      color: rgba(255,255,255,.95);
       outline-color: rgba(255,59,59,.22);
       background: rgba(255,59,59,.08);
     }
@@ -269,7 +240,7 @@
       gap: 14px;
       align-items:center;
       position:relative;
-      z-index:2; /* above overlay */
+      z-index:2;
       padding-top: 10px;
     }
 
@@ -283,7 +254,6 @@
       background: rgba(255,255,255,.03);
       box-shadow: 0 18px 60px rgba(0,0,0,.60);
     }
-    /* artwork glow */
     .coverWrap:before{
       content:"";
       position:absolute;
@@ -300,16 +270,18 @@
       transition: opacity .25s ease;
     }
 
-    .coverImg{ width:100%; height:100%; object-fit:cover; display:none; position:relative; z-index:2; }
-    .coverFallback{
-      position:absolute; inset:0; display:grid; place-items:center;
-      color: rgba(255,255,255,.35); font-size: 30px; z-index:3;
+    .coverImg{
+      width:100%;
+      height:100%;
+      object-fit:cover;
+      display:none;
+      position:relative;
+      z-index:2;
     }
 
-    /* Premium IDLE state (Option B) */
+    /* Idle orb */
     .idle .nowAmbient{ opacity: 0 !important; }
     .idle .coverImg{ display:none !important; }
-    .idle .coverFallback{ display:none !important; }
     .idle .coverWrap{
       background:
         radial-gradient(120px 120px at 35% 30%, rgba(255,255,255,.08), transparent 55%),
@@ -318,19 +290,13 @@
       outline-color: rgba(255,255,255,.09);
     }
     .idle .coverWrap:before{ opacity: 0 !important; }
-    .idle .idleOrb{
-      opacity: 1;
-      transform: scale(1);
-      animation: orbBreath 3.8s ease-in-out infinite;
-    }
+
     .idleOrb{
       position:absolute;
-      inset: 0;
+      inset:0;
       display:grid;
       place-items:center;
-      opacity: 0;
-      transform: scale(.98);
-      transition: opacity .25s ease, transform .25s ease;
+      opacity: 1;
       z-index:3;
       pointer-events:none;
     }
@@ -342,6 +308,7 @@
       background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.11), rgba(255,255,255,.03) 58%, rgba(255,255,255,.02) 70%);
       outline: 1px solid rgba(255,255,255,.10);
       box-shadow: 0 18px 55px rgba(0,0,0,.50);
+      animation: orbBreath 3.8s ease-in-out infinite;
     }
     .idleOrb:after{
       content:"";
@@ -354,7 +321,6 @@
       -webkit-mask-image: radial-gradient(circle, #000 55%, transparent 75%);
       mask-image: radial-gradient(circle, #000 55%, transparent 75%);
     }
-
     @keyframes orbBreath{
       0%{ transform: scale(1); opacity:.95; }
       50%{ transform: scale(1.02); opacity:1; }
@@ -366,7 +332,7 @@
     .line2{ margin-top: 6px; font-size: 13.2px; color: rgba(255,255,255,.72); }
     .line3{ margin-top: 6px; font-size: 12.2px; color: var(--muted2); }
 
-    /* Marquee — RIGHT fade only (no first-letter cut) */
+    /* Marquee: RIGHT fade only (no first-letter cut) */
     .marq{ display:inline-block; white-space:nowrap; will-change:transform; }
     .marqWrap{
       position:relative;
@@ -380,7 +346,7 @@
       0%{ transform: translateX(0); }
       100%{ transform: translateX(calc(-1 * var(--marqShift, 60px))); }
     }
-
+<!-- index.html — FULL REPLACE (Part 3/4) -->
     .controls{
       padding: 14px;
       display:flex;
@@ -419,7 +385,7 @@
       display:grid;
       grid-template-columns: 52px 1fr auto;
       gap: 12px;
-      padding: 12px 12px 12px 16px;
+      padding: 12px 12px 12px 16px; /* extra left padding fixes first char */
       border-radius: 16px;
       align-items:center;
       user-select:none;
@@ -467,11 +433,9 @@
       padding-left: 8px;
       white-space:nowrap;
     }
-    .right.count{
-      color: rgba(255,214,102,.92);
-    }
+    .right.count{ color: rgba(255,214,102,.92); }
 
-    /* Pull-to-refresh indicator (visual; app.js will toggle .on/.loading) */
+    /* Pull-to-refresh indicator (required by app.js) */
     .ptr{
       position: fixed;
       left: 50%;
@@ -482,10 +446,7 @@
       z-index: 9999;
       transition: transform .18s ease, opacity .18s ease;
     }
-    .ptr.on{
-      opacity: 1;
-      transform: translate(-50%, 0px);
-    }
+    .ptr.on{ opacity: 1; transform: translate(-50%, 0px); }
     .ptrPill{
       display:inline-flex;
       align-items:center;
@@ -500,37 +461,20 @@
       letter-spacing: .2px;
       box-shadow: 0 18px 55px rgba(0,0,0,.45);
     }
-    .ptrDot{
-      width:6px;height:6px;border-radius:999px;
-      background: rgba(255,255,255,.22);
-    }
+    .ptrDot{ width:6px;height:6px;border-radius:999px; background: rgba(255,255,255,.22); }
     .ptrSpin{
       width:14px;height:14px;border-radius:999px;
       border: 2px solid rgba(255,255,255,.22);
       border-top-color: rgba(255,255,255,.72);
-      animation: ptrSpin 0.9s linear infinite;
-      display:none;
-    }
-    .ptr.loading .ptrSpin{ display:inline-block; }
-    @keyframes ptrSpin{ to{ transform: rotate(360deg); } }
-
-    @media (max-width: 520px){
-      .nowMain{ grid-template-columns: 106px 1fr; }
-      .coverWrap{ width:106px;height:106px;border-radius:18px; }
-      .tabs{ width: 100%; justify-content: space-between; }
-      .nowWrap{ padding: 14px; min-height: 160px; }
-      .chip{ top: 10px; right: 10px; }
-    }
-  </style>
-</head>
-
+      animation: ptrSpin 0.9s linear infinite
+<!-- index.html — FULL REPLACE (Part 4/4) -->
 <body>
-  <!-- Pull-to-refresh UI (app.js can show/hide) -->
-  <div id="ptr" class="ptr" aria-hidden="true">
+  <!-- Pull-to-refresh UI (must exist) -->
+  <div class="ptr" id="ptr" aria-hidden="true">
     <div class="ptrPill">
-      <span class="ptrDot" aria-hidden="true"></span>
-      <span class="ptrSpin" aria-hidden="true"></span>
+      <span class="ptrDot"></span>
       <span id="ptrText">Pull to refresh</span>
+      <span class="ptrSpin" aria-hidden="true"></span>
     </div>
   </div>
 
@@ -559,7 +503,6 @@
         <div id="nowAmbient" class="nowAmbient"></div>
 
         <div class="nowWrap">
-          <!-- LIVE top-right -->
           <div id="nowBadge" class="chip live" style="display:none;">
             <span class="miniDot" aria-hidden="true"></span>
             <span id="nowBadgeText">LIVE</span>
@@ -569,18 +512,17 @@
             <div class="coverWrap" id="nowCoverWrap">
               <img id="nowImg" class="coverImg" alt="" />
               <div class="idleOrb" aria-hidden="true"></div>
-              <div id="nowFallback" class="coverFallback" style="display:none;">♪</div>
             </div>
 
-            <div class="nowText" id="nowText">
+            <div class="nowText">
               <div class="line1 marqWrap" id="nowTrackWrap">
-                <span class="marq" id="nowTrack"></span>
+                <span class="marq" id="nowTrack">—</span>
               </div>
               <div class="line2 marqWrap" id="nowArtistWrap">
-                <span class="marq" id="nowArtist"></span>
+                <span class="marq" id="nowArtist">—</span>
               </div>
               <div class="line3 marqWrap" id="nowAlbumWrap">
-                <span class="marq" id="nowAlbum"></span>
+                <span class="marq" id="nowAlbum">—</span>
               </div>
             </div>
           </div>

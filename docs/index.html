@@ -26,61 +26,24 @@
       --safeR: max(14px, env(safe-area-inset-right));
       --safeT: max(14px, env(safe-area-inset-top));
       --safeB: max(14px, env(safe-area-inset-bottom));
-
-      /* Page ambient controlled from app.js */
-      --page-ambient-url: none;
     }
 
     *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
     html,body{ height:100%; }
     html{ overscroll-behavior-y:none; }
-
     body{
       margin:0;
       overflow-x:hidden;
       overscroll-behavior-y:none;
-      color: var(--text);
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-
       background:
         radial-gradient(1200px 700px at 25% -10%, rgba(255,255,255,.06), transparent 60%),
         radial-gradient(900px 600px at 90% 0%, rgba(255,255,255,.04), transparent 55%),
         linear-gradient(180deg, var(--bg), var(--bg2));
-    }
-
-    /* Full-page ambient artwork */
-    body::before{
-      content:"";
-      position:fixed;
-      inset:-60px;
-      z-index:0;
-      pointer-events:none;
-      background-image: var(--page-ambient-url);
-      background-size: cover;
-      background-position:center;
-      filter: blur(44px) saturate(1.10);
-      transform: scale(1.10);
-      opacity: 0;
-      transition: opacity .28s ease;
-    }
-    body.pageOn::before{ opacity: .30; }
-
-    body::after{
-      content:"";
-      position:fixed;
-      inset:0;
-      z-index:0;
-      pointer-events:none;
-      background:
-        radial-gradient(900px 520px at 20% 10%, rgba(255,255,255,.05), transparent 60%),
-        radial-gradient(900px 520px at 85% 18%, rgba(255,255,255,.035), transparent 62%),
-        linear-gradient(180deg, rgba(10,11,13,.55), rgba(10,11,13,.92));
-      opacity: 1;
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
     }
 
     .app{
-      position:relative;
-      z-index:1;
       min-height:100%;
       padding: calc(var(--safeT) + 14px) var(--safeR) calc(var(--safeB) + 18px) var(--safeL);
       max-width: 920px;
@@ -197,14 +160,40 @@
       position:relative;
     }
 
-    .nowAmbient{ display:none; }
+    /* NOW ambient (ONLY inside card) */
+    .nowAmbient{
+      position:absolute;
+      inset:-1px;
+      opacity: 0;
+      pointer-events:none;
+      transition: opacity .25s ease;
+    }
+    .nowAmbient.on{ opacity: 1; }
+    .nowAmbient:before{
+      content:"";
+      position:absolute;
+      inset:-40px;
+      background-image: var(--ambient-url, none);
+      background-size: cover;
+      background-position: center;
+      filter: blur(28px) saturate(1.12);
+      transform: scale(1.10);
+      opacity:.42;
+    }
+    .nowAmbient:after{
+      content:"";
+      position:absolute;
+      inset:0;
+      background:
+        radial-gradient(900px 500px at 20% 10%, rgba(255,255,255,.06), transparent 55%),
+        linear-gradient(180deg, rgba(10,11,13,.55), rgba(10,11,13,.85));
+    }
 
     .nowWrap{ position:relative; padding: 18px; }
-
     .nowTop{
       display:flex;
       align-items:center;
-      justify-content:flex-end;
+      justify-content:flex-end; /* LIVE at top-right */
       gap:12px;
       margin-bottom: 14px;
       position:relative;
@@ -218,13 +207,12 @@
       gap:8px;
       padding: 7px 10px;
       border-radius: 999px;
-      background: rgba(255,255,255,.040);
-      outline: 1px solid rgba(255,255,255,.075);
-      color: rgba(255,255,255,.80);
+      background: rgba(255,255,255,.045);
+      outline: 1px solid rgba(255,255,255,.085);
+      color: rgba(255,255,255,.78);
       font-size: 12px;
       letter-spacing:.25px;
       white-space:nowrap;
-      backdrop-filter: blur(10px);
     }
     .chip .miniDot{ width:6px;height:6px;border-radius:999px; background: rgba(255,255,255,.18); }
     .chip.live{
@@ -330,7 +318,7 @@
 
     .list{ padding: 10px; }
 
-    /* ✅ FIX: force 3-column grid always, right sticks to the right */
+    /* ✅ stable 3-column layout: thumb | text | right */
     .row{
       display:grid;
       grid-template-columns: 52px minmax(0,1fr) max-content;
@@ -376,17 +364,18 @@
       text-overflow:ellipsis;
     }
 
-    /* ✅ FIX: right column truly right aligned */
     .right{
       justify-self:end;
       text-align:right;
       font-size: 12.5px;
       font-weight: 700;
       color: rgba(255,255,255,.80);
-      padding-left: 10px;
+      padding-left: 8px;
       white-space:nowrap;
     }
-    .right.count{ color: rgba(255,214,102,.92); }
+    .right.count{
+      color: rgba(255,214,102,.92);
+    }
 
     @media (max-width: 520px){
       .nowMain{ grid-template-columns: 106px 1fr; }

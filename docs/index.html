@@ -9,506 +9,507 @@
   <style>
     :root{
       --bg:#0b0c0e;
-      --card:#14161a;
-      --card2:#101215;
-      --text:#e9e9ea;
-      --muted:#a8abb2;
-      --muted2:#7f838c;
-      --line:#242830;
-
-      --glass: rgba(20,22,26,.64);
-      --glass2: rgba(16,18,21,.52);
-
-      --ok:#31d07c;
-      --bad:#ff5a5a;
-      --accent:#79a7ff;
-
+      --bg2:#090a0c;
+      --card: rgba(255,255,255,.055);
+      --card2: rgba(255,255,255,.035);
+      --text:#ececee;
+      --muted:#a7abb4;
+      --muted2:#7d828d;
+      --line: rgba(255,255,255,.08);
       --shadow: 0 18px 55px rgba(0,0,0,.55);
-      --shadow2: 0 10px 28px rgba(0,0,0,.44);
-      --r:22px;
+      --r: 22px;
 
-      --blur: 14px; /* crisp */
-      --stroke: rgba(255,255,255,.08);
-      --stroke2: rgba(255,255,255,.06);
+      --live:#ff3b3b;          /* premium red */
+      --live2:#ff6b6b;
+      --accent: rgba(255,255,255,.12);
 
-      /* dynamic tint (default = subtle blue) */
-      --tint-r: 95;
-      --tint-g: 124;
-      --tint-b: 255;
-      --tint-a: .18;
-      --tint-a2: .10;
+      --safeL: max(14px, env(safe-area-inset-left));
+      --safeR: max(14px, env(safe-area-inset-right));
+      --safeT: max(14px, env(safe-area-inset-top));
+      --safeB: max(14px, env(safe-area-inset-bottom));
     }
 
-    *{box-sizing:border-box}
-    html,body{height:100%}
+    *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
+    html,body{ height:100%; }
     body{
       margin:0;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-      color:var(--text);
       background:
-        radial-gradient(900px 520px at 20% -10%, rgba(95,124,255,.20), transparent 55%),
-        radial-gradient(900px 520px at 80% 0%, rgba(255,90,90,.12), transparent 55%),
-        radial-gradient(800px 600px at 50% 120%, rgba(49,208,124,.10), transparent 60%),
-        linear-gradient(#08090b, #090a0c 40%, #060708);
+        radial-gradient(1200px 700px at 25% -10%, rgba(255,255,255,.06), transparent 60%),
+        radial-gradient(900px 600px at 90% 0%, rgba(255,255,255,.04), transparent 55%),
+        linear-gradient(180deg, var(--bg), var(--bg2));
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
       overflow-x:hidden;
-      overscroll-behavior: none;
-      -webkit-overflow-scrolling: touch;
     }
 
-    /* Dynamic tint layer (high-end) */
-    .bgTint{
-      position: fixed;
-      inset: 0;
-      z-index: -1;
-      pointer-events: none;
-      transform: translateZ(0);
-      background:
-        radial-gradient(860px 520px at 18% -8%,
-          rgba(var(--tint-r), var(--tint-g), var(--tint-b), var(--tint-a)),
-          transparent 58%
-        ),
-        radial-gradient(900px 580px at 82% 0%,
-          rgba(var(--tint-r), var(--tint-g), var(--tint-b), var(--tint-a2)),
-          transparent 62%
-        ),
-        radial-gradient(860px 620px at 50% 118%,
-          rgba(var(--tint-r), var(--tint-g), var(--tint-b), .08),
-          transparent 66%
-        );
-      filter: saturate(1.15) contrast(1.03);
-      opacity: 1;
-      transition: background 520ms ease, filter 520ms ease;
-    }
+    /* Remove “pull to refresh” feel on mobile */
+    html{ overscroll-behavior-y: none; }
+    body{ overscroll-behavior-y: none; }
 
-    .wrap{
-      max-width: 720px;
+    .app{
+      min-height:100%;
+      padding: calc(var(--safeT) + 14px) var(--safeR) calc(var(--safeB) + 18px) var(--safeL);
+      max-width: 920px;
       margin: 0 auto;
-      padding: 18px 14px 28px;
-      padding-bottom: calc(24px + env(safe-area-inset-bottom));
     }
 
-    .topbar{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:14px;
-      padding: 8px 6px 14px;
-    }
-    .brand{
-      display:flex;
-      align-items:center;
-      gap:12px;
-      min-width:0;
-    }
-
-    .logo{
-      width:46px; height:46px;
-      border-radius:16px;
-      display:grid; place-items:center;
-      background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.02));
-      border:1px solid var(--stroke);
-      box-shadow: var(--shadow2);
-      flex:0 0 auto;
-    }
-    .logo span{
-      font-weight:800;
-      letter-spacing:.5px;
-      opacity:.92;
-    }
-
-    .brandText{min-width:0}
-    .appTitle{
-      font-size: 20px;
-      font-weight: 820;
-      letter-spacing:.2px;
-      line-height:1.1;
-      margin:0;
-      white-space:nowrap;
-    }
-.statusRow{
-      display:flex;
-      align-items:center;
-      gap:8px;
-      margin-top:4px;
-      color: var(--muted);
-      font-size: 13px;
-    }
-    .dot{
-      width:10px;height:10px;border-radius:999px;
-      background: rgba(255,255,255,.25);
-      box-shadow: 0 0 0 4px rgba(255,255,255,.05);
-    }
-    .dot.ok{ background: var(--ok); box-shadow: 0 0 0 4px rgba(49,208,124,.14); }
-    .dot.bad{ background: var(--bad); box-shadow: 0 0 0 4px rgba(255,90,90,.14); }
-
-    .toast{
-      position: fixed;
-      left: 50%;
-      transform: translateX(-50%);
-      bottom: calc(12px + env(safe-area-inset-bottom));
-      z-index: 50;
-      background: rgba(16,18,21,.82);
-      backdrop-filter: blur(var(--blur));
-      -webkit-backdrop-filter: blur(var(--blur));
-      border: 1px solid var(--stroke2);
-      border-radius: 14px;
-      padding: 10px 12px;
-      box-shadow: var(--shadow2);
-      color: var(--text);
-      font-size: 13px;
-      opacity: 0;
-      pointer-events:none;
-      transition: opacity .22s ease, transform .22s ease;
-      transform-origin: center;
-    }
-    .toast.show{
-      opacity: 1;
-      transform: translateX(-50%) translateY(-6px);
-    }
-
-    .tabs{
-      margin: 6px 0 14px;
-      background: rgba(16,18,21,.58);
-      backdrop-filter: blur(var(--blur));
-      -webkit-backdrop-filter: blur(var(--blur));
-      border:1px solid var(--stroke);
-      border-radius: 24px;
-      padding: 8px;
-      display:flex;
-      gap:8px;
-      box-shadow: var(--shadow2);
-    }
-    .tabBtn{
-      appearance:none;
-      border:0;
-      background: transparent;
-      color: var(--muted);
-      font-weight: 700;
-      font-size: 14px;
-      padding: 12px 12px;
-      border-radius: 18px;
-      flex:1;
-      cursor:pointer;
-      transition: background .18s ease, color .18s ease, transform .18s ease;
-    }
-    .tabBtn[aria-selected="true"]{
-      color: var(--text);
-      background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.04));
-      border:1px solid rgba(255,255,255,.10);
-      box-shadow: 0 14px 40px rgba(0,0,0,.35);
-      transform: translateY(-1px);
-    }
-
-    .panel.hidden{display:none}
-    .card{
-      background: var(--glass);
-      backdrop-filter: blur(var(--blur));
-      -webkit-backdrop-filter: blur(var(--blur));
-      border:1px solid var(--stroke);
-      border-radius: var(--r);
-      box-shadow: var(--shadow);
-      padding: 18px;
-    }
-
-    .cardHeader{
+    /* ---------- Header (micro-glyph + wordmark) ---------- */
+    header{
       display:flex;
       align-items:flex-start;
       justify-content:space-between;
       gap:14px;
       margin-bottom: 14px;
     }
-    .cardTitle{
-      margin:0;
-      font-size: 26px;
-      letter-spacing:.2px;
-      line-height:1.1;
-    }
-    .cardSub{
-      margin-top:6px;
-      color: var(--muted);
-      font-size: 14px;
-      letter-spacing:.2px;
-    }
-    .badgePill{
-      flex:0 0 auto;
-      border-radius: 999px;
-      padding: 10px 12px;
-      background: rgba(255,255,255,.06);
-      border:1px solid rgba(255,255,255,.08);
-      color: var(--muted);
-      font-weight: 800;
-      font-size: 13px;
-      min-width: 44px;
-      text-align:center;
-    }
-    .badgeLive{
-      background: rgba(49,208,124,.18);
-      border:1px solid rgba(49,208,124,.30);
-      color: #d9ffe9;
-      font-weight: 900;
-      letter-spacing:.3px;
+
+    .brand{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding-left: 2px; /* prevents first letter clipping */
     }
 
-    .gridNow{
-      display:grid;
-      grid-template-columns: 110px 1fr;
-      gap: 16px;
-      align-items:center;
-      margin-top: 8px;
+    .glyph{
+      width: 16px;
+      height: 16px;
+      border-radius: 999px;
+      position:relative;
+      flex:0 0 auto;
+      background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.22), rgba(255,255,255,.05) 55%, rgba(255,255,255,.03) 70%);
+      outline: 1px solid rgba(255,255,255,.10);
+      box-shadow: 0 10px 35px rgba(0,0,0,.45);
     }
-.coverBig{
-      width: 110px;
-      height: 110px;
-      border-radius: 22px;
-      background: rgba(0,0,0,.22);
-      border:1px solid rgba(255,255,255,.08);
-      box-shadow: 0 10px 28px rgba(0,0,0,.45);
+    .glyph:before{
+      content:"";
+      position:absolute;
+      inset:3px;
+      border-radius: 999px;
+      outline: 1px solid rgba(255,255,255,.10);
+      background: radial-gradient(circle at 65% 35%, rgba(255,255,255,.10), transparent 60%);
+      opacity:.9;
+    }
+    .glyph:after{
+      content:"";
+      position:absolute;
+      left: 7px;
+      top: -3px;
+      width: 2px;
+      height: 22px;
+      background: linear-gradient(180deg, rgba(255,255,255,.0), rgba(255,255,255,.18), rgba(255,255,255,.0));
+      transform: rotate(18deg);
+      opacity: .55;
+      filter: blur(.2px);
+    }
+
+    .wordmark{
+      display:flex;
+      flex-direction:column;
+      line-height: 1.15;
+    }
+    .wordmark .title{
+      font-size: 18px;
+      font-weight: 720;
+      letter-spacing: .35px;
+      margin:0;
+      background: linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.70));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .wordmark .sub{
+      margin-top: 6px;
+      display:flex;
+      align-items:center;
+      gap:8px;
+      color: var(--muted2);
+      font-size: 12px;
+      letter-spacing: .2px;
+    }
+    .dot{
+      width: 7px;
+      height: 7px;
+      border-radius: 99px;
+      background: rgba(255,255,255,.14);
+      outline: 1px solid rgba(255,255,255,.10);
+    }
+    .dot.on{
+      background: rgba(49,208,124,.75);
+      outline-color: rgba(49,208,124,.35);
+      box-shadow: 0 0 0 3px rgba(49,208,124,.10);
+    }
+
+    /* ---------- Tabs ---------- */
+    .tabs{
+      display:flex;
+      gap:10px;
+      padding: 8px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.04);
+      outline: 1px solid rgba(255,255,255,.08);
+      box-shadow: 0 16px 45px rgba(0,0,0,.35);
+      width: fit-content;
+      margin: 12px 0 16px 0;
+    }
+    .tabBtn{
+      border:0;
+      background: transparent;
+      color: rgba(255,255,255,.72);
+      padding: 10px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      letter-spacing: .2px;
+      cursor:pointer;
+    }
+    .tabBtn[aria-selected="true"]{
+      background: rgba(255,255,255,.085);
+      outline: 1px solid rgba(255,255,255,.10);
+      color: rgba(255,255,255,.95);
+    }
+
+    /* ---------- Panels ---------- */
+    .panel{ display:block; }
+    .hidden{ display:none; }
+
+    .card{
+      border-radius: var(--r);
+      background: linear-gradient(180deg, var(--card), var(--card2));
+      outline: 1px solid rgba(255,255,255,.08);
+      box-shadow: var(--shadow);
       overflow:hidden;
       position:relative;
     }
-    .coverBig img{
-      width:100%;height:100%;
-      object-fit:cover;
-      display:block;
+
+    /* NOW panel ambient layer (only visible in Now tab) */
+    .nowAmbient{
+      position:absolute;
+      inset:-1px;
+      opacity: 0;
+      pointer-events:none;
+      transition: opacity .25s ease;
+    }
+    .nowAmbient.on{ opacity: 1; }
+    .nowAmbient:before{
+      content:"";
+      position:absolute;
+      inset:-40px;
+      background-image: var(--ambient-url, none);
+      background-size: cover;
+      background-position: center;
+      filter: blur(28px) saturate(1.12);
+      transform: scale(1.10);
+      opacity:.42;
+    }
+    .nowAmbient:after{
+      content:"";
+      position:absolute;
+      inset:0;
+      background:
+        radial-gradient(900px 500px at 20% 10%, rgba(255,255,255,.06), transparent 55%),
+        linear-gradient(180deg, rgba(10,11,13,.55), rgba(10,11,13,.85));
+    }
+
+    /* ---------- Now layout ---------- */
+    .nowWrap{
+      position:relative;
+      padding: 18px;
+    }
+    .nowTop{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      margin-bottom: 14px;
+      position:relative;
+      z-index:2;
+    }
+    .chip{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.045);
+      outline: 1px solid rgba(255,255,255,.085);
+      color: rgba(255,255,255,.78);
+      font-size: 12px;
+      letter-spacing:.25px;
+      white-space:nowrap;
+    }
+    .chip .miniDot{
+      width:6px;height:6px;border-radius:999px;
+      background: rgba(255,255,255,.18);
+    }
+    .chip.live{
+      color: rgba(255,255,255,.92);
+      outline-color: rgba(255,59,59,.28);
+      background: rgba(255,59,59,.08);
+    }
+    .chip.live .miniDot{
+      background: rgba(255,59,59,.95);
+      box-shadow: 0 0 0 3px rgba(255,59,59,.12);
+    }
+    .updated{
+      color: var(--muted2);
+      font-size: 12px;
+      letter-spacing:.2px;
+      white-space:nowrap;
+    }
+
+    .nowMain{
+      display:grid;
+      grid-template-columns: 120px 1fr;
+      gap: 14px;
+      align-items: center;
+      position:relative;
+      z-index:2;
+    }
+
+    .coverWrap{
+      width: 120px;
+      height: 120px;
+      border-radius: 20px;
+      position:relative;
+      overflow:hidden;
+      outline: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.03);
+      box-shadow: 0 18px 55px rgba(0,0,0,.55);
+    }
+
+    /* Hollow premium aura */
+    .coverWrap:before{
+      content:"";
+      position:absolute;
+      inset:-30px;
+      background-image: var(--cover-url, none);
+      background-size: cover;
+      background-position:center;
+      filter: blur(20px) saturate(1.15);
+      opacity:.26;
+      transform: scale(1.10);
+      /* hollow-ish vignette */
+      -webkit-mask-image: radial-gradient(circle at 50% 50%, rgba(0,0,0,.55) 0%, rgba(0,0,0,.25) 35%, rgba(0,0,0,0) 68%);
+      mask-image: radial-gradient(circle at 50% 50%, rgba(0,0,0,.55) 0%, rgba(0,0,0,.25) 35%, rgba(0,0,0,0) 68%);
+      pointer-events:none;
+    }
+
+    .coverImg{
+      width:100%;
+      height:100%;
+      object-fit: cover;
+      display:none;
+      position:relative;
+      z-index:2;
     }
     .coverFallback{
       position:absolute;
       inset:0;
       display:grid;
       place-items:center;
-      color: rgba(255,255,255,.45);
-      font-size: 22px;
-      letter-spacing:.5px;
+      color: rgba(255,255,255,.35);
+      font-size: 30px;
+      z-index:3;
     }
 
-    .nowMeta{ min-width:0; }
-    .line{
-      color: var(--muted2);
-      font-size: 13px;
-      margin-top: 10px;
-      letter-spacing:.2px;
+    .nowText{
+      min-width:0;
     }
+    .line1{ font-size: 15px; font-weight: 680; letter-spacing: .15px; }
+    .line2{ margin-top: 6px; font-size: 13px; color: rgba(255,255,255,.72); }
+    .line3{ margin-top: 6px; font-size: 12px; color: var(--muted2); }
 
-    .list{
-      display:flex;
-      flex-direction:column;
-      gap: 12px;
-      margin-top: 10px;
-    }
-    .row{
-      display:flex;
-      align-items:center;
-      gap: 12px;
+    /* ---------- Top controls ---------- */
+    .controls{
       padding: 14px;
-      border-radius: 20px;
-      background: rgba(0,0,0,.18);
-      border:1px solid rgba(255,255,255,.06);
-      box-shadow: 0 10px 24px rgba(0,0,0,.38);
-      cursor:pointer;
-      user-select:none;
-      -webkit-tap-highlight-color: transparent;
-      transition: transform .14s ease, border-color .14s ease, background .14s ease;
-    }
-    .row:active{ transform: translateY(1px) scale(.995); }
-    .row:hover{ border-color: rgba(255,255,255,.10); }
-
-    .cover{
-      width: 58px; height: 58px;
-      border-radius: 18px;
-      overflow:hidden;
-      border:1px solid rgba(255,255,255,.08);
-      background: rgba(0,0,0,.22);
-      position:relative;
-      flex: 0 0 auto;
-    }
-    .cover img{
-      width:100%;height:100%;
-      object-fit:cover;
-      display:block;
-    }
-    .cover .coverFallback{ font-size: 16px; }
-
-    .mid{ min-width:0; flex: 1 1 auto; }
-    .right{
-      flex: 0 0 auto;
-      font-weight: 900;
-      letter-spacing:.3px;
-      font-variant-numeric: tabular-nums;
-      font-feature-settings: "tnum" 1;
-      color: var(--ok);
-      opacity:.95;
-    }
-
-    .titleMarquee,
-    .subMarquee{
-      position: relative;
-      overflow: hidden;
-      min-width: 0;
-      padding-left: 10px; /* safe zone */
-    }
-
-    .marqueeOn.titleMarquee,
-    .marqueeOn.subMarquee{
-      -webkit-mask-image: linear-gradient(to right,
-        rgba(0,0,0,1) 0px,
-        rgba(0,0,0,1) calc(100% - 22px),
-        rgba(0,0,0,0) 100%
-      );
-      mask-image: linear-gradient(to right,
-        rgba(0,0,0,1) 0px,
-        rgba(0,0,0,1) calc(100% - 22px),
-        rgba(0,0,0,0) 100%
-      );
-    }
-
-    .marqueeInner{
-      display:inline-block;
-      padding-right: 26px;
-      white-space: nowrap;
-      will-change: transform;
-    }
-    .marqueeOn .marqueeInner{ animation: marquee 10s linear infinite; }
-
-    @keyframes marquee{
-      0%   { transform: translateX(0); }
-      10%  { transform: translateX(0); }
-      100% { transform: translateX(calc(-1 * var(--marquee-shift, 0px))); }
-    }
-
-    .title{
-      font-size: 18px;
-      font-weight: 860;
-      letter-spacing:.2px;
-      line-height:1.15;
-      color: var(--text);
-    }
-    .sub{
-      margin-top: 6px;
-      color: rgba(255,255,255,.58);
-      font-weight: 700;
-      letter-spacing:.2px;
-      line-height:1.1;
-    }
-.ctrls{
-      margin-top: 14px;
       display:flex;
-      flex-direction:column;
-      gap: 10px;
+      gap:10px;
+      flex-wrap:wrap;
+      border-bottom: 1px solid rgba(255,255,255,.07);
     }
     .seg{
       display:flex;
       gap:8px;
-      padding: 8px;
-      border-radius: 22px;
-      border:1px solid rgba(255,255,255,.08);
-      background: rgba(0,0,0,.16);
+      padding: 7px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.04);
+      outline: 1px solid rgba(255,255,255,.08);
+      width: fit-content;
     }
     .seg button{
-      flex:1;
       border:0;
-      border-radius: 18px;
-      padding: 12px 10px;
       background: transparent;
-      color: var(--muted);
-      font-weight: 800;
+      color: rgba(255,255,255,.74);
+      padding: 9px 12px;
+      border-radius: 999px;
+      font-size: 12.5px;
       cursor:pointer;
-      transition: background .16s ease, color .16s ease, transform .16s ease;
+      letter-spacing:.2px;
     }
     .seg button[aria-selected="true"]{
-      background: rgba(255,255,255,.10);
-      border:1px solid rgba(255,255,255,.10);
-      color: var(--text);
-      transform: translateY(-1px);
+      background: rgba(255,255,255,.085);
+      outline: 1px solid rgba(255,255,255,.10);
+      color: rgba(255,255,255,.95);
     }
 
-    .skeleton{
-      position: relative;
+    /* ---------- List ---------- */
+    .list{
+      padding: 10px;
+    }
+    .row{
+      display:grid;
+      grid-template-columns: 52px 1fr auto;
+      gap: 12px;
+      padding: 12px 12px 12px 16px; /* extra left padding = fixes first char/number */
+      border-radius: 16px;
+      align-items:center;
+      cursor: default;
+      user-select:none;
+    }
+    .row:hover{ background: rgba(255,255,255,.035); }
+    .row:active{ background: rgba(255,255,255,.045); }
+
+    .thumb{
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
       overflow:hidden;
-      background: rgba(255,255,255,.06);
-      border: 1px solid rgba(255,255,255,.06);
+      position:relative;
+      outline: 1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.03);
+      box-shadow: 0 10px 30px rgba(0,0,0,.40);
+      flex: 0 0 auto;
     }
-    .skeleton::after{
-      content:"";
+    .thumb img{
+      width:100%;
+      height:100%;
+      object-fit: cover;
+      display:block;
+    }
+    .thumb .thumbFallback{
       position:absolute;
-      inset:-40% -60%;
-      background: linear-gradient(90deg,
-        transparent 0%,
-        rgba(255,255,255,.10) 35%,
-        rgba(255,255,255,.18) 50%,
-        rgba(255,255,255,.10) 65%,
-        transparent 100%
-      );
-      transform: translateX(-30%);
-      animation: shimmer 1.1s ease-in-out infinite;
-    }
-    @keyframes shimmer{
-      0%{ transform: translateX(-40%); }
-      100%{ transform: translateX(40%); }
+      inset:0;
+      display:grid;
+      place-items:center;
+      color: rgba(255,255,255,.35);
+      font-size: 18px;
     }
 
-    .row:focus-visible,
-    button:focus-visible{
-      outline: 2px solid rgba(121,167,255,.70);
-      outline-offset: 2px;
+    .mid{ min-width:0; }
+    .title{
+      font-size: 13.5px;
+      font-weight: 650;
+      color: rgba(255,255,255,.92);
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .sub{
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--muted2);
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+
+    /* playcount (different color) */
+    .right{
+      font-size: 12.5px;
+      font-weight: 700;
+      color: rgba(255,255,255,.80);
+      padding-left: 8px;
+      white-space:nowrap;
+    }
+    .right.count{
+      color: rgba(255,214,102,.92); /* warm premium highlight */
+      text-shadow: 0 0 0 rgba(0,0,0,0);
+    }
+
+    /* ---------- Marquee (only when needed) ---------- */
+    .marq{
+      display:inline-block;
+      vertical-align:bottom;
+      white-space:nowrap;
+      will-change: transform;
+    }
+    .marqWrap{
+      position:relative;
+      overflow:hidden;
+      mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+      -webkit-mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+    }
+    .marqOn .marq{
+      animation: marqMove var(--marqDur, 10s) linear infinite;
+    }
+    @keyframes marqMove{
+      0%{ transform: translateX(0); }
+      100%{ transform: translateX(calc(-1 * var(--marqShift, 60px))); }
+    }
+
+    /* ---------- Footer spacing ---------- */
+    .spacer{ height: 14px; }
+
+    @media (max-width: 520px){
+      .nowMain{ grid-template-columns: 106px 1fr; }
+      .coverWrap{ width:106px;height:106px;border-radius:18px; }
+      .tabs{ width: 100%; justify-content: space-between; }
     }
   </style>
 </head>
 
 <body>
-  <div class="bgTint" id="bgTint" aria-hidden="true"></div>
-  <div class="toast" id="toast">Offline. Retrying…</div>
-
-  <div class="wrap">
-    <div class="topbar">
+  <div class="app">
+    <header>
       <div class="brand">
-        <div class="logo" aria-hidden="true"><span>LM</span></div>
-        <div class="brandText">
-          <h1 class="appTitle">Listening Mirror</h1>
-          <div class="statusRow">
-            <span class="dot" id="statusDot"></span>
-            <span id="statusLine">Connecting…</span>
+        <div class="glyph" aria-hidden="true"></div>
+        <div class="wordmark">
+          <div class="title">Listening Mirror</div>
+          <div class="sub">
+            <span id="statusDot" class="dot" aria-hidden="true"></span>
+            <span id="statusLine">Offline</span>
           </div>
         </div>
       </div>
-    </div>
+    </header>
 
-    <div class="tabs" role="tablist" aria-label="Tabs">
-      <button class="tabBtn" data-tab="now" aria-selected="true">Now Playing</button>
-      <button class="tabBtn" data-tab="top" aria-selected="false">Top</button>
-      <button class="tabBtn" data-tab="recent" aria-selected="false">Recent</button>
+    <div class="tabs" role="tablist" aria-label="Main tabs">
+      <button class="tabBtn" data-tab="now" aria-selected="true" role="tab">Now</button>
+      <button class="tabBtn" data-tab="top" aria-selected="false" role="tab">Top</button>
+      <button class="tabBtn" data-tab="recent" aria-selected="false" role="tab">Recent</button>
     </div>
 
     <!-- NOW -->
     <section class="panel" data-panel="now">
       <div class="card">
-        <div class="cardHeader">
-          <div>
-            <h2 class="cardTitle">Now Playing</h2>
-            <div class="cardSub">Updated: <span id="nowUpdated">--</span></div>
-          </div>
-          <div class="badgePill badgeLive" id="nowBadge">OFF</div>
-        </div>
+        <div id="nowAmbient" class="nowAmbient"></div>
 
-        <div class="gridNow">
-          <div class="coverBig">
-            <img id="nowImg" alt="" style="display:none" />
-            <div class="coverFallback" id="nowFallback">♪</div>
+        <div class="nowWrap">
+          <div class="nowTop">
+            <div id="nowBadge" class="chip">
+              <span class="miniDot" aria-hidden="true"></span>
+              <span id="nowBadgeText">OFF</span>
+            </div>
+            <div class="updated">Updated: <span id="nowUpdated">--</span></div>
           </div>
 
-          <div class="nowMeta">
-            <div class="titleMarquee" id="nowTrackWrap">
-              <div class="title marqueeInner" id="nowTrack">—</div>
+          <div class="nowMain">
+            <div class="coverWrap" id="nowCoverWrap">
+              <img id="nowImg" class="coverImg" alt="" />
+              <div id="nowFallback" class="coverFallback">♪</div>
             </div>
 
-            <div class="subMarquee" id="nowArtistWrap">
-              <div class="sub marqueeInner" id="nowArtist">—</div>
+            <div class="nowText">
+              <div class="line1 marqWrap" id="nowTrackWrap">
+                <span class="marq" id="nowTrack">—</span>
+              </div>
+              <div class="line2 marqWrap" id="nowArtistWrap">
+                <span class="marq" id="nowArtist">—</span>
+              </div>
+              <div class="line3 marqWrap" id="nowAlbumWrap">
+                <span class="marq" id="nowAlbum">—</span>
+              </div>
+              <div class="spacer"></div>
+              <div id="nowMsg" class="sub" style="margin-top:0;">—</div>
             </div>
-
-            <div class="subMarquee" id="nowAlbumWrap">
-              <div class="sub marqueeInner" id="nowAlbum">—</div>
-            </div>
-
-            <div class="line" id="nowMsg"></div>
           </div>
         </div>
       </div>
@@ -517,22 +518,14 @@
     <!-- TOP -->
     <section class="panel hidden" data-panel="top">
       <div class="card">
-        <div class="cardHeader">
-          <div>
-            <h2 class="cardTitle">Top</h2>
-            <div class="cardSub" id="topMeta">—</div>
-          </div>
-          <div class="badgePill" id="topBadge">10</div>
-        </div>
-
-        <div class="ctrls">
-          <div class="seg" role="group" aria-label="Top type">
-            <button data-top-type="tracks" aria-selected="true">Tracks</button>
-            <button data-top-type="artists" aria-selected="false">Artists</button>
-            <button data-top-type="albums" aria-selected="false">Albums</button>
+        <div class="controls">
+          <div class="seg" aria-label="Top type">
+            <button data-top-type="tracks" aria-selected="true">Track</button>
+            <button data-top-type="artists" aria-selected="false">Artist</button>
+            <button data-top-type="albums" aria-selected="false">Album</button>
           </div>
 
-          <div class="seg" role="group" aria-label="Top period">
+          <div class="seg" aria-label="Top period">
             <button data-top-period="today" aria-selected="true">Today</button>
             <button data-top-period="week" aria-selected="false">Week</button>
             <button data-top-period="year" aria-selected="false">Year</button>
@@ -546,19 +539,11 @@
     <!-- RECENT -->
     <section class="panel hidden" data-panel="recent">
       <div class="card">
-        <div class="cardHeader">
-          <div>
-            <h2 class="cardTitle">Recent</h2>
-            <div class="cardSub" id="recentMeta"></div>
-          </div>
-          <div class="badgePill">10</div>
-        </div>
-
         <div class="list" id="recentList" aria-live="polite"></div>
       </div>
     </section>
   </div>
 
-  <script src="./app.js" defer></script>
+  <script src="./app.js"></script>
 </body>
 </html>

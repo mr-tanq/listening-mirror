@@ -1,4 +1,4 @@
-<!doctype html>
+ñ<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -6,10 +6,10 @@
   <meta name="theme-color" content="#0b0c0e" />
   <title>Listening Mirror</title>
 
-  <!-- Optional premium font (safe fallback to system) -->
+  <!-- Optional premium font -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <style>
     :root{
@@ -31,14 +31,12 @@
       --r: 22px;
       --r2: 16px;
 
-      --pad: 18px;
-      --gap: 14px;
-      --tap: 48px;
-
       --blur: 14px;
-      --glow: 0 0 0 rgba(0,0,0,0);
-
       --maskFade: 22px;
+
+      --stickyTop: calc(env(safe-area-inset-top) + 14px);
+      --pullMax: 110px;
+      --pullThreshold: 78px;
     }
 
     *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
@@ -62,13 +60,70 @@
       padding: calc(env(safe-area-inset-top) + 18px) 16px calc(env(safe-area-inset-bottom) + 18px);
     }
 
+    /* Pull-to-refresh overlay (premium) */
+    .pull{
+      position: fixed;
+      left: 50%;
+      top: calc(env(safe-area-inset-top) + 10px);
+      transform: translateX(-50%) translateY(-10px);
+      opacity: 0;
+      pointer-events: none;
+      z-index: 9999;
+      transition: opacity .15s ease;
+    }
+    .pull.on{ opacity: 1; }
+    .pullCard{
+      min-width: 200px;
+      height: 40px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(0,0,0,.22);
+      backdrop-filter: blur(var(--blur));
+      -webkit-backdrop-filter: blur(var(--blur));
+      box-shadow: var(--shadow2);
+      display:flex;
+      align-items:center;
+      gap: 10px;
+      padding: 0 12px;
+      color: rgba(255,255,255,.85);
+      font-weight: 800;
+      font-size: 12px;
+      letter-spacing: .25px;
+    }
+    .pullDot{
+      width: 10px; height: 10px;
+      border-radius: 99px;
+      background: rgba(255,255,255,.18);
+      box-shadow: 0 0 0 rgba(0,0,0,0);
+      flex: 0 0 auto;
+    }
+    .pullDot.ready{
+      background: var(--good);
+      box-shadow: 0 0 0 6px rgba(49,208,124,.10);
+    }
+    .pullBar{
+      height: 6px;
+      flex: 1;
+      border-radius: 999px;
+      background: rgba(255,255,255,.08);
+      overflow:hidden;
+      border: 1px solid rgba(255,255,255,.08);
+    }
+    .pullFill{
+      height: 100%;
+      width: 0%;
+      background: rgba(255,255,255,.70);
+      transform-origin: left center;
+    }
+    .pullText{ white-space: nowrap; }
+
     /* Top bar */
     .topbar{
       display:flex;
       align-items:center;
       justify-content:space-between;
       gap: 12px;
-      margin-bottom: 14px;
+      margin-bottom: 10px;
     }
 
     .brand{
@@ -98,7 +153,7 @@
       pointer-events:none;
     }
     .logo span{
-      font-weight: 800;
+      font-weight: 900;
       letter-spacing: .6px;
       opacity: .95;
     }
@@ -111,7 +166,7 @@
     }
     .title{
       font-size: 18px;
-      font-weight: 750;
+      font-weight: 850;
       line-height: 1.1;
       min-width:0;
     }
@@ -137,29 +192,15 @@
       box-shadow: 0 0 0 6px rgba(255,90,90,.10);
     }
 
-    .btn{
-      height: 42px;
-      padding: 0 14px;
-      border-radius: 14px;
-      border: 1px solid var(--stroke);
-      background: linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.04));
-      color: var(--text);
-      font-weight: 650;
-      font-size: 13px;
-      display:inline-flex;
-      align-items:center;
-      gap:10px;
-      box-shadow: var(--shadow2);
-      cursor:pointer;
-      user-select:none;
-      transition: transform .10s ease, filter .15s ease, border-color .15s ease;
-    }
-    .btn:active{ transform: translateY(1px) scale(.99); }
-    .btn:hover{ filter: brightness(1.03); border-color: rgba(255,255,255,.12); }
-
-    /* Tabs */
-    .tabs{
+    /* Sticky tabs */
+    .tabsSticky{
+      position: sticky;
+      top: var(--stickyTop);
+      z-index: 50;
       margin-top: 10px;
+      margin-bottom: 14px;
+    }
+    .tabs{
       padding: 6px;
       border-radius: 999px;
       border: 1px solid var(--stroke2);
@@ -177,7 +218,7 @@
       border: 1px solid transparent;
       background: transparent;
       color: var(--muted);
-      font-weight: 700;
+      font-weight: 850;
       font-size: 13px;
       letter-spacing: .3px;
       cursor:pointer;
@@ -202,10 +243,32 @@
       -webkit-backdrop-filter: blur(var(--blur));
       box-shadow: var(--shadow);
       overflow:hidden;
+      position: relative;
     }
-    .cardInner{
-      padding: 18px;
+    /* Live sheen for million-dollar vibe */
+    .card.liveSheen::before{
+      content:"";
+      position:absolute;
+      inset:-40% -60%;
+      background: linear-gradient(110deg,
+        transparent 0%,
+        rgba(255,255,255,.06) 35%,
+        rgba(255,255,255,.16) 50%,
+        rgba(255,255,255,.06) 65%,
+        transparent 100%);
+      transform: translateX(-35%) rotate(6deg);
+      animation: sheen 3.2s ease-in-out infinite;
+      pointer-events:none;
+      opacity: .9;
     }
+    @keyframes sheen{
+      0%{ transform: translateX(-45%) rotate(6deg); opacity:.0; }
+      12%{ opacity:.95; }
+      50%{ opacity:.85; }
+      100%{ transform: translateX(45%) rotate(6deg); opacity:0; }
+    }
+
+    .cardInner{ padding: 18px; }
 
     .cardHead{
       display:flex;
@@ -216,7 +279,7 @@
     }
     .cardTitle{
       font-size: 18px;
-      font-weight: 800;
+      font-weight: 900;
       letter-spacing: .2px;
     }
     .meta{
@@ -230,7 +293,7 @@
       border: 1px solid rgba(255,255,255,.10);
       background: rgba(0,0,0,.18);
       color: var(--muted);
-      font-weight: 800;
+      font-weight: 900;
       font-size: 12px;
       display:inline-flex;
       align-items:center;
@@ -284,7 +347,6 @@
       flex-direction:column;
       gap: 10px;
     }
-
     .lines{ display:flex; flex-direction:column; gap: 8px; }
 
     /* Premium marquee (only when needed) */
@@ -308,40 +370,17 @@
     .marq.animate .inner{
       animation: scroll var(--duration) linear infinite;
     }
-    .marq .dup{
-      opacity: 1;
-    }
     @keyframes scroll{
       0%{ transform: translateX(0); }
       100%{ transform: translateX(calc(-1 * var(--shift, 50%))); }
     }
 
-    .h1{
-      font-size: 22px;
-      font-weight: 850;
-      line-height: 1.15;
-      letter-spacing: .2px;
-    }
-    .h2{
-      font-size: 14px;
-      font-weight: 700;
-      color: rgba(255,255,255,.86);
-      line-height: 1.25;
-    }
-    .h3{
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--muted);
-      line-height: 1.25;
-    }
+    .h1{ font-size: 22px; font-weight: 900; line-height: 1.15; letter-spacing: .2px; }
+    .h2{ font-size: 14px; font-weight: 800; color: rgba(255,255,255,.86); line-height: 1.25; }
+    .h3{ font-size: 13px; font-weight: 700; color: var(--muted); line-height: 1.25; }
 
-    .subnote{
-      margin-top: 10px;
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    /* Top controls */
+    .subnote{ margin-top: 10px; color: var(--muted); font-size: 13px; }
+/* Top controls */
     .controls{
       display:flex;
       flex-wrap:wrap;
@@ -367,7 +406,7 @@
       border: 1px solid transparent;
       background: transparent;
       color: var(--muted);
-      font-weight: 800;
+      font-weight: 900;
       font-size: 12px;
       cursor:pointer;
       transition: background .18s ease, color .18s ease, transform .10s ease, border-color .18s ease;
@@ -378,7 +417,6 @@
       color: var(--text);
     }
     .seg button:active{ transform: scale(.99); }
-
     .spacer{ flex:1; }
 
     /* Lists */
@@ -437,19 +475,19 @@
     }
     .rowTitle{
       font-size: 14px;
-      font-weight: 850;
+      font-weight: 950;
       line-height: 1.15;
       min-width:0;
     }
     .rowSub{
       font-size: 12.5px;
       color: var(--muted);
-      font-weight: 650;
+      font-weight: 750;
       min-width:0;
     }
     .right{
       font-size: 13px;
-      font-weight: 850;
+      font-weight: 950;
       color: rgba(255,255,255,.84);
       padding-left: 6px;
       flex: 0 0 auto;
@@ -490,6 +528,15 @@
 </head>
 
 <body>
+  <!-- Pull-to-refresh UI -->
+  <div class="pull" id="pullUI" aria-hidden="true">
+    <div class="pullCard">
+      <div class="pullDot" id="pullDot"></div>
+      <div class="pullBar"><div class="pullFill" id="pullFill"></div></div>
+      <div class="pullText" id="pullText">Pull to refresh</div>
+    </div>
+  </div>
+
   <div class="wrap">
     <div class="topbar">
       <div class="brand">
@@ -499,19 +546,19 @@
           <div class="status"><span id="statusDot" class="dot"></span><span id="statusLine">Offline</span></div>
         </div>
       </div>
-
-      <button class="btn" id="btnRefresh" type="button">Refresh</button>
+      <!-- ✅ Refresh button removed -->
     </div>
 
-    <div class="tabs" role="tablist" aria-label="Listening Mirror">
-      <button class="tabBtn" data-tab="now" aria-selected="true" type="button">Now Playing</button>
-      <button class="tabBtn" data-tab="top" aria-selected="false" type="button">Top</button>
-      <button class="tabBtn" data-tab="recent" aria-selected="false" type="button">Recent</button>
+    <div class="tabsSticky">
+      <div class="tabs" role="tablist" aria-label="Listening Mirror">
+        <button class="tabBtn" data-tab="now" aria-selected="true" type="button">Now Playing</button>
+        <button class="tabBtn" data-tab="top" aria-selected="false" type="button">Top</button>
+        <button class="tabBtn" data-tab="recent" aria-selected="false" type="button">Recent</button>
+      </div>
     </div>
-
-    <!-- NOW -->
+<!-- NOW -->
     <section class="panel" data-panel="now">
-      <div class="card">
+      <div class="card" id="nowCard">
         <div class="cardInner">
           <div class="cardHead">
             <div>

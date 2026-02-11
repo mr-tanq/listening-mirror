@@ -1,7 +1,8 @@
 /* Listening Mirror — app.js (FULL REPLACE)
-   - LIVE badge replaces Updated
-   - Full-page ambient artwork (body background)
-   - FIX: right column always present + stable alignment
+   - Uses the "old good" index.html IDs
+   - LIVE badge in top-right (no Updated)
+   - Ambient artwork ONLY inside the NOW card
+   - Stable Top/Recent right column
 */
 
 (() => {
@@ -23,6 +24,7 @@
   const panels = $$(".panel");
 
   // NOW
+  const nowAmbient = $("#nowAmbient");
   const nowBadge = $("#nowBadge");
   const nowBadgeText = $("#nowBadgeText");
   const nowImg = $("#nowImg");
@@ -57,7 +59,7 @@
   function absApi(urlOrPath) {
     if (!urlOrPath) return "";
     if (/^https?:\/\//i.test(urlOrPath)) return urlOrPath;
-    if (urlOrPath.startsWith("/")) return API_BASE + urlOrPath; // /img?u=...
+    if (urlOrPath.startsWith("/")) return API_BASE + urlOrPath;
     return API_BASE + "/" + urlOrPath;
   }
 
@@ -115,18 +117,6 @@
       .replaceAll("'", "&#039;");
   }
 
-  // ✅ Full-page ambient controls
-  function setPageAmbient(imageUrl) {
-    if (imageUrl) {
-      document.documentElement.style.setProperty("--page-ambient-url", `url("${imageUrl}")`);
-      document.body.classList.add("pageOn");
-    } else {
-      document.documentElement.style.setProperty("--page-ambient-url", "none");
-      document.body.classList.remove("pageOn");
-    }
-  }
-
-  // ✅ Row builder (forces right column)
   function rowHTML({ idx, title, sub, img, right, rightClass = "" }) {
     const imgHtml = img
       ? `<img src="${img}" alt="" loading="lazy" decoding="async" />`
@@ -148,19 +138,17 @@
 
   // -------- NOW --------
   function setNowVisual({ live, item }) {
-    if (nowBadge) nowBadge.classList.toggle("live", !!live);
-    if (nowBadgeText) nowBadgeText.textContent = live ? "LIVE" : "OFF";
+    nowBadge.classList.toggle("live", !!live);
+    nowBadgeText.textContent = live ? "LIVE" : "OFF";
 
     if (!item) {
-      setPageAmbient("");
+      nowAmbient.classList.remove("on");
+      nowAmbient.style.removeProperty("--ambient-url");
+      nowCoverWrap.style.removeProperty("--cover-url");
 
-      if (nowCoverWrap) nowCoverWrap.style.removeProperty("--cover-url");
-
-      if (nowImg) {
-        nowImg.style.display = "none";
-        nowImg.removeAttribute("src");
-      }
-      if (nowFallback) nowFallback.style.display = "grid";
+      nowImg.style.display = "none";
+      nowImg.removeAttribute("src");
+      nowFallback.style.display = "grid";
 
       safeText(nowTrack, "—");
       safeText(nowArtist, "—");
@@ -184,21 +172,21 @@
     safeText(nowMsg, "", "");
 
     if (img) {
-      if (nowImg) {
-        nowImg.src = img;
-        nowImg.style.display = "block";
-      }
-      if (nowFallback) nowFallback.style.display = "none";
-      if (nowCoverWrap) nowCoverWrap.style.setProperty("--cover-url", `url("${img}")`);
-      setPageAmbient(img);
+      nowImg.src = img;
+      nowImg.style.display = "block";
+      nowFallback.style.display = "none";
+
+      nowCoverWrap.style.setProperty("--cover-url", `url("${img}")`);
+      nowAmbient.style.setProperty("--ambient-url", `url("${img}")`);
+      nowAmbient.classList.add("on");
     } else {
-      setPageAmbient("");
-      if (nowImg) {
-        nowImg.style.display = "none";
-        nowImg.removeAttribute("src");
-      }
-      if (nowFallback) nowFallback.style.display = "grid";
-      if (nowCoverWrap) nowCoverWrap.style.removeProperty("--cover-url");
+      nowImg.style.display = "none";
+      nowImg.removeAttribute("src");
+      nowFallback.style.display = "grid";
+
+      nowAmbient.classList.remove("on");
+      nowAmbient.style.removeProperty("--ambient-url");
+      nowCoverWrap.style.removeProperty("--cover-url");
     }
 
     enableMarqueeIfNeeded(nowTrackWrap, nowTrack);
@@ -299,7 +287,7 @@
         const title = it.name || "—";
         const sub = `${it.artist || ""}${it.album ? " • " + it.album : ""}`.trim();
         const img = absApi(it.image || "");
-        const right = it.time || it.date || ""; // keep like before (optional)
+        const right = it.time || it.date || "";
         return rowHTML({ idx: i + 1, title, sub, img, right, rightClass: "" });
       }).join("");
 
@@ -311,7 +299,7 @@
     }
   }
 
-  // -------- Events / Wiring --------
+  // -------- Wiring --------
   function wireTabs() {
     tabBtns.forEach(btn => {
       btn.addEventListener("click", async () => {
@@ -348,7 +336,6 @@
     wireTopControls();
 
     showPanel("now");
-
     await loadNow();
     loadTop();
     loadRecent();

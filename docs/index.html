@@ -1,121 +1,264 @@
 <!doctype html>
-<html lang="el">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>Listening Mirror</title>
-  <link rel="manifest" href="./manifest.webmanifest" />
-  <link rel="stylesheet" href="./styles.css" />
+
+  <!-- Minimal inline styles so GitHub Pages works even if styles.css is missing -->
+  <style>
+    :root{
+      --bg:#0b0c0e;
+      --card:#14161a;
+      --card2:#101215;
+      --text:#e9e9ea;
+      --muted:#a8abb2;
+      --muted2:#7f838c;
+      --line:#242830;
+      --pill:#1a1d22;
+      --pill2:#101216;
+      --ok:#31d07c;
+      --live:#ff5a5a;
+      --shadow: 0 18px 55px rgba(0,0,0,.55);
+      --r:22px;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+      background: radial-gradient(1200px 600px at 15% -10%, rgba(255,255,255,.06), transparent 60%),
+                  radial-gradient(900px 600px at 95% 0%, rgba(255,255,255,.04), transparent 55%),
+                  var(--bg);
+      color:var(--text);
+    }
+    a{color:inherit}
+    .wrap{max-width:980px;margin:0 auto;padding:18px 16px 70px}
+    .topbar{
+      display:flex;align-items:center;justify-content:space-between;gap:10px;
+      padding:14px 16px;border:1px solid var(--line);border-radius:var(--r);
+      background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
+      box-shadow: var(--shadow);
+      position:sticky;top:12px;z-index:10;
+      backdrop-filter: blur(10px);
+    }
+    .brand{display:flex;flex-direction:column;gap:4px}
+    .brand h1{font-size:16px;line-height:1;margin:0;font-weight:700;letter-spacing:.2px}
+    .brand .sub{font-size:12px;color:var(--muted)}
+    .actions{display:flex;align-items:center;gap:10px}
+    .btn{
+      appearance:none;border:1px solid var(--line);background:var(--pill);
+      color:var(--text);padding:10px 12px;border-radius:14px;
+      font-weight:650;font-size:13px;cursor:pointer;
+    }
+    .btn:active{transform: translateY(1px)}
+    .status{
+      font-size:12px;color:var(--muted);
+      display:flex;align-items:center;gap:8px;
+      padding:8px 10px;border:1px solid var(--line);border-radius:14px;background:var(--pill2);
+    }
+    .dot{width:8px;height:8px;border-radius:999px;background:#666}
+    .dot.ok{background:var(--ok)}
+    .tabs{
+      display:flex;gap:8px;flex-wrap:wrap;
+      margin:16px 2px 12px;
+    }
+    .tabBtn{
+      border:1px solid var(--line);
+      background:var(--pill);
+      color:var(--text);
+      padding:10px 12px;
+      border-radius:14px;
+      font-size:13px;
+      font-weight:650;
+      cursor:pointer;
+    }
+    .tabBtn[aria-selected="true"]{
+      outline:2px solid rgba(255,255,255,.12);
+      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+    }
+
+    .panel.hidden{display:none}
+    .card{
+      border:1px solid var(--line);
+      background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
+      border-radius:var(--r);
+      box-shadow: var(--shadow);
+      padding:16px;
+      margin:12px 0;
+    }
+    .card h2{margin:0 0 10px;font-size:14px;letter-spacing:.2px}
+    .muted{color:var(--muted);font-size:12px}
+    .grid2{display:grid;grid-template-columns:120px 1fr;gap:14px;align-items:center}
+    .coverBig{
+      width:120px;height:120px;border-radius:18px;
+      border:1px solid var(--line);
+      background: rgba(255,255,255,.02);
+      overflow:hidden;display:grid;place-items:center;
+    }
+    .coverBig img{width:100%;height:100%;object-fit:cover;display:block}
+    .coverFallbackBig{
+      width:100%;height:100%;display:grid;place-items:center;
+      color:rgba(255,255,255,.55);font-size:40px;
+      background: radial-gradient(circle at 30% 20%, rgba(255,255,255,.07), transparent 55%);
+    }
+    .badge{
+      display:inline-flex;align-items:center;gap:8px;
+      padding:7px 10px;border-radius:999px;
+      border:1px solid var(--line);background:var(--pill2);
+      font-size:12px;font-weight:750;
+    }
+    .badge.live{border-color: rgba(255,90,90,.55); box-shadow: 0 0 0 2px rgba(255,90,90,.12) inset}
+    .badge .miniDot{width:8px;height:8px;border-radius:999px;background:#666}
+    .badge.live .miniDot{background:var(--live)}
+    .metaRow{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+    .segRow{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+    .segBtn{
+      border:1px solid var(--line);background:var(--pill);color:var(--text);
+      padding:9px 11px;border-radius:14px;font-size:12px;font-weight:700;cursor:pointer;
+    }
+    .segBtn[aria-selected="true"]{outline:2px solid rgba(255,255,255,.12)}
+    .list{display:flex;flex-direction:column;gap:10px;margin-top:12px}
+    .row{
+      display:grid;
+      grid-template-columns:54px 1fr auto;
+      gap:12px;
+      align-items:center;
+      padding:10px 10px;
+      border:1px solid var(--line);
+      border-radius:16px;
+      background: rgba(0,0,0,.18);
+    }
+    .cover{
+      width:54px;height:54px;border-radius:14px;overflow:hidden;
+      border:1px solid var(--line);
+      background: rgba(255,255,255,.02);
+      position:relative;
+    }
+    .cover img{width:100%;height:100%;object-fit:cover;display:block}
+    .coverFallback{
+      position:absolute;inset:0;
+      display:grid;place-items:center;
+      color:rgba(255,255,255,.55);font-size:22px;
+      background: radial-gradient(circle at 30% 20%, rgba(255,255,255,.07), transparent 60%);
+    }
+    .mid{min-width:0}
+    .title{font-weight:750;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .sub{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+    .right{font-size:12px;color:var(--muted);font-weight:700}
+    .kv{display:grid;grid-template-columns:90px 1fr;gap:8px;margin-top:10px}
+    .k{color:var(--muted);font-size:12px}
+    .v{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .footerHint{margin-top:10px;color:var(--muted2);font-size:12px}
+    code.inline{font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;color:var(--muted)}
+  </style>
 </head>
 
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <div class="logo">LM</div>
-      <div>
-        <div class="brandTitle">Listening Mirror</div>
-        <div id="statusLine" class="brandSub">Loading…</div>
+  <div class="wrap">
+    <header class="topbar">
+      <div class="brand">
+        <h1>Listening Mirror</h1>
+        <div class="sub">Last.fm → Cloudflare Worker → UI</div>
       </div>
-    </div>
 
-    <div class="actions">
-      <button id="btnRefresh" class="btn">Refresh</button>
-    </div>
-  </header>
+      <div class="actions">
+        <div class="status" title="Worker /api/ping">
+          <span id="statusDot" class="dot"></span>
+          <span id="statusLine">—</span>
+        </div>
+        <button class="btn" id="btnRefresh" type="button">Refresh</button>
+      </div>
+    </header>
 
-  <main class="wrap">
-    <nav class="tabs" role="tablist" aria-label="Main tabs">
-      <button class="tabBtn" role="tab" aria-selected="true" data-tab="now">Now Playing</button>
-      <button class="tabBtn" role="tab" aria-selected="false" data-tab="top">Top</button>
-      <button class="tabBtn" role="tab" aria-selected="false" data-tab="recent">Recent</button>
+    <nav class="tabs" aria-label="Main tabs">
+      <button class="tabBtn" data-tab="now" aria-selected="true" type="button">Now Playing</button>
+      <button class="tabBtn" data-tab="top" aria-selected="false" type="button">Top</button>
+      <button class="tabBtn" data-tab="recent" aria-selected="false" type="button">Recent</button>
     </nav>
 
-    <section class="panels">
-      <!-- NOW -->
-      <section class="panel" data-panel="now">
-        <div class="card nowPlaying">
-          <div class="cardHeader">
-            <div>
-              <div class="hTitle">Now Playing</div>
-              <div id="nowUpdated" class="hSub">Updated: —</div>
-            </div>
-            <div id="nowBadge" class="pill">OFF</div>
+    <!-- NOW -->
+    <section class="panel" data-panel="now">
+      <div class="card">
+        <div class="metaRow">
+          <div class="badge" id="nowBadge"><span class="miniDot"></span><span>OFF</span></div>
+          <div class="muted">Updated: <span id="nowUpdated">--</span></div>
+        </div>
+
+        <div style="height:12px"></div>
+
+        <div class="grid2">
+          <div class="coverBig">
+            <img id="nowImg" alt="" style="display:none" />
+            <div id="nowFallback" class="coverFallbackBig">♪</div>
           </div>
 
-          <div class="npBody">
-            <div class="cover">
-              <img id="nowImg" alt="" style="display:none" />
-              <div id="nowFallback" class="coverFallback">♪</div>
+          <div>
+            <div class="kv">
+              <div class="k">Track</div><div class="v" id="nowTrack">—</div>
+              <div class="k">Artist</div><div class="v" id="nowArtist">—</div>
+              <div class="k">Album</div><div class="v" id="nowAlbum">—</div>
             </div>
-
-            <div class="npText">
-              <div id="nowTrack" class="npTrack">—</div>
-              <div id="nowArtist" class="npArtist">—</div>
-              <div id="nowAlbum" class="npAlbum">—</div>
-              <div id="nowMsg" class="npTime">—</div>
-            </div>
-          </div>
-
-          <div class="note">
-            Worker: <code id="workerHint"></code>
+            <div class="footerHint" id="nowMsg"></div>
           </div>
         </div>
-      </section>
 
-      <!-- TOP -->
-      <section class="panel hidden" data-panel="top">
-        <div class="card">
-          <div class="cardHeader">
-            <div>
-              <div class="hTitle">Top</div>
-              <div id="topMeta" class="hSub">—</div>
-            </div>
-            <div id="topBadge" class="pill">—</div>
-          </div>
-
-          <div class="subtabsRow">
-            <div class="subtabs" role="tablist" aria-label="Top type">
-              <button class="subtabBtn" role="tab" aria-selected="true" data-top-type="tracks">Tracks</button>
-              <button class="subtabBtn" role="tab" aria-selected="false" data-top-type="artists">Artists</button>
-              <button class="subtabBtn" role="tab" aria-selected="false" data-top-type="albums">Albums</button>
-            </div>
-
-            <div class="subtabs" role="tablist" aria-label="Top period">
-              <button class="subtabBtn" role="tab" aria-selected="true" data-top-period="today">Today</button>
-              <button class="subtabBtn" role="tab" aria-selected="false" data-top-period="week">Week</button>
-              <button class="subtabBtn" role="tab" aria-selected="false" data-top-period="year">Year</button>
-            </div>
-          </div>
-
-          <div id="topList" class="list"></div>
-
-          <div class="note">
-            Endpoint: <code>/api/top?type=tracks|artists|albums&amp;period=today|week|year&amp;limit=20</code>
-          </div>
+        <div class="footerHint" style="margin-top:14px">
+          <span class="muted">Worker:</span> <code class="inline" id="workerHint">—</code>
         </div>
-      </section>
-
-      <!-- RECENT -->
-      <section class="panel hidden" data-panel="recent">
-        <div class="card">
-          <div class="cardHeader">
-            <div>
-              <div class="hTitle">Recent</div>
-              <div id="recentMeta" class="hSub">—</div>
-            </div>
-            <div class="pill">last 10</div>
-          </div>
-
-          <div id="recentList" class="list"></div>
-
-          <div class="note">
-            Endpoint: <code>/api/history?limit=10</code>
-          </div>
-        </div>
-      </section>
+      </div>
     </section>
-  </main>
 
-  <script src="./app.js" defer></script>
+    <!-- TOP -->
+    <section class="panel hidden" data-panel="top">
+      <div class="card">
+        <div class="metaRow">
+          <div>
+            <h2 style="margin:0">Top</h2>
+            <div class="muted" id="topMeta">—</div>
+          </div>
+          <div class="badge" title="Limit">
+            <span class="miniDot" style="background:var(--ok)"></span>
+            <span id="topBadge">20</span>
+          </div>
+        </div>
+
+        <div class="segRow" aria-label="Top type">
+          <button class="segBtn" data-top-type="tracks" aria-selected="true" type="button">Tracks</button>
+          <button class="segBtn" data-top-type="artists" aria-selected="false" type="button">Artists</button>
+          <button class="segBtn" data-top-type="albums" aria-selected="false" type="button">Albums</button>
+        </div>
+
+        <div class="segRow" aria-label="Top period">
+          <button class="segBtn" data-top-period="today" aria-selected="true" type="button">Today</button>
+          <button class="segBtn" data-top-period="week" aria-selected="false" type="button">Week</button>
+          <button class="segBtn" data-top-period="year" aria-selected="false" type="button">Year</button>
+        </div>
+
+        <div class="list" id="topList"></div>
+      </div>
+    </section>
+
+    <!-- RECENT -->
+    <section class="panel hidden" data-panel="recent">
+      <div class="card">
+        <div class="metaRow">
+          <div>
+            <h2 style="margin:0">Recent</h2>
+            <div class="muted" id="recentMeta">—</div>
+          </div>
+        </div>
+
+        <div class="list" id="recentList"></div>
+
+        <div class="footerHint">
+          Shows last 10 scrobbles (most recent → older).
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Make sure this matches your repo file name -->
+  <script src="./app.js"></script>
 </body>
 </html>

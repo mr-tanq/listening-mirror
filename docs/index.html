@@ -160,40 +160,45 @@
       position:relative;
     }
 
-    /* NOW ambient (ONLY inside card) */
+    /* ✅ NOW background — SHARP artwork (Spotify-widget vibe) */
     .nowAmbient{
       position:absolute;
       inset:-1px;
       opacity: 0;
       pointer-events:none;
-      transition: opacity .25s ease;
+      transition: opacity .22s ease;
     }
     .nowAmbient.on{ opacity: 1; }
+
+    /* Artwork layer: crisp, no blur */
     .nowAmbient:before{
       content:"";
       position:absolute;
-      inset:-40px;
+      inset:0;
       background-image: var(--ambient-url, none);
       background-size: cover;
       background-position: center;
-      filter: blur(28px) saturate(1.12);
-      transform: scale(1.10);
-      opacity:.42;
+      background-repeat: no-repeat;
+      transform: scale(1.02);
+      opacity: .85; /* how strong the artwork is */
     }
+
+    /* Dark overlay + subtle “glass” highlight so text stays readable */
     .nowAmbient:after{
       content:"";
       position:absolute;
       inset:0;
       background:
-        radial-gradient(900px 500px at 20% 10%, rgba(255,255,255,.06), transparent 55%),
-        linear-gradient(180deg, rgba(10,11,13,.55), rgba(10,11,13,.85));
+        radial-gradient(900px 520px at 18% 8%, rgba(255,255,255,.10), transparent 55%),
+        radial-gradient(700px 420px at 85% 10%, rgba(255,255,255,.06), transparent 60%),
+        linear-gradient(180deg, rgba(8,9,11,.55), rgba(8,9,11,.88));
     }
 
     .nowWrap{ position:relative; padding: 18px; }
     .nowTop{
       display:flex;
       align-items:center;
-      justify-content:flex-end; /* LIVE at top-right */
+      justify-content:flex-end;
       gap:12px;
       margin-bottom: 14px;
       position:relative;
@@ -318,7 +323,6 @@
 
     .list{ padding: 10px; }
 
-    /* ✅ stable 3-column layout: thumb | text | right */
     .row{
       display:grid;
       grid-template-columns: 52px minmax(0,1fr) max-content;

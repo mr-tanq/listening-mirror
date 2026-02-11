@@ -1,489 +1,435 @@
-/* app.js (FULL) - Listening Mirror UI
-   Worker base is fixed: https://i.errtanq9.workers.dev
-   - No Settings, no Refresh button, no pull-to-refresh logic
-   - Keeps artwork working (worker returns "/img?u=..." -> we prefix WORKER_BASE)
+/* Listening Mirror - app.js (UI only)
+   - A: Sticky tabs handled in CSS
+   - B: LIVE pulse handled in CSS
+   - C: Skeleton loading for Top/Recent
+   - E: Smaller index number via .idx span
 */
 
 (() => {
-  "use strict";
+  const API_BASE = "https://i.errtanq9.workers.dev";
 
-  const WORKER_BASE = "https://i.errtanq9.workers.dev";
+  // ---------- DOM ----------
+  const $ = (sel) => document.querySelector(sel);
+  const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
-  const el = (sel) => document.querySelector(sel);
-  const els = (sel) => Array.from(document.querySelectorAll(sel));
+  const statusDot = $("#statusDot");
+  const statusLine = $("#statusLine");
 
-  // Header
-  const statusLine = el("#statusLine");
-  const statusDot = el("#statusDot");
+  const tabBtns = $$(".tabBtn");
+  const panels = $$("[data-panel]");
 
-  // Tabs
-  const panels = els(".panel");
-  const tabBtns = els(".tabBtn");
+  // Now
+  const nowAmbient = $("#nowAmbient");
+  const nowBadge = $("#nowBadge");
+  const nowBadgeText = $("#nowBadgeText");
+  const nowUpdated = $("#nowUpdated");
 
-  // Now UI
-  const nowUpdated = el("#nowUpdated");
-  const nowBadge = el("#nowBadge");
-  const nowBadgeText = el("#nowBadgeText");
-  const nowAmbient = el("#nowAmbient");
-  const nowCoverWrap = el("#nowCoverWrap");
-  const nowImg = el("#nowImg");
-  const nowFallback = el("#nowFallback");
-  const nowTrackWrap = el("#nowTrackWrap");
-  const nowArtistWrap = el("#nowArtistWrap");
-  const nowAlbumWrap = el("#nowAlbumWrap");
-  const nowTrack = el("#nowTrack");
-  const nowArtist = el("#nowArtist");
-  const nowAlbum = el("#nowAlbum");
-  const nowMsg = el("#nowMsg");
+  const nowImg = $("#nowImg");
+  const nowFallback = $("#nowFallback");
+  const nowCoverWrap = $("#nowCoverWrap");
 
-  // Top UI
-  const topList = el("#topList");
-  const topTypeBtns = els("[data-top-type]");
-  const topPeriodBtns = els("[data-top-period]");
+  const nowTrack = $("#nowTrack");
+  const nowArtist = $("#nowArtist");
+  const nowAlbum = $("#nowAlbum");
+  const nowMsg = $("#nowMsg");
 
-  // Recent UI
-  const recentList = el("#recentList");
+  const nowTrackWrap = $("#nowTrackWrap");
+  const nowArtistWrap = $("#nowArtistWrap");
+  const nowAlbumWrap = $("#nowAlbumWrap");
 
-  let currentTab = "now";
-  let topType = "tracks";   // tracks | artists | albums
-  let topPeriod = "today";  // today | week | year
-  const topLimit = 10;
+  // Top
+  const topList = $("#topList");
+  const topTypeBtns = $$("[data-top-type]");
+  const topPeriodBtns = $$("[data-top-period]");
+  let topType = "tracks";
+  let topPeriod = "today";
+  const TOP_LIMIT = 10;
 
-  // ---------------------------
-  // URL helpers (THIS fixes your Not found)
-  // ---------------------------
-  function baseNoSlash() {
-    return WORKER_BASE.replace(/\/+$/, "");
-  }
-  function joinApi(path) {
-    const p = String(path || "");
-    const clean = p.startsWith("/") ? p : ("/" + p);
-    return baseNoSlash() + clean;
+  // Recent
+  const recentList = $("#recentList");
+  const RECENT_LIMIT = 10;
+
+  // ---------- Utils ----------
+  const pad2 = (n) => String(n).padStart(2, "0");
+  function fmtTime(d = new Date()) {
+    // keep it simple: 24h time
+    return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
   }
 
-  // Worker returns images like "/img?u=..."
-  function resolveImageUrl(u) {
+  function normalizeImg(u) {
     if (!u) return "";
-    const s = String(u).trim();
-    if (!s) return "";
-    if (s.startsWith("http://") || s.startsWith("https://")) return s;
-    if (s.startsWith("/")) return baseNoSlash() + s;
-    // if ever returns "img?u=..." without slash
-    if (s.startsWith("img?")) return baseNoSlash() + "/" + s;
-    return s;
+    if (u.startsWith("http")) return u;
+    if (u.startsWith("/img")) return API_BASE + u;
+    return u;
   }
 
-  function fmtTime(ts = Date.now()) {
+  async function fetchJSON(path, { timeoutMs = 12000 } = {}) {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    } catch {
-      return "--";
-    }
-  }
-
-  function setStatus(online) {
-    if (statusLine) statusLine.textContent = online ? "Online" : "Offline";
-    if (statusDot) statusDot.classList.toggle("on", !!online);
-  }
-
-  async function safeFetchJson(path) {
-    const url = joinApi(path);
-
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 12000);
-
-    try {
-      const r = await fetch(url, { signal: ctrl.signal, cache: "no-store" });
-      const ct = (r.headers.get("content-type") || "").toLowerCase();
-      const text = await r.text();
-
-      if (!r.ok || ct.includes("text/html") || text.trim().startsWith("<!DOCTYPE")) {
-        const msg = !r.ok ? `HTTP ${r.status}` : "HTML returned";
+      const res = await fetch(API_BASE + path, { signal: controller.signal, cache: "no-store" });
+      const txt = await res.text();
+      let json = null;
+      try { json = JSON.parse(txt); } catch { json = null; }
+      if (!res.ok) {
+        const msg = json?.error || `HTTP ${res.status}`;
         throw new Error(msg);
       }
-
-      let j = null;
-      try { j = JSON.parse(text); } catch { j = null; }
-      if (!j) throw new Error("Bad JSON");
-
-      return j;
+      return json ?? {};
     } finally {
-      clearTimeout(t);
+      clearTimeout(id);
     }
   }
 
-  // ---------------------------
-  // Marquee logic (moves text only if it overflows)
-  // Works for elements that have:
-  // - wrapper div (overflow hidden)
-  // - inner span with class "marq"
-  // ---------------------------
-  function applyMarquee(wrapEl, marqEl) {
-    if (!wrapEl || !marqEl) return;
+  function setOnline(ok) {
+    if (ok) {
+      statusDot.classList.add("on");
+      statusLine.textContent = "Online";
+    } else {
+      statusDot.classList.remove("on");
+      statusLine.textContent = "Offline";
+    }
+  }
 
-    // reset
+  function setSelected(btns, isSelectedFn) {
+    btns.forEach((b) => b.setAttribute("aria-selected", isSelectedFn(b) ? "true" : "false"));
+  }
+
+  function showPanel(name) {
+    panels.forEach((p) => p.classList.toggle("hidden", p.getAttribute("data-panel") !== name));
+    setSelected(tabBtns, (b) => b.dataset.tab === name);
+  }
+
+  // Marquee helper: enable animation only if overflow
+  function setupMarquee(wrapEl, textEl) {
+    if (!wrapEl || !textEl) return;
     wrapEl.classList.remove("marqOn");
-    wrapEl.style.removeProperty("--marqShift");
-    wrapEl.style.removeProperty("--marqDur");
-
-    // Need next frame so layout is accurate
+    // next frame after DOM updates
     requestAnimationFrame(() => {
-      const wrapW = wrapEl.clientWidth || 0;
-      const textW = marqEl.scrollWidth || 0;
-
-      if (textW > wrapW + 6) {
-        const shift = textW - wrapW + 18; // extra breathing room
-        const dur = Math.min(18, Math.max(8, shift / 35)); // 8s..18s
+      const wrapW = wrapEl.clientWidth;
+      const textW = textEl.scrollWidth;
+      if (textW > wrapW + 8) {
+        const shift = Math.min(textW - wrapW + 24, 420);
+        const dur = Math.max(9, Math.min(18, shift / 28));
         wrapEl.style.setProperty("--marqShift", `${shift}px`);
         wrapEl.style.setProperty("--marqDur", `${dur}s`);
         wrapEl.classList.add("marqOn");
       }
     });
   }
+// ---------- Skeleton UI ----------
+  function renderSkeleton(listEl, rows = 8) {
+    const frag = document.createDocumentFragment();
+    for (let i = 0; i < rows; i++) {
+      const row = document.createElement("div");
+      row.className = "row skeleton";
 
-  // ---------------------------
-  // Row builder (keeps artwork working + marquee + premium counts)
-  // ---------------------------
-  function rowItem({ idx, title, subtitle, right, imageUrl }) {
-    const wrap = document.createElement("div");
-    wrap.className = "row";
+      const thumb = document.createElement("div");
+      thumb.className = "thumb";
+      const tf = document.createElement("div");
+      tf.className = "thumbFallback";
+      tf.textContent = "";
+      thumb.appendChild(tf);
 
-    // Thumb
+      const mid = document.createElement("div");
+      mid.className = "mid";
+      const l1 = document.createElement("div");
+      l1.className = "skLine skW1";
+      const l2 = document.createElement("div");
+      l2.className = "skLine skW2";
+      mid.appendChild(l1);
+      mid.appendChild(l2);
+
+      const right = document.createElement("div");
+      right.className = "right";
+      const rc = document.createElement("div");
+      rc.className = "skCount";
+      right.appendChild(rc);
+
+      row.appendChild(thumb);
+      row.appendChild(mid);
+      row.appendChild(right);
+      frag.appendChild(row);
+    }
+    listEl.innerHTML = "";
+    listEl.appendChild(frag);
+  }
+
+  // ---------- Render rows ----------
+  function makeRow({ idx, title, subtitle, image, rightText = "" }) {
+    const row = document.createElement("div");
+    row.className = "row";
+
     const thumb = document.createElement("div");
     thumb.className = "thumb";
-
-    const img = document.createElement("img");
-    img.alt = "";
-    img.loading = "lazy";
-
-    const icon = document.createElement("div");
-    icon.className = "thumbFallback";
-    icon.textContent = "♪";
-
-    const u = resolveImageUrl(imageUrl);
-    if (u) {
-      img.src = u;
+    if (image) {
+      const img = document.createElement("img");
+      img.loading = "lazy";
+      img.alt = "";
+      img.src = image;
       thumb.appendChild(img);
-      thumb.appendChild(icon);
-      icon.style.display = "none";
-
-      img.addEventListener("error", () => {
-        try { img.removeAttribute("src"); } catch {}
-        icon.style.display = "grid";
-      });
     } else {
-      thumb.appendChild(icon);
-      icon.style.display = "grid";
+      const fb = document.createElement("div");
+      fb.className = "thumbFallback";
+      fb.textContent = "♪";
+      thumb.appendChild(fb);
     }
 
-    // Middle (title + subtitle) with marquee
     const mid = document.createElement("div");
     mid.className = "mid";
 
-    // Title wrap
-    const tWrap = document.createElement("div");
-    tWrap.className = "tWrap";
+    const t = document.createElement("div");
+    t.className = "title";
 
-    const tSpan = document.createElement("span");
-    tSpan.className = "marq";
-    tSpan.textContent = `${idx}. ${title}`;
-
-    tWrap.appendChild(tSpan);
-
-    // Subtitle wrap
-    const sWrap = document.createElement("div");
-    sWrap.className = "sWrap";
-    sWrap.style.marginTop = "6px";
-
-    const sSpan = document.createElement("span");
-    sSpan.className = "marq";
-    sSpan.textContent = subtitle || "";
-
-    sWrap.appendChild(sSpan);
-
-    mid.appendChild(tWrap);
-    mid.appendChild(sWrap);
-
-    // Right count
-    const r = document.createElement("div");
-    r.className = "right";
-    if (right !== "" && right != null) {
-      r.textContent = String(right);
-      r.classList.add("count");
-    } else {
-      r.textContent = "";
+    // ✅ E: small index
+    if (typeof idx === "number") {
+      const s = document.createElement("span");
+      s.className = "idx";
+      s.textContent = `${idx}.`;
+      t.appendChild(s);
     }
 
-    wrap.appendChild(thumb);
-    wrap.appendChild(mid);
-    wrap.appendChild(r);
+    const titleSpan = document.createElement("span");
+    titleSpan.textContent = title || "—";
+    t.appendChild(titleSpan);
 
-    // Apply marquee after inserted in DOM (we’ll call it again after render)
-    wrap._marq = { tWrap, tSpan, sWrap, sSpan };
+    const sub = document.createElement("div");
+    sub.className = "sub";
+    sub.textContent = subtitle || "";
 
-    return wrap;
+    mid.appendChild(t);
+    mid.appendChild(sub);
+
+    const right = document.createElement("div");
+    right.className = "right count";
+    right.textContent = rightText || "";
+
+    row.appendChild(thumb);
+    row.appendChild(mid);
+    row.appendChild(right);
+
+    return row;
   }
 
-  // ---------------------------
-  // Tabs
-  // ---------------------------
-  function setSelected(btns, predicate) {
-    btns.forEach((b) => b.setAttribute("aria-selected", predicate(b) ? "true" : "false"));
+  function showError(listEl, msg) {
+    listEl.innerHTML = "";
+    const row = document.createElement("div");
+    row.className = "row";
+    row.style.padding = "18px 16px";
+    row.style.color = "rgba(255,255,255,.70)";
+    row.textContent = msg;
+    listEl.appendChild(row);
   }
 
-  function showTab(tab) {
-    currentTab = tab;
-    setSelected(tabBtns, (b) => b.dataset.tab === tab);
-
-    panels.forEach((p) => {
-      const isThis = p.dataset.panel === tab;
-      p.classList.toggle("hidden", !isThis);
-    });
-
-    if (tab === "now") refreshNow();
-    if (tab === "top") refreshTop();
-    if (tab === "recent") refreshRecent();
-  }
-
-  // ---------------------------
-  // /api/ping
-  // ---------------------------
-  async function refreshPing() {
+  // ---------- Now ----------
+  async function loadNow() {
     try {
-      const j = await safeFetchJson("/api/ping");
-      setStatus(!!j?.ok);
-    } catch {
-      setStatus(false);
-    }
-  }
+      const j = await fetchJSON("/api/now");
+      setOnline(true);
 
-  // ---------------------------
-  // NOW
-  // ---------------------------
-  function clearNow() {
-    nowBadge.classList.remove("live");
-    nowBadgeText.textContent = "OFF";
-    nowUpdated.textContent = "--";
-    nowTrack.textContent = "—";
-    nowArtist.textContent = "—";
-    nowAlbum.textContent = "—";
-    nowMsg.textContent = "—";
-    setNowCover("");
-    setAmbient("");
-  }
+      const playing = !!j?.playing;
+      const track = j?.track || "—";
+      const artist = j?.artist || "—";
+      const album = j?.album || "—";
+      const msg = j?.message || (playing ? "" : "Not playing now");
+      const img = normalizeImg(j?.image || "");
 
-  function setAmbient(imgUrl) {
-    if (!nowAmbient) return;
-    const u = resolveImageUrl(imgUrl);
-    if (!u) {
-      nowAmbient.classList.remove("on");
-      nowAmbient.style.removeProperty("--ambient-url");
-      return;
-    }
-    nowAmbient.style.setProperty("--ambient-url", `url("${u}")`);
-    nowAmbient.classList.add("on");
-  }
+      // badge
+      if (playing) {
+        nowBadge.classList.add("live");
+        nowBadgeText.textContent = "LIVE";
+      } else {
+        nowBadge.classList.remove("live");
+        nowBadgeText.textContent = "OFF";
+      }
 
-  function setNowCover(imgUrl) {
-    const u = resolveImageUrl(imgUrl);
-    if (u) {
-      nowImg.src = u;
-      nowImg.style.display = "block";
-      nowFallback.style.display = "none";
-      if (nowCoverWrap) nowCoverWrap.style.setProperty("--cover-url", `url("${u}")`);
-    } else {
-      try { nowImg.removeAttribute("src"); } catch {}
+      nowTrack.textContent = track;
+      nowArtist.textContent = artist;
+      nowAlbum.textContent = album;
+      nowMsg.textContent = msg || "—";
+
+      // cover / ambient (keep artwork stable)
+      if (img) {
+        nowImg.src = img;
+        nowImg.style.display = "block";
+        nowFallback.style.display = "none";
+        nowCoverWrap.style.setProperty("--cover-url", `url("${img}")`);
+
+        nowAmbient.style.setProperty("--ambient-url", `url("${img}")`);
+        nowAmbient.classList.add("on");
+      } else {
+        nowImg.removeAttribute("src");
+        nowImg.style.display = "none";
+        nowFallback.style.display = "grid";
+        nowCoverWrap.style.setProperty("--cover-url", "none");
+
+        nowAmbient.classList.remove("on");
+        nowAmbient.style.setProperty("--ambient-url", "none");
+      }
+
+      nowUpdated.textContent = fmtTime(new Date());
+
+      // marquee checks
+      setupMarquee(nowTrackWrap, nowTrack);
+      setupMarquee(nowArtistWrap, nowArtist);
+      setupMarquee(nowAlbumWrap, nowAlbum);
+
+    } catch (e) {
+      setOnline(false);
+
+      nowBadge.classList.remove("live");
+      nowBadgeText.textContent = "OFF";
+      nowTrack.textContent = "—";
+      nowArtist.textContent = "—";
+      nowAlbum.textContent = "—";
+      nowMsg.textContent = "Offline";
+      nowUpdated.textContent = fmtTime(new Date());
+
+      nowImg.removeAttribute("src");
       nowImg.style.display = "none";
       nowFallback.style.display = "grid";
-      if (nowCoverWrap) nowCoverWrap.style.removeProperty("--cover-url");
+      nowAmbient.classList.remove("on");
+      nowAmbient.style.setProperty("--ambient-url", "none");
     }
   }
-
-  async function refreshNow() {
-    clearNow();
-    nowUpdated.textContent = fmtTime(Date.now());
-    nowMsg.textContent = "Loading…";
-
+// ---------- Top ----------
+  async function loadTop() {
+    renderSkeleton(topList, 9);
     try {
-      const j = await safeFetchJson("/api/now");
-      nowUpdated.textContent = fmtTime(Date.now());
+      const j = await fetchJSON(`/api/top?type=${encodeURIComponent(topType)}&period=${encodeURIComponent(topPeriod)}&limit=${TOP_LIMIT}`);
+      setOnline(true);
 
-      const item = j?.item;
-      if (!item) {
-        nowMsg.textContent = "Not playing now";
-        nowBadgeText.textContent = "OFF";
-        nowBadge.classList.remove("live");
-        setNowCover("");
-        setAmbient("");
+      const items = Array.isArray(j?.items) ? j.items : [];
+      topList.innerHTML = "";
+
+      if (!items.length) {
+        showError(topList, "No data.");
         return;
       }
 
-      nowBadgeText.textContent = "LIVE";
-      nowBadge.classList.add("live");
-
-      nowTrack.textContent = item.name || "—";
-      nowArtist.textContent = item.artist || "—";
-      nowAlbum.textContent = item.album || "—";
-      nowMsg.textContent = "";
-
-      setNowCover(item.image || "");
-      setAmbient(item.image || "");
-
-      // Marquee (only if needed)
-      applyMarquee(nowTrackWrap, nowTrack);
-      applyMarquee(nowArtistWrap, nowArtist);
-      applyMarquee(nowAlbumWrap, nowAlbum);
-    } catch (e) {
-      nowMsg.textContent = `Error: ${String(e?.message || e)}`;
-      nowBadgeText.textContent = "OFF";
-      nowBadge.classList.remove("live");
-      setNowCover("");
-      setAmbient("");
-    }
-  }
-
-  // ---------------------------
-  // RECENT
-  // ---------------------------
-  async function refreshRecent() {
-    recentList.innerHTML = "";
-
-    try {
-      const j = await safeFetchJson("/api/history?limit=10");
-      const items = j?.items || [];
-
+      const frag = document.createDocumentFragment();
       items.forEach((it, i) => {
-        const row = rowItem({
+        const title = it?.name || "—";
+        const subtitle =
+          topType === "artists"
+            ? (it?.name || "")
+            : (it?.artist || "");
+
+        const img = normalizeImg(it?.image || "");
+        const rightText = String(it?.playcount ?? "");
+
+        // for artists we want subtitle to be empty (clean)
+        const finalTitle = topType === "artists" ? (it?.name || "—") : title;
+        const finalSub = topType === "artists" ? "" : subtitle;
+
+        frag.appendChild(makeRow({
           idx: i + 1,
-          title: it.name || "—",
-          subtitle: it.artist || "",
-          right: "",
-          imageUrl: it.image || ""
-        });
-        recentList.appendChild(row);
+          title: finalTitle,
+          subtitle: finalSub,
+          image: img,
+          rightText
+        }));
       });
 
-      // Apply marquee after DOM insertion
-      requestAnimationFrame(() => {
-        const rows = Array.from(recentList.querySelectorAll(".row"));
-        rows.forEach((r) => {
-          const m = r._marq;
-          if (m) {
-            applyMarquee(m.tWrap, m.tSpan);
-            applyMarquee(m.sWrap, m.sSpan);
-          }
-        });
-      });
+      topList.appendChild(frag);
     } catch (e) {
-      recentList.innerHTML = "";
-      const row = rowItem({ idx: 1, title: "Error", subtitle: String(e?.message || e), right: "", imageUrl: "" });
-      recentList.appendChild(row);
+      setOnline(false);
+      showError(topList, "Couldn't load Top.");
     }
   }
 
-  // ---------------------------
-  // TOP
-  // ---------------------------
-  async function refreshTop() {
-    topList.innerHTML = "";
-
-    const path =
-      `/api/top?type=${encodeURIComponent(topType)}&period=${encodeURIComponent(topPeriod)}&limit=${encodeURIComponent(topLimit)}`;
-
+  // ---------- Recent ----------
+  async function loadRecent() {
+    renderSkeleton(recentList, 9);
     try {
-      const j = await safeFetchJson(path);
-      const items = j?.items || [];
+      const j = await fetchJSON(`/api/history?limit=${RECENT_LIMIT}`);
+      setOnline(true);
 
+      const items = Array.isArray(j?.items) ? j.items : [];
+      recentList.innerHTML = "";
+
+      if (!items.length) {
+        showError(recentList, "No recent history.");
+        return;
+      }
+
+      const frag = document.createDocumentFragment();
       items.forEach((it, i) => {
-        if (topType === "artists") {
-          const row = rowItem({
-            idx: i + 1,
-            title: it.name || "—",
-            subtitle: "",
-            right: it.playcount ?? "",
-            imageUrl: it.image || ""
-          });
-          topList.appendChild(row);
-        } else if (topType === "albums") {
-          const row = rowItem({
-            idx: i + 1,
-            title: it.name || "—",
-            subtitle: it.artist || "",
-            right: it.playcount ?? "",
-            imageUrl: it.image || ""
-          });
-          topList.appendChild(row);
-        } else {
-          const row = rowItem({
-            idx: i + 1,
-            title: it.name || "—",
-            subtitle: it.artist || "",
-            right: it.playcount ?? "",
-            imageUrl: it.image || ""
-          });
-          topList.appendChild(row);
-        }
+        const title = it?.name || it?.track || "—";
+        const subtitle = it?.artist || "—";
+        const img = normalizeImg(it?.image || "");
+        frag.appendChild(makeRow({
+          idx: i + 1,
+          title,
+          subtitle,
+          image: img,
+          rightText: ""
+        }));
       });
 
-      // Apply marquee after DOM insertion
-      requestAnimationFrame(() => {
-        const rows = Array.from(topList.querySelectorAll(".row"));
-        rows.forEach((r) => {
-          const m = r._marq;
-          if (m) {
-            applyMarquee(m.tWrap, m.tSpan);
-            applyMarquee(m.sWrap, m.sSpan);
-          }
-        });
-      });
+      recentList.appendChild(frag);
     } catch (e) {
-      topList.innerHTML = "";
-      const row = rowItem({ idx: 1, title: "Error", subtitle: String(e?.message || e), right: "", imageUrl: "" });
-      topList.appendChild(row);
+      setOnline(false);
+      showError(recentList, "Couldn't load Recent.");
     }
   }
 
-  // ---------------------------
-  // Init
-  // ---------------------------
-  function init() {
-    // tabs
+  // ---------- Events ----------
+  function wireTabs() {
     tabBtns.forEach((b) => {
-      b.addEventListener("click", () => showTab(b.dataset.tab));
+      b.addEventListener("click", () => {
+        const tab = b.dataset.tab;
+        showPanel(tab);
+        // lazy load when entering
+        if (tab === "top") loadTop();
+        if (tab === "recent") loadRecent();
+      });
     });
+  }
 
-    // top type
+  function wireTopControls() {
     topTypeBtns.forEach((b) => {
       b.addEventListener("click", () => {
-        topType = String(b.dataset.topType || "tracks");
-        setSelected(topTypeBtns, (x) => x === b);
-        refreshTop();
+        topType = b.dataset.topType;
+        setSelected(topTypeBtns, (x) => x.dataset.topType === topType);
+        loadTop();
       });
     });
 
-    // top period
     topPeriodBtns.forEach((b) => {
       b.addEventListener("click", () => {
-        topPeriod = String(b.dataset.topPeriod || "today");
-        setSelected(topPeriodBtns, (x) => x === b);
-        refreshTop();
+        topPeriod = b.dataset.topPeriod;
+        setSelected(topPeriodBtns, (x) => x.dataset.topPeriod === topPeriod);
+        loadTop();
       });
     });
-
-    // initial selected states
-    setSelected(tabBtns, (b) => b.dataset.tab === "now");
-    setSelected(topTypeBtns, (b) => (b.dataset.topType || "") === "tracks");
-    setSelected(topPeriodBtns, (b) => (b.dataset.topPeriod || "") === "today");
-
-    refreshPing();
-    showTab("now");
-
-    // auto refresh ping + now
-    setInterval(refreshPing, 15000);
-    setInterval(() => {
-      if (currentTab === "now") refreshNow();
-    }, 15000);
   }
 
-  init();
+  // ---------- Boot ----------
+  async function boot() {
+    wireTabs();
+    wireTopControls();
+
+    // initial panel
+    showPanel("now");
+
+    // initial selected states
+    setSelected(topTypeBtns, (x) => x.dataset.topType === topType);
+    setSelected(topPeriodBtns, (x) => x.dataset.topPeriod === topPeriod);
+
+    // quick ping (optional) + load Now
+    try {
+      await fetchJSON("/api/ping", { timeoutMs: 6000 });
+      setOnline(true);
+    } catch {
+      setOnline(false);
+    }
+
+    await loadNow();
+
+    // refresh Now periodically
+    setInterval(loadNow, 15000);
+  }
+
+  boot();
 })();

@@ -14,26 +14,43 @@
     :root{
       --bg0:#07080a;
       --bg1:#0b0c0e;
-      --card: rgba(255,255,255,.06);
-      --card2: rgba(255,255,255,.045);
-      --stroke: rgba(255,255,255,.08);
-      --stroke2: rgba(255,255,255,.06);
-      --text:#f2f3f5;
-      --muted:#a8abb2;
-      --muted2:#7f838c;
+
+      --text: rgba(255,255,255,.94);
+      --muted: rgba(255,255,255,.62);
+      --muted2: rgba(255,255,255,.48);
+
       --good:#31d07c;
       --bad:#ff5a5a;
-
-      --shadow: 0 22px 80px rgba(0,0,0,.6);
-      --shadow2: 0 10px 35px rgba(0,0,0,.45);
 
       --r: 22px;
       --r2: 16px;
 
-      --blur: 14px;
-      --maskFade: 22px;
+      --blur: 10px;
+      --maskFade: 20px;
 
       --stickyTop: calc(env(safe-area-inset-top) + 14px);
+
+      /* ✅ minimal glass */
+      --glass: rgba(255,255,255,.055);
+      --glass2: rgba(255,255,255,.030);
+      --stroke: rgba(255,255,255,.075);
+      --stroke2: rgba(255,255,255,.055);
+
+      /* ✅ softer shadows (more premium, less “gamer”) */
+      --shadowA: 0 28px 80px rgba(0,0,0,.62);
+      --shadowB: 0 12px 34px rgba(0,0,0,.42);
+
+      /* typography */
+      --titleStrong: rgba(255,255,255,.94);
+      --titleSoft: rgba(255,255,255,.82);
+      --titleDim: rgba(255,255,255,.66);
+
+      /* playcount accent */
+      --countAccent: rgba(49,208,124,.92);
+      --countGlow: rgba(49,208,124,.16);
+
+      /* micro motion */
+      --ease: cubic-bezier(.2,.8,.2,1);
     }
 
     *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
@@ -41,13 +58,13 @@
     body{
       margin:0;
       color:var(--text);
+      /* ✅ πιο minimal: κρατάμε 2 πολύ ήπιες λάμψεις */
       background:
-        radial-gradient(1100px 700px at 10% 0%, rgba(120,80,255,.16), transparent 55%),
-        radial-gradient(900px 600px at 90% 15%, rgba(40,210,255,.10), transparent 55%),
-        radial-gradient(900px 650px at 35% 110%, rgba(255,80,160,.10), transparent 55%),
+        radial-gradient(900px 650px at 10% 0%, rgba(120,80,255,.10), transparent 60%),
+        radial-gradient(900px 650px at 90% 15%, rgba(40,210,255,.06), transparent 62%),
         linear-gradient(180deg, var(--bg0), var(--bg1));
       font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      letter-spacing: .2px;
+      letter-spacing: .15px;
       overflow-x:hidden;
     }
 
@@ -57,6 +74,7 @@
       padding: calc(env(safe-area-inset-top) + 18px) 16px calc(env(safe-area-inset-bottom) + 18px);
     }
 
+    /* ---------------- Topbar ---------------- */
     .topbar{
       display:flex;
       align-items:center;
@@ -72,35 +90,34 @@
       min-width: 0;
     }
 
-    /* ✅ FIX: clearer LM mark */
+    /* ✅ logo πιο καθαρό / readable */
     .logo{
       width: 44px; height: 44px;
       border-radius: 14px;
       display:grid; place-items:center;
-      background: linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.05));
-      border: 1px solid rgba(255,255,255,.14);
-      box-shadow: var(--shadow2);
+      background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.03));
+      border: 1px solid rgba(255,255,255,.12);
+      box-shadow: var(--shadowB);
       flex: 0 0 auto;
       position: relative;
       overflow:hidden;
     }
     .logo::after{
       content:"";
-      position:absolute; inset:-2px;
+      position:absolute; inset:-1px;
       background:
-        radial-gradient(14px 14px at 22% 30%, rgba(255,255,255,.22), transparent 55%),
-        radial-gradient(22px 22px at 72% 65%, rgba(255,255,255,.10), transparent 60%);
-      opacity:.95;
+        radial-gradient(12px 12px at 25% 30%, rgba(255,255,255,.16), transparent 60%),
+        radial-gradient(18px 18px at 72% 70%, rgba(255,255,255,.08), transparent 62%);
+      opacity:.85;
       pointer-events:none;
     }
     .logo span{
       font-weight: 950;
-      letter-spacing: .2px;
       font-size: 16px;
-      color: rgba(255,255,255,.92);
+      color: rgba(255,255,255,.94);
       text-shadow:
-        0 1px 0 rgba(0,0,0,.65),
-        0 0 18px rgba(255,255,255,.18);
+        0 1px 0 rgba(0,0,0,.55),
+        0 0 14px rgba(255,255,255,.10);
       transform: translateY(-.5px);
       user-select:none;
     }
@@ -109,7 +126,7 @@
       min-width:0;
       display:flex;
       flex-direction:column;
-      gap: 2px;
+      gap: 3px;
     }
     .title{
       font-size: 18px;
@@ -126,7 +143,7 @@
     }
     .dot{
       width: 8px; height: 8px;
-      border-radius: 99px;
+      border-radius: 999px;
       background: rgba(255,255,255,.18);
       box-shadow: 0 0 0 rgba(0,0,0,0);
     }
@@ -138,109 +155,141 @@
       background: var(--bad);
       box-shadow: 0 0 0 6px rgba(255,90,90,.10);
     }
-.tabsSticky{
+
+    /* ---------------- Tabs ---------------- */
+    .tabsSticky{
       position: sticky;
       top: var(--stickyTop);
       z-index: 50;
       margin-top: 10px;
       margin-bottom: 14px;
     }
+
+    /* ✅ πιο minimal “pill bar” */
     .tabs{
       padding: 6px;
       border-radius: 999px;
-      border: 1px solid var(--stroke2);
-      background: rgba(0,0,0,.22);
+      border: 1px solid rgba(255,255,255,.06);
+      background: rgba(0,0,0,.20);
       backdrop-filter: blur(var(--blur));
       -webkit-backdrop-filter: blur(var(--blur));
       display:flex;
       gap: 6px;
-      box-shadow: var(--shadow2);
+      box-shadow: var(--shadowB);
     }
+
     .tabBtn{
       flex:1;
       height: 44px;
       border-radius: 999px;
       border: 1px solid transparent;
       background: transparent;
-      color: var(--muted);
-      font-weight: 900;
+      color: rgba(255,255,255,.62);
+      font-weight: 850;
       font-size: 13px;
-      letter-spacing: .3px;
+      letter-spacing: .25px;
       cursor:pointer;
-      transition: background .18s ease, color .18s ease, transform .10s ease;
+      transition:
+        background .20s var(--ease),
+        color .20s var(--ease),
+        border-color .20s var(--ease),
+        transform .16s var(--ease),
+        filter .20s var(--ease);
     }
+
+    /* ✅ micro “lift” στο selected */
     .tabBtn[aria-selected="true"]{
-      background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.05));
-      border-color: rgba(255,255,255,.10);
-      color: var(--text);
+      background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.045));
+      border-color: rgba(255,255,255,.09);
+      color: rgba(255,255,255,.92);
+      transform: translateY(-1px);
+      filter: saturate(1.05);
+      box-shadow: 0 10px 26px rgba(0,0,0,.25);
     }
-    .tabBtn:active{ transform: scale(.99); }
+
+    .tabBtn:active{ transform: translateY(0px) scale(.99); }
 
     .panel{ margin-top: 14px; }
     .hidden{ display:none !important; }
 
+    /* ---------------- Cards ---------------- */
     .card{
       border-radius: var(--r);
       border: 1px solid var(--stroke2);
-      background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.035));
+      background: linear-gradient(180deg, var(--glass), var(--glass2));
       backdrop-filter: blur(var(--blur));
       -webkit-backdrop-filter: blur(var(--blur));
-      box-shadow: var(--shadow);
+      box-shadow: var(--shadowA);
       overflow:hidden;
       position: relative;
     }
-    .card.liveSheen::before{
+
+    /* ✅ πιο διακριτικό inner highlight */
+    .card::after{
       content:"";
       position:absolute;
-      inset:-40% -60%;
-      background: linear-gradient(110deg,
-        transparent 0%,
-        rgba(255,255,255,.06) 35%,
-        rgba(255,255,255,.16) 50%,
-        rgba(255,255,255,.06) 65%,
-        transparent 100%);
-      transform: translateX(-35%) rotate(6deg);
-      animation: sheen 3.2s ease-in-out infinite;
+      inset: 0;
+      border-radius: inherit;
       pointer-events:none;
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.08),
+        inset 0 0 0 1px rgba(255,255,255,.02);
       opacity: .9;
-    }
-    @keyframes sheen{
-      0%{ transform: translateX(-45%) rotate(6deg); opacity:.0; }
-      12%{ opacity:.95; }
-      50%{ opacity:.85; }
-      100%{ transform: translateX(45%) rotate(6deg); opacity:0; }
     }
 
     .cardInner{ padding: 18px; }
 
     .cardHead{
       display:flex;
-      align-items:center;
+      align-items:flex-start;
       justify-content:space-between;
       gap: 12px;
       margin-bottom: 14px;
     }
+
+    .cardHeadLeft{
+      display:flex;
+      flex-direction:column;
+      gap: 6px;
+      min-width:0;
+    }
+
     .cardTitle{
       font-size: 18px;
-      font-weight: 950;
-      letter-spacing: .2px;
+      font-weight: 900;
+      letter-spacing: .15px;
+      line-height: 1.05;
     }
+
     .meta{
       color: var(--muted);
       font-size: 13px;
+      font-weight: 650;
     }
+
+    /* ✅ caption text */
+    .caption{
+      color: var(--muted2);
+      font-size: 12.5px;
+      font-weight: 750;
+      letter-spacing: .15px;
+    }
+
+    /* badges */
     .pill{
       height: 30px;
       padding: 0 10px;
       border-radius: 999px;
       border: 1px solid rgba(255,255,255,.10);
       background: rgba(0,0,0,.18);
-      color: var(--muted);
-      font-weight: 950;
+      color: rgba(255,255,255,.72);
+      font-weight: 900;
       font-size: 12px;
       display:inline-flex;
       align-items:center;
       gap: 8px;
+      box-shadow: 0 10px 22px rgba(0,0,0,.22);
+      flex: 0 0 auto;
     }
     .pill.live{
       color: #0b1110;
@@ -249,6 +298,7 @@
       box-shadow: 0 0 0 6px rgba(49,208,124,.10);
     }
 
+    /* ---------------- Now Playing ---------------- */
     .np{
       display:flex;
       gap: 16px;
@@ -259,21 +309,28 @@
       width: 120px;
       height: 120px;
       border-radius: 22px;
-      border: 1px solid rgba(255,255,255,.10);
-      background: rgba(0,0,0,.22);
-      box-shadow: var(--shadow2);
+      border: 1px solid rgba(255,255,255,.09);
+      background: rgba(0,0,0,.20);
+      box-shadow: var(--shadowB);
       overflow:hidden;
       position:relative;
       flex: 0 0 auto;
+    }
+    .art::after{
+      content:"";
+      position:absolute; inset:0;
+      pointer-events:none;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+      border-radius: inherit;
+      opacity:.9;
     }
     .art img{ width:100%; height:100%; object-fit: cover; display:block; }
     .art .fallback{
       position:absolute; inset:0;
       display:grid;
       place-items:center;
-      color: rgba(255,255,255,.28);
+      color: rgba(255,255,255,.26);
       font-size: 26px;
-      letter-spacing: .4px;
       user-select:none;
     }
 
@@ -286,6 +343,7 @@
     }
     .lines{ display:flex; flex-direction:column; gap: 8px; }
 
+    /* marquee */
     .marq{
       position: relative;
       min-width: 0;
@@ -303,20 +361,19 @@
       white-space: nowrap;
       will-change: transform;
     }
-    .marq.animate .inner{
-      animation: scroll var(--duration) linear infinite;
-    }
+    .marq.animate .inner{ animation: scroll var(--duration) linear infinite; }
     @keyframes scroll{
       0%{ transform: translateX(0); }
       100%{ transform: translateX(calc(-1 * var(--shift, 50%))); }
     }
 
-    .h1{ font-size: 22px; font-weight: 950; line-height: 1.15; letter-spacing: .2px; }
-    .h2{ font-size: 14px; font-weight: 850; color: rgba(255,255,255,.86); line-height: 1.25; }
-    .h3{ font-size: 13px; font-weight: 750; color: var(--muted); line-height: 1.25; }
+    .h1{ font-size: 22px; font-weight: 900; line-height: 1.15; color: var(--titleStrong); text-shadow: 0 1px 0 rgba(0,0,0,.35); }
+    .h2{ font-size: 14px; font-weight: 800; color: var(--titleSoft); line-height: 1.25; }
+    .h3{ font-size: 13px; font-weight: 750; color: var(--titleDim); line-height: 1.25; }
 
-    .subnote{ margin-top: 10px; color: var(--muted); font-size: 13px; }
+    .subnote{ margin-top: 10px; color: var(--muted); font-size: 13px; font-weight: 650; }
 
+    /* ---------------- Top controls ---------------- */
     .controls{
       display:flex;
       flex-wrap:wrap;
@@ -329,11 +386,11 @@
       gap: 6px;
       padding: 6px;
       border-radius: 999px;
-      border: 1px solid var(--stroke2);
+      border: 1px solid rgba(255,255,255,.06);
       background: rgba(0,0,0,.18);
       backdrop-filter: blur(var(--blur));
       -webkit-backdrop-filter: blur(var(--blur));
-      box-shadow: var(--shadow2);
+      box-shadow: var(--shadowB);
     }
     .seg button{
       height: 36px;
@@ -341,58 +398,93 @@
       border-radius: 999px;
       border: 1px solid transparent;
       background: transparent;
-      color: var(--muted);
-      font-weight: 950;
+      color: rgba(255,255,255,.58);
+      font-weight: 850;
       font-size: 12px;
       cursor:pointer;
-      transition: background .18s ease, color .18s ease, transform .10s ease, border-color .18s ease;
+      transition:
+        background .20s var(--ease),
+        color .20s var(--ease),
+        border-color .20s var(--ease),
+        transform .16s var(--ease),
+        filter .20s var(--ease),
+        box-shadow .20s var(--ease);
     }
+
+    /* ✅ micro “lift” στο selected seg */
     .seg button[aria-selected="true"]{
-      background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.05));
-      border-color: rgba(255,255,255,.10);
-      color: var(--text);
+      background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.045));
+      border-color: rgba(255,255,255,.09);
+      color: rgba(255,255,255,.90);
+      transform: translateY(-1px);
+      filter: saturate(1.04);
+      box-shadow: 0 10px 22px rgba(0,0,0,.20);
     }
-    .seg button:active{ transform: scale(.99); }
+    .seg button:active{ transform: translateY(0px) scale(.99); }
     .spacer{ flex:1; }
 
+    /* ---------------- Lists ---------------- */
     .list{
       margin-top: 14px;
       display:flex;
       flex-direction:column;
       gap: 10px;
     }
+
+    /* ✅ row πιο clean, λιγότερο “bubble” */
     .row{
       display:flex;
       align-items:center;
       gap: 12px;
       padding: 12px;
       border-radius: 18px;
-      border: 1px solid rgba(255,255,255,.07);
-      background: rgba(0,0,0,.18);
-      box-shadow: 0 10px 30px rgba(0,0,0,.35);
-      transition: transform .10s ease, border-color .15s ease, filter .15s ease;
+      border: 1px solid rgba(255,255,255,.055);
+      background: rgba(0,0,0,.16);
+      box-shadow: 0 12px 30px rgba(0,0,0,.34);
+      transition:
+        transform .16s var(--ease),
+        border-color .18s var(--ease),
+        filter .18s var(--ease);
+      position: relative;
+      overflow:hidden;
     }
-    .row:hover{ filter: brightness(1.03); border-color: rgba(255,255,255,.11); }
+    .row::after{
+      content:"";
+      position:absolute; inset:0;
+      border-radius: inherit;
+      pointer-events:none;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
+      opacity:.9;
+    }
+    .row:hover{ filter: brightness(1.03); border-color: rgba(255,255,255,.085); }
     .row:active{ transform: translateY(1px) scale(.995); }
 
     .cover{
       width: 56px;
       height: 56px;
       border-radius: 16px;
-      border: 1px solid rgba(255,255,255,.10);
-      background: rgba(0,0,0,.22);
+      border: 1px solid rgba(255,255,255,.09);
+      background: rgba(0,0,0,.20);
       overflow:hidden;
       position:relative;
       flex: 0 0 auto;
-      box-shadow: 0 10px 26px rgba(0,0,0,.42);
+      box-shadow: 0 12px 24px rgba(0,0,0,.42);
+    }
+    .cover::after{
+      content:"";
+      position:absolute; inset:0;
+      border-radius: inherit;
+      pointer-events:none;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+      opacity:.85;
     }
     .cover img{ width:100%; height:100%; object-fit: cover; display:block; }
     .coverFallback{
       position:absolute; inset:0;
       display:grid;
       place-items:center;
-      color: rgba(255,255,255,.28);
-      font-weight: 950;
+      color: rgba(255,255,255,.25);
+      font-weight: 900;
       user-select:none;
     }
 
@@ -405,32 +497,32 @@
     }
     .rowTitle{
       font-size: 14px;
-      font-weight: 950;
+      font-weight: 900;
       line-height: 1.15;
       min-width:0;
+      color: rgba(255,255,255,.90);
+      text-shadow: 0 1px 0 rgba(0,0,0,.30);
     }
     .rowSub{
       font-size: 12.5px;
-      color: var(--muted);
-      font-weight: 800;
+      color: rgba(255,255,255,.62);
+      font-weight: 750;
       min-width:0;
     }
+
     .right{
       font-size: 13px;
-      font-weight: 950;
-      color: rgba(255,255,255,.84);
+      font-weight: 900;
+      color: rgba(255,255,255,.82);
       padding-left: 6px;
       flex: 0 0 auto;
     }
-
-    .hint{
-      margin-top: 14px;
-      color: rgba(255,255,255,.30);
-      font-size: 12px;
-      letter-spacing: .2px;
-      user-select:none;
+    .right.count{
+      color: var(--countAccent);
+      text-shadow: 0 0 16px var(--countGlow);
     }
 
+    /* skeleton */
     .skeleton{
       position:relative;
       overflow:hidden;
@@ -439,7 +531,7 @@
     .skeleton::after{
       content:"";
       position:absolute; inset:-40%;
-      background: linear-gradient(90deg, transparent, rgba(255,255,255,.12), transparent);
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.11), transparent);
       transform: translateX(-30%);
       animation: shimmer 1.2s linear infinite;
     }
@@ -454,7 +546,6 @@
     }
   </style>
 </head>
-
 <body>
   <div class="wrap">
     <div class="topbar">
@@ -474,12 +565,13 @@
         <button class="tabBtn" data-tab="recent" aria-selected="false" type="button">Recent</button>
       </div>
     </div>
-<!-- NOW -->
+
+    <!-- NOW -->
     <section class="panel" data-panel="now">
       <div class="card" id="nowCard">
         <div class="cardInner">
           <div class="cardHead">
-            <div>
+            <div class="cardHeadLeft">
               <div class="cardTitle">Now Playing</div>
               <div class="meta">Updated: <span id="nowUpdated">--</span></div>
             </div>
@@ -510,8 +602,6 @@
               <div class="subnote" id="nowMsg"></div>
             </div>
           </div>
-
-          <!-- ✅ Worker hint removed -->
         </div>
       </div>
     </section>
@@ -521,11 +611,10 @@
       <div class="card">
         <div class="cardInner">
           <div class="cardHead">
-            <div>
+            <div class="cardHeadLeft">
               <div class="cardTitle">Top</div>
               <div class="meta" id="topMeta">—</div>
             </div>
-            <!-- ✅ default badge now 10 -->
             <div class="pill" id="topBadge">10</div>
           </div>
 
@@ -555,12 +644,11 @@
       <div class="card">
         <div class="cardInner">
           <div class="cardHead">
-            <div>
+            <div class="cardHeadLeft">
               <div class="cardTitle">Recent</div>
-              <!-- ✅ remove "10 items" completely -->
-              <div class="meta" id="recentMeta"></div>
+              <div class="caption">last 10</div>
             </div>
-            <div class="pill">last 10</div>
+            <div style="width:30px;height:30px;opacity:0;pointer-events:none;"></div>
           </div>
 
           <div class="list" id="recentList"></div>

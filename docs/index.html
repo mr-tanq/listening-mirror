@@ -27,9 +27,16 @@
       --shadow2: 0 10px 28px rgba(0,0,0,.44);
       --r:22px;
 
-      --blur: 14px; /* reduced (crisper) */
+      --blur: 14px; /* crisp */
       --stroke: rgba(255,255,255,.08);
       --stroke2: rgba(255,255,255,.06);
+
+      /* dynamic tint (default = subtle blue) */
+      --tint-r: 95;
+      --tint-g: 124;
+      --tint-b: 255;
+      --tint-a: .18;
+      --tint-a2: .10;
     }
 
     *{box-sizing:border-box}
@@ -44,10 +51,33 @@
         radial-gradient(800px 600px at 50% 120%, rgba(49,208,124,.10), transparent 60%),
         linear-gradient(#08090b, #090a0c 40%, #060708);
       overflow-x:hidden;
-
-      /* remove pull-to-refresh feel */
       overscroll-behavior: none;
       -webkit-overflow-scrolling: touch;
+    }
+
+    /* Dynamic tint layer (high-end) */
+    .bgTint{
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+      transform: translateZ(0);
+      background:
+        radial-gradient(860px 520px at 18% -8%,
+          rgba(var(--tint-r), var(--tint-g), var(--tint-b), var(--tint-a)),
+          transparent 58%
+        ),
+        radial-gradient(900px 580px at 82% 0%,
+          rgba(var(--tint-r), var(--tint-g), var(--tint-b), var(--tint-a2)),
+          transparent 62%
+        ),
+        radial-gradient(860px 620px at 50% 118%,
+          rgba(var(--tint-r), var(--tint-g), var(--tint-b), .08),
+          transparent 66%
+        );
+      filter: saturate(1.15) contrast(1.03);
+      opacity: 1;
+      transition: background 520ms ease, filter 520ms ease;
     }
 
     .wrap{
@@ -57,7 +87,6 @@
       padding-bottom: calc(24px + env(safe-area-inset-bottom));
     }
 
-    /* Top header */
     .topbar{
       display:flex;
       align-items:center;
@@ -96,7 +125,7 @@
       margin:0;
       white-space:nowrap;
     }
-    .statusRow{
+.statusRow{
       display:flex;
       align-items:center;
       gap:8px;
@@ -112,7 +141,6 @@
     .dot.ok{ background: var(--ok); box-shadow: 0 0 0 4px rgba(49,208,124,.14); }
     .dot.bad{ background: var(--bad); box-shadow: 0 0 0 4px rgba(255,90,90,.14); }
 
-    /* Toast */
     .toast{
       position: fixed;
       left: 50%;
@@ -138,7 +166,6 @@
       transform: translateX(-50%) translateY(-6px);
     }
 
-    /* Segmented tabs */
     .tabs{
       margin: 6px 0 14px;
       background: rgba(16,18,21,.58);
@@ -172,7 +199,6 @@
       transform: translateY(-1px);
     }
 
-    /* Panels */
     .panel.hidden{display:none}
     .card{
       background: var(--glass);
@@ -230,8 +256,7 @@
       align-items:center;
       margin-top: 8px;
     }
-
-    .coverBig{
+.coverBig{
       width: 110px;
       height: 110px;
       border-radius: 22px;
@@ -255,9 +280,8 @@
       font-size: 22px;
       letter-spacing:.5px;
     }
-.nowMeta{
-      min-width:0;
-    }
+
+    .nowMeta{ min-width:0; }
     .line{
       color: var(--muted2);
       font-size: 13px;
@@ -265,7 +289,6 @@
       letter-spacing:.2px;
     }
 
-    /* Rows list */
     .list{
       display:flex;
       flex-direction:column;
@@ -303,14 +326,9 @@
       object-fit:cover;
       display:block;
     }
-    .cover .coverFallback{
-      font-size: 16px;
-    }
+    .cover .coverFallback{ font-size: 16px; }
 
-    .mid{
-      min-width:0;
-      flex: 1 1 auto;
-    }
+    .mid{ min-width:0; flex: 1 1 auto; }
     .right{
       flex: 0 0 auto;
       font-weight: 900;
@@ -321,16 +339,14 @@
       opacity:.95;
     }
 
-    /* Marquee (safe for first-letter clipping) */
     .titleMarquee,
     .subMarquee{
       position: relative;
       overflow: hidden;
       min-width: 0;
-      padding-left: 10px; /* safe zone so first glyph never gets clipped */
+      padding-left: 10px; /* safe zone */
     }
 
-    /* Fade ONLY on the right, ONLY when marquee is active */
     .marqueeOn.titleMarquee,
     .marqueeOn.subMarquee{
       -webkit-mask-image: linear-gradient(to right,
@@ -351,10 +367,7 @@
       white-space: nowrap;
       will-change: transform;
     }
-
-    .marqueeOn .marqueeInner{
-      animation: marquee 10s linear infinite;
-    }
+    .marqueeOn .marqueeInner{ animation: marquee 10s linear infinite; }
 
     @keyframes marquee{
       0%   { transform: translateX(0); }
@@ -369,7 +382,6 @@
       line-height:1.15;
       color: var(--text);
     }
-
     .sub{
       margin-top: 6px;
       color: rgba(255,255,255,.58);
@@ -377,15 +389,7 @@
       letter-spacing:.2px;
       line-height:1.1;
     }
-
-    .mutedLine{
-      color: var(--muted2);
-      font-size: 13px;
-      margin-top: 10px;
-    }
-
-    /* Controls inside Top */
-    .ctrls{
+.ctrls{
       margin-top: 14px;
       display:flex;
       flex-direction:column;
@@ -417,7 +421,6 @@
       transform: translateY(-1px);
     }
 
-    /* Skeleton shimmer */
     .skeleton{
       position: relative;
       overflow:hidden;
@@ -443,10 +446,6 @@
       100%{ transform: translateX(40%); }
     }
 
-    /* Small helpers */
-    .spacer{ height: 10px; }
-
-    /* Accessibility focus */
     .row:focus-visible,
     button:focus-visible{
       outline: 2px solid rgba(121,167,255,.70);
@@ -456,6 +455,7 @@
 </head>
 
 <body>
+  <div class="bgTint" id="bgTint" aria-hidden="true"></div>
   <div class="toast" id="toast">Offline. Retrying…</div>
 
   <div class="wrap">
@@ -470,7 +470,6 @@
           </div>
         </div>
       </div>
-      <!-- (No refresh button, by request) -->
     </div>
 
     <div class="tabs" role="tablist" aria-label="Tabs">
@@ -514,7 +513,8 @@
         </div>
       </div>
     </section>
-<!-- TOP -->
+
+    <!-- TOP -->
     <section class="panel hidden" data-panel="top">
       <div class="card">
         <div class="cardHeader">
@@ -549,7 +549,6 @@
         <div class="cardHeader">
           <div>
             <h2 class="cardTitle">Recent</h2>
-            <!-- removed "10 items" by request -->
             <div class="cardSub" id="recentMeta"></div>
           </div>
           <div class="badgePill">10</div>
@@ -558,7 +557,6 @@
         <div class="list" id="recentList" aria-live="polite"></div>
       </div>
     </section>
-
   </div>
 
   <script src="./app.js" defer></script>

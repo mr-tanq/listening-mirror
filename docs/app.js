@@ -4,7 +4,7 @@
 
   const $ = (id) => document.getElementById(id);
 
-  // ---- DOM (matches your index.html exactly) ----
+  // ---- DOM (matches your index.html) ----
   const statusDot = $("statusDot");
   const statusLine = $("statusLine");
 
@@ -31,8 +31,8 @@
   const tabBtns = Array.from(document.querySelectorAll(".tabBtn"));
   const panels = Array.from(document.querySelectorAll("[data-panel]"));
 
-  const topTypeBtns = Array.from(document.querySelectorAll('[data-top-type]'));
-  const topPeriodBtns = Array.from(document.querySelectorAll('[data-top-period]'));
+  const topTypeBtns = Array.from(document.querySelectorAll("[data-top-type]"));
+  const topPeriodBtns = Array.from(document.querySelectorAll("[data-top-period]"));
 
   let topType = "tracks";
   let topPeriod = "today";
@@ -132,22 +132,62 @@
     nowImg.src = safe;
   }
 
-  // ---- IMPORTANT: endpoint auto-detect (no backend changes needed) ----
-  const LS_KEY = "lm_endpoints_v1";
+  // ---- API auto-detect: ORIGIN + PATHS ----
+  const LS_KEY = "lm_api_lock_v2";
 
-  const CANDIDATES = {
-    now: [
-      "/now", "/api/now", "/lastfm/now", "/now-playing", "/nowplaying", "/np"
-    ],
-    recent: [
-      "/recent", "/api/recent", "/lastfm/recent", "/recent-tracks", "/recenttracks", "/recent/tracks"
-    ],
-    top: [
-      "/top", "/api/top", "/lastfm/top", "/top-tracks", "/toptracks", "/top/tracks"
-    ]
+  function getGitHubUserFromHost() {
+    const h = location.hostname || "";
+    // mr-tanq.github.io -> mr-tanq
+    if (h.endsWith(".github.io")) return h.split(".github.io")[0] || "";
+    return "";
+  }
+
+  const GH_USER = getGitHubUserFromHost();
+
+  // Optional override by URL: ?api=https://xxxx.workers.dev
+  function getApiOverrideFromQuery() {
+    try {
+      const u = new URL(location.href);
+      const api = u.searchParams.get("api");
+      if (!api) return "";
+      const origin = new URL(api).origin;
+      return origin;
+    } catch {
+      return "";
+    }
+  }
+
+  // Candidate API origins:
+  // 1) same origin (in case you proxy on GH pages / or local dev)
+  // 2) several common workers.dev patterns built from your username
+  // 3) you can force it with ?api=...
+  const overrideOrigin = getApiOverrideFromQuery();
+
+  const originCandidates = [
+    location.origin,
+    ...(overrideOrigin ? [overrideOrigin] : []),
+    ...(GH_USER ? [
+      `https://listening-mirror.${GH_USER}.workers.dev`,
+      `https://listeningmirror.${GH_USER}.workers.dev`,
+      `https://listening-mirror-cloud.${GH_USER}.workers.dev`,
+      `https://listening-mirror-api.${GH_USER}.workers.dev`,
+      `https://${GH_USER}-listening-mirror.workers.dev`,
+      `https://${GH_USER}-listeningmirror.workers.dev`,
+      `https://${GH_USER}-lm.workers.dev`,
+      `https://lm.${GH_USER}.workers.dev`,
+    ] : []),
+  ].filter(Boolean);
+
+  // Paths per endpoint (we try all)
+  const PATHS = {
+    now: ["/now", "/api/now", "/lastfm/now", "/now-playing", "/nowplaying", "/np"],
+    recent: ["/recent", "/api/recent", "/lastfm/recent", "/recenttracks", "/recent-tracks", "/recent/tracks"],
+    top: ["/top", "/api/top", "/lastfm/top", "/toptracks", "/top-tracks", "/top/tracks"],
   };
 
-  function loadSavedEndpoints() {
+  let API_LOCK = loadLock() || { origin: "", now: "", recent: "", top: "" };
+
+  function loadLock() {
     try {
       const raw = localStorage.getItem(LS_KEY);
       if (!raw) return null;
@@ -159,56 +199,59 @@
     }
   }
 
-  function saveEndpoints(obj) {
+  function saveLock() {
     try {
-      localStorage.setItem(LS_KEY, JSON.stringify(obj));
+      localStorage.setItem(LS_KEY, JSON.stringify(API_LOCK));
     } catch {}
   }
 
-  let EP = loadSavedEndpoints() || { now: null, recent: null, top: null };
-
-  async function fetchJSON(path, params = {}, timeoutMs = 8000) {
-    const url = new URL(path, location.origin);
-    Object.entries(params).forEach(([k, v]) => {
-      if (v !== undefined && v !== null && String(v).length) url.searchParams.set(k, v);
-    });
-
+  async function fetchJSON(fullUrl, timeoutMs = 8000) {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeoutMs);
 
     try {
-      const res = await fetch(url.toString(), {
+      const res = await fetch(fullUrl, {
         method: "GET",
         headers: { "Accept": "application/json" },
         cache: "no-store",
+        mode: "cors",
         signal: ctrl.signal,
       });
-
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json();
     } finally {
       clearTimeout(t);
     }
   }
 
-  async function fetchWithAutoDetect(kind, params = {}) {
-    // If we already know the endpoint, use it.
-    if (EP[kind]) return await fetchJSON(EP[kind], params);
+  function buildUrl(origin, path, params = {}) {
+    const u = new URL(path, origin);
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && String(v).length) u.searchParams.set(k, v);
+    });
+    return u.toString();
+  }
 
-    // Otherwise try candidates until one works, then lock it.
-    const list = CANDIDATES[kind] || [];
+  async function probe(kind, params = {}) {
+    // If locked, use it
+    if (API_LOCK.origin && API_LOCK[kind]) {
+      return await fetchJSON(buildUrl(API_LOCK.origin, API_LOCK[kind], params));
+    }
+
     let lastErr = null;
 
-    for (const p of list) {
-      try {
-        const data = await fetchJSON(p, params);
-        EP[kind] = p;
-        saveEndpoints(EP);
-        return data;
-      } catch (e) {
-        lastErr = e;
+    // Try all origin candidates, and for each all path candidates
+    for (const origin of originCandidates) {
+      for (const path of (PATHS[kind] || [])) {
+        try {
+          const data = await fetchJSON(buildUrl(origin, path, params));
+          API_LOCK.origin = origin;
+          API_LOCK[kind] = path;
+          saveLock();
+          return data;
+        } catch (e) {
+          lastErr = e;
+        }
       }
     }
 
@@ -216,7 +259,7 @@
   }
 // PART 2/4 — app.js (FULL REPLACE)
 
-  // ---- Last.fm shape normalization + artwork extraction ----
+  // ---- Last.fm normalization + artwork extraction ----
   function pickName(obj, keys = []) {
     for (const k of keys) {
       const v = obj?.[k];
@@ -239,7 +282,6 @@
 
   function bestFromImageArray(arr) {
     if (!Array.isArray(arr)) return "";
-    // Last.fm: [{size:"small", "#text":"..."}, ...]
     for (let i = arr.length - 1; i >= 0; i--) {
       const it = arr[i];
       if (!it) continue;
@@ -252,47 +294,32 @@
   function pickArtwork(obj) {
     if (!obj) return "";
 
-    // 1) direct strings
     const direct = [
       obj.image, obj.artwork, obj.cover, obj.albumArt, obj.art, obj.img, obj.thumbnail
     ].find(v => typeof v === "string" && v.trim());
     if (direct) return direct;
 
-    // 2) direct object forms
     const directObj = [obj.image, obj.artwork, obj.cover, obj.albumArt, obj.art, obj.img]
       .find(v => v && typeof v === "object" && (v["#text"] || v.url));
     if (directObj) return directObj["#text"] || directObj.url || "";
 
-    // 3) last.fm arrays
     const a1 = bestFromImageArray(obj.image);
     if (a1) return a1;
 
-    // 4) nested album/track containers (last.fm likes these)
     const a2 = bestFromImageArray(obj?.album?.image);
     if (a2) return a2;
 
     const a3 = bestFromImageArray(obj?.track?.image);
     if (a3) return a3;
 
-    // sometimes recenttracks: track has album with image
     const a4 = bestFromImageArray(obj?.track?.album?.image);
     if (a4) return a4;
-
-    // sometimes: obj.album is a string but artwork elsewhere
-    const a5 = bestFromImageArray(obj?.["@attr"]?.image);
-    if (a5) return a5;
 
     return "";
   }
 
   function unwrapLastFmList(data) {
-    // Handles:
-    // recenttracks.track[]
-    // toptracks.track[]
-    // topalbums.album[]
-    // topartists.artist[]
     if (!data || typeof data !== "object") return [];
-
     if (Array.isArray(data)) return data;
 
     const recent = data?.recenttracks?.track;
@@ -307,7 +334,6 @@
     const topArtists = data?.topartists?.artist;
     if (topArtists) return Array.isArray(topArtists) ? topArtists : [topArtists];
 
-    // fallback common keys
     const items = data?.items || data?.list || data?.top || data?.recent;
     if (items) return Array.isArray(items) ? items : [items];
 
@@ -358,7 +384,7 @@
     img.alt = "";
     img.decoding = "async";
     img.loading = "lazy";
-    img.referrerPolicy = "no-referrer"; // helps with some CDNs
+    img.referrerPolicy = "no-referrer";
 
     const fb = document.createElement("div");
     fb.className = "thumbFallback";
@@ -443,10 +469,10 @@
   // ---- loaders ----
   async function loadNow() {
     try {
-      const data = await fetchWithAutoDetect("now", {});
+      const data = await probe("now", {});
 
-      // online + now-playing shape variants
-      const online = !!(data?.online ?? data?.ok ?? data?.status === "ok");
+      // detect online
+      const online = !!(data?.online ?? data?.ok ?? data?.status === "ok" ?? true);
       setOnline(online);
 
       const np = data?.now || data?.track || data?.nowPlaying || data?.item || data;
@@ -497,13 +523,9 @@
   }
 
   function mapTopRow(it) {
-    // For Last.fm:
-    // toptracks.track: { name, artist:{name}, image:[...] , playcount }
-    // topalbums.album: { name, artist:{name}, image:[...], playcount }
-    // topartists.artist: { name, image:[...], playcount }
     if (topType === "artists") {
       const title = pickName(it, ["name"]) || "—";
-      const sub = ""; // artist has no subline
+      const sub = "";
       const count = pickCount(it);
       const artUrl = pickArtwork(it);
       return { title, sub, count, artUrl };
@@ -520,7 +542,6 @@
       return { title, sub, count, artUrl };
     }
 
-    // tracks
     const title = pickName(it, ["name"]) || pickName(it, ["track", "title"]) || "—";
     const sub =
       pickName(it, ["artist"]) ||
@@ -537,8 +558,8 @@
     setListLoading(topList, "Loading Top…");
 
     try {
-      // send params (harmless if backend ignores)
-      const data = await fetchWithAutoDetect("top", { type: topType, period: topPeriod, limit: 10 });
+      // backend may accept these params or ignore them — safe
+      const data = await probe("top", { type: topType, period: topPeriod, limit: 10 });
 
       const items = unwrapLastFmList(data);
       topList.innerHTML = "";
@@ -551,22 +572,13 @@
 
       slice.forEach((it, i) => {
         const { title, sub, count, artUrl } = mapTopRow(it);
-
-        // 🔥 IMPORTANT FIX: if artwork is empty at this level, try nested common nodes
         const fallbackArt =
           artUrl ||
           pickArtwork(it?.track) ||
           pickArtwork(it?.album) ||
-          pickArtwork(it?.image) ||
+          pickArtwork(it?.track?.album) ||
           "";
-
-        topList.appendChild(makeRow({
-          index: i + 1,
-          title,
-          sub,
-          count,
-          artUrl: fallbackArt
-        }));
+        topList.appendChild(makeRow({ index: i + 1, title, sub, count, artUrl: fallbackArt }));
       });
     } catch {
       setListError(topList, "Couldn’t load Top.");
@@ -579,7 +591,7 @@
     setListLoading(recentList, "Loading Recent…");
 
     try {
-      const data = await fetchWithAutoDetect("recent", { limit: 10 });
+      const data = await probe("recent", { limit: 10 });
 
       const items = unwrapLastFmList(data);
       recentList.innerHTML = "";
@@ -591,7 +603,6 @@
       }
 
       slice.forEach((it, i) => {
-        // recenttracks.track: { name, artist:{#text}, album:{#text}, image:[...] }
         const title =
           pickName(it, ["name"]) ||
           pickName(it?.track, ["name", "title"]) ||
@@ -610,13 +621,7 @@
           pickArtwork(it?.track?.album) ||
           "";
 
-        recentList.appendChild(makeRow({
-          index: i + 1,
-          title,
-          sub,
-          count: null,
-          artUrl
-        }));
+        recentList.appendChild(makeRow({ index: i + 1, title, sub, count: null, artUrl }));
       });
     } catch {
       setListError(recentList, "Couldn’t load Recent.");
@@ -630,12 +635,10 @@
     selectTab("now");
 
     loadNow().catch(() => {});
-    setTimeout(() => loadTop().catch(() => {}), 700);
-    setTimeout(() => loadRecent().catch(() => {}), 1000);
+    setTimeout(() => loadTop().catch(() => {}), 600);
+    setTimeout(() => loadRecent().catch(() => {}), 900);
 
-    nowTimer = setInterval(() => {
-      loadNow().catch(() => {});
-    }, 10000);
+    nowTimer = setInterval(() => loadNow().catch(() => {}), 10000);
   }
 
   document.addEventListener("visibilitychange", () => {

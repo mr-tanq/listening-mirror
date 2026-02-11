@@ -1,84 +1,71 @@
-/* Listening Mirror — app.js (FULL REPLACE)
-   Fixes:
-   - No missing DOM references (no nowUpdated / nowMsg)
-   - NOW works with your worker: item != null => playing
-   - LIVE badge shows only when playing (no OFF label)
-   - Faster loads (no background prefetch, fetch timeouts)
-   - Recent endpoint resilient (/api/history then /api/recent)
-   - Pull-to-refresh (mobile)
+/* Listening Mirror — app.js (FULL REPLACE, compatible with your “old good” index)
+   ✅ Works with your exact IDs/classes
+   ✅ Fixes NOW live/off logic (ok:true,item:null => OFF)
+   ✅ Fixes slow loads (no background prefetch, no caching, timeout, abort)
+   ✅ Fixes “wrong recent” by supporting optional ?user= / ?u= in the URL
+   ✅ Robust image resolving (/img?u=... => Worker absolute)
+   ✅ Pull-to-refresh (mobile) without editing index
 */
 
 (() => {
   "use strict";
 
-  // ✅ Your Worker base (no trailing slash)
+  // Worker base (NO trailing slash)
   const API_BASE = "https://i.errtanq9.workers.dev";
 
-  // Polling
+  // Poll NOW
   const NOW_POLL_MS = 12_000;
 
   // Limits
-  const TOP_LIMIT_DEFAULT = 10;
-  const RECENT_LIMIT_DEFAULT = 20;
+  const TOP_LIMIT = 10;
+  const RECENT_LIMIT = 25;
 
-  // Fetch timeout
-  const FETCH_TIMEOUT_MS = 7000;
+  // Request timeout
+  const REQ_TIMEOUT_MS = 8_000;
 
   // -------- DOM helpers --------
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const $ = (sel, root = document) => root.querySelector(sel);
 
-  function must(el, name) {
-    // hard fail early if core DOM missing
-    if (!el) throw new Error(`Missing DOM node: ${name}`);
-    return el;
-  }
+  // Status
+  const statusDot = $("#statusDot");
+  const statusLine = $("#statusLine");
 
-  // Header status
-  const statusDot = must($("#statusDot"), "#statusDot");
-  const statusLine = must($("#statusLine"), "#statusLine");
-
-  // Tabs
+  // Tabs/panels
   const tabBtns = $$(".tabBtn");
   const panels = $$(".panel");
 
-  // NOW
-  const nowCard = must($("#nowCard"), "#nowCard");
-  const nowAmbient = must($("#nowAmbient"), "#nowAmbient");
-  const nowBadge = must($("#nowBadge"), "#nowBadge");
-  const nowBadgeText = must($("#nowBadgeText"), "#nowBadgeText");
-  const nowImg = must($("#nowImg"), "#nowImg");
-  const nowFallback = must($("#nowFallback"), "#nowFallback");
-  const nowCoverWrap = must($("#nowCoverWrap"), "#nowCoverWrap");
+  // NOW elements (must exist in your index)
+  const nowAmbient = $("#nowAmbient");
+  const nowBadge = $("#nowBadge");
+  const nowBadgeText = $("#nowBadgeText");
+  const nowUpdated = $("#nowUpdated");
+  const nowImg = $("#nowImg");
+  const nowFallback = $("#nowFallback");
+  const nowCoverWrap = $("#nowCoverWrap");
 
-  const nowTrack = must($("#nowTrack"), "#nowTrack");
-  const nowArtist = must($("#nowArtist"), "#nowArtist");
-  const nowAlbum = must($("#nowAlbum"), "#nowAlbum");
+  const nowTrack = $("#nowTrack");
+  const nowArtist = $("#nowArtist");
+  const nowAlbum = $("#nowAlbum");
+  const nowMsg = $("#nowMsg");
 
-  const nowTrackWrap = must($("#nowTrackWrap"), "#nowTrackWrap");
-  const nowArtistWrap = must($("#nowArtistWrap"), "#nowArtistWrap");
-  const nowAlbumWrap = must($("#nowAlbumWrap"), "#nowAlbumWrap");
+  const nowTrackWrap = $("#nowTrackWrap");
+  const nowArtistWrap = $("#nowArtistWrap");
+  const nowAlbumWrap = $("#nowAlbumWrap");
 
   // TOP
-  const topList = must($("#topList"), "#topList");
+  const topList = $("#topList");
   const topTypeBtns = $$("[data-top-type]");
   const topPeriodBtns = $$("[data-top-period]");
 
   // RECENT
-  const recentList = must($("#recentList"), "#recentList");
+  const recentList = $("#recentList");
 
-  // Pull-to-refresh UI (injected)
-  const ptr = document.createElement("div");
-  ptr.className = "ptr";
-  ptr.innerHTML = `
-    <div class="ptrPill">
-      <span class="ptrDot"></span>
-      <span class="ptrText">Pull to refresh</span>
-      <span class="ptrSpin" aria-hidden="true"></span>
-    </div>
-  `;
-  document.body.appendChild(ptr);
-  const ptrText = $(".ptrText", ptr);
+  // -------- URL params (fixes “wrong user” cases) --------
+  const qs = new URLSearchParams(location.search);
+  const USER = (qs.get("user") || qs.get("u") || "").trim(); // optional
+  // cache buster (you already use ?v=777 sometimes)
+  const V = (qs.get("v") || "").trim();
 
   // -------- State --------
   const state = {
@@ -88,10 +75,9 @@
     online: false,
     nowTimer: null,
     isRefreshing: false,
-    nowReqId: 0, // avoid out-of-order renders
   };
 
-  // -------- Helpers --------
+  // -------- Small utilities --------
   function absApi(urlOrPath) {
     if (!urlOrPath) return "";
     if (/^https?:\/\//i.test(urlOrPath)) return urlOrPath;
@@ -105,8 +91,17 @@
     statusLine.textContent = state.online ? "Online" : "Offline";
   }
 
+  function fmtTime(d = new Date()) {
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    const ss = String(d.getSeconds()).padStart(2, "0");
+    return `${hh}:${mm}:${ss}`;
+  }
+
   function safeText(el, v, fallback = "—") {
-    el.textContent = (v && String(v).trim().length) ? String(v) : fallback;
+    if (!el) return;
+    const s = (v == null ? "" : String(v)).trim();
+    el.textContent = s.length ? s : fallback;
   }
 
   function setSelected(btns, activeBtn) {
@@ -119,25 +114,6 @@
     panels.forEach(p => p.classList.toggle("hidden", p.dataset.panel !== name));
   }
 
-  function enableMarqueeIfNeeded(wrapEl, spanEl) {
-    requestAnimationFrame(() => {
-      const wrap = wrapEl;
-      const span = spanEl;
-      if (!wrap || !span) return;
-      const overflow = span.scrollWidth > wrap.clientWidth + 8;
-      wrap.classList.toggle("marqOn", overflow);
-      if (overflow) {
-        const shift = span.scrollWidth - wrap.clientWidth + 18;
-        wrap.style.setProperty("--marqShift", `${shift}px`);
-        const dur = Math.min(22, Math.max(10, shift / 22));
-        wrap.style.setProperty("--marqDur", `${dur}s`);
-      } else {
-        wrap.style.removeProperty("--marqShift");
-        wrap.style.removeProperty("--marqDur");
-      }
-    });
-  }
-
   function escapeHtml(s) {
     return String(s)
       .replaceAll("&", "&amp;")
@@ -147,13 +123,49 @@
       .replaceAll("'", "&#039;");
   }
 
-  async function apiGet(path) {
-    const url = absApi(path);
+  function enableMarqueeIfNeeded(wrapEl, spanEl) {
+    requestAnimationFrame(() => {
+      if (!wrapEl || !spanEl) return;
+      const overflow = spanEl.scrollWidth > wrapEl.clientWidth + 8;
+      wrapEl.classList.toggle("marqOn", overflow);
+      if (overflow) {
+        const shift = Math.max(18, spanEl.scrollWidth - wrapEl.clientWidth + 18);
+        wrapEl.style.setProperty("--marqShift", `${shift}px`);
+        const dur = Math.min(22, Math.max(10, shift / 22));
+        wrapEl.style.setProperty("--marqDur", `${dur}s`);
+      } else {
+        wrapEl.style.removeProperty("--marqShift");
+        wrapEl.style.removeProperty("--marqDur");
+      }
+    });
+  }
+
+  // -------- Networking (fast + no-cache + timeout) --------
+  async function apiGet(path, params = {}) {
+    const p = new URLSearchParams();
+
+    // include optional user if present (fixes “wrong recent” when backend supports it)
+    if (USER) p.set("user", USER);
+
+    // include optional version cache-buster
+    if (V) p.set("v", V);
+
+    // custom params
+    Object.entries(params).forEach(([k, v]) => {
+      if (v == null) return;
+      p.set(k, String(v));
+    });
+
+    const url = absApi(path) + (p.toString() ? `?${p.toString()}` : "");
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+    const t = setTimeout(() => ctrl.abort(), REQ_TIMEOUT_MS);
 
     try {
-      const r = await fetch(url, { cache: "no-store", signal: ctrl.signal });
+      const r = await fetch(url, {
+        cache: "no-store",
+        signal: ctrl.signal,
+        headers: { "accept": "application/json" },
+      });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return await r.json();
     } finally {
@@ -161,95 +173,88 @@
     }
   }
 
-  // -------- Pull-to-refresh helpers --------
-  function isAtTop() {
-    const sc = document.scrollingElement || document.documentElement;
-    return (sc.scrollTop || 0) <= 0;
+  // -------- NOW rendering --------
+  function setBadgeLive(isLive) {
+    if (!nowBadge || !nowBadgeText) return;
+    nowBadge.classList.toggle("live", !!isLive);
+    nowBadgeText.textContent = isLive ? "LIVE" : "OFF";
   }
 
-  function ptrShow(msg, loading = false) {
-    ptr.classList.add("on");
-    ptr.classList.toggle("loading", !!loading);
-    if (ptrText) ptrText.textContent = msg;
+  function clearNowVisual(msg = "Not playing now") {
+    setBadgeLive(false);
+
+    if (nowUpdated) nowUpdated.textContent = fmtTime(new Date());
+
+    if (nowAmbient) {
+      nowAmbient.classList.remove("on");
+      nowAmbient.style.removeProperty("--ambient-url");
+    }
+    if (nowCoverWrap) nowCoverWrap.style.removeProperty("--cover-url");
+
+    if (nowImg) {
+      nowImg.style.display = "none";
+      nowImg.removeAttribute("src");
+    }
+    if (nowFallback) nowFallback.style.display = "grid";
+
+    safeText(nowTrack, "—");
+    safeText(nowArtist, "—");
+    safeText(nowAlbum, "—");
+    safeText(nowMsg, msg, msg);
+
+    enableMarqueeIfNeeded(nowTrackWrap, nowTrack);
+    enableMarqueeIfNeeded(nowArtistWrap, nowArtist);
+    enableMarqueeIfNeeded(nowAlbumWrap, nowAlbum);
   }
 
-  function ptrHide() {
-    ptr.classList.remove("on");
-    ptr.classList.remove("loading");
-    if (ptrText) ptrText.textContent = "Pull to refresh";
-  }
+  function applyNowItem(item) {
+    // item shape expected:
+    // { name, artist, album, image } (image may be "/img?u=..." or absolute)
+    setBadgeLive(true);
 
-  // -------- Row builder --------
-  function rowHTML({ idx, title, sub, img, right }) {
-    const imgHtml = img
-      ? `<img src="${img}" alt="" loading="lazy" decoding="async" />`
-      : `<div class="thumbFallback">♪</div>`;
-
-    return `
-      <div class="row" role="listitem" aria-label="${escapeHtml(`${idx}. ${title}`)}">
-        <div class="thumb" aria-hidden="true">${imgHtml}</div>
-        <div class="mid">
-          <div class="title">${escapeHtml(`${idx}. ${title}`)}</div>
-          <div class="sub">${escapeHtml(sub || "")}</div>
-        </div>
-        <div class="right count">${escapeHtml(String(right ?? ""))}</div>
-      </div>
-    `;
-  }
-
-  // Expose minimal hook
-  window.__LM__ = { refresh: () => refreshActive() };
-// -------- NOW --------
-  function clearNowToIdle() {
-    nowCard.classList.add("idle");
-
-    // Hide LIVE badge when not playing
-    nowBadge.style.display = "none";
-    nowBadgeText.textContent = "LIVE";
-
-    // Clear ambient + cover vars
-    nowAmbient.classList.remove("on");
-    nowAmbient.style.removeProperty("--ambient-url");
-    nowCoverWrap.style.removeProperty("--cover-url");
-
-    // Hide image, show fallback
-    nowImg.style.display = "none";
-    nowImg.removeAttribute("src");
-    nowFallback.style.display = "none"; // premium idle wants orb, not the ♪
-  }
-
-  function renderNowPlaying(item) {
-    nowCard.classList.remove("idle");
-
-    // Show LIVE badge top-right
-    nowBadge.style.display = "inline-flex";
-    nowBadgeText.textContent = "LIVE";
+    if (nowUpdated) nowUpdated.textContent = fmtTime(new Date());
 
     const track = item?.name || "—";
     const artist = item?.artist || "—";
     const album = item?.album || "—";
+    const imgUrl = absApi(item?.image || "");
+
     safeText(nowTrack, track);
     safeText(nowArtist, artist);
     safeText(nowAlbum, album);
+    safeText(nowMsg, "", ""); // keep clean if playing
 
-    const img = absApi(item?.image || "");
+    // Image handling: show only when loaded
+    if (imgUrl) {
+      if (nowFallback) nowFallback.style.display = "none";
 
-    if (img) {
-      nowImg.src = img;
-      nowImg.style.display = "block";
-      nowFallback.style.display = "none";
+      if (nowImg) {
+        nowImg.onload = () => {
+          nowImg.style.display = "block";
+        };
+        nowImg.onerror = () => {
+          // fallback if broken image
+          nowImg.style.display = "none";
+          nowImg.removeAttribute("src");
+          if (nowFallback) nowFallback.style.display = "grid";
+          if (nowAmbient) nowAmbient.classList.remove("on");
+        };
+        nowImg.src = imgUrl;
+      }
 
-      // Premium layers via CSS vars
-      nowCoverWrap.style.setProperty("--cover-url", `url("${img}")`);
-      nowAmbient.style.setProperty("--ambient-url", `url("${img}")`);
-      nowAmbient.classList.add("on");
+      // Ambient + cover glow via CSS vars
+      if (nowCoverWrap) nowCoverWrap.style.setProperty("--cover-url", `url("${imgUrl}")`);
+      if (nowAmbient) {
+        nowAmbient.style.setProperty("--ambient-url", `url("${imgUrl}")`);
+        nowAmbient.classList.add("on");
+      }
     } else {
-      nowImg.style.display = "none";
-      nowImg.removeAttribute("src");
-      nowFallback.style.display = "grid";
-      nowAmbient.classList.remove("on");
-      nowAmbient.style.removeProperty("--ambient-url");
-      nowCoverWrap.style.removeProperty("--cover-url");
+      if (nowImg) {
+        nowImg.style.display = "none";
+        nowImg.removeAttribute("src");
+      }
+      if (nowFallback) nowFallback.style.display = "grid";
+      if (nowAmbient) nowAmbient.classList.remove("on");
     }
 
     enableMarqueeIfNeeded(nowTrackWrap, nowTrack);
@@ -258,37 +263,23 @@
   }
 
   async function loadNow() {
-    const reqId = ++state.nowReqId;
-
     try {
       const j = await apiGet("/api/now");
-      if (reqId !== state.nowReqId) return true; // newer request already fired
-
       setOnline(true);
 
-      // Your worker contract:
-      // ok:true, item: {..} => playing
-      // ok:true, item:null => not playing
-      const item = (j && j.ok) ? (j.item || null) : null;
+      const item = j && j.ok ? (j.item || null) : null;
 
+      // Worker may return ok:true,item:null => OFF
       if (!item) {
-        clearNowToIdle();
-        // keep text subtle
-        safeText(nowTrack, "—");
-        safeText(nowArtist, "—");
-        safeText(nowAlbum, "—");
+        clearNowVisual("Not playing now");
         return true;
       }
 
-      renderNowPlaying(item);
+      applyNowItem(item);
       return true;
     } catch (e) {
-      if (reqId !== state.nowReqId) return false;
       setOnline(false);
-      clearNowToIdle();
-      safeText(nowTrack, "—");
-      safeText(nowArtist, "—");
-      safeText(nowAlbum, "—");
+      clearNowVisual("Offline / can’t reach Worker");
       return false;
     }
   }
@@ -305,26 +296,31 @@
     state.nowTimer = null;
   }
 
-  // -------- TOP --------
+  // -------- TOP rendering --------
   function setTopLoading() {
+    if (!topList) return;
     topList.innerHTML = `
       <div class="row">
         <div class="mid">
           <div class="title">Loading…</div>
-          <div class="sub">Fetching your top…</div>
+          <div class="sub">Fetching top…</div>
         </div>
       </div>
     `;
   }
 
   async function loadTop() {
+    if (!topList) return false;
+
     try {
       setTopLoading();
-      const type = state.topType;
-      const period = state.topPeriod;
-      const limit = TOP_LIMIT_DEFAULT;
 
-      const j = await apiGet(`/api/top?type=${encodeURIComponent(type)}&period=${encodeURIComponent(period)}&limit=${limit}`);
+      const j = await apiGet("/api/top", {
+        type: state.topType,
+        period: state.topPeriod,
+        limit: TOP_LIMIT,
+      });
+
       setOnline(true);
 
       const items = (j?.ok && Array.isArray(j.items)) ? j.items : [];
@@ -341,11 +337,22 @@
       }
 
       topList.innerHTML = items.map((it, i) => {
-        const title = it.name || "—";
-        const sub = (type === "artists") ? "" : (it.artist || "");
-        const img = absApi(it.image || "");
-        const right = it.playcount ?? "";
-        return rowHTML({ idx: i + 1, title, sub, img, right });
+        const title = it?.name || "—";
+        const sub = state.topType === "artists" ? "" : (it?.artist || "");
+        const img = absApi(it?.image || "");
+        const right = (it?.playcount ?? "");
+        return `
+          <div class="row" role="listitem" aria-label="${i + 1}. ${escapeHtml(title)}">
+            <div class="thumb" aria-hidden="true">
+              ${img ? `<img src="${img}" alt="" loading="lazy" decoding="async" />` : `<div class="thumbFallback">♪</div>`}
+            </div>
+            <div class="mid">
+              <div class="title">${escapeHtml(`${i + 1}. ${title}`)}</div>
+              <div class="sub">${escapeHtml(sub)}</div>
+            </div>
+            <div class="right count">${escapeHtml(String(right))}</div>
+          </div>
+        `;
       }).join("");
 
       return true;
@@ -355,15 +362,17 @@
         <div class="row">
           <div class="mid">
             <div class="title">Couldn’t load Top.</div>
-            <div class="sub">Check Worker / connection.</div>
+            <div class="sub">Check connection / Worker.</div>
           </div>
         </div>
       `;
       return false;
     }
   }
-// -------- RECENT --------
+
+  // -------- RECENT rendering (robust shapes + endpoint fallback) --------
   function setRecentLoading() {
+    if (!recentList) return;
     recentList.innerHTML = `
       <div class="row">
         <div class="mid">
@@ -374,9 +383,7 @@
     `;
   }
 
-  function normalizeRecent(j) {
-    // Accept multiple shapes:
-    // {ok:true, items:[...]}  OR  {ok:true, history:[...]} OR {ok:true, recent:[...]}
+  function normalizeRecentResponse(j) {
     if (!j || !j.ok) return [];
     if (Array.isArray(j.items)) return j.items;
     if (Array.isArray(j.history)) return j.history;
@@ -385,22 +392,26 @@
   }
 
   async function loadRecent() {
+    if (!recentList) return false;
+
+    setRecentLoading();
+
     try {
-      setRecentLoading();
+      // Primary endpoint
+      let j = await apiGet("/api/history", { limit: RECENT_LIMIT });
 
-      const limit = RECENT_LIMIT_DEFAULT;
+      let items = normalizeRecentResponse(j);
 
-      // Try endpoints in order (resilient)
-      let j;
-      try {
-        j = await apiGet(`/api/history?limit=${limit}`);
-      } catch {
-        j = await apiGet(`/api/recent?limit=${limit}`);
+      // Fallback endpoint if history shape is empty
+      if (!items.length) {
+        try {
+          j = await apiGet("/api/recent", { limit: RECENT_LIMIT });
+          items = normalizeRecentResponse(j);
+        } catch (_) {}
       }
 
       setOnline(true);
 
-      const items = normalizeRecent(j);
       if (!items.length) {
         recentList.innerHTML = `
           <div class="row">
@@ -413,13 +424,20 @@
         return true;
       }
 
+      // Render
       recentList.innerHTML = items.map((it, i) => {
-        const title = it.name || "—";
-        const sub = `${it.artist || ""}${it.album ? " • " + it.album : ""}`.trim();
-        const img = absApi(it.image || "");
-        const right = it.time || it.date || ""; // optional
+        const title = it?.name || "—";
+        const artist = it?.artist || "";
+        const album = it?.album || "";
+        const sub = `${artist}${album ? " • " + album : ""}`.trim();
+
+        const img = absApi(it?.image || "");
+
+        // right side: try common time fields (optional)
+        const right = it?.time || it?.date || it?.ts || "";
+
         return `
-          <div class="row" role="listitem" aria-label="${escapeHtml(`${i + 1}. ${title}`)}">
+          <div class="row" role="listitem" aria-label="${i + 1}. ${escapeHtml(title)}">
             <div class="thumb" aria-hidden="true">
               ${img ? `<img src="${img}" alt="" loading="lazy" decoding="async" />` : `<div class="thumbFallback">♪</div>`}
             </div>
@@ -439,7 +457,7 @@
         <div class="row">
           <div class="mid">
             <div class="title">Couldn’t load Recent.</div>
-            <div class="sub">Check Worker / connection.</div>
+            <div class="sub">Check connection / Worker.</div>
           </div>
         </div>
       `;
@@ -447,21 +465,77 @@
     }
   }
 
-  // -------- Pull to refresh (mobile) --------
+  // -------- Pull-to-refresh (no index edits; injects tiny UI) --------
+  const ptr = document.createElement("div");
+  ptr.style.cssText = `
+    position:fixed; left:50%; top:calc(env(safe-area-inset-top) + 10px);
+    transform:translate(-50%,-24px);
+    opacity:0; pointer-events:none; z-index:9999;
+    transition:transform .18s ease, opacity .18s ease;
+  `;
+  ptr.innerHTML = `
+    <div style="
+      display:inline-flex; align-items:center; gap:10px;
+      padding:8px 12px; border-radius:999px;
+      background:rgba(255,255,255,.05);
+      outline:1px solid rgba(255,255,255,.09);
+      backdrop-filter:blur(12px);
+      color:rgba(255,255,255,.82);
+      font-size:12px; letter-spacing:.2px;
+      box-shadow:0 18px 55px rgba(0,0,0,.45);
+    ">
+      <span style="width:6px;height:6px;border-radius:999px;background:rgba(255,255,255,.22)"></span>
+      <span id="__ptrText">Pull to refresh</span>
+      <span id="__ptrSpin" aria-hidden="true" style="
+        width:14px;height:14px;border-radius:999px;
+        border:2px solid rgba(255,255,255,.22);
+        border-top-color:rgba(255,255,255,.72);
+        display:none;
+        animation:__ptrSpin 0.9s linear infinite;
+      "></span>
+    </div>
+  `;
+  document.body.appendChild(ptr);
+
+  const style = document.createElement("style");
+  style.textContent = `@keyframes __ptrSpin{to{transform:rotate(360deg)}}`;
+  document.head.appendChild(style);
+
+  const ptrText = $("#__ptrText");
+  const ptrSpin = $("#__ptrSpin");
+
+  function ptrShow(msg, loading = false) {
+    ptr.style.opacity = "1";
+    ptr.style.transform = "translate(-50%,0px)";
+    if (ptrText) ptrText.textContent = msg;
+    if (ptrSpin) ptrSpin.style.display = loading ? "inline-block" : "none";
+  }
+
+  function ptrHide() {
+    ptr.style.opacity = "0";
+    ptr.style.transform = "translate(-50%,-24px)";
+    if (ptrText) ptrText.textContent = "Pull to refresh";
+    if (ptrSpin) ptrSpin.style.display = "none";
+  }
+
+  function isAtTop() {
+    const sc = document.scrollingElement || document.documentElement;
+    return (sc.scrollTop || 0) <= 0;
+  }
+
   let touchStartY = 0;
   let pullY = 0;
   let pulling = false;
-  const PULL_MAX = 110;
   const PULL_TRIGGER = 72;
+  const PULL_MAX = 110;
 
   async function refreshActive() {
     state.isRefreshing = true;
     ptrShow("Refreshing…", true);
-
     try {
       if (state.activeTab === "now") await loadNow();
-      else if (state.activeTab === "top") await loadTop();
-      else if (state.activeTab === "recent") await loadRecent();
+      if (state.activeTab === "top") await loadTop();
+      if (state.activeTab === "recent") await loadRecent();
     } finally {
       setTimeout(() => {
         state.isRefreshing = false;
@@ -486,16 +560,13 @@
 
     const t = e.touches && e.touches[0];
     if (!t) return;
+
     const dy = t.clientY - touchStartY;
     if (dy <= 0) return;
 
     pullY = Math.min(PULL_MAX, dy);
-
-    if (pullY < PULL_TRIGGER) {
-      ptrShow(pullY > PULL_TRIGGER * 0.75 ? "Release to refresh" : "Pull to refresh", false);
-    } else {
-      ptrShow("Release to refresh", false);
-    }
+    if (pullY < PULL_TRIGGER) ptrShow("Pull to refresh", false);
+    else ptrShow("Release to refresh", false);
   }
 
   function onTouchEnd() {
@@ -504,22 +575,21 @@
       return;
     }
     pulling = false;
-
     if (pullY >= PULL_TRIGGER) refreshActive();
     else ptrHide();
   }
 
-  // -------- Events / Wiring --------
+  // -------- Wiring --------
   function wireTabs() {
     tabBtns.forEach(btn => {
       btn.addEventListener("click", async () => {
         const name = btn.dataset.tab;
         showPanel(name);
 
-        // Load only what you open (fast + no weird background races)
+        // Load only when opened (fast)
         if (name === "now") await loadNow();
-        else if (name === "top") await loadTop();
-        else if (name === "recent") await loadRecent();
+        if (name === "top") await loadTop();
+        if (name === "recent") await loadRecent();
       });
     });
   }
@@ -555,10 +625,13 @@
     wireTopControls();
     wirePullToRefresh();
 
+    // Default tab: now
     showPanel("now");
-    clearNowToIdle();
 
-    await loadNow(); // only NOW at start (fast)
+    // Initial NOW load (fast)
+    await loadNow();
+
+    // Start polling only for NOW
     startNowPolling();
   }
 

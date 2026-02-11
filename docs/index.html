@@ -6,10 +6,9 @@
   <meta name="theme-color" content="#0b0c0e" />
   <title>Listening Mirror</title>
 
-  <!-- Optional premium font -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 
   <style>
     :root{
@@ -35,8 +34,6 @@
       --maskFade: 22px;
 
       --stickyTop: calc(env(safe-area-inset-top) + 14px);
-      --pullMax: 110px;
-      --pullThreshold: 78px;
     }
 
     *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
@@ -60,64 +57,6 @@
       padding: calc(env(safe-area-inset-top) + 18px) 16px calc(env(safe-area-inset-bottom) + 18px);
     }
 
-    /* Pull-to-refresh overlay (premium) */
-    .pull{
-      position: fixed;
-      left: 50%;
-      top: calc(env(safe-area-inset-top) + 10px);
-      transform: translateX(-50%) translateY(-10px);
-      opacity: 0;
-      pointer-events: none;
-      z-index: 9999;
-      transition: opacity .15s ease;
-    }
-    .pull.on{ opacity: 1; }
-    .pullCard{
-      min-width: 200px;
-      height: 40px;
-      border-radius: 999px;
-      border: 1px solid rgba(255,255,255,.10);
-      background: rgba(0,0,0,.22);
-      backdrop-filter: blur(var(--blur));
-      -webkit-backdrop-filter: blur(var(--blur));
-      box-shadow: var(--shadow2);
-      display:flex;
-      align-items:center;
-      gap: 10px;
-      padding: 0 12px;
-      color: rgba(255,255,255,.85);
-      font-weight: 800;
-      font-size: 12px;
-      letter-spacing: .25px;
-    }
-    .pullDot{
-      width: 10px; height: 10px;
-      border-radius: 99px;
-      background: rgba(255,255,255,.18);
-      box-shadow: 0 0 0 rgba(0,0,0,0);
-      flex: 0 0 auto;
-    }
-    .pullDot.ready{
-      background: var(--good);
-      box-shadow: 0 0 0 6px rgba(49,208,124,.10);
-    }
-    .pullBar{
-      height: 6px;
-      flex: 1;
-      border-radius: 999px;
-      background: rgba(255,255,255,.08);
-      overflow:hidden;
-      border: 1px solid rgba(255,255,255,.08);
-    }
-    .pullFill{
-      height: 100%;
-      width: 0%;
-      background: rgba(255,255,255,.70);
-      transform-origin: left center;
-    }
-    .pullText{ white-space: nowrap; }
-
-    /* Top bar */
     .topbar{
       display:flex;
       align-items:center;
@@ -132,12 +71,14 @@
       gap: 12px;
       min-width: 0;
     }
+
+    /* ✅ FIX: clearer LM mark */
     .logo{
       width: 44px; height: 44px;
       border-radius: 14px;
       display:grid; place-items:center;
-      background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.04));
-      border: 1px solid var(--stroke);
+      background: linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.05));
+      border: 1px solid rgba(255,255,255,.14);
       box-shadow: var(--shadow2);
       flex: 0 0 auto;
       position: relative;
@@ -147,15 +88,21 @@
       content:"";
       position:absolute; inset:-2px;
       background:
-        radial-gradient(12px 12px at 20% 30%, rgba(255,255,255,.22), transparent 55%),
-        radial-gradient(18px 18px at 70% 65%, rgba(255,255,255,.10), transparent 60%);
-      opacity:.9;
+        radial-gradient(14px 14px at 22% 30%, rgba(255,255,255,.22), transparent 55%),
+        radial-gradient(22px 22px at 72% 65%, rgba(255,255,255,.10), transparent 60%);
+      opacity:.95;
       pointer-events:none;
     }
     .logo span{
-      font-weight: 900;
-      letter-spacing: .6px;
-      opacity: .95;
+      font-weight: 950;
+      letter-spacing: .2px;
+      font-size: 16px;
+      color: rgba(255,255,255,.92);
+      text-shadow:
+        0 1px 0 rgba(0,0,0,.65),
+        0 0 18px rgba(255,255,255,.18);
+      transform: translateY(-.5px);
+      user-select:none;
     }
 
     .brandText{
@@ -166,7 +113,7 @@
     }
     .title{
       font-size: 18px;
-      font-weight: 850;
+      font-weight: 900;
       line-height: 1.1;
       min-width:0;
     }
@@ -191,9 +138,7 @@
       background: var(--bad);
       box-shadow: 0 0 0 6px rgba(255,90,90,.10);
     }
-
-    /* Sticky tabs */
-    .tabsSticky{
+.tabsSticky{
       position: sticky;
       top: var(--stickyTop);
       z-index: 50;
@@ -218,7 +163,7 @@
       border: 1px solid transparent;
       background: transparent;
       color: var(--muted);
-      font-weight: 850;
+      font-weight: 900;
       font-size: 13px;
       letter-spacing: .3px;
       cursor:pointer;
@@ -231,7 +176,6 @@
     }
     .tabBtn:active{ transform: scale(.99); }
 
-    /* Panels + Cards */
     .panel{ margin-top: 14px; }
     .hidden{ display:none !important; }
 
@@ -245,7 +189,6 @@
       overflow:hidden;
       position: relative;
     }
-    /* Live sheen for million-dollar vibe */
     .card.liveSheen::before{
       content:"";
       position:absolute;
@@ -279,7 +222,7 @@
     }
     .cardTitle{
       font-size: 18px;
-      font-weight: 900;
+      font-weight: 950;
       letter-spacing: .2px;
     }
     .meta{
@@ -293,7 +236,7 @@
       border: 1px solid rgba(255,255,255,.10);
       background: rgba(0,0,0,.18);
       color: var(--muted);
-      font-weight: 900;
+      font-weight: 950;
       font-size: 12px;
       display:inline-flex;
       align-items:center;
@@ -306,7 +249,6 @@
       box-shadow: 0 0 0 6px rgba(49,208,124,.10);
     }
 
-    /* Now Playing layout */
     .np{
       display:flex;
       gap: 16px;
@@ -324,12 +266,7 @@
       position:relative;
       flex: 0 0 auto;
     }
-    .art img{
-      width:100%;
-      height:100%;
-      object-fit: cover;
-      display:block;
-    }
+    .art img{ width:100%; height:100%; object-fit: cover; display:block; }
     .art .fallback{
       position:absolute; inset:0;
       display:grid;
@@ -349,7 +286,6 @@
     }
     .lines{ display:flex; flex-direction:column; gap: 8px; }
 
-    /* Premium marquee (only when needed) */
     .marq{
       position: relative;
       min-width: 0;
@@ -375,12 +311,12 @@
       100%{ transform: translateX(calc(-1 * var(--shift, 50%))); }
     }
 
-    .h1{ font-size: 22px; font-weight: 900; line-height: 1.15; letter-spacing: .2px; }
-    .h2{ font-size: 14px; font-weight: 800; color: rgba(255,255,255,.86); line-height: 1.25; }
-    .h3{ font-size: 13px; font-weight: 700; color: var(--muted); line-height: 1.25; }
+    .h1{ font-size: 22px; font-weight: 950; line-height: 1.15; letter-spacing: .2px; }
+    .h2{ font-size: 14px; font-weight: 850; color: rgba(255,255,255,.86); line-height: 1.25; }
+    .h3{ font-size: 13px; font-weight: 750; color: var(--muted); line-height: 1.25; }
 
     .subnote{ margin-top: 10px; color: var(--muted); font-size: 13px; }
-/* Top controls */
+
     .controls{
       display:flex;
       flex-wrap:wrap;
@@ -406,7 +342,7 @@
       border: 1px solid transparent;
       background: transparent;
       color: var(--muted);
-      font-weight: 900;
+      font-weight: 950;
       font-size: 12px;
       cursor:pointer;
       transition: background .18s ease, color .18s ease, transform .10s ease, border-color .18s ease;
@@ -419,7 +355,6 @@
     .seg button:active{ transform: scale(.99); }
     .spacer{ flex:1; }
 
-    /* Lists */
     .list{
       margin-top: 14px;
       display:flex;
@@ -451,18 +386,13 @@
       flex: 0 0 auto;
       box-shadow: 0 10px 26px rgba(0,0,0,.42);
     }
-    .cover img{
-      width:100%;
-      height:100%;
-      object-fit: cover;
-      display:block;
-    }
+    .cover img{ width:100%; height:100%; object-fit: cover; display:block; }
     .coverFallback{
       position:absolute; inset:0;
       display:grid;
       place-items:center;
       color: rgba(255,255,255,.28);
-      font-weight: 900;
+      font-weight: 950;
       user-select:none;
     }
 
@@ -482,7 +412,7 @@
     .rowSub{
       font-size: 12.5px;
       color: var(--muted);
-      font-weight: 750;
+      font-weight: 800;
       min-width:0;
     }
     .right{
@@ -493,7 +423,6 @@
       flex: 0 0 auto;
     }
 
-    /* Small footer hint */
     .hint{
       margin-top: 14px;
       color: rgba(255,255,255,.30);
@@ -502,7 +431,6 @@
       user-select:none;
     }
 
-    /* Skeleton */
     .skeleton{
       position:relative;
       overflow:hidden;
@@ -528,15 +456,6 @@
 </head>
 
 <body>
-  <!-- Pull-to-refresh UI -->
-  <div class="pull" id="pullUI" aria-hidden="true">
-    <div class="pullCard">
-      <div class="pullDot" id="pullDot"></div>
-      <div class="pullBar"><div class="pullFill" id="pullFill"></div></div>
-      <div class="pullText" id="pullText">Pull to refresh</div>
-    </div>
-  </div>
-
   <div class="wrap">
     <div class="topbar">
       <div class="brand">
@@ -546,7 +465,6 @@
           <div class="status"><span id="statusDot" class="dot"></span><span id="statusLine">Offline</span></div>
         </div>
       </div>
-      <!-- ✅ Refresh button removed -->
     </div>
 
     <div class="tabsSticky">
@@ -593,7 +511,7 @@
             </div>
           </div>
 
-          <div class="hint" id="workerHint">Worker: —</div>
+          <!-- ✅ Worker hint removed -->
         </div>
       </div>
     </section>
@@ -607,7 +525,8 @@
               <div class="cardTitle">Top</div>
               <div class="meta" id="topMeta">—</div>
             </div>
-            <div class="pill" id="topBadge">20</div>
+            <!-- ✅ default badge now 10 -->
+            <div class="pill" id="topBadge">10</div>
           </div>
 
           <div class="controls">
@@ -638,7 +557,8 @@
           <div class="cardHead">
             <div>
               <div class="cardTitle">Recent</div>
-              <div class="meta" id="recentMeta">—</div>
+              <!-- ✅ remove "10 items" completely -->
+              <div class="meta" id="recentMeta"></div>
             </div>
             <div class="pill">last 10</div>
           </div>

@@ -2,15 +2,12 @@
 (() => {
   "use strict";
 
-  // ---------- Config ----------
   const DEFAULT_API = "https://i.errtanq9.workers.dev";
   const POLL_MS = 15000;
 
-  // Allow ?api=https://xxxx.workers.dev
   const urlParams = new URLSearchParams(location.search);
   const API_BASE = (urlParams.get("api") || DEFAULT_API).replace(/\/+$/, "");
 
-  // ---------- DOM ----------
   const $ = (id) => document.getElementById(id);
 
   const statusDot = $("statusDot");
@@ -19,16 +16,13 @@
   const tabs = Array.from(document.querySelectorAll(".tabBtn"));
   const panels = Array.from(document.querySelectorAll("[data-panel]"));
 
-  // NOW
   const nowAmbient = $("nowAmbient");
   const nowBadge = $("nowBadge");
   const nowBadgeText = $("nowBadgeText");
   const nowUpdated = $("nowUpdated");
-
   const nowCoverWrap = $("nowCoverWrap");
   const nowImg = $("nowImg");
   const nowFallback = $("nowFallback");
-
   const nowTrackWrap = $("nowTrackWrap");
   const nowArtistWrap = $("nowArtistWrap");
   const nowAlbumWrap = $("nowAlbumWrap");
@@ -37,21 +31,27 @@
   const nowAlbum = $("nowAlbum");
   const nowMsg = $("nowMsg");
 
-  // TOP
   const topList = $("topList");
   const topTypeBtns = Array.from(document.querySelectorAll('[data-top-type]'));
   const topPeriodBtns = Array.from(document.querySelectorAll('[data-top-period]'));
 
-  // RECENT
   const recentList = $("recentList");
 
-  // ---------- State ----------
+  // A tiny debug line under status (re-uses nowMsg if offline)
+  let lastTried = [];
+
   let currentTab = "now";
   let topType = "tracks";
   let topPeriod = "today";
   let pollTimer = null;
 
-  // ---------- Helpers ----------
+  // Discovered endpoints (once we find working ones)
+  const ROUTES = {
+    now: null,
+    top: null,
+    recent: null,
+  };
+
   function setOnline(isOnline) {
     if (!statusDot || !statusLine) return;
     statusDot.classList.toggle("on", !!isOnline);
@@ -60,7 +60,6 @@
 
   function pad2(n) { return String(n).padStart(2, "0"); }
   function formatTime(d = new Date()) {
-    // simple local time like 02:22:58 PM
     const h24 = d.getHours();
     const m = pad2(d.getMinutes());
     const s = pad2(d.getSeconds());
@@ -79,7 +78,6 @@
     if (!url) return "";
     const u = String(url).trim();
     if (!u) return "";
-    // Accept absolute urls. If worker returns //... or http, normalize:
     if (u.startsWith("//")) return "https:" + u;
     if (u.startsWith("http://")) return u.replace("http://", "https://");
     return u;
@@ -100,18 +98,15 @@
 
   function applyMarquee(wrapEl, spanEl) {
     if (!wrapEl || !spanEl) return;
-    // reset
     wrapEl.classList.remove("marqOn");
     wrapEl.style.removeProperty("--marqShift");
     wrapEl.style.removeProperty("--marqDur");
 
-    // measure overflow
     requestAnimationFrame(() => {
       const wrapW = wrapEl.clientWidth;
       const textW = spanEl.scrollWidth;
       if (textW > wrapW + 4) {
         const shift = Math.ceil(textW - wrapW + 24);
-        // speed: ~45px/sec, clamp 8..18 sec
         const dur = Math.max(8, Math.min(18, shift / 45));
         wrapEl.style.setProperty("--marqShift", `${shift}px`);
         wrapEl.style.setProperty("--marqDur", `${dur}s`);
@@ -120,37 +115,101 @@
     });
   }
 
-  async function fetchJSON(path, qsObj) {
-    const u = new URL(API_BASE + path);
-    if (qsObj && typeof qsObj === "object") {
-      Object.entries(qsObj).forEach(([k, v]) => {
-        if (v !== undefined && v !== null) u.searchParams.set(k, String(v));
-      });
-    }
-
+  async function fetchJSON(fullUrl) {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 12000);
-
     try {
-      const res = await fetch(u.toString(), {
+      const res = await fetch(fullUrl, {
         method: "GET",
         headers: { "Accept": "application/json" },
         signal: ctrl.signal,
         cache: "no-store",
       });
+
+      const text = await res.text().catch(() => "");
+      let json = null;
+      try { json = text ? JSON.parse(text) : null; } catch { /* ignore */ }
+
       if (!res.ok) {
-        const txt = await res.text().catch(() => "");
-        throw new Error(`HTTP ${res.status} ${res.statusText}${txt ? ` — ${txt.slice(0,120)}` : ""}`);
+        const msg = (json && (json.error || json.message)) ? `${json.error || json.message}` : `${text}`.slice(0, 140);
+        throw new Error(`HTTP ${res.status} ${res.statusText}${msg ? ` — ${msg}` : ""}`);
       }
-      const data = await res.json();
-      return data;
+      return json ?? {};
     } finally {
       clearTimeout(t);
     }
   }
+
+  function buildUrl(path, qsObj) {
+    const u = new URL(API_BASE + path);
+    if (qsObj && typeof qsObj === "object") {
+      for (const [k, v] of Object.entries(qsObj)) {
+        if (v !== undefined && v !== null) u.searchParams.set(k, String(v));
+      }
+    }
+    return u.toString();
+  }
 /* ===== app.js — Part 2/4 ===== */
 
-  // ---------- UI: Tabs ----------
+  // ---------- Auto-discovery ----------
+  async function discoverRoute(kind) {
+    if (ROUTES[kind]) return ROUTES[kind];
+
+    // Candidate paths. We try a few common conventions.
+    const candidates = {
+      now: [
+        "/now", "/api/now", "/v1/now",
+        "/now-playing", "/currently-playing", "/playing",
+        "/lastfm/now", "/lm/now"
+      ],
+      recent: [
+        "/recent", "/api/recent", "/v1/recent",
+        "/recent-tracks", "/lastfm/recent", "/lm/recent"
+      ],
+      top: [
+        "/top", "/api/top", "/v1/top",
+        "/top-tracks", "/lastfm/top", "/lm/top"
+      ],
+    }[kind];
+
+    lastTried = [];
+
+    for (const p of candidates) {
+      let testUrl = "";
+      try {
+        if (kind === "top") {
+          testUrl = buildUrl(p, { type: "tracks", period: "today" });
+        } else {
+          testUrl = buildUrl(p);
+        }
+        lastTried.push(testUrl);
+
+        const data = await fetchJSON(testUrl);
+
+        // Treat {ok:false, error:"Not found"} as failure
+        if (data && data.ok === false && String(data.error || "").toLowerCase().includes("not found")) {
+          continue;
+        }
+
+        // Looks valid enough -> accept
+        ROUTES[kind] = p;
+        return p;
+      } catch (e) {
+        // keep trying
+        continue;
+      }
+    }
+
+    return null;
+  }
+
+  function renderTriedIntoNowMsg() {
+    // show first 3 tried urls to avoid giant text
+    const tried = lastTried.slice(0, 3).join(" | ");
+    nowMsg.textContent = tried ? `Tried: ${tried}` : "Offline";
+  }
+
+  // ---------- Tabs ----------
   function showTab(tabName) {
     currentTab = tabName;
 
@@ -164,16 +223,12 @@
       p.classList.toggle("hidden", !isTarget);
     });
 
-    // when switching to top/recent, load once immediately
     if (tabName === "top") loadTop().catch(() => {});
     if (tabName === "recent") loadRecent().catch(() => {});
   }
 
-  tabs.forEach((b) => {
-    b.addEventListener("click", () => showTab(b.dataset.tab));
-  });
+  tabs.forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
 
-  // ---------- UI: Top Segments ----------
   function setTopType(next) {
     topType = next;
     topTypeBtns.forEach((b) => b.setAttribute("aria-selected", b.dataset.topType === next ? "true" : "false"));
@@ -188,7 +243,7 @@
   topTypeBtns.forEach((b) => b.addEventListener("click", () => setTopType(b.dataset.topType)));
   topPeriodBtns.forEach((b) => b.addEventListener("click", () => setTopPeriod(b.dataset.topPeriod)));
 
-  // ---------- Renderers ----------
+  // ---------- List helpers ----------
   function clearEl(el) { if (el) el.innerHTML = ""; }
 
   function renderError(el, msg) {
@@ -204,7 +259,6 @@
     const row = document.createElement("div");
     row.className = "row";
 
-    // thumb
     const thumb = document.createElement("div");
     thumb.className = "thumb";
     const imageUrl = normalizeImg(img);
@@ -216,9 +270,7 @@
       im.decoding = "async";
       im.referrerPolicy = "no-referrer";
       im.src = imageUrl;
-
       im.onerror = () => {
-        // fallback icon
         im.remove();
         const fb = document.createElement("div");
         fb.className = "thumbFallback";
@@ -233,19 +285,20 @@
       thumb.appendChild(fb);
     }
 
-    // mid
     const mid = document.createElement("div");
     mid.className = "mid";
+
     const t = document.createElement("div");
     t.className = "title";
     t.textContent = `${idx}. ${safeText(title)}`;
+
     const s = document.createElement("div");
     s.className = "sub";
     s.textContent = safeText(sub);
+
     mid.appendChild(t);
     mid.appendChild(s);
 
-    // right
     const right = document.createElement("div");
     right.className = "right" + (rightClass ? ` ${rightClass}` : "");
     right.textContent = rightText || "";
@@ -253,8 +306,10 @@
     row.appendChild(thumb);
     row.appendChild(mid);
     row.appendChild(right);
+
     return row;
   }
+/* ===== app.js — Part 3/4 ===== */
 
   // ---------- NOW ----------
   function setNowBadge(live) {
@@ -271,7 +326,6 @@
   function setNowArtwork(imageUrl) {
     const img = normalizeImg(imageUrl);
 
-    // reset UI
     nowImg.style.display = "none";
     nowFallback.style.display = "grid";
 
@@ -283,7 +337,6 @@
 
     setCoverAndAmbient(img);
 
-    // Load image safely: show only on load success (keeps artwork logic intact)
     nowImg.onload = () => {
       nowFallback.style.display = "none";
       nowImg.style.display = "block";
@@ -291,7 +344,6 @@
     nowImg.onerror = () => {
       nowImg.style.display = "none";
       nowFallback.style.display = "grid";
-      // keep ambient but not required; if the image fails, remove ambient too
       setCoverAndAmbient("");
     };
 
@@ -300,17 +352,14 @@
   }
 
   async function loadNow() {
-    // Worker is expected to provide a "now" endpoint.
-    // We accept flexible shapes:
-    // { live: true/false, track, artist, album, image, message }
-    // or { isPlaying, name, artist, album, imageUrl, status }
-    const data = await fetchJSON("/now");
+    const p = await discoverRoute("now");
+    if (!p) throw new Error("No NOW route found");
 
-    // Determine "live"
+    const data = await fetchJSON(buildUrl(p));
+
     const live = !!(data.live ?? data.isPlaying ?? data.playing ?? data.nowPlaying);
     setNowBadge(live);
 
-    // fields
     const trackName = data.track ?? data.name ?? data.title ?? "—";
     const artistName =
       (typeof data.artist === "string" ? data.artist : (data.artist?.name ?? data.artist?.["#text"])) ??
@@ -328,7 +377,6 @@
     nowAlbum.textContent = safeText(albumName);
     nowMsg.textContent = safeText(message);
 
-    // artwork
     const imageUrl =
       data.image ??
       data.imageUrl ??
@@ -340,7 +388,6 @@
 
     setNowArtwork(imageUrl);
 
-    // Marquee if needed
     applyMarquee(nowTrackWrap, nowTrack);
     applyMarquee(nowArtistWrap, nowArtist);
     applyMarquee(nowAlbumWrap, nowAlbum);
@@ -348,30 +395,28 @@
     nowUpdated.textContent = formatTime(new Date());
     setOnline(true);
   }
-/* ===== app.js — Part 3/4 ===== */
 
   // ---------- TOP ----------
   async function loadTop() {
     clearEl(topList);
 
-    // Worker expected: /top?type=tracks|artists|albums&period=today|week|year
-    const data = await fetchJSON("/top", { type: topType, period: topPeriod });
+    const p = await discoverRoute("top");
+    if (!p) {
+      renderError(topList, "Couldn’t load Top.");
+      return;
+    }
 
-    // Accept flexible shapes:
-    // { items:[...] } OR [...] OR { top:[...] }
+    const data = await fetchJSON(buildUrl(p, { type: topType, period: topPeriod }));
     const items = Array.isArray(data) ? data : (data.items || data.top || data.list || []);
+
     if (!Array.isArray(items) || items.length === 0) {
       renderError(topList, "Couldn’t load Top.");
-      setOnline(true);
       return;
     }
 
     const frag = document.createDocumentFragment();
 
     items.slice(0, 50).forEach((it, i) => {
-      // track: { name, artist, image, playcount }
-      // artist: { name, image, playcount }
-      // album: { name, artist, image, playcount }
       const title = it.name ?? it.title ?? "—";
 
       const sub =
@@ -390,34 +435,39 @@
 
       const count = it.playcount ?? it.count ?? it.plays ?? it.scrobbles ?? "";
       const rightText = count !== "" ? String(count) : "";
-      const row = makeRow({
-        idx: i + 1,
-        title,
-        sub: safeText(sub, topType === "artists" ? "" : "—"),
-        img: imageUrl,
-        rightText,
-        rightClass: "count",
-      });
-      frag.appendChild(row);
+
+      frag.appendChild(
+        makeRow({
+          idx: i + 1,
+          title,
+          sub: safeText(sub, topType === "artists" ? "" : "—"),
+          img: imageUrl,
+          rightText,
+          rightClass: "count",
+        })
+      );
     });
 
     topList.appendChild(frag);
     setOnline(true);
   }
+/* ===== app.js — Part 4/4 ===== */
 
   // ---------- RECENT ----------
   async function loadRecent() {
     clearEl(recentList);
 
-    // Worker expected: /recent
-    const data = await fetchJSON("/recent");
+    const p = await discoverRoute("recent");
+    if (!p) {
+      renderError(recentList, "Couldn’t load Recent.");
+      return;
+    }
 
-    // Accept flexible shapes:
-    // { items:[...] } OR [...]
+    const data = await fetchJSON(buildUrl(p));
     const items = Array.isArray(data) ? data : (data.items || data.recent || data.list || []);
+
     if (!Array.isArray(items) || items.length === 0) {
       renderError(recentList, "Couldn’t load Recent.");
-      setOnline(true);
       return;
     }
 
@@ -440,7 +490,6 @@
         (Array.isArray(it.image) ? (it.image.at(-1)?.["#text"] || it.image.at(-1)) : "") ??
         "";
 
-      // time text (optional)
       const when = it.date?.uts
         ? new Date(Number(it.date.uts) * 1000)
         : (it.timestamp ? new Date(it.timestamp) : null);
@@ -468,51 +517,30 @@
     try {
       await loadNow();
     } catch (e) {
-      // only now failing => show offline, but keep UI stable
       setOnline(false);
       nowUpdated.textContent = formatTime(new Date());
-      nowMsg.textContent = "Offline";
       setNowBadge(false);
       setNowArtwork("");
+      renderTriedIntoNowMsg();
     }
 
-    // Load top/recent only if user is on those tabs
     if (currentTab === "top") {
       try { await loadTop(); }
-      catch { renderError(topList, "Couldn’t load Top."); setOnline(false); }
+      catch { renderError(topList, "Couldn’t load Top."); }
     }
     if (currentTab === "recent") {
       try { await loadRecent(); }
-      catch { renderError(recentList, "Couldn’t load Recent."); setOnline(false); }
+      catch { renderError(recentList, "Couldn’t load Recent."); }
     }
   }
 
   function startPolling() {
     if (pollTimer) clearInterval(pollTimer);
-    pollTimer = setInterval(() => {
-      refreshAll().catch(() => {});
-    }, POLL_MS);
+    pollTimer = setInterval(() => refreshAll().catch(() => {}), POLL_MS);
   }
 
-  // boot
   showTab("now");
   refreshAll().catch(() => {});
   startPolling();
 
 })();
-/* ===== app.js — Part 4/4 ===== */
-/*
-Notes:
-- Default API is https://i.errtanq9.workers.dev
-- You can override by visiting:
-  https://mr-tanq.github.io/listening-mirror/?api=https://i.errtanq9.workers.dev
-
-If you STILL see Offline:
-1) Open these URLs directly in browser:
-   https://i.errtanq9.workers.dev/now
-   https://i.errtanq9.workers.dev/top?type=tracks&period=today
-   https://i.errtanq9.workers.dev/recent
-2) If any of them returns an error or no CORS, the frontend cannot load.
-
-But as requested: this file does NOT alter artwork rendering logic.
-*/

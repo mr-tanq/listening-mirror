@@ -1,5 +1,6 @@
 /* Listening Mirror - app.js (UI only)
-   Robust parsing for /api/now (handles multiple JSON shapes)
+   Robust parsing for /api/now incl. {ok:true, item:null}
+   When not playing: shows Last played (from /api/history?limit=1)
 */
 
 (() => {
@@ -113,7 +114,7 @@
     });
   }
 
-  // ---------- ✅ Robust NOW parsing ----------
+  // ---------- Robust NOW parsing ----------
   function pick(obj, keys) {
     for (const k of keys) {
       const v = obj?.[k];
@@ -130,10 +131,11 @@
   }
 
   function parseNowPayload(j) {
-    // Accept many shapes:
-    // 1) { playing, track, artist, album, image, message }
-    // 2) { ok, now: {...} } or { ok, item: {...} } or { ok, data: {...} }
-    // 3) last.fm-like: { recenttracks: { track: [...] } } (fallback)
+    // Special case: your worker returns { ok:true, item:null } when not playing
+    if (j?.ok === true && j?.item === null) {
+      return { playing: false, track: "—", artist: "—", album: "—", image: "", message: "Not playing now" };
+    }
+
     const core =
       j?.now ||
       j?.item ||
@@ -141,37 +143,31 @@
       j?.result ||
       j;
 
-    // playing flags (different possible names)
     const playing =
       toBool(pick(core, ["playing", "isPlaying", "nowplaying", "nowPlaying", "live"])) ||
       toBool(pick(j, ["playing", "isPlaying", "nowplaying", "nowPlaying", "live"]));
 
-    // Track name: sometimes "name" or "track"
     const track =
       pick(core, ["track", "name", "title"]) ||
       pick(core?.track, ["name", "#text"]) ||
       "—";
 
-    // Artist: sometimes string, sometimes {name}
     const artist =
       pick(core, ["artist"]) ||
       pick(core?.artist, ["name", "#text"]) ||
       pick(core, ["artistName"]) ||
       "—";
 
-    // Album: sometimes string, sometimes {name}
     const album =
       pick(core, ["album"]) ||
       pick(core?.album, ["name", "#text"]) ||
       pick(core, ["albumName"]) ||
       "—";
 
-    // Image keys: "image" or "cover" or "art" etc.
     const image =
       pick(core, ["image", "cover", "coverUrl", "art", "artwork", "albumArt", "img"]) ||
       "";
 
-    // message
     const message =
       pick(core, ["message", "status", "note"]) ||
       "";
@@ -281,6 +277,43 @@
     listEl.appendChild(row);
   }
 
+  // ---------- Now helpers ----------
+  function applyNowArtwork(img) {
+    if (img) {
+      nowImg.src = img;
+      nowImg.style.display = "block";
+      nowFallback.style.display = "none";
+      nowCoverWrap.style.setProperty("--cover-url", `url("${img}")`);
+
+      nowAmbient.style.setProperty("--ambient-url", `url("${img}")`);
+      nowAmbient.classList.add("on");
+    } else {
+      nowImg.removeAttribute("src");
+      nowImg.style.display = "none";
+      nowFallback.style.display = "grid";
+      nowCoverWrap.style.setProperty("--cover-url", "none");
+
+      nowAmbient.classList.remove("on");
+      nowAmbient.style.setProperty("--ambient-url", "none");
+    }
+  }
+
+  async function getLastPlayedFallback() {
+    try {
+      const h = await fetchJSON(`/api/history?limit=1`, { timeoutMs: 9000 });
+      const it = Array.isArray(h?.items) && h.items.length ? h.items[0] : null;
+      if (!it) return null;
+      return {
+        track: it?.name || it?.track || "—",
+        artist: it?.artist || "—",
+        album: it?.album || "—",
+        image: normalizeImg(it?.image || "")
+      };
+    } catch {
+      return null;
+    }
+  }
+
   // ---------- Now ----------
   async function loadNow() {
     try {
@@ -288,44 +321,51 @@
       setOnline(true);
 
       const parsed = parseNowPayload(j);
-
       const playing = !!parsed.playing;
+
+      // If not playing, upgrade UI by showing Last played
+      if (!playing) {
+        const last = await getLastPlayedFallback();
+
+        nowBadge.classList.remove("live");
+        nowBadgeText.textContent = "OFF";
+
+        if (last) {
+          nowTrack.textContent = last.track || "—";
+          nowArtist.textContent = last.artist || "—";
+          nowAlbum.textContent = last.album || "—";
+          nowMsg.textContent = "Last played";
+          applyNowArtwork(last.image || "");
+        } else {
+          nowTrack.textContent = "—";
+          nowArtist.textContent = "—";
+          nowAlbum.textContent = "—";
+          nowMsg.textContent = parsed.message || "Not playing now";
+          applyNowArtwork("");
+        }
+
+        nowUpdated.textContent = fmtTime(new Date());
+        setupMarquee(nowTrackWrap, nowTrack);
+        setupMarquee(nowArtistWrap, nowArtist);
+        setupMarquee(nowAlbumWrap, nowAlbum);
+        return;
+      }
+
+      // Playing (LIVE)
       const track = parsed.track || "—";
       const artist = parsed.artist || "—";
       const album = parsed.album || "—";
-      const msg = parsed.message || (playing ? "" : "Not playing now");
       const img = normalizeImg(parsed.image || "");
 
-      if (playing) {
-        nowBadge.classList.add("live");
-        nowBadgeText.textContent = "LIVE";
-      } else {
-        nowBadge.classList.remove("live");
-        nowBadgeText.textContent = "OFF";
-      }
+      nowBadge.classList.add("live");
+      nowBadgeText.textContent = "LIVE";
 
       nowTrack.textContent = track;
       nowArtist.textContent = artist;
       nowAlbum.textContent = album;
-      nowMsg.textContent = msg || "—";
+      nowMsg.textContent = parsed.message || "";
 
-      if (img) {
-        nowImg.src = img;
-        nowImg.style.display = "block";
-        nowFallback.style.display = "none";
-        nowCoverWrap.style.setProperty("--cover-url", `url("${img}")`);
-
-        nowAmbient.style.setProperty("--ambient-url", `url("${img}")`);
-        nowAmbient.classList.add("on");
-      } else {
-        nowImg.removeAttribute("src");
-        nowImg.style.display = "none";
-        nowFallback.style.display = "grid";
-        nowCoverWrap.style.setProperty("--cover-url", "none");
-
-        nowAmbient.classList.remove("on");
-        nowAmbient.style.setProperty("--ambient-url", "none");
-      }
+      applyNowArtwork(img);
 
       nowUpdated.textContent = fmtTime(new Date());
 
@@ -344,11 +384,7 @@
       nowMsg.textContent = "Offline";
       nowUpdated.textContent = fmtTime(new Date());
 
-      nowImg.removeAttribute("src");
-      nowImg.style.display = "none";
-      nowFallback.style.display = "grid";
-      nowAmbient.classList.remove("on");
-      nowAmbient.style.setProperty("--ambient-url", "none");
+      applyNowArtwork("");
     }
   }
 // ---------- Top ----------

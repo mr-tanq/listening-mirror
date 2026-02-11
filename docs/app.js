@@ -1,7 +1,7 @@
 /* Listening Mirror - app.js (UI only)
    Fixes:
-   - Detects LIVE via item["@attr"].nowplaying (Last.fm style)
-   - Handles { ok:true, item:null } as OFF
+   - If worker returns {ok:true, item:{...}} => LIVE (playing)
+   - If {ok:true, item:null} => OFF
    - Always updates "Updated" timestamp
    - When OFF: shows Last played (from /api/history?limit=1)
 */
@@ -56,7 +56,6 @@
   }
 
   function setUpdatedNow() {
-    // Always update if the element exists
     if (nowUpdated) nowUpdated.textContent = fmtTime(new Date());
   }
 
@@ -142,14 +141,28 @@
   }
 
   function parseNowPayload(j) {
-    // Case: not playing -> worker returns {ok:true, item:null}
+    // Worker contract:
+    // - playing: { ok:true, item:{...} }
+    // - not playing: { ok:true, item:null }
     if (j?.ok === true && j?.item === null) {
       return { playing: false, track: "—", artist: "—", album: "—", image: "", message: "Not playing now" };
     }
+    if (j?.ok === true && j?.item && typeof j.item === "object") {
+      // IMPORTANT: treat as LIVE
+      const it = j.item;
+      return {
+        playing: true,
+        track: pick(it, ["name", "track", "title"]) || "—",
+        artist: pick(it, ["artist", "artistName"]) || "—",
+        album: pick(it, ["album", "albumName"]) || "—",
+        image: pick(it, ["image", "cover", "coverUrl", "art", "artwork", "img"]) || "",
+        message: ""
+      };
+    }
 
+    // Fallback parsing (in case structure changes)
     const core = j?.now || j?.item || j?.data || j?.result || j;
 
-    // IMPORTANT: Last.fm often stores nowplaying in @attr
     const attrNowPlaying =
       pick(core?.["@attr"], ["nowplaying", "nowPlaying"]) ||
       pick(core?.attr, ["nowplaying", "nowPlaying"]) ||
@@ -183,7 +196,6 @@
       pick(core, ["message", "status", "note"]) ||
       "";
 
-    // EXTRA SAFETY: αν έχουμε κανονικό track+artist και υπάρχει attr nowplaying, σεβόμαστε LIVE
     return { playing, track, artist, album, image, message };
   }
 // ---------- UI helpers ----------
@@ -338,11 +350,8 @@
       setOnline(true);
 
       const parsed = parseNowPayload(j);
-      const trackLooksReal = parsed.track && parsed.track !== "—";
-      const playing = !!parsed.playing;
 
-      // If LIVE
-      if (playing) {
+      if (parsed.playing) {
         nowBadge?.classList.add("live");
         if (nowBadgeText) nowBadgeText.textContent = "LIVE";
 
@@ -360,9 +369,7 @@
         return;
       }
 
-      // Not playing:
-      // BUT if we got real track+artist+artwork and STILL playing=false, force a nicer UI:
-      // show it as "Last played" (not OFF broken state)
+      // OFF branch
       const last = await getLastPlayedFallback();
 
       nowBadge?.classList.remove("live");
@@ -374,13 +381,6 @@
         nowAlbum.textContent = last.album || "—";
         nowMsg.textContent = "Last played";
         applyNowArtwork(last.image || "");
-      } else if (trackLooksReal) {
-        // fallback: at least show what worker gave us
-        nowTrack.textContent = parsed.track || "—";
-        nowArtist.textContent = parsed.artist || "—";
-        nowAlbum.textContent = parsed.album || "—";
-        nowMsg.textContent = "Not playing now";
-        applyNowArtwork(normalizeImg(parsed.image || ""));
       } else {
         nowTrack.textContent = "—";
         nowArtist.textContent = "—";

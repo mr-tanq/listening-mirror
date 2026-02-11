@@ -1,12 +1,14 @@
 /* Listening Mirror - app.js (UI only)
-   Robust parsing for /api/now incl. {ok:true, item:null}
-   When not playing: shows Last played (from /api/history?limit=1)
+   Fixes:
+   - Detects LIVE via item["@attr"].nowplaying (Last.fm style)
+   - Handles { ok:true, item:null } as OFF
+   - Always updates "Updated" timestamp
+   - When OFF: shows Last played (from /api/history?limit=1)
 */
 
 (() => {
   const API_BASE = "https://i.errtanq9.workers.dev";
 
-  // ---------- DOM ----------
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
@@ -53,8 +55,14 @@
     return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
   }
 
+  function setUpdatedNow() {
+    // Always update if the element exists
+    if (nowUpdated) nowUpdated.textContent = fmtTime(new Date());
+  }
+
   function normalizeImg(u) {
     if (!u) return "";
+    if (typeof u !== "string") return "";
     if (u.startsWith("http")) return u;
     if (u.startsWith("/img")) return API_BASE + u;
     return u;
@@ -80,11 +88,11 @@
 
   function setOnline(ok) {
     if (ok) {
-      statusDot.classList.add("on");
-      statusLine.textContent = "Online";
+      statusDot?.classList.add("on");
+      if (statusLine) statusLine.textContent = "Online";
     } else {
-      statusDot.classList.remove("on");
-      statusLine.textContent = "Offline";
+      statusDot?.classList.remove("on");
+      if (statusLine) statusLine.textContent = "Offline";
     }
   }
 
@@ -126,26 +134,31 @@
   function toBool(v) {
     if (typeof v === "boolean") return v;
     if (typeof v === "number") return v !== 0;
-    if (typeof v === "string") return ["true","1","yes","y","playing","nowplaying"].includes(v.toLowerCase());
+    if (typeof v === "string") {
+      const s = v.toLowerCase().trim();
+      return ["true", "1", "yes", "y", "playing", "nowplaying", "live"].includes(s);
+    }
     return false;
   }
 
   function parseNowPayload(j) {
-    // Special case: your worker returns { ok:true, item:null } when not playing
+    // Case: not playing -> worker returns {ok:true, item:null}
     if (j?.ok === true && j?.item === null) {
       return { playing: false, track: "—", artist: "—", album: "—", image: "", message: "Not playing now" };
     }
 
-    const core =
-      j?.now ||
-      j?.item ||
-      j?.data ||
-      j?.result ||
-      j;
+    const core = j?.now || j?.item || j?.data || j?.result || j;
+
+    // IMPORTANT: Last.fm often stores nowplaying in @attr
+    const attrNowPlaying =
+      pick(core?.["@attr"], ["nowplaying", "nowPlaying"]) ||
+      pick(core?.attr, ["nowplaying", "nowPlaying"]) ||
+      pick(core, ["nowplaying", "nowPlaying"]);
 
     const playing =
-      toBool(pick(core, ["playing", "isPlaying", "nowplaying", "nowPlaying", "live"])) ||
-      toBool(pick(j, ["playing", "isPlaying", "nowplaying", "nowPlaying", "live"]));
+      toBool(pick(core, ["playing", "isPlaying", "live"])) ||
+      toBool(pick(j, ["playing", "isPlaying", "live"])) ||
+      toBool(attrNowPlaying);
 
     const track =
       pick(core, ["track", "name", "title"]) ||
@@ -153,15 +166,13 @@
       "—";
 
     const artist =
-      pick(core, ["artist"]) ||
+      pick(core, ["artist", "artistName"]) ||
       pick(core?.artist, ["name", "#text"]) ||
-      pick(core, ["artistName"]) ||
       "—";
 
     const album =
-      pick(core, ["album"]) ||
+      pick(core, ["album", "albumName"]) ||
       pick(core?.album, ["name", "#text"]) ||
-      pick(core, ["albumName"]) ||
       "—";
 
     const image =
@@ -172,14 +183,15 @@
       pick(core, ["message", "status", "note"]) ||
       "";
 
+    // EXTRA SAFETY: αν έχουμε κανονικό track+artist και υπάρχει attr nowplaying, σεβόμαστε LIVE
     return { playing, track, artist, album, image, message };
   }
-// ---------- Skeleton UI ----------
+// ---------- UI helpers ----------
   function renderSkeleton(listEl, rows = 8) {
     const frag = document.createDocumentFragment();
     for (let i = 0; i < rows; i++) {
       const row = document.createElement("div");
-      row.className = "row skeleton";
+      row.className = "row";
 
       const thumb = document.createElement("div");
       thumb.className = "thumb";
@@ -191,17 +203,20 @@
       const mid = document.createElement("div");
       mid.className = "mid";
       const l1 = document.createElement("div");
-      l1.className = "skLine skW1";
+      l1.style.height = "12px";
+      l1.style.marginBottom = "8px";
+      l1.style.borderRadius = "999px";
+      l1.style.background = "rgba(255,255,255,.06)";
       const l2 = document.createElement("div");
-      l2.className = "skLine skW2";
+      l2.style.height = "10px";
+      l2.style.borderRadius = "999px";
+      l2.style.background = "rgba(255,255,255,.04)";
       mid.appendChild(l1);
       mid.appendChild(l2);
 
       const right = document.createElement("div");
       right.className = "right";
-      const rc = document.createElement("div");
-      rc.className = "skCount";
-      right.appendChild(rc);
+      right.textContent = "";
 
       row.appendChild(thumb);
       row.appendChild(mid);
@@ -212,7 +227,6 @@
     listEl.appendChild(frag);
   }
 
-  // ---------- Render rows ----------
   function makeRow({ idx, title, subtitle, image, rightText = "" }) {
     const row = document.createElement("div");
     row.className = "row";
@@ -240,8 +254,7 @@
 
     if (typeof idx === "number") {
       const s = document.createElement("span");
-      s.className = "idx";
-      s.textContent = `${idx}.`;
+      s.textContent = `${idx}. `;
       t.appendChild(s);
     }
 
@@ -277,8 +290,10 @@
     listEl.appendChild(row);
   }
 
-  // ---------- Now helpers ----------
+  // ---------- Now artwork ----------
   function applyNowArtwork(img) {
+    if (!nowCoverWrap || !nowImg || !nowFallback || !nowAmbient) return;
+
     if (img) {
       nowImg.src = img;
       nowImg.style.display = "block";
@@ -316,75 +331,80 @@
 
   // ---------- Now ----------
   async function loadNow() {
+    setUpdatedNow(); // ALWAYS show last updated, even if fetch fails
+
     try {
       const j = await fetchJSON("/api/now");
       setOnline(true);
 
       const parsed = parseNowPayload(j);
+      const trackLooksReal = parsed.track && parsed.track !== "—";
       const playing = !!parsed.playing;
 
-      // If not playing, upgrade UI by showing Last played
-      if (!playing) {
-        const last = await getLastPlayedFallback();
+      // If LIVE
+      if (playing) {
+        nowBadge?.classList.add("live");
+        if (nowBadgeText) nowBadgeText.textContent = "LIVE";
 
-        nowBadge.classList.remove("live");
-        nowBadgeText.textContent = "OFF";
+        nowTrack.textContent = parsed.track || "—";
+        nowArtist.textContent = parsed.artist || "—";
+        nowAlbum.textContent = parsed.album || "—";
+        nowMsg.textContent = "";
 
-        if (last) {
-          nowTrack.textContent = last.track || "—";
-          nowArtist.textContent = last.artist || "—";
-          nowAlbum.textContent = last.album || "—";
-          nowMsg.textContent = "Last played";
-          applyNowArtwork(last.image || "");
-        } else {
-          nowTrack.textContent = "—";
-          nowArtist.textContent = "—";
-          nowAlbum.textContent = "—";
-          nowMsg.textContent = parsed.message || "Not playing now";
-          applyNowArtwork("");
-        }
+        applyNowArtwork(normalizeImg(parsed.image || ""));
 
-        nowUpdated.textContent = fmtTime(new Date());
         setupMarquee(nowTrackWrap, nowTrack);
         setupMarquee(nowArtistWrap, nowArtist);
         setupMarquee(nowAlbumWrap, nowAlbum);
+        setUpdatedNow();
         return;
       }
 
-      // Playing (LIVE)
-      const track = parsed.track || "—";
-      const artist = parsed.artist || "—";
-      const album = parsed.album || "—";
-      const img = normalizeImg(parsed.image || "");
+      // Not playing:
+      // BUT if we got real track+artist+artwork and STILL playing=false, force a nicer UI:
+      // show it as "Last played" (not OFF broken state)
+      const last = await getLastPlayedFallback();
 
-      nowBadge.classList.add("live");
-      nowBadgeText.textContent = "LIVE";
+      nowBadge?.classList.remove("live");
+      if (nowBadgeText) nowBadgeText.textContent = "OFF";
 
-      nowTrack.textContent = track;
-      nowArtist.textContent = artist;
-      nowAlbum.textContent = album;
-      nowMsg.textContent = parsed.message || "";
-
-      applyNowArtwork(img);
-
-      nowUpdated.textContent = fmtTime(new Date());
+      if (last) {
+        nowTrack.textContent = last.track || "—";
+        nowArtist.textContent = last.artist || "—";
+        nowAlbum.textContent = last.album || "—";
+        nowMsg.textContent = "Last played";
+        applyNowArtwork(last.image || "");
+      } else if (trackLooksReal) {
+        // fallback: at least show what worker gave us
+        nowTrack.textContent = parsed.track || "—";
+        nowArtist.textContent = parsed.artist || "—";
+        nowAlbum.textContent = parsed.album || "—";
+        nowMsg.textContent = "Not playing now";
+        applyNowArtwork(normalizeImg(parsed.image || ""));
+      } else {
+        nowTrack.textContent = "—";
+        nowArtist.textContent = "—";
+        nowAlbum.textContent = "—";
+        nowMsg.textContent = parsed.message || "Not playing now";
+        applyNowArtwork("");
+      }
 
       setupMarquee(nowTrackWrap, nowTrack);
       setupMarquee(nowArtistWrap, nowArtist);
       setupMarquee(nowAlbumWrap, nowAlbum);
+      setUpdatedNow();
 
-    } catch (e) {
+    } catch {
       setOnline(false);
 
-      nowBadge.classList.remove("live");
-      nowBadgeText.textContent = "OFF";
+      nowBadge?.classList.remove("live");
+      if (nowBadgeText) nowBadgeText.textContent = "OFF";
       nowTrack.textContent = "—";
       nowArtist.textContent = "—";
       nowAlbum.textContent = "—";
       nowMsg.textContent = "Offline";
-      nowUpdated.textContent = fmtTime(new Date());
-
       applyNowArtwork("");
+      setUpdatedNow();
     }
   }
 // ---------- Top ----------
@@ -404,29 +424,23 @@
 
       const frag = document.createDocumentFragment();
       items.forEach((it, i) => {
-        const title = it?.name || "—";
-        const subtitle =
-          topType === "artists"
-            ? (it?.name || "")
-            : (it?.artist || "");
-
         const img = normalizeImg(it?.image || "");
         const rightText = String(it?.playcount ?? "");
 
-        const finalTitle = topType === "artists" ? (it?.name || "—") : title;
-        const finalSub = topType === "artists" ? "" : subtitle;
+        const title = it?.name || "—";
+        const subtitle = topType === "artists" ? "" : (it?.artist || "");
 
         frag.appendChild(makeRow({
           idx: i + 1,
-          title: finalTitle,
-          subtitle: finalSub,
+          title,
+          subtitle,
           image: img,
           rightText
         }));
       });
 
       topList.appendChild(frag);
-    } catch (e) {
+    } catch {
       setOnline(false);
       showError(topList, "Couldn't load Top.");
     }
@@ -462,7 +476,7 @@
       });
 
       recentList.appendChild(frag);
-    } catch (e) {
+    } catch {
       setOnline(false);
       showError(recentList, "Couldn't load Recent.");
     }

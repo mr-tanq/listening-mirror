@@ -120,7 +120,7 @@
       outline-color: rgba(49,208,124,.35);
       box-shadow: 0 0 0 3px rgba(49,208,124,.10);
     }
-/* ✅ A) Sticky tabs */
+
     .tabs{
       display:flex;
       gap:10px;
@@ -131,14 +131,7 @@
       box-shadow: 0 16px 45px rgba(0,0,0,.35);
       width: fit-content;
       margin: 12px 0 16px 0;
-
-      position: sticky;
-      top: calc(var(--safeT) + 8px);
-      z-index: 30;
-      backdrop-filter: blur(14px);
-      -webkit-backdrop-filter: blur(14px);
     }
-
     .tabBtn{
       border:0;
       background: transparent;
@@ -166,20 +159,7 @@
       overflow:hidden;
       position:relative;
     }
-    /* premium highlight */
-    .card:before{
-      content:"";
-      position:absolute;
-      inset:0;
-      pointer-events:none;
-      background:
-        radial-gradient(900px 500px at 15% 0%, rgba(255,255,255,.07), transparent 55%),
-        radial-gradient(700px 420px at 90% 10%, rgba(255,255,255,.05), transparent 58%);
-      opacity:.65;
-      mix-blend-mode: screen;
-    }
-
-    /* NOW ambient */
+/* NOW ambient */
     .nowAmbient{
       position:absolute;
       inset:-1px;
@@ -205,21 +185,16 @@
       inset:0;
       background:
         radial-gradient(900px 500px at 20% 10%, rgba(255,255,255,.06), transparent 55%),
-        linear-gradient(180deg, rgba(10,11,13,.55), rgba(10,11,13,.85));
+        linear-gradient(180deg, rgba(10,11,13,.55), rgba(10,11,13,.88));
     }
 
-    .nowWrap{ position:relative; padding: 18px; z-index:1; }
-    .nowTop{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:12px;
-      margin-bottom: 14px;
-      position:relative;
-      z-index:2;
-    }
+    .nowWrap{ position:relative; padding: 18px; min-height: 180px; }
 
+    /* LIVE chip — top right */
     .chip{
+      position:absolute;
+      top: 14px;
+      right: 14px;
       display:inline-flex;
       align-items:center;
       gap:8px;
@@ -231,54 +206,27 @@
       font-size: 12px;
       letter-spacing:.25px;
       white-space:nowrap;
+      z-index:3;
     }
     .chip .miniDot{ width:6px;height:6px;border-radius:999px; background: rgba(255,255,255,.18); }
-
-    /* ✅ B) Subtle LIVE pulse (not kitsch) */
     .chip.live{
       color: rgba(255,255,255,.95);
       outline-color: var(--liveBd);
       background: var(--liveBg);
-      animation: livePulse 2.4s ease-in-out infinite;
     }
     .chip.live .miniDot{
       background: var(--live);
       box-shadow: 0 0 0 3px rgba(255,59,59,.12);
     }
-    @keyframes livePulse{
-      0%,100% { box-shadow: 0 0 0 0 rgba(255,59,59,.00); }
-      50%     { box-shadow: 0 0 0 6px rgba(255,59,59,.07); }
-    }
 
-    /* Updated bottom-right */
-    .updatedCorner{
-      position:absolute;
-      right: 14px;
-      bottom: 12px;
-      z-index:3;
-      font-size: 11px;
-      letter-spacing:.2px;
-      color: rgba(255,255,255,.55);
-      padding: 6px 9px;
-      border-radius: 999px;
-      background: rgba(255,255,255,.035);
-      outline: 1px solid rgba(255,255,255,.07);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      user-select:none;
-      white-space:nowrap;
-    }
-    .updatedCorner b{
-      font-weight: 650;
-      color: rgba(255,255,255,.72);
-    }
-.nowMain{
+    .nowMain{
       display:grid;
       grid-template-columns: 120px 1fr;
       gap: 14px;
       align-items:center;
       position:relative;
       z-index:2;
+      padding-top: 10px;
     }
 
     .coverWrap{
@@ -291,6 +239,7 @@
       background: rgba(255,255,255,.03);
       box-shadow: 0 18px 55px rgba(0,0,0,.55);
     }
+    /* artwork glow */
     .coverWrap:before{
       content:"";
       position:absolute;
@@ -304,6 +253,7 @@
       -webkit-mask-image: radial-gradient(circle at 50% 50%, rgba(0,0,0,.55) 0%, rgba(0,0,0,.25) 35%, rgba(0,0,0,0) 68%);
       mask-image: radial-gradient(circle at 50% 50%, rgba(0,0,0,.55) 0%, rgba(0,0,0,.25) 35%, rgba(0,0,0,0) 68%);
       pointer-events:none;
+      transition: opacity .25s ease;
     }
 
     .coverImg{ width:100%; height:100%; object-fit:cover; display:none; position:relative; z-index:2; }
@@ -312,12 +262,60 @@
       color: rgba(255,255,255,.35); font-size: 30px; z-index:3;
     }
 
+    /* Premium IDLE state (Option B) */
+    .idle .nowAmbient{ opacity: 0 !important; }
+    .idle .coverImg{ display:none !important; }
+    .idle .coverFallback{ display:none !important; }
+    .idle .coverWrap{
+      background:
+        radial-gradient(120px 120px at 35% 30%, rgba(255,255,255,.08), transparent 55%),
+        radial-gradient(160px 140px at 70% 70%, rgba(255,255,255,.05), transparent 60%),
+        rgba(255,255,255,.02);
+      outline-color: rgba(255,255,255,.09);
+    }
+    .idle .coverWrap:before{ opacity: 0 !important; }
+    .idle .idleOrb{
+      opacity: 1;
+      transform: scale(1);
+    }
+    .idleOrb{
+      position:absolute;
+      inset: 0;
+      display:grid;
+      place-items:center;
+      opacity: 0;
+      transform: scale(.98);
+      transition: opacity .25s ease, transform .25s ease;
+      z-index:3;
+      pointer-events:none;
+    }
+    .idleOrb:before{
+      content:"";
+      width: 58px;
+      height: 58px;
+      border-radius: 999px;
+      background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.11), rgba(255,255,255,.03) 58%, rgba(255,255,255,.02) 70%);
+      outline: 1px solid rgba(255,255,255,.10);
+      box-shadow: 0 18px 55px rgba(0,0,0,.50);
+    }
+    .idleOrb:after{
+      content:"";
+      position:absolute;
+      width: 76px;
+      height: 76px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.07);
+      opacity: .9;
+      -webkit-mask-image: radial-gradient(circle, #000 55%, transparent 75%);
+      mask-image: radial-gradient(circle, #000 55%, transparent 75%);
+    }
+
     .nowText{ min-width:0; padding-left: 4px; }
-    .line1{ font-size: 15px; font-weight: 720; letter-spacing: .15px; }
-    .line2{ margin-top: 6px; font-size: 13px; color: rgba(255,255,255,.74); }
+    .line1{ font-size: 15px; font-weight: 680; letter-spacing: .15px; }
+    .line2{ margin-top: 6px; font-size: 13px; color: rgba(255,255,255,.72); }
     .line3{ margin-top: 6px; font-size: 12px; color: var(--muted2); }
 
-    /* Marquee: no left fade */
+    /* Marquee — RIGHT fade only (no first-letter cut) */
     .marq{ display:inline-block; white-space:nowrap; will-change:transform; }
     .marqWrap{
       position:relative;
@@ -338,10 +336,7 @@
       gap:10px;
       flex-wrap:wrap;
       border-bottom: 1px solid rgba(255,255,255,.07);
-      position:relative;
-      z-index:1;
     }
-
     .seg{
       display:flex;
       gap:8px;
@@ -367,7 +362,7 @@
       color: rgba(255,255,255,.95);
     }
 
-    .list{ padding: 10px; position:relative; z-index:1; }
+    .list{ padding: 10px; }
 
     .row{
       display:grid;
@@ -377,23 +372,9 @@
       border-radius: 16px;
       align-items:center;
       user-select:none;
-      position:relative;
     }
-    .row:hover{ background: rgba(255,255,255,.030); }
-    .row:active{ background: rgba(255,255,255,.040); }
-
-    /* subtle divider */
-    .row:after{
-      content:"";
-      position:absolute;
-      left: 16px;
-      right: 12px;
-      bottom: -1px;
-      height: 1px;
-      background: rgba(255,255,255,.05);
-      opacity:.55;
-    }
-    .row:last-child:after{ display:none; }
+    .row:hover{ background: rgba(255,255,255,.035); }
+    .row:active{ background: rgba(255,255,255,.045); }
 
     .thumb{
       width: 44px; height: 44px;
@@ -411,20 +392,9 @@
     }
 
     .mid{ min-width:0; padding-left: 3px; }
-
-    /* ✅ E) Small refined index number */
-    .idx{
-      display:inline-block;
-      font-size: 12px;
-      font-weight: 650;
-      color: rgba(255,255,255,.52);
-      margin-right: 6px;
-      transform: translateY(-0.5px);
-    }
-
     .title{
       font-size: 13.5px;
-      font-weight: 680;
+      font-weight: 650;
       color: rgba(255,255,255,.92);
       white-space:nowrap;
       overflow:hidden;
@@ -441,49 +411,22 @@
 
     .right{
       font-size: 12.5px;
-      font-weight: 720;
-      color: rgba(255,255,255,.78);
+      font-weight: 700;
+      color: rgba(255,255,255,.80);
       padding-left: 8px;
       white-space:nowrap;
     }
     .right.count{
-      color: rgba(255,214,102,.90);
+      color: rgba(255,214,102,.92);
     }
-
-    /* ✅ C) Skeleton rows */
-    .skeleton .thumb{ background: rgba(255,255,255,.025); }
-    .skLine{
-      height: 10px;
-      border-radius: 999px;
-      background: rgba(255,255,255,.06);
-      position:relative;
-      overflow:hidden;
-    }
-    .skLine:after{
-      content:"";
-      position:absolute;
-      inset:0;
-      background: linear-gradient(90deg, transparent, rgba(255,255,255,.08), transparent);
-      transform: translateX(-60%);
-      animation: shimmer 1.05s linear infinite;
-    }
-    @keyframes shimmer{
-      0%{ transform: translateX(-60%); }
-      100%{ transform: translateX(60%); }
-    }
-    .skW1{ width: 64%; }
-    .skW2{ width: 42%; margin-top: 8px; }
-    .skCount{ width: 26px; height: 10px; border-radius: 999px; background: rgba(255,255,255,.06); }
 
     @media (max-width: 520px){
       .nowMain{ grid-template-columns: 106px 1fr; }
       .coverWrap{ width:106px;height:106px;border-radius:18px; }
       .tabs{ width: 100%; justify-content: space-between; }
-      .updatedCorner{ right: 12px; bottom: 10px; }
     }
   </style>
 </head>
-
 <body>
   <div class="app">
     <header>
@@ -506,42 +449,41 @@
     </div>
 
     <section class="panel" data-panel="now">
-      <div class="card">
+      <div class="card idle" id="nowCard">
         <div id="nowAmbient" class="nowAmbient"></div>
 
         <div class="nowWrap">
-          <div class="nowTop">
-            <div id="nowBadge" class="chip">
-              <span class="miniDot" aria-hidden="true"></span>
-              <span id="nowBadgeText">OFF</span>
-            </div>
+          <!-- LIVE top-right -->
+          <div id="nowBadge" class="chip live" style="display:none;">
+            <span class="miniDot" aria-hidden="true"></span>
+            <span id="nowBadgeText">LIVE</span>
           </div>
 
           <div class="nowMain">
             <div class="coverWrap" id="nowCoverWrap">
               <img id="nowImg" class="coverImg" alt="" />
-              <div id="nowFallback" class="coverFallback">♪</div>
+              <div class="idleOrb" aria-hidden="true"></div>
+              <div id="nowFallback" class="coverFallback" style="display:none;">♪</div>
             </div>
 
-            <div class="nowText">
+            <div class="nowText" id="nowText">
               <div class="line1 marqWrap" id="nowTrackWrap">
-                <span class="marq" id="nowTrack">—</span>
+                <span class="marq" id="nowTrack"></span>
               </div>
               <div class="line2 marqWrap" id="nowArtistWrap">
-                <span class="marq" id="nowArtist">—</span>
+                <span class="marq" id="nowArtist"></span>
               </div>
               <div class="line3 marqWrap" id="nowAlbumWrap">
-                <span class="marq" id="nowAlbum">—</span>
+                <span class="marq" id="nowAlbum"></span>
               </div>
-              <div class="sub" id="nowMsg" style="margin-top:12px;">—</div>
+              <!-- no messages in premium UI -->
             </div>
           </div>
-
-          <div class="updatedCorner">Updated <b id="nowUpdated">--</b></div>
         </div>
       </div>
     </section>
-<section class="panel hidden" data-panel="top">
+
+    <section class="panel hidden" data-panel="top">
       <div class="card">
         <div class="controls">
           <div class="seg" aria-label="Top type">

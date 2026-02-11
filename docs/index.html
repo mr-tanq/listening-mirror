@@ -3,488 +3,340 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <meta name="theme-color" content="#0b0c0e" />
   <title>Listening Mirror</title>
-
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 
   <style>
     :root{
-      --bg0:#07080a;
-      --bg1:#0b0c0e;
-
-      --text: rgba(255,255,255,.94);
-      --muted: rgba(255,255,255,.62);
-      --muted2: rgba(255,255,255,.48);
-
-      --good:#31d07c;
-      --bad:#ff5a5a;
-
-      --r: 22px;
-      --r2: 16px;
-
-      --blur: 10px;
-      --maskFade: 20px;
-
-      --stickyTop: calc(env(safe-area-inset-top) + 14px);
-
-      /* ✅ minimal glass */
-      --glass: rgba(255,255,255,.055);
-      --glass2: rgba(255,255,255,.030);
-      --stroke: rgba(255,255,255,.075);
-      --stroke2: rgba(255,255,255,.055);
-
-      /* ✅ softer shadows (more premium, less “gamer”) */
-      --shadowA: 0 28px 80px rgba(0,0,0,.62);
-      --shadowB: 0 12px 34px rgba(0,0,0,.42);
-
-      /* typography */
-      --titleStrong: rgba(255,255,255,.94);
-      --titleSoft: rgba(255,255,255,.82);
-      --titleDim: rgba(255,255,255,.66);
-
-      /* playcount accent */
-      --countAccent: rgba(49,208,124,.92);
-      --countGlow: rgba(49,208,124,.16);
-
-      /* micro motion */
-      --ease: cubic-bezier(.2,.8,.2,1);
+      --bg:#07080a;
+      --glass: rgba(18, 22, 30, .62);
+      --glass2: rgba(14, 16, 22, .55);
+      --stroke: rgba(255,255,255,.08);
+      --stroke2: rgba(255,255,255,.06);
+      --text:#f2f4f8;
+      --muted: rgba(242,244,248,.72);
+      --muted2: rgba(242,244,248,.46);
+      --accent:#32d27b;
+      --shadow: 0 24px 70px rgba(0,0,0,.58);
+      --r: 26px;
+      --r2: 18px;
+      --w: 720px;
     }
 
     *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
-    html,body{ height:100%; }
+    html, body { height:100%; }
     body{
       margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
       color:var(--text);
-      /* ✅ πιο minimal: κρατάμε 2 πολύ ήπιες λάμψεις */
-      background:
-        radial-gradient(900px 650px at 10% 0%, rgba(120,80,255,.10), transparent 60%),
-        radial-gradient(900px 650px at 90% 15%, rgba(40,210,255,.06), transparent 62%),
-        linear-gradient(180deg, var(--bg0), var(--bg1));
-      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      letter-spacing: .15px;
+      background: radial-gradient(1200px 700px at 50% -10%, rgba(66,120,255,.18), transparent 55%),
+                  radial-gradient(900px 520px at 10% 10%, rgba(120,70,255,.10), transparent 60%),
+                  radial-gradient(900px 520px at 90% 20%, rgba(0,255,170,.06), transparent 60%),
+                  linear-gradient(180deg, #050607 0%, #07080a 45%, #050607 100%);
       overflow-x:hidden;
     }
 
     .wrap{
-      max-width: 820px;
+      max-width: var(--w);
       margin: 0 auto;
-      padding: calc(env(safe-area-inset-top) + 18px) 16px calc(env(safe-area-inset-bottom) + 18px);
+      padding: 18px 14px 36px;
     }
 
-    /* ---------------- Topbar ---------------- */
     .topbar{
       display:flex;
       align-items:center;
-      justify-content:space-between;
-      gap: 12px;
-      margin-bottom: 10px;
+      gap:14px;
+      margin: 10px 0 14px;
     }
 
-    .brand{
-      display:flex;
-      align-items:center;
-      gap: 12px;
-      min-width: 0;
-    }
-
-    /* ✅ logo πιο καθαρό / readable */
     .logo{
-      width: 44px; height: 44px;
-      border-radius: 14px;
-      display:grid; place-items:center;
-      background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.03));
-      border: 1px solid rgba(255,255,255,.12);
-      box-shadow: var(--shadowB);
+      width:52px; height:52px;
+      border-radius: 16px;
+      background: linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.04));
+      border: 1px solid var(--stroke);
+      box-shadow: 0 18px 55px rgba(0,0,0,.42);
+      display:grid;
+      place-items:center;
+      font-weight: 800;
+      letter-spacing: .02em;
+      opacity:.96;
       flex: 0 0 auto;
-      position: relative;
-      overflow:hidden;
-    }
-    .logo::after{
-      content:"";
-      position:absolute; inset:-1px;
-      background:
-        radial-gradient(12px 12px at 25% 30%, rgba(255,255,255,.16), transparent 60%),
-        radial-gradient(18px 18px at 72% 70%, rgba(255,255,255,.08), transparent 62%);
-      opacity:.85;
-      pointer-events:none;
-    }
-    .logo span{
-      font-weight: 950;
-      font-size: 16px;
-      color: rgba(255,255,255,.94);
-      text-shadow:
-        0 1px 0 rgba(0,0,0,.55),
-        0 0 14px rgba(255,255,255,.10);
-      transform: translateY(-.5px);
       user-select:none;
     }
 
-    .brandText{
+    .brand{
       min-width:0;
       display:flex;
       flex-direction:column;
-      gap: 3px;
+      gap:4px;
     }
-    .title{
-      font-size: 18px;
-      font-weight: 900;
-      line-height: 1.1;
-      min-width:0;
+
+    .brand h1{
+      margin:0;
+      font-size: 22px;
+      line-height: 1.08;
+      letter-spacing: .01em;
     }
+
     .status{
-      font-size: 12.5px;
-      color: var(--muted);
       display:flex;
       align-items:center;
-      gap: 8px;
+      gap:8px;
+      font-size: 13px;
+      color: var(--muted);
+      letter-spacing: .01em;
     }
+
     .dot{
-      width: 8px; height: 8px;
-      border-radius: 999px;
-      background: rgba(255,255,255,.18);
-      box-shadow: 0 0 0 rgba(0,0,0,0);
+      width:10px; height:10px;
+      border-radius: 99px;
+      background: rgba(255,255,255,.12);
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,.25);
     }
-    .dot.online{
-      background: var(--good);
-      box-shadow: 0 0 0 6px rgba(49,208,124,.10);
-    }
-    .dot.offline{
-      background: var(--bad);
-      box-shadow: 0 0 0 6px rgba(255,90,90,.10);
+    .dot.on{
+      background: var(--accent);
+      box-shadow: 0 0 0 6px rgba(50,210,123,.12);
     }
 
-    /* ---------------- Tabs ---------------- */
-    .tabsSticky{
-      position: sticky;
-      top: var(--stickyTop);
-      z-index: 50;
+    /* Tabs */
+    .tabsShell{
       margin-top: 10px;
-      margin-bottom: 14px;
-    }
-
-    /* ✅ πιο minimal “pill bar” */
-    .tabs{
-      padding: 6px;
+      background: rgba(255,255,255,.04);
+      border: 1px solid var(--stroke2);
       border-radius: 999px;
-      border: 1px solid rgba(255,255,255,.06);
-      background: rgba(0,0,0,.20);
-      backdrop-filter: blur(var(--blur));
-      -webkit-backdrop-filter: blur(var(--blur));
+      padding: 6px;
       display:flex;
-      gap: 6px;
-      box-shadow: var(--shadowB);
+      gap:6px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
     }
 
     .tabBtn{
       flex:1;
-      height: 44px;
-      border-radius: 999px;
-      border: 1px solid transparent;
+      border:0;
+      color: var(--muted);
       background: transparent;
-      color: rgba(255,255,255,.62);
-      font-weight: 850;
-      font-size: 13px;
-      letter-spacing: .25px;
+      border-radius: 999px;
+      padding: 12px 12px;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: .01em;
       cursor:pointer;
-      transition:
-        background .20s var(--ease),
-        color .20s var(--ease),
-        border-color .20s var(--ease),
-        transform .16s var(--ease),
-        filter .20s var(--ease);
+      transition: transform .12s ease, background .18s ease, color .18s ease;
     }
-
-    /* ✅ micro “lift” στο selected */
     .tabBtn[aria-selected="true"]{
-      background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.045));
-      border-color: rgba(255,255,255,.09);
-      color: rgba(255,255,255,.92);
-      transform: translateY(-1px);
-      filter: saturate(1.05);
-      box-shadow: 0 10px 26px rgba(0,0,0,.25);
+      background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.05));
+      color: var(--text);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.10);
     }
 
-    .tabBtn:active{ transform: translateY(0px) scale(.99); }
-
+    /* Panels */
     .panel{ margin-top: 14px; }
-    .hidden{ display:none !important; }
+    .hidden{ display:none; }
 
-    /* ---------------- Cards ---------------- */
+    /* Sticky headers inside panels */
+    .stickyHeader{
+      position: sticky;
+      top: 10px;
+      z-index: 15;
+      padding: 10px 0;
+      background: linear-gradient(180deg, rgba(7,8,10,.92) 0%, rgba(7,8,10,.60) 60%, rgba(7,8,10,0) 100%);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
     .card{
-      border-radius: var(--r);
+      background: var(--glass);
       border: 1px solid var(--stroke2);
-      background: linear-gradient(180deg, var(--glass), var(--glass2));
-      backdrop-filter: blur(var(--blur));
-      -webkit-backdrop-filter: blur(var(--blur));
-      box-shadow: var(--shadowA);
+      border-radius: var(--r);
+      box-shadow: var(--shadow);
+      padding: 16px;
       overflow:hidden;
-      position: relative;
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
     }
 
-    /* ✅ πιο διακριτικό inner highlight */
-    .card::after{
-      content:"";
-      position:absolute;
-      inset: 0;
-      border-radius: inherit;
-      pointer-events:none;
-      box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.08),
-        inset 0 0 0 1px rgba(255,255,255,.02);
-      opacity: .9;
-    }
-
-    .cardInner{ padding: 18px; }
-
-    .cardHead{
+    .cardHeader{
       display:flex;
       align-items:flex-start;
       justify-content:space-between;
-      gap: 12px;
-      margin-bottom: 14px;
+      gap:14px;
+      margin-bottom: 10px;
     }
 
-    .cardHeadLeft{
-      display:flex;
-      flex-direction:column;
-      gap: 6px;
-      min-width:0;
+    .titleBlock h2{
+      margin:0;
+      font-size: 28px;
+      letter-spacing: .01em;
+      line-height: 1.06;
     }
-
-    .cardTitle{
-      font-size: 18px;
-      font-weight: 900;
-      letter-spacing: .15px;
-      line-height: 1.05;
-    }
-
-    .meta{
-      color: var(--muted);
-      font-size: 13px;
-      font-weight: 650;
-    }
-
-    /* ✅ caption text */
-    .caption{
+    .subline{
+      margin-top: 6px;
       color: var(--muted2);
-      font-size: 12.5px;
-      font-weight: 750;
-      letter-spacing: .15px;
+      font-size: 14px;
+      letter-spacing:.01em;
     }
 
-    /* badges */
     .pill{
-      height: 30px;
-      padding: 0 10px;
+      padding: 10px 14px;
       border-radius: 999px;
-      border: 1px solid rgba(255,255,255,.10);
-      background: rgba(0,0,0,.18);
-      color: rgba(255,255,255,.72);
-      font-weight: 900;
-      font-size: 12px;
-      display:inline-flex;
-      align-items:center;
-      gap: 8px;
-      box-shadow: 0 10px 22px rgba(0,0,0,.22);
-      flex: 0 0 auto;
+      border: 1px solid var(--stroke2);
+      background: rgba(255,255,255,.05);
+      color: var(--muted);
+      font-weight: 800;
+      letter-spacing: .02em;
+      user-select:none;
+      flex:0 0 auto;
     }
     .pill.live{
-      color: #0b1110;
-      border-color: rgba(49,208,124,.35);
-      background: rgba(49,208,124,.92);
-      box-shadow: 0 0 0 6px rgba(49,208,124,.10);
+      color: #0c1c12;
+      background: rgba(50,210,123,.92);
+      border-color: rgba(50,210,123,.55);
+      box-shadow: 0 14px 30px rgba(50,210,123,.20);
     }
 
-    /* ---------------- Now Playing ---------------- */
-    .np{
-      display:flex;
-      gap: 16px;
-      align-items:flex-start;
-      margin-top: 6px;
+    /* Now playing layout */
+    .nowGrid{
+      display:grid;
+      grid-template-columns: 120px 1fr;
+      gap:16px;
+      align-items:center;
     }
-    .art{
-      width: 120px;
-      height: 120px;
+
+    .coverBig{
+      width:120px; height:120px;
       border-radius: 22px;
-      border: 1px solid rgba(255,255,255,.09);
-      background: rgba(0,0,0,.20);
-      box-shadow: var(--shadowB);
       overflow:hidden;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.04);
+      box-shadow: 0 18px 55px rgba(0,0,0,.40);
       position:relative;
-      flex: 0 0 auto;
     }
-    .art::after{
-      content:"";
-      position:absolute; inset:0;
-      pointer-events:none;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
-      border-radius: inherit;
-      opacity:.9;
+    .coverBig img{
+      width:100%; height:100%;
+      object-fit: cover;
+      display:block;
+      image-rendering: -webkit-optimize-contrast;
+      transform: translateZ(0);
     }
-    .art img{ width:100%; height:100%; object-fit: cover; display:block; }
-    .art .fallback{
+    .coverBig .fallback{
       position:absolute; inset:0;
       display:grid;
       place-items:center;
-      color: rgba(255,255,255,.26);
+      color: rgba(255,255,255,.40);
       font-size: 26px;
+      letter-spacing:.06em;
       user-select:none;
     }
 
-    .npText{
-      min-width:0;
-      flex:1;
+    .nowText{ min-width:0; }
+    .nowTrack{
+      font-size: 34px;
+      font-weight: 900;
+      line-height: 1.04;
+      letter-spacing: .01em;
+      margin:0;
+    }
+    .nowMeta{
+      margin-top: 8px;
       display:flex;
       flex-direction:column;
-      gap: 10px;
+      gap:4px;
+      color: var(--muted);
+      font-size: 16px;
+      font-weight: 650;
     }
-    .lines{ display:flex; flex-direction:column; gap: 8px; }
-
-    /* marquee */
-    .marq{
-      position: relative;
-      min-width: 0;
-      max-width: 100%;
-      overflow: hidden;
-      --duration: 10s;
-      --gap: 28px;
-      -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--maskFade), #000 calc(100% - var(--maskFade)), transparent 100%);
-              mask-image: linear-gradient(90deg, transparent 0, #000 var(--maskFade), #000 calc(100% - var(--maskFade)), transparent 100%);
-    }
-    .marq .inner{
-      display:inline-flex;
-      align-items:center;
-      gap: var(--gap);
-      white-space: nowrap;
-      will-change: transform;
-    }
-    .marq.animate .inner{ animation: scroll var(--duration) linear infinite; }
-    @keyframes scroll{
-      0%{ transform: translateX(0); }
-      100%{ transform: translateX(calc(-1 * var(--shift, 50%))); }
+    .nowState{
+      margin-top: 10px;
+      color: var(--muted2);
+      font-size: 14px;
     }
 
-    .h1{ font-size: 22px; font-weight: 900; line-height: 1.15; color: var(--titleStrong); text-shadow: 0 1px 0 rgba(0,0,0,.35); }
-    .h2{ font-size: 14px; font-weight: 800; color: var(--titleSoft); line-height: 1.25; }
-    .h3{ font-size: 13px; font-weight: 750; color: var(--titleDim); line-height: 1.25; }
-
-    .subnote{ margin-top: 10px; color: var(--muted); font-size: 13px; font-weight: 650; }
-
-    /* ---------------- Top controls ---------------- */
+    /* Controls (Top panel) */
     .controls{
       display:flex;
-      flex-wrap:wrap;
-      gap: 10px;
-      align-items:center;
-      margin-top: 10px;
+      flex-direction:column;
+      gap:10px;
+      margin-top: 12px;
     }
     .seg{
       display:flex;
-      gap: 6px;
-      padding: 6px;
+      gap:8px;
+      background: rgba(255,255,255,.04);
+      border: 1px solid var(--stroke2);
       border-radius: 999px;
-      border: 1px solid rgba(255,255,255,.06);
-      background: rgba(0,0,0,.18);
-      backdrop-filter: blur(var(--blur));
-      -webkit-backdrop-filter: blur(var(--blur));
-      box-shadow: var(--shadowB);
+      padding: 6px;
+      width:100%;
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,.12);
     }
     .seg button{
-      height: 36px;
-      padding: 0 12px;
-      border-radius: 999px;
-      border: 1px solid transparent;
+      flex:1;
+      border:0;
       background: transparent;
-      color: rgba(255,255,255,.58);
+      color: var(--muted2);
+      padding: 10px 10px;
+      border-radius: 999px;
       font-weight: 850;
-      font-size: 12px;
+      letter-spacing: .01em;
       cursor:pointer;
-      transition:
-        background .20s var(--ease),
-        color .20s var(--ease),
-        border-color .20s var(--ease),
-        transform .16s var(--ease),
-        filter .20s var(--ease),
-        box-shadow .20s var(--ease);
+      transition: background .18s ease, color .18s ease, transform .12s ease;
     }
-
-    /* ✅ micro “lift” στο selected seg */
     .seg button[aria-selected="true"]{
-      background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.045));
-      border-color: rgba(255,255,255,.09);
-      color: rgba(255,255,255,.90);
-      transform: translateY(-1px);
-      filter: saturate(1.04);
-      box-shadow: 0 10px 22px rgba(0,0,0,.20);
+      background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.05));
+      color: var(--text);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
     }
-    .seg button:active{ transform: translateY(0px) scale(.99); }
-    .spacer{ flex:1; }
 
-    /* ---------------- Lists ---------------- */
+    /* List rows */
     .list{
       margin-top: 14px;
       display:flex;
       flex-direction:column;
-      gap: 10px;
+      gap:12px;
     }
 
-    /* ✅ row πιο clean, λιγότερο “bubble” */
     .row{
+      background: rgba(255,255,255,.045);
+      border: 1px solid rgba(255,255,255,.06);
+      border-radius: 22px;
+      padding: 14px 14px;
       display:flex;
       align-items:center;
-      gap: 12px;
-      padding: 12px;
-      border-radius: 18px;
-      border: 1px solid rgba(255,255,255,.055);
-      background: rgba(0,0,0,.16);
-      box-shadow: 0 12px 30px rgba(0,0,0,.34);
-      transition:
-        transform .16s var(--ease),
-        border-color .18s var(--ease),
-        filter .18s var(--ease);
-      position: relative;
-      overflow:hidden;
+      gap:12px;
+      box-shadow: 0 16px 45px rgba(0,0,0,.35);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      transition: transform .12s ease, box-shadow .18s ease, border-color .18s ease;
+      user-select:none;
     }
-    .row::after{
-      content:"";
-      position:absolute; inset:0;
-      border-radius: inherit;
-      pointer-events:none;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
-      opacity:.9;
+    .row.is-press{
+      transform: scale(.988);
+      box-shadow: 0 18px 55px rgba(0,0,0,.42), 0 0 0 6px rgba(50,210,123,.10);
+      border-color: rgba(50,210,123,.28);
     }
-    .row:hover{ filter: brightness(1.03); border-color: rgba(255,255,255,.085); }
-    .row:active{ transform: translateY(1px) scale(.995); }
 
     .cover{
-      width: 56px;
-      height: 56px;
-      border-radius: 16px;
-      border: 1px solid rgba(255,255,255,.09);
-      background: rgba(0,0,0,.20);
+      width:64px; height:64px;
+      border-radius: 18px;
       overflow:hidden;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.04);
       position:relative;
       flex: 0 0 auto;
-      box-shadow: 0 12px 24px rgba(0,0,0,.42);
     }
-    .cover::after{
-      content:"";
-      position:absolute; inset:0;
-      border-radius: inherit;
-      pointer-events:none;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
-      opacity:.85;
+    .cover img{
+      width:100%; height:100%;
+      object-fit: cover;
+      display:block;
+      image-rendering: -webkit-optimize-contrast;
+      transform: translateZ(0);
     }
-    .cover img{ width:100%; height:100%; object-fit: cover; display:block; }
-    .coverFallback{
+    .cover .coverFallback{
       position:absolute; inset:0;
       display:grid;
       place-items:center;
-      color: rgba(255,255,255,.25);
-      font-weight: 900;
+      color: rgba(255,255,255,.35);
+      font-size: 18px;
       user-select:none;
     }
 
@@ -492,115 +344,149 @@
       min-width:0;
       flex:1;
       display:flex;
-      flex-direction:column;
-      gap: 6px;
+      align-items:baseline;
+      gap:10px;
     }
-    .rowTitle{
-      font-size: 14px;
+
+    /* Index column (never in marquee) */
+    .idx{
+      flex:0 0 auto;
+      width: 32px;
+      text-align:right;
       font-weight: 900;
-      line-height: 1.15;
-      min-width:0;
-      color: rgba(255,255,255,.90);
-      text-shadow: 0 1px 0 rgba(0,0,0,.30);
+      color: rgba(242,244,248,.42);
+      letter-spacing: .08em;
+      font-variant-numeric: tabular-nums;
     }
-    .rowSub{
-      font-size: 12.5px;
-      color: rgba(255,255,255,.62);
-      font-weight: 750;
+
+    .textCol{
       min-width:0;
+      flex:1;
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+    }
+    .title{
+      font-weight: 900;
+      font-size: 20px;
+      line-height: 1.05;
+      letter-spacing: .01em;
+      color: var(--text);
+      min-width:0;
+    }
+    .sub{
+      color: var(--muted2);
+      font-weight: 750;
+      font-size: 15px;
+      letter-spacing: .01em;
+      min-width:0;
+    }
+
+    /* Marquee: only on the text span, NOT on the idx */
+    .marquee{
+      position:relative;
+      overflow:hidden;
+      padding-left: 4px; /* "τσαφ" δεξιά, ώστε να μη φαγώνεται το πρώτο γράμμα */
+      -webkit-mask-image: linear-gradient(to right,
+        transparent 0px,
+        rgba(0,0,0,1) 14px,
+        rgba(0,0,0,1) calc(100% - 22px),
+        transparent 100%);
+      mask-image: linear-gradient(to right,
+        transparent 0px,
+        rgba(0,0,0,1) 14px,
+        rgba(0,0,0,1) calc(100% - 22px),
+        transparent 100%);
+    }
+    .marquee .inner{
+      display:inline-flex;
+      gap: 18px;
+      white-space: nowrap;
+      will-change: transform;
+    }
+    .marquee[data-animate="false"] .inner{
+      transform:none !important;
+      animation:none !important;
+    }
+    @keyframes scrollX{
+      0%{ transform: translateX(0); }
+      100%{ transform: translateX(calc(-1 * var(--dx))); }
     }
 
     .right{
-      font-size: 13px;
-      font-weight: 900;
-      color: rgba(255,255,255,.82);
-      padding-left: 6px;
-      flex: 0 0 auto;
+      flex:0 0 auto;
+      min-width: 46px;
+      text-align:right;
+      font-weight: 950;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: .02em;
+      color: rgba(242,244,248,.50);
     }
-    .right.count{
-      color: var(--countAccent);
-      text-shadow: 0 0 16px var(--countGlow);
-    }
-
-    /* skeleton */
-    .skeleton{
-      position:relative;
-      overflow:hidden;
-      background: rgba(255,255,255,.06);
-    }
-    .skeleton::after{
-      content:"";
-      position:absolute; inset:-40%;
-      background: linear-gradient(90deg, transparent, rgba(255,255,255,.11), transparent);
-      transform: translateX(-30%);
-      animation: shimmer 1.2s linear infinite;
-    }
-    @keyframes shimmer{
-      0%{ transform: translateX(-45%); }
-      100%{ transform: translateX(45%); }
+    .right.accent{
+      color: rgba(50,210,123,.92);
     }
 
-    @media (max-width: 420px){
-      .art{ width: 104px; height: 104px; border-radius: 20px; }
-      .h1{ font-size: 20px; }
+    .empty{
+      margin-top: 14px;
+      padding: 18px 16px;
+      border-radius: 22px;
+      border: 1px solid rgba(255,255,255,.07);
+      background: rgba(255,255,255,.04);
+      color: var(--muted);
+      box-shadow: 0 16px 45px rgba(0,0,0,.32);
+    }
+
+    @media (max-width: 430px){
+      .nowTrack{ font-size: 30px; }
+      .coverBig{ width:110px; height:110px; border-radius: 20px; }
+      .nowGrid{ grid-template-columns: 110px 1fr; }
+      .idx{ width: 28px; }
+      .title{ font-size: 19px; }
+      .cover{ width:62px; height:62px; border-radius: 17px; }
     }
   </style>
 </head>
+
 <body>
   <div class="wrap">
     <div class="topbar">
+      <div class="logo">LM</div>
       <div class="brand">
-        <div class="logo"><span>LM</span></div>
-        <div class="brandText">
-          <div class="title">Listening Mirror</div>
-          <div class="status"><span id="statusDot" class="dot"></span><span id="statusLine">Offline</span></div>
-        </div>
+        <h1>Listening Mirror</h1>
+        <div class="status"><span id="statusDot" class="dot"></span><span id="statusLine">Offline</span></div>
       </div>
     </div>
 
-    <div class="tabsSticky">
-      <div class="tabs" role="tablist" aria-label="Listening Mirror">
-        <button class="tabBtn" data-tab="now" aria-selected="true" type="button">Now Playing</button>
-        <button class="tabBtn" data-tab="top" aria-selected="false" type="button">Top</button>
-        <button class="tabBtn" data-tab="recent" aria-selected="false" type="button">Recent</button>
-      </div>
+    <div class="tabsShell" role="tablist" aria-label="Main tabs">
+      <button class="tabBtn" data-tab="now" aria-selected="true">Now Playing</button>
+      <button class="tabBtn" data-tab="top" aria-selected="false">Top</button>
+      <button class="tabBtn" data-tab="recent" aria-selected="false">Recent</button>
     </div>
 
     <!-- NOW -->
     <section class="panel" data-panel="now">
-      <div class="card" id="nowCard">
-        <div class="cardInner">
-          <div class="cardHead">
-            <div class="cardHeadLeft">
-              <div class="cardTitle">Now Playing</div>
-              <div class="meta">Updated: <span id="nowUpdated">--</span></div>
-            </div>
-            <div class="pill" id="nowBadge">OFF</div>
+      <div class="card">
+        <div class="cardHeader">
+          <div class="titleBlock">
+            <h2>Now Playing</h2>
+            <div class="subline">Updated: <span id="nowUpdated">--</span></div>
+          </div>
+          <div id="nowBadge" class="pill">OFF</div>
+        </div>
+
+        <div class="nowGrid">
+          <div class="coverBig">
+            <img id="nowImg" alt="" style="display:none" />
+            <div id="nowFallback" class="fallback">♪</div>
           </div>
 
-          <div class="np">
-            <div class="art">
-              <img id="nowImg" alt="" style="display:none" />
-              <div id="nowFallback" class="fallback">♪</div>
+          <div class="nowText">
+            <h3 id="nowTrack" class="nowTrack">—</h3>
+            <div class="nowMeta">
+              <div id="nowArtist">—</div>
+              <div id="nowAlbum" style="color:rgba(242,244,248,.50); font-weight:750;">—</div>
             </div>
-
-            <div class="npText">
-              <div class="lines">
-                <div class="marq h1" data-marq>
-                  <div class="inner"><span id="nowTrack">—</span><span class="dup" aria-hidden="true"></span></div>
-                </div>
-
-                <div class="marq h2" data-marq style="--duration:12s">
-                  <div class="inner"><span id="nowArtist">—</span><span class="dup" aria-hidden="true"></span></div>
-                </div>
-
-                <div class="marq h3" data-marq style="--duration:14s">
-                  <div class="inner"><span id="nowAlbum">—</span><span class="dup" aria-hidden="true"></span></div>
-                </div>
-              </div>
-
-              <div class="subnote" id="nowMsg"></div>
-            </div>
+            <div id="nowMsg" class="nowState"></div>
           </div>
         </div>
       </div>
@@ -608,52 +494,52 @@
 
     <!-- TOP -->
     <section class="panel hidden" data-panel="top">
-      <div class="card">
-        <div class="cardInner">
-          <div class="cardHead">
-            <div class="cardHeadLeft">
-              <div class="cardTitle">Top</div>
-              <div class="meta" id="topMeta">—</div>
+      <div class="stickyHeader">
+        <div class="card" style="padding-bottom:14px">
+          <div class="cardHeader" style="margin-bottom:6px">
+            <div class="titleBlock">
+              <h2 style="margin-bottom:0">Top</h2>
+              <div id="topMeta" class="subline">—</div>
             </div>
             <div class="pill" id="topBadge">10</div>
           </div>
 
           <div class="controls">
-            <div class="seg" role="group" aria-label="Top type">
-              <button type="button" data-top-type="tracks" aria-selected="true">Tracks</button>
-              <button type="button" data-top-type="artists" aria-selected="false">Artists</button>
-              <button type="button" data-top-type="albums" aria-selected="false">Albums</button>
+            <div class="seg" aria-label="Top type">
+              <button data-top-type="tracks" aria-selected="true">Tracks</button>
+              <button data-top-type="artists" aria-selected="false">Artists</button>
+              <button data-top-type="albums" aria-selected="false">Albums</button>
             </div>
 
-            <div class="spacer"></div>
-
-            <div class="seg" role="group" aria-label="Top period">
-              <button type="button" data-top-period="today" aria-selected="true">Today</button>
-              <button type="button" data-top-period="week" aria-selected="false">Week</button>
-              <button type="button" data-top-period="year" aria-selected="false">Year</button>
+            <div class="seg" aria-label="Top period">
+              <button data-top-period="today" aria-selected="true">Today</button>
+              <button data-top-period="week" aria-selected="false">Week</button>
+              <button data-top-period="year" aria-selected="false">Year</button>
             </div>
           </div>
-
-          <div class="list" id="topList"></div>
         </div>
       </div>
+
+      <div id="topList" class="list"></div>
+      <div id="topEmpty" class="empty" style="display:none"></div>
     </section>
 
     <!-- RECENT -->
     <section class="panel hidden" data-panel="recent">
-      <div class="card">
-        <div class="cardInner">
-          <div class="cardHead">
-            <div class="cardHeadLeft">
-              <div class="cardTitle">Recent</div>
-              <div class="caption">last 10</div>
+      <div class="stickyHeader">
+        <div class="card" style="padding-bottom:14px">
+          <div class="cardHeader" style="margin-bottom:6px">
+            <div class="titleBlock">
+              <h2 style="margin-bottom:0">Recent</h2>
+              <div id="recentMeta" class="subline">—</div>
             </div>
-            <div style="width:30px;height:30px;opacity:0;pointer-events:none;"></div>
+            <div class="pill">last 10</div>
           </div>
-
-          <div class="list" id="recentList"></div>
         </div>
       </div>
+
+      <div id="recentList" class="list"></div>
+      <div id="recentEmpty" class="empty" style="display:none"></div>
     </section>
   </div>
 

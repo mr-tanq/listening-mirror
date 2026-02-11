@@ -1,4 +1,4 @@
-<!-- PART 1/4  — index.html (FULL REPLACE) -->
+<!-- PART 1/4 — index.html (FULL REPLACE) -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -98,7 +98,7 @@
       letter-spacing: .2px;
       line-height: 1.05;
       margin:0;
-      padding-left: 2px; /* tiny safety to avoid any glyph shave */
+      padding-left: 2px;
     }
     .brandSub{
       display:flex;
@@ -158,7 +158,7 @@
       box-shadow: inset 0 0 0 1px rgba(255,255,255,.12);
     }
 
-    /* glass card (layered: blur lives in pseudo-layer; content is separate to avoid glyph clipping) */
+    /* glass card */
     .card{
       position:relative;
       border-radius: var(--r2);
@@ -183,7 +183,7 @@
       font-size: 22px;
       font-weight: 800;
       letter-spacing:.15px;
-      padding-left: 2px; /* safety for first glyph */
+      padding-left: 2px;
     }
     .sectionMeta{
       color: var(--muted2);
@@ -209,6 +209,7 @@
       flex:0 0 auto;
       box-shadow: 0 12px 30px rgba(0,0,0,.45);
       background: rgba(255,255,255,.06);
+      position:relative;
     }
     .art img{
       width:100%;
@@ -216,14 +217,28 @@
       object-fit:cover;
       display:block;
     }
+    .artFallback{
+      position:absolute;
+      inset:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      color: rgba(233,233,234,.38);
+      font-weight: 850;
+      letter-spacing:.06em;
+      font-size: 14px;
+      background: rgba(255,255,255,.04);
+      border: 1px solid rgba(255,255,255,.06);
+      border-radius: 18px;
+    }
 
     .nowText{
       min-width:0;
       flex: 1 1 auto;
-      padding-left: 2px; /* crucial: prevents left glyph shave */
+      padding-left: 2px;
     }
 
-    /* Live indicator: premium minimal */
+    /* Live indicator */
     .liveLine{
       display:flex;
       align-items:center;
@@ -258,7 +273,6 @@
       padding-left: 2px;
     }
 
-    /* text rows */
     .title{
       font-size: 22px;
       font-weight: 850;
@@ -340,7 +354,7 @@
     .itemText{
       min-width:0;
       flex: 1 1 auto;
-      padding-left: 2px; /* glyph safety */
+      padding-left: 2px;
     }
     .itemTitle{
       margin:0;
@@ -364,23 +378,20 @@
       font-weight: 850;
       letter-spacing:.2px;
       padding-left: 10px;
-      color: rgba(255, 200, 120, .95); /* premium warm accent */
+      color: rgba(255, 200, 120, .95);
       text-shadow: 0 10px 30px rgba(0,0,0,.45);
     }
 
-    /* marquee (only when overflow; JS toggles .marquee on .mq) */
+    /* marquee */
     .mq{
       display:block;
       max-width:100%;
       overflow:hidden;
       white-space:nowrap;
       position:relative;
-      padding-left: 2px; /* safety */
+      padding-left: 2px;
     }
-    .mq > span{
-      display:inline-block;
-      transform: translateZ(0);
-    }
+    .mq > span{ display:inline-block; transform: translateZ(0); }
     .mq.marquee > span{
       padding-right: 40px;
       animation: scrollText 9s linear infinite;
@@ -439,10 +450,8 @@
       margin-top: 10px;
       padding-left: 2px;
     }
-
     .hidden{ display:none !important; }
 
-    /* small screens tightening */
     @media (max-width:420px){
       .wrap{ padding-left: max(14px, env(safe-area-inset-left)); padding-right:max(14px, env(safe-area-inset-right)); }
       .title{ font-size: 20px; }
@@ -483,6 +492,7 @@
         <div class="nowRow">
           <div class="art" id="nowArt">
             <img id="nowArtImg" alt="" />
+            <div class="artFallback" id="nowArtFallback">NO ART</div>
           </div>
 
           <div class="nowText">
@@ -548,15 +558,13 @@
       const LIMIT_TOP = 10;
       const LIMIT_RECENT = 10;
 
-      // State
       const state = {
         tab: "now",
-        topType: "tracks",   // tracks | artists | albums
-        topPeriod: "year",   // today | week | year
+        topType: "tracks",
+        topPeriod: "year",
         timers: { now: null }
       };
 
-      // ===== Helpers =====
       const $ = (id) => document.getElementById(id);
 
       function safeText(v){
@@ -564,10 +572,17 @@
         return String(v);
       }
 
+      function ensureHttps(url){
+        const u = safeText(url).trim();
+        if(!u) return "";
+        // Fix mixed content (GitHub Pages is https)
+        if(u.startsWith("http://")) return "https://" + u.slice("http://".length);
+        return u;
+      }
+
       function fmtTime(ts){
         try{
           const d = ts ? new Date(ts) : new Date();
-          // Use locale time with seconds (looks premium for "Updated")
           return d.toLocaleTimeString([], { hour:"2-digit", minute:"2-digit", second:"2-digit" });
         }catch{
           return "—";
@@ -580,22 +595,18 @@
         return await res.json();
       }
 
-      // Marquee: duplicate content to scroll seamlessly
       function setupMarquee(mqEl){
         if(!mqEl) return;
         const span = mqEl.querySelector("span");
         if(!span) return;
 
-        // reset
         mqEl.classList.remove("marquee");
         span.dataset.duped = "0";
 
         requestAnimationFrame(() => {
-          // if overflow -> enable marquee
           const needs = span.scrollWidth > mqEl.clientWidth + 2;
           if(!needs) return;
 
-          // Duplicate text once to make it seamless
           if(span.dataset.duped !== "1"){
             const txt = span.textContent;
             span.textContent = txt + "   •   " + txt;
@@ -609,10 +620,8 @@
         setupMarquee($("nowTitleMq"));
         setupMarquee($("nowArtistMq"));
         setupMarquee($("nowAlbumMq"));
-        // list marquees are created dynamically; handled after render
       }
 
-      // ===== View switching =====
       function setTab(tab){
         state.tab = tab;
 
@@ -627,16 +636,24 @@
         document.body.classList.toggle("now-mode", tab === "now");
       }
 
-      // ===== Renderers =====
       function makeThumb(url, fallbackChar="♪"){
         const div = document.createElement("div");
         div.className = "thumb glass";
-        if(url){
+        const finalUrl = ensureHttps(url);
+
+        if(finalUrl){
           div.className = "thumb";
           const img = document.createElement("img");
           img.loading = "lazy";
           img.alt = "";
-          img.src = url;
+          img.referrerPolicy = "no-referrer";
+          img.src = finalUrl;
+          img.onerror = () => {
+            // if still fails, just show placeholder
+            div.innerHTML = "";
+            div.className = "thumb placeholder";
+            div.textContent = fallbackChar;
+          };
           div.appendChild(img);
         }else{
           div.classList.add("placeholder");
@@ -659,7 +676,6 @@
 
         const t = document.createElement("p");
         t.className = "itemTitle mq";
-        // Wrap actual span to allow marquee
         const tSpan = document.createElement("span");
         tSpan.textContent = `${index}. ${title}`;
         t.appendChild(tSpan);
@@ -686,19 +702,15 @@
 
         wrap.appendChild(row);
 
-        // IMPORTANT: no click actions (per your request)
+        // no click actions
         wrap.style.cursor = "default";
-
-        // Marquee check after it’s in DOM; we’ll call in batch after render.
         wrap._mqEls = [t, m];
 
         return wrap;
       }
 
-      // ===== Normalizers (robust to your worker payloads) =====
       function pickImage(obj){
         if(!obj) return "";
-        // common patterns
         if(typeof obj.image === "string") return obj.image;
         if(obj.image && typeof obj.image.url === "string") return obj.image.url;
         if(Array.isArray(obj.images) && obj.images.length){
@@ -706,7 +718,6 @@
           if(typeof best === "string") return best;
         }
         if(Array.isArray(obj.image) && obj.image.length){
-          // last.fm style: [{#text, size}]
           const cand = obj.image[obj.image.length - 1];
           const t = cand && (cand["#text"] || cand.url);
           if(typeof t === "string" && t) return t;
@@ -715,7 +726,6 @@
       }
 
       function normalizeNow(data){
-        // expected: { ok, now: {...} } OR direct object
         const n = data?.now || data?.track || data?.item || data;
         const title = safeText(n?.name || n?.title || n?.track || n?.song || "—");
         const artist = safeText(n?.artist?.name || n?.artist || n?.creator || "—");
@@ -750,7 +760,6 @@
         });
       }
 <!-- PART 3/4 — index.html (FULL REPLACE CONT.) -->
-      // ===== Data loads =====
       async function loadNow(){
         try{
           const url = `${WORKER_BASE}/api/now`;
@@ -763,27 +772,51 @@
 
           $("nowUpdated").textContent = `Updated: ${fmtTime(Date.now())}`;
 
-          // artwork
-          if(now.image){
-            $("nowArtImg").src = now.image;
-            $("nowArtImg").style.opacity = "1";
-            $("nowArtImg").style.display = "block";
+          const imgEl = $("nowArtImg");
+          const fallback = $("nowArtFallback");
+          const imgUrl = ensureHttps(now.image);
 
-            // NOW glow background only when Now tab visible
-            // Safe css var
-            const encoded = now.image.replace(/"/g, "%22");
-            document.documentElement.style.setProperty("--nowArt", `url("${encoded}")`);
-          }else{
-            $("nowArtImg").removeAttribute("src");
-            document.documentElement.style.setProperty("--nowArt", "none");
+          // reset visual state
+          fallback.style.display = "flex";
+          imgEl.style.display = "none";
+          imgEl.removeAttribute("src");
+          document.documentElement.style.setProperty("--nowArt", "none");
+
+          if(imgUrl){
+            imgEl.referrerPolicy = "no-referrer";
+
+            imgEl.onerror = () => {
+              // 1) if it was http (shouldn’t now), try https once more just in case
+              const cur = safeText(imgEl.src);
+              if(cur.startsWith("http://")){
+                imgEl.src = ensureHttps(cur);
+                return;
+              }
+              // 2) give up -> keep fallback
+              imgEl.style.display = "none";
+              fallback.style.display = "flex";
+              document.documentElement.style.setProperty("--nowArt", "none");
+            };
+
+            imgEl.onload = () => {
+              fallback.style.display = "none";
+              imgEl.style.display = "block";
+
+              // set glow only when we have confirmed artwork loaded
+              const encoded = imgUrl.replace(/"/g, "%22");
+              document.documentElement.style.setProperty("--nowArt", `url("${encoded}")`);
+              setupAllMarquees();
+            };
+
+            imgEl.src = imgUrl;
+          } else {
+            setupAllMarquees();
           }
 
-          setupAllMarquees();
           $("statusText").textContent = "Online";
           return true;
         }catch(err){
           $("statusText").textContent = "Offline";
-          // keep UI calm: don’t blow up the card
           return false;
         }
       }
@@ -817,12 +850,7 @@
               type === "artists" ? "" :
               (it.artist ? it.artist : "");
 
-            const subMeta =
-              type === "tracks" ? meta :
-              type === "albums" ? meta :
-              type === "artists" ? " " : " ";
-
-            const rowMeta = subMeta.trim() ? subMeta : " ";
+            const rowMeta = meta.trim() ? meta : " ";
 
             const countText = (it.count !== undefined && it.count !== null) ? String(it.count) : "";
             const node = makeListItem({
@@ -831,18 +859,15 @@
               meta: rowMeta,
               image: it.image,
               countText,
-              countColor: "rgba(255,200,120,.95)" // warm premium accent
+              countColor: "rgba(255,200,120,.95)"
             });
 
             nodes.push(node);
             list.appendChild(node);
           });
 
-          // enable marquee only where needed (after appended)
           requestAnimationFrame(() => {
-            nodes.forEach(n => {
-              (n._mqEls || []).forEach(mqEl => setupMarquee(mqEl));
-            });
+            nodes.forEach(n => (n._mqEls || []).forEach(mqEl => setupMarquee(mqEl)));
           });
 
           $("statusText").textContent = "Online";
@@ -883,9 +908,7 @@
           });
 
           requestAnimationFrame(() => {
-            nodes.forEach(n => {
-              (n._mqEls || []).forEach(mqEl => setupMarquee(mqEl));
-            });
+            nodes.forEach(n => (n._mqEls || []).forEach(mqEl => setupMarquee(mqEl)));
           });
 
           $("statusText").textContent = "Online";
@@ -895,12 +918,10 @@
         }
       }
 
-      // ===== UI actions =====
       function bindTabs(){
         document.querySelectorAll(".seg button").forEach(btn => {
           btn.addEventListener("click", () => {
             setTab(btn.dataset.tab);
-            // load on demand
             if(btn.dataset.tab === "top") loadTop();
             if(btn.dataset.tab === "recent") loadRecent();
           }, { passive:true });
@@ -908,7 +929,6 @@
       }
 
       function bindTopControls(){
-        // type
         document.querySelectorAll("[data-type]").forEach(btn => {
           btn.addEventListener("click", () => {
             state.topType = btn.dataset.type;
@@ -918,7 +938,6 @@
           }, { passive:true });
         });
 
-        // period
         document.querySelectorAll("[data-period]").forEach(btn => {
           btn.addEventListener("click", () => {
             state.topPeriod = btn.dataset.period;
@@ -929,14 +948,10 @@
         });
       }
 
-      // ===== Boot =====
       function startNowPolling(){
-        // refresh often but stable
         if(state.timers.now) clearInterval(state.timers.now);
         state.timers.now = setInterval(() => {
-          // only update Now glow when on Now tab (keeps Top/Recent clean)
-          if(state.tab === "now") loadNow();
-          else loadNow(); // still refresh data silently (keeps updated time accurate)
+          loadNow();
         }, 12000);
       }
 

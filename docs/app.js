@@ -1,45 +1,32 @@
-/* Listening Mirror — app.js (FULL REPLACE, compatible with your “old good” index)
-   ✅ Works with your exact IDs/classes
-   ✅ Fixes NOW live/off logic (ok:true,item:null => OFF)
-   ✅ Fixes slow loads (no background prefetch, no caching, timeout, abort)
-   ✅ Fixes “wrong recent” by supporting optional ?user= / ?u= in the URL
-   ✅ Robust image resolving (/img?u=... => Worker absolute)
-   ✅ Pull-to-refresh (mobile) without editing index
+/* app.js (PART 1/4) */
+/* Listening Mirror — app.js (FULL REPLACE)
+   - LIVE badge replaces Updated (no updated label)
+   - Full-page ambient artwork (body background) instead of inside card
+   - Robust /img URL resolution via worker
+   - Keeps baseline stable
 */
 
 (() => {
   "use strict";
 
-  // Worker base (NO trailing slash)
   const API_BASE = "https://i.errtanq9.workers.dev";
-
-  // Poll NOW
   const NOW_POLL_MS = 12_000;
 
-  // Limits
-  const TOP_LIMIT = 10;
-  const RECENT_LIMIT = 25;
+  const TOP_LIMIT_DEFAULT = 10;
+  const RECENT_LIMIT_DEFAULT = 20;
 
-  // Request timeout
-  const REQ_TIMEOUT_MS = 8_000;
-
-  // -------- DOM helpers --------
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const $ = (sel, root = document) => root.querySelector(sel);
 
-  // Status
   const statusDot = $("#statusDot");
   const statusLine = $("#statusLine");
 
-  // Tabs/panels
   const tabBtns = $$(".tabBtn");
   const panels = $$(".panel");
 
-  // NOW elements (must exist in your index)
-  const nowAmbient = $("#nowAmbient");
+  // NOW
   const nowBadge = $("#nowBadge");
   const nowBadgeText = $("#nowBadgeText");
-  const nowUpdated = $("#nowUpdated");
   const nowImg = $("#nowImg");
   const nowFallback = $("#nowFallback");
   const nowCoverWrap = $("#nowCoverWrap");
@@ -61,27 +48,18 @@
   // RECENT
   const recentList = $("#recentList");
 
-  // -------- URL params (fixes “wrong user” cases) --------
-  const qs = new URLSearchParams(location.search);
-  const USER = (qs.get("user") || qs.get("u") || "").trim(); // optional
-  // cache buster (you already use ?v=777 sometimes)
-  const V = (qs.get("v") || "").trim();
-
-  // -------- State --------
   const state = {
     activeTab: "now",
     topType: "tracks",
     topPeriod: "today",
     online: false,
     nowTimer: null,
-    isRefreshing: false,
   };
 
-  // -------- Small utilities --------
   function absApi(urlOrPath) {
     if (!urlOrPath) return "";
     if (/^https?:\/\//i.test(urlOrPath)) return urlOrPath;
-    if (urlOrPath.startsWith("/")) return API_BASE + urlOrPath;
+    if (urlOrPath.startsWith("/")) return API_BASE + urlOrPath; // /img?u=...
     return API_BASE + "/" + urlOrPath;
   }
 
@@ -91,17 +69,11 @@
     statusLine.textContent = state.online ? "Online" : "Offline";
   }
 
-  function fmtTime(d = new Date()) {
-    const hh = String(d.getHours()).padStart(2, "0");
-    const mm = String(d.getMinutes()).padStart(2, "0");
-    const ss = String(d.getSeconds()).padStart(2, "0");
-    return `${hh}:${mm}:${ss}`;
-  }
-
-  function safeText(el, v, fallback = "—") {
-    if (!el) return;
-    const s = (v == null ? "" : String(v)).trim();
-    el.textContent = s.length ? s : fallback;
+  async function apiGet(path) {
+    const url = absApi(path);
+    const r = await fetch(url, { cache: "no-store" });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.json();
   }
 
   function setSelected(btns, activeBtn) {
@@ -114,13 +86,9 @@
     panels.forEach(p => p.classList.toggle("hidden", p.dataset.panel !== name));
   }
 
-  function escapeHtml(s) {
-    return String(s)
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
+  function safeText(el, v, fallback = "—") {
+    if (!el) return;
+    el.textContent = (v && String(v).trim().length) ? String(v) : fallback;
   }
 
   function enableMarqueeIfNeeded(wrapEl, spanEl) {
@@ -129,7 +97,7 @@
       const overflow = spanEl.scrollWidth > wrapEl.clientWidth + 8;
       wrapEl.classList.toggle("marqOn", overflow);
       if (overflow) {
-        const shift = Math.max(18, spanEl.scrollWidth - wrapEl.clientWidth + 18);
+        const shift = spanEl.scrollWidth - wrapEl.clientWidth + 18;
         wrapEl.style.setProperty("--marqShift", `${shift}px`);
         const dur = Math.min(22, Math.max(10, shift / 22));
         wrapEl.style.setProperty("--marqDur", `${dur}s`);
@@ -140,121 +108,101 @@
     });
   }
 
-  // -------- Networking (fast + no-cache + timeout) --------
-  async function apiGet(path, params = {}) {
-    const p = new URLSearchParams();
-
-    // include optional user if present (fixes “wrong recent” when backend supports it)
-    if (USER) p.set("user", USER);
-
-    // include optional version cache-buster
-    if (V) p.set("v", V);
-
-    // custom params
-    Object.entries(params).forEach(([k, v]) => {
-      if (v == null) return;
-      p.set(k, String(v));
-    });
-
-    const url = absApi(path) + (p.toString() ? `?${p.toString()}` : "");
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), REQ_TIMEOUT_MS);
-
-    try {
-      const r = await fetch(url, {
-        cache: "no-store",
-        signal: ctrl.signal,
-        headers: { "accept": "application/json" },
-      });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return await r.json();
-    } finally {
-      clearTimeout(t);
-    }
+  function escapeHtml(s) {
+    return String(s)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
   }
 
-  // -------- NOW rendering --------
-  function setBadgeLive(isLive) {
-    if (!nowBadge || !nowBadgeText) return;
-    nowBadge.classList.toggle("live", !!isLive);
-    nowBadgeText.textContent = isLive ? "LIVE" : "OFF";
+  function rowHTML({ idx, title, sub, img, right }) {
+    const imgHtml = img
+      ? `<img src="${img}" alt="" loading="lazy" decoding="async" />`
+      : `<div class="thumbFallback">♪</div>`;
+
+    return `
+      <div class="row" role="listitem" aria-label="${idx}. ${title}">
+        <div class="thumb" aria-hidden="true">${imgHtml}</div>
+        <div class="mid">
+          <div class="title">${escapeHtml(`${idx}. ${title}`)}</div>
+          <div class="sub">${escapeHtml(sub || "")}</div>
+        </div>
+        <div class="right count">${escapeHtml(String(right ?? ""))}</div>
+      </div>
+    `;
   }
-
-  function clearNowVisual(msg = "Not playing now") {
-    setBadgeLive(false);
-
-    if (nowUpdated) nowUpdated.textContent = fmtTime(new Date());
-
-    if (nowAmbient) {
-      nowAmbient.classList.remove("on");
-      nowAmbient.style.removeProperty("--ambient-url");
-    }
-    if (nowCoverWrap) nowCoverWrap.style.removeProperty("--cover-url");
-
-    if (nowImg) {
-      nowImg.style.display = "none";
-      nowImg.removeAttribute("src");
-    }
-    if (nowFallback) nowFallback.style.display = "grid";
-
-    safeText(nowTrack, "—");
-    safeText(nowArtist, "—");
-    safeText(nowAlbum, "—");
-    safeText(nowMsg, msg, msg);
-
-    enableMarqueeIfNeeded(nowTrackWrap, nowTrack);
-    enableMarqueeIfNeeded(nowArtistWrap, nowArtist);
-    enableMarqueeIfNeeded(nowAlbumWrap, nowAlbum);
-  }
-
-  function applyNowItem(item) {
-    // item shape expected:
-    // { name, artist, album, image } (image may be "/img?u=..." or absolute)
-    setBadgeLive(true);
-
-    if (nowUpdated) nowUpdated.textContent = fmtTime(new Date());
-
-    const track = item?.name || "—";
-    const artist = item?.artist || "—";
-    const album = item?.album || "—";
-    const imgUrl = absApi(item?.image || "");
-
-    safeText(nowTrack, track);
-    safeText(nowArtist, artist);
-    safeText(nowAlbum, album);
-    safeText(nowMsg, "", ""); // keep clean if playing
-
-    // Image handling: show only when loaded
-    if (imgUrl) {
-      if (nowFallback) nowFallback.style.display = "none";
-
-      if (nowImg) {
-        nowImg.onload = () => {
-          nowImg.style.display = "block";
-        };
-        nowImg.onerror = () => {
-          // fallback if broken image
-          nowImg.style.display = "none";
-          nowImg.removeAttribute("src");
-          if (nowFallback) nowFallback.style.display = "grid";
-          if (nowAmbient) nowAmbient.classList.remove("on");
-        };
-        nowImg.src = imgUrl;
-      }
-
-      // Ambient + cover glow via CSS vars
-      if (nowCoverWrap) nowCoverWrap.style.setProperty("--cover-url", `url("${imgUrl}")`);
-      if (nowAmbient) {
-        nowAmbient.style.setProperty("--ambient-url", `url("${imgUrl}")`);
-        nowAmbient.classList.add("on");
-      }
+/* app.js (PART 2/4) */
+  // ✅ Full-page ambient controls
+  function setPageAmbient(imageUrl) {
+    if (imageUrl) {
+      document.documentElement.style.setProperty("--page-ambient-url", `url("${imageUrl}")`);
+      document.body.classList.add("pageOn");
     } else {
+      document.documentElement.style.setProperty("--page-ambient-url", "none");
+      document.body.classList.remove("pageOn");
+    }
+  }
+
+  // -------- NOW --------
+  function setNowVisual({ live, item }) {
+    // LIVE chip (top-right)
+    if (nowBadge) nowBadge.classList.toggle("live", !!live);
+    if (nowBadgeText) nowBadgeText.textContent = live ? "LIVE" : "OFF";
+
+    if (!item) {
+      // Empty state
+      setPageAmbient("");
+
+      if (nowCoverWrap) nowCoverWrap.style.removeProperty("--cover-url");
+
       if (nowImg) {
         nowImg.style.display = "none";
         nowImg.removeAttribute("src");
       }
       if (nowFallback) nowFallback.style.display = "grid";
-      if (nowAmbient) nowAmbient.classList.remove("on");
+
+      safeText(nowTrack, "—");
+      safeText(nowArtist, "—");
+      safeText(nowAlbum, "—");
+      safeText(nowMsg, "Not playing now", "Not playing now");
+
+      enableMarqueeIfNeeded(nowTrackWrap, nowTrack);
+      enableMarqueeIfNeeded(nowArtistWrap, nowArtist);
+      enableMarqueeIfNeeded(nowAlbumWrap, nowAlbum);
+      return;
+    }
+
+    const img = absApi(item.image || "");
+    const track = item.name || "—";
+    const artist = item.artist || "—";
+    const album = item.album || "—";
+
+    safeText(nowTrack, track);
+    safeText(nowArtist, artist);
+    safeText(nowAlbum, album);
+    safeText(nowMsg, "", "");
+
+    // Artwork: cover + full-page ambient
+    if (img) {
+      if (nowImg) {
+        nowImg.src = img;
+        nowImg.style.display = "block";
+      }
+      if (nowFallback) nowFallback.style.display = "none";
+      if (nowCoverWrap) nowCoverWrap.style.setProperty("--cover-url", `url("${img}")`);
+
+      // ✅ This is the key change:
+      setPageAmbient(img);
+    } else {
+      setPageAmbient("");
+      if (nowImg) {
+        nowImg.style.display = "none";
+        nowImg.removeAttribute("src");
+      }
+      if (nowFallback) nowFallback.style.display = "grid";
+      if (nowCoverWrap) nowCoverWrap.style.removeProperty("--cover-url");
     }
 
     enableMarqueeIfNeeded(nowTrackWrap, nowTrack);
@@ -267,19 +215,15 @@
       const j = await apiGet("/api/now");
       setOnline(true);
 
-      const item = j && j.ok ? (j.item || null) : null;
+      // worker shape: {ok:true, item: {...} } or {ok:true, item:null}
+      const item = j?.ok ? (j.item || null) : null;
+      const live = !!item;
 
-      // Worker may return ok:true,item:null => OFF
-      if (!item) {
-        clearNowVisual("Not playing now");
-        return true;
-      }
-
-      applyNowItem(item);
+      setNowVisual({ live, item });
       return true;
     } catch (e) {
       setOnline(false);
-      clearNowVisual("Offline / can’t reach Worker");
+      setNowVisual({ live: false, item: null });
       return false;
     }
   }
@@ -287,7 +231,7 @@
   function startNowPolling() {
     stopNowPolling();
     state.nowTimer = setInterval(() => {
-      if (!state.isRefreshing && state.activeTab === "now") loadNow();
+      if (state.activeTab === "now") loadNow();
     }, NOW_POLL_MS);
   }
 
@@ -295,149 +239,75 @@
     if (state.nowTimer) clearInterval(state.nowTimer);
     state.nowTimer = null;
   }
-
-  // -------- TOP rendering --------
+/* app.js (PART 3/4) */
+  // -------- TOP --------
   function setTopLoading() {
-    if (!topList) return;
-    topList.innerHTML = `
-      <div class="row">
-        <div class="mid">
-          <div class="title">Loading…</div>
-          <div class="sub">Fetching top…</div>
-        </div>
-      </div>
-    `;
+    topList.innerHTML = `<div class="row"><div class="mid"><div class="title">Loading…</div><div class="sub">Fetching your top…</div></div></div>`;
   }
 
   async function loadTop() {
-    if (!topList) return false;
-
     try {
       setTopLoading();
+      const type = state.topType;
+      const period = state.topPeriod;
+      const limit = TOP_LIMIT_DEFAULT;
 
-      const j = await apiGet("/api/top", {
-        type: state.topType,
-        period: state.topPeriod,
-        limit: TOP_LIMIT,
-      });
-
+      const j = await apiGet(`/api/top?type=${encodeURIComponent(type)}&period=${encodeURIComponent(period)}&limit=${limit}`);
       setOnline(true);
 
       const items = (j?.ok && Array.isArray(j.items)) ? j.items : [];
       if (!items.length) {
-        topList.innerHTML = `
-          <div class="row">
-            <div class="mid">
-              <div class="title">No data</div>
-              <div class="sub">Try another period.</div>
-            </div>
-          </div>
-        `;
+        topList.innerHTML = `<div class="row"><div class="mid"><div class="title">No data</div><div class="sub">Try another period.</div></div></div>`;
         return true;
       }
 
       topList.innerHTML = items.map((it, i) => {
-        const title = it?.name || "—";
-        const sub = state.topType === "artists" ? "" : (it?.artist || "");
-        const img = absApi(it?.image || "");
-        const right = (it?.playcount ?? "");
-        return `
-          <div class="row" role="listitem" aria-label="${i + 1}. ${escapeHtml(title)}">
-            <div class="thumb" aria-hidden="true">
-              ${img ? `<img src="${img}" alt="" loading="lazy" decoding="async" />` : `<div class="thumbFallback">♪</div>`}
-            </div>
-            <div class="mid">
-              <div class="title">${escapeHtml(`${i + 1}. ${title}`)}</div>
-              <div class="sub">${escapeHtml(sub)}</div>
-            </div>
-            <div class="right count">${escapeHtml(String(right))}</div>
-          </div>
-        `;
+        const title = it.name || "—";
+        const sub = type === "artists" ? "" : (it.artist || "");
+        const img = absApi(it.image || "");
+        const right = it.playcount ?? "";
+        return rowHTML({ idx: i + 1, title, sub, img, right });
       }).join("");
 
       return true;
     } catch (e) {
       setOnline(false);
-      topList.innerHTML = `
-        <div class="row">
-          <div class="mid">
-            <div class="title">Couldn’t load Top.</div>
-            <div class="sub">Check connection / Worker.</div>
-          </div>
-        </div>
-      `;
+      topList.innerHTML = `<div class="row"><div class="mid"><div class="title">Couldn’t load Top.</div><div class="sub">Check connection / Worker.</div></div></div>`;
       return false;
     }
   }
 
-  // -------- RECENT rendering (robust shapes + endpoint fallback) --------
+  // -------- RECENT --------
   function setRecentLoading() {
-    if (!recentList) return;
-    recentList.innerHTML = `
-      <div class="row">
-        <div class="mid">
-          <div class="title">Loading…</div>
-          <div class="sub">Fetching recent…</div>
-        </div>
-      </div>
-    `;
-  }
-
-  function normalizeRecentResponse(j) {
-    if (!j || !j.ok) return [];
-    if (Array.isArray(j.items)) return j.items;
-    if (Array.isArray(j.history)) return j.history;
-    if (Array.isArray(j.recent)) return j.recent;
-    return [];
+    recentList.innerHTML = `<div class="row"><div class="mid"><div class="title">Loading…</div><div class="sub">Fetching recent…</div></div></div>`;
   }
 
   async function loadRecent() {
-    if (!recentList) return false;
-
-    setRecentLoading();
-
     try {
-      // Primary endpoint
-      let j = await apiGet("/api/history", { limit: RECENT_LIMIT });
+      setRecentLoading();
+      const limit = RECENT_LIMIT_DEFAULT;
 
-      let items = normalizeRecentResponse(j);
-
-      // Fallback endpoint if history shape is empty
-      if (!items.length) {
-        try {
-          j = await apiGet("/api/recent", { limit: RECENT_LIMIT });
-          items = normalizeRecentResponse(j);
-        } catch (_) {}
-      }
-
+      const j = await apiGet(`/api/history?limit=${limit}`);
       setOnline(true);
 
+      const items =
+        (j?.ok && Array.isArray(j.items) && j.items) ||
+        (j?.ok && Array.isArray(j.history) && j.history) ||
+        [];
+
       if (!items.length) {
-        recentList.innerHTML = `
-          <div class="row">
-            <div class="mid">
-              <div class="title">No recent tracks</div>
-              <div class="sub">Play something and refresh.</div>
-            </div>
-          </div>
-        `;
+        recentList.innerHTML = `<div class="row"><div class="mid"><div class="title">No recent tracks</div><div class="sub">Play something and refresh.</div></div></div>`;
         return true;
       }
 
-      // Render
       recentList.innerHTML = items.map((it, i) => {
-        const title = it?.name || "—";
-        const artist = it?.artist || "";
-        const album = it?.album || "";
-        const sub = `${artist}${album ? " • " + album : ""}`.trim();
-
-        const img = absApi(it?.image || "");
-
-        // right side: try common time fields (optional)
-        const right = it?.time || it?.date || it?.ts || "";
+        const title = it.name || "—";
+        const sub = `${it.artist || ""}${it.album ? " • " + it.album : ""}`.trim();
+        const img = absApi(it.image || "");
+        const right = it.time || it.date || "";
 
         return `
-          <div class="row" role="listitem" aria-label="${i + 1}. ${escapeHtml(title)}">
+          <div class="row" role="listitem" aria-label="${i + 1}. ${title}">
             <div class="thumb" aria-hidden="true">
               ${img ? `<img src="${img}" alt="" loading="lazy" decoding="async" />` : `<div class="thumbFallback">♪</div>`}
             </div>
@@ -453,140 +323,18 @@
       return true;
     } catch (e) {
       setOnline(false);
-      recentList.innerHTML = `
-        <div class="row">
-          <div class="mid">
-            <div class="title">Couldn’t load Recent.</div>
-            <div class="sub">Check connection / Worker.</div>
-          </div>
-        </div>
-      `;
+      recentList.innerHTML = `<div class="row"><div class="mid"><div class="title">Couldn’t load Recent.</div><div class="sub">Check connection / Worker.</div></div></div>`;
       return false;
     }
   }
 
-  // -------- Pull-to-refresh (no index edits; injects tiny UI) --------
-  const ptr = document.createElement("div");
-  ptr.style.cssText = `
-    position:fixed; left:50%; top:calc(env(safe-area-inset-top) + 10px);
-    transform:translate(-50%,-24px);
-    opacity:0; pointer-events:none; z-index:9999;
-    transition:transform .18s ease, opacity .18s ease;
-  `;
-  ptr.innerHTML = `
-    <div style="
-      display:inline-flex; align-items:center; gap:10px;
-      padding:8px 12px; border-radius:999px;
-      background:rgba(255,255,255,.05);
-      outline:1px solid rgba(255,255,255,.09);
-      backdrop-filter:blur(12px);
-      color:rgba(255,255,255,.82);
-      font-size:12px; letter-spacing:.2px;
-      box-shadow:0 18px 55px rgba(0,0,0,.45);
-    ">
-      <span style="width:6px;height:6px;border-radius:999px;background:rgba(255,255,255,.22)"></span>
-      <span id="__ptrText">Pull to refresh</span>
-      <span id="__ptrSpin" aria-hidden="true" style="
-        width:14px;height:14px;border-radius:999px;
-        border:2px solid rgba(255,255,255,.22);
-        border-top-color:rgba(255,255,255,.72);
-        display:none;
-        animation:__ptrSpin 0.9s linear infinite;
-      "></span>
-    </div>
-  `;
-  document.body.appendChild(ptr);
-
-  const style = document.createElement("style");
-  style.textContent = `@keyframes __ptrSpin{to{transform:rotate(360deg)}}`;
-  document.head.appendChild(style);
-
-  const ptrText = $("#__ptrText");
-  const ptrSpin = $("#__ptrSpin");
-
-  function ptrShow(msg, loading = false) {
-    ptr.style.opacity = "1";
-    ptr.style.transform = "translate(-50%,0px)";
-    if (ptrText) ptrText.textContent = msg;
-    if (ptrSpin) ptrSpin.style.display = loading ? "inline-block" : "none";
-  }
-
-  function ptrHide() {
-    ptr.style.opacity = "0";
-    ptr.style.transform = "translate(-50%,-24px)";
-    if (ptrText) ptrText.textContent = "Pull to refresh";
-    if (ptrSpin) ptrSpin.style.display = "none";
-  }
-
-  function isAtTop() {
-    const sc = document.scrollingElement || document.documentElement;
-    return (sc.scrollTop || 0) <= 0;
-  }
-
-  let touchStartY = 0;
-  let pullY = 0;
-  let pulling = false;
-  const PULL_TRIGGER = 72;
-  const PULL_MAX = 110;
-
-  async function refreshActive() {
-    state.isRefreshing = true;
-    ptrShow("Refreshing…", true);
-    try {
-      if (state.activeTab === "now") await loadNow();
-      if (state.activeTab === "top") await loadTop();
-      if (state.activeTab === "recent") await loadRecent();
-    } finally {
-      setTimeout(() => {
-        state.isRefreshing = false;
-        ptrHide();
-      }, 220);
-    }
-  }
-
-  function onTouchStart(e) {
-    if (state.isRefreshing) return;
-    if (!isAtTop()) return;
-    const t = e.touches && e.touches[0];
-    if (!t) return;
-    touchStartY = t.clientY;
-    pullY = 0;
-    pulling = true;
-  }
-
-  function onTouchMove(e) {
-    if (!pulling || state.isRefreshing) return;
-    if (!isAtTop()) return;
-
-    const t = e.touches && e.touches[0];
-    if (!t) return;
-
-    const dy = t.clientY - touchStartY;
-    if (dy <= 0) return;
-
-    pullY = Math.min(PULL_MAX, dy);
-    if (pullY < PULL_TRIGGER) ptrShow("Pull to refresh", false);
-    else ptrShow("Release to refresh", false);
-  }
-
-  function onTouchEnd() {
-    if (!pulling || state.isRefreshing) {
-      pulling = false;
-      return;
-    }
-    pulling = false;
-    if (pullY >= PULL_TRIGGER) refreshActive();
-    else ptrHide();
-  }
-
-  // -------- Wiring --------
+  // -------- Events / Wiring --------
   function wireTabs() {
     tabBtns.forEach(btn => {
       btn.addEventListener("click", async () => {
         const name = btn.dataset.tab;
         showPanel(name);
 
-        // Load only when opened (fast)
         if (name === "now") await loadNow();
         if (name === "top") await loadTop();
         if (name === "recent") await loadRecent();
@@ -611,27 +359,17 @@
       });
     });
   }
-
-  function wirePullToRefresh() {
-    document.addEventListener("touchstart", onTouchStart, { passive: true });
-    document.addEventListener("touchmove", onTouchMove, { passive: true });
-    document.addEventListener("touchend", onTouchEnd, { passive: true });
-    document.addEventListener("touchcancel", onTouchEnd, { passive: true });
-  }
-
-  // -------- Boot --------
+/* app.js (PART 4/4) */
   async function boot() {
     wireTabs();
     wireTopControls();
-    wirePullToRefresh();
 
-    // Default tab: now
     showPanel("now");
 
-    // Initial NOW load (fast)
     await loadNow();
+    loadTop();
+    loadRecent();
 
-    // Start polling only for NOW
     startNowPolling();
   }
 

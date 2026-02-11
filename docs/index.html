@@ -13,14 +13,12 @@
       --text:#e9e9ea;
       --muted:#a7abb4;
       --muted2:#7c818c;
-      --line:rgba(255,255,255,.10);
 
       --glassFill: rgba(18, 20, 26, .55);
       --glassStroke: rgba(255,255,255,.12);
 
       --r:22px;
       --r2:26px;
-
       --shadow: 0 18px 55px rgba(0,0,0,.55);
 
       --red:#ff4d4d;
@@ -31,7 +29,6 @@
       --safeT: max(14px, env(safe-area-inset-top));
       --safeB: max(18px, env(safe-area-inset-bottom));
 
-      /* dynamic (set by JS for NOW glow only) */
       --nowArt: none;
     }
 
@@ -78,7 +75,6 @@
       padding: calc(var(--safeT) + 14px) var(--safeR) var(--safeB) var(--safeL);
     }
 
-    /* header */
     .topbar{
       display:flex;
       align-items:center;
@@ -94,7 +90,7 @@
     }
     .brandTitle{
       font-size: 24px;
-      font-weight: 750;
+      font-weight: 760;
       letter-spacing: .2px;
       line-height: 1.05;
       margin:0;
@@ -181,7 +177,7 @@
     .sectionTitle{
       margin: 0 0 4px;
       font-size: 22px;
-      font-weight: 800;
+      font-weight: 820;
       letter-spacing:.15px;
       padding-left: 2px;
     }
@@ -261,7 +257,7 @@
     }
     .liveLabel{
       font-size: 12px;
-      font-weight: 800;
+      font-weight: 820;
       letter-spacing: .24em;
       text-transform: uppercase;
       color: rgba(255,255,255,.82);
@@ -275,7 +271,7 @@
 
     .title{
       font-size: 22px;
-      font-weight: 850;
+      font-weight: 860;
       letter-spacing: .15px;
       margin: 0;
       line-height: 1.15;
@@ -306,6 +302,7 @@
       position:relative;
       border-radius: var(--r);
       padding: 12px 14px;
+      cursor: default;
     }
     .item.glass::before{
       content:"";
@@ -334,6 +331,7 @@
       flex:0 0 auto;
       background: rgba(255,255,255,.06);
       box-shadow: 0 10px 24px rgba(0,0,0,.35);
+      position:relative;
     }
     .thumb img{
       width:100%;
@@ -347,8 +345,10 @@
       justify-content:center;
       color: rgba(233,233,234,.30);
       font-size: 18px;
-      font-weight: 800;
+      font-weight: 860;
       letter-spacing:.02em;
+      background: rgba(255,255,255,.04);
+      border: 1px solid rgba(255,255,255,.06);
     }
 
     .itemText{
@@ -359,7 +359,7 @@
     .itemTitle{
       margin:0;
       font-size: 16px;
-      font-weight: 800;
+      font-weight: 820;
       color: rgba(233,233,234,.92);
       line-height:1.15;
     }
@@ -375,10 +375,10 @@
       flex:0 0 auto;
       font-variant-numeric: tabular-nums;
       font-size: 15px;
-      font-weight: 850;
+      font-weight: 860;
       letter-spacing:.2px;
       padding-left: 10px;
-      color: rgba(255, 200, 120, .95);
+      color: rgba(255,200,120,.95);
       text-shadow: 0 10px 30px rgba(0,0,0,.45);
     }
 
@@ -433,7 +433,7 @@
       color: rgba(233,233,234,.66);
       padding: 10px 10px;
       border-radius: 999px;
-      font-weight: 750;
+      font-weight: 760;
       font-size: 13px;
       cursor:pointer;
       -webkit-tap-highlight-color: transparent;
@@ -554,7 +554,8 @@
 <!-- PART 2/4 — index.html (FULL REPLACE CONT.) -->
     <script>
       // ===== CONFIG =====
-      const WORKER_BASE = "https://i.errtanq9.workers.dev"; // your Cloudflare Worker
+      // NOTE: backend stays as-is. We only adapt frontend to whatever endpoints exist.
+      const WORKER_BASE = "https://i.errtanq9.workers.dev";
       const LIMIT_TOP = 10;
       const LIMIT_RECENT = 10;
 
@@ -575,9 +576,29 @@
       function ensureHttps(url){
         const u = safeText(url).trim();
         if(!u) return "";
-        // Fix mixed content (GitHub Pages is https)
+        if(u.startsWith("//")) return "https:" + u;
         if(u.startsWith("http://")) return "https://" + u.slice("http://".length);
         return u;
+      }
+
+      async function fetchJson(url){
+        const res = await fetch(url, { cache: "no-store" });
+        if(!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.json();
+      }
+
+      // Try multiple endpoints until one works
+      async function fetchJsonProbe(paths){
+        let lastErr = null;
+        for(const p of paths){
+          const url = WORKER_BASE.replace(/\/+$/,"") + p;
+          try{
+            return await fetchJson(url);
+          }catch(e){
+            lastErr = e;
+          }
+        }
+        throw lastErr || new Error("All endpoints failed");
       }
 
       function fmtTime(ts){
@@ -589,29 +610,26 @@
         }
       }
 
-      async function fetchJson(url){
-        const res = await fetch(url, { cache: "no-store" });
-        if(!res.ok) throw new Error(`HTTP ${res.status}`);
-        return await res.json();
-      }
-
       function setupMarquee(mqEl){
         if(!mqEl) return;
         const span = mqEl.querySelector("span");
         if(!span) return;
 
         mqEl.classList.remove("marquee");
-        span.dataset.duped = "0";
+
+        // If we previously duplicated, restore to original first (safe)
+        if(span.dataset.orig){
+          span.textContent = span.dataset.orig;
+        } else {
+          span.dataset.orig = span.textContent;
+        }
 
         requestAnimationFrame(() => {
           const needs = span.scrollWidth > mqEl.clientWidth + 2;
           if(!needs) return;
 
-          if(span.dataset.duped !== "1"){
-            const txt = span.textContent;
-            span.textContent = txt + "   •   " + txt;
-            span.dataset.duped = "1";
-          }
+          const orig = span.dataset.orig || span.textContent;
+          span.textContent = orig + "   •   " + orig;
           mqEl.classList.add("marquee");
         });
       }
@@ -636,10 +654,54 @@
         document.body.classList.toggle("now-mode", tab === "now");
       }
 
+      // ---- IMAGE PICKER (covers more schemas) ----
+      function pickImage(obj){
+        if(!obj) return "";
+
+        // direct string
+        if(typeof obj.image === "string") return obj.image;
+
+        // common: { image: { url: "..." } }
+        if(obj.image && typeof obj.image.url === "string") return obj.image.url;
+
+        // common: { images: [{url:"..."}] }
+        if(Array.isArray(obj.images) && obj.images.length){
+          for(const cand of obj.images){
+            const u = cand?.url || cand?.src || cand?.href || cand;
+            if(typeof u === "string" && u.trim()) return u;
+          }
+        }
+
+        // Last.fm: image: [ { "#text": "...", size:"extralarge" }, ... ]
+        if(Array.isArray(obj.image) && obj.image.length){
+          // prefer last non-empty
+          for(let i=obj.image.length-1; i>=0; i--){
+            const cand = obj.image[i];
+            const u = cand && (cand["#text"] || cand.url);
+            if(typeof u === "string" && u.trim()) return u;
+          }
+        }
+
+        // Sometimes image comes as object with sizes: { small:"", medium:"", extralarge:"" }
+        if(obj.image && typeof obj.image === "object" && !Array.isArray(obj.image)){
+          const pref = ["extralarge","large","medium","small","mega","original"];
+          for(const k of pref){
+            const u = obj.image[k];
+            if(typeof u === "string" && u.trim()) return u;
+          }
+          // any string field
+          for(const k of Object.keys(obj.image)){
+            const u = obj.image[k];
+            if(typeof u === "string" && u.trim()) return u;
+          }
+        }
+
+        return "";
+      }
+
       function makeThumb(url, fallbackChar="♪"){
-        const div = document.createElement("div");
-        div.className = "thumb glass";
         const finalUrl = ensureHttps(url);
+        const div = document.createElement("div");
 
         if(finalUrl){
           div.className = "thumb";
@@ -649,20 +711,20 @@
           img.referrerPolicy = "no-referrer";
           img.src = finalUrl;
           img.onerror = () => {
-            // if still fails, just show placeholder
             div.innerHTML = "";
             div.className = "thumb placeholder";
             div.textContent = fallbackChar;
           };
           div.appendChild(img);
-        }else{
-          div.classList.add("placeholder");
+        } else {
+          div.className = "thumb placeholder";
           div.textContent = fallbackChar;
         }
+
         return div;
       }
 
-      function makeListItem({ index, title, meta, image, countText, countColor }){
+      function makeListItem({ index, title, meta, image, countText }){
         const wrap = document.createElement("div");
         wrap.className = "item glass";
 
@@ -683,7 +745,7 @@
         const m = document.createElement("p");
         m.className = "itemMeta mq";
         const mSpan = document.createElement("span");
-        mSpan.textContent = meta;
+        mSpan.textContent = meta || " ";
         m.appendChild(mSpan);
 
         txt.appendChild(t);
@@ -696,60 +758,45 @@
           const c = document.createElement("div");
           c.className = "count";
           c.textContent = countText;
-          if(countColor) c.style.color = countColor;
           row.appendChild(c);
         }
 
         wrap.appendChild(row);
-
-        // no click actions
-        wrap.style.cursor = "default";
         wrap._mqEls = [t, m];
-
         return wrap;
       }
-
-      function pickImage(obj){
-        if(!obj) return "";
-        if(typeof obj.image === "string") return obj.image;
-        if(obj.image && typeof obj.image.url === "string") return obj.image.url;
-        if(Array.isArray(obj.images) && obj.images.length){
-          const best = obj.images[0]?.url || obj.images[0];
-          if(typeof best === "string") return best;
-        }
-        if(Array.isArray(obj.image) && obj.image.length){
-          const cand = obj.image[obj.image.length - 1];
-          const t = cand && (cand["#text"] || cand.url);
-          if(typeof t === "string" && t) return t;
-        }
-        return "";
-      }
-
+<!-- PART 3/4 — index.html (FULL REPLACE CONT.) -->
       function normalizeNow(data){
-        const n = data?.now || data?.track || data?.item || data;
+        // accept many shapes
+        const n = data?.now || data?.track || data?.item || data?.data || data || {};
         const title = safeText(n?.name || n?.title || n?.track || n?.song || "—");
         const artist = safeText(n?.artist?.name || n?.artist || n?.creator || "—");
         const album = safeText(n?.album?.name || n?.album || n?.release || "");
-        const image = pickImage(n) || pickImage(n?.album) || pickImage(n?.track);
-        const ts = n?.ts || n?.timestamp || n?.playedAt || Date.now();
+        const image =
+          pickImage(n) ||
+          pickImage(n?.album) ||
+          pickImage(n?.track) ||
+          pickImage(data?.album) ||
+          pickImage(data?.track);
+        const ts = n?.ts || n?.timestamp || n?.playedAt || data?.ts || Date.now();
         return { title, artist, album, image, ts };
       }
 
       function normalizeTopList(data){
-        const arr = data?.items || data?.top || data?.list || data || [];
+        const arr = data?.items || data?.top || data?.list || data?.data || data || [];
         if(!Array.isArray(arr)) return [];
         return arr.map((it) => {
           const title = safeText(it?.name || it?.title || "—");
           const artist = safeText(it?.artist?.name || it?.artist || "");
           const album = safeText(it?.album?.name || it?.album || "");
-          const image = pickImage(it) || pickImage(it?.album);
+          const image = pickImage(it) || pickImage(it?.album) || pickImage(it?.artist);
           const count = it?.plays || it?.playcount || it?.count || it?.listeners || it?.scrobbles;
           return { title, artist, album, image, count };
         });
       }
 
       function normalizeRecentList(data){
-        const arr = data?.items || data?.recent || data?.list || data || [];
+        const arr = data?.items || data?.recent || data?.list || data?.data || data || [];
         if(!Array.isArray(arr)) return [];
         return arr.map((it) => {
           const title = safeText(it?.name || it?.title || "—");
@@ -759,11 +806,18 @@
           return { title, artist, album, image };
         });
       }
-<!-- PART 3/4 — index.html (FULL REPLACE CONT.) -->
+
       async function loadNow(){
         try{
-          const url = `${WORKER_BASE}/api/now`;
-          const data = await fetchJson(url);
+          const data = await fetchJsonProbe([
+            "/api/now",
+            "/now",
+            "/api/now-playing",
+            "/now-playing",
+            "/api/np",
+            "/np"
+          ]);
+
           const now = normalizeNow(data);
 
           $("nowTitle").textContent = now.title || "—";
@@ -776,7 +830,7 @@
           const fallback = $("nowArtFallback");
           const imgUrl = ensureHttps(now.image);
 
-          // reset visual state
+          // reset
           fallback.style.display = "flex";
           imgEl.style.display = "none";
           imgEl.removeAttribute("src");
@@ -786,23 +840,16 @@
             imgEl.referrerPolicy = "no-referrer";
 
             imgEl.onerror = () => {
-              // 1) if it was http (shouldn’t now), try https once more just in case
-              const cur = safeText(imgEl.src);
-              if(cur.startsWith("http://")){
-                imgEl.src = ensureHttps(cur);
-                return;
-              }
-              // 2) give up -> keep fallback
               imgEl.style.display = "none";
               fallback.style.display = "flex";
               document.documentElement.style.setProperty("--nowArt", "none");
+              setupAllMarquees();
             };
 
             imgEl.onload = () => {
               fallback.style.display = "none";
               imgEl.style.display = "block";
 
-              // set glow only when we have confirmed artwork loaded
               const encoded = imgUrl.replace(/"/g, "%22");
               document.documentElement.style.setProperty("--nowArt", `url("${encoded}")`);
               setupAllMarquees();
@@ -834,12 +881,20 @@
         list.innerHTML = "";
 
         try{
-          const url = `${WORKER_BASE}/api/top?type=${encodeURIComponent(type)}&period=${encodeURIComponent(period)}&limit=${LIMIT_TOP}`;
-          const data = await fetchJson(url);
+          const qs = `?type=${encodeURIComponent(type)}&period=${encodeURIComponent(period)}&limit=${LIMIT_TOP}`;
+
+          const data = await fetchJsonProbe([
+            `/api/top${qs}`,
+            `/top${qs}`,
+            `/api/stats/top${qs}`,
+            `/stats/top${qs}`
+          ]);
+
           const items = normalizeTopList(data).slice(0, LIMIT_TOP);
 
           if(items.length === 0){
             hint.textContent = "No data.";
+            $("statusText").textContent = "Online";
             return;
           }
 
@@ -848,18 +903,16 @@
             const meta =
               type === "albums" ? (it.artist ? it.artist : "—") :
               type === "artists" ? "" :
-              (it.artist ? it.artist : "");
-
-            const rowMeta = meta.trim() ? meta : " ";
+              (it.artist ? it.artist : "—");
 
             const countText = (it.count !== undefined && it.count !== null) ? String(it.count) : "";
+
             const node = makeListItem({
               index: idx + 1,
               title: it.title,
-              meta: rowMeta,
+              meta: meta.trim() ? meta : " ",
               image: it.image,
-              countText,
-              countColor: "rgba(255,200,120,.95)"
+              countText
             });
 
             nodes.push(node);
@@ -876,7 +929,7 @@
           hint.textContent = "Couldn’t load Top.";
         }
       }
-
+<!-- PART 4/4 — index.html (FULL REPLACE CONT.) -->
       async function loadRecent(){
         const hint = $("recentHint");
         hint.textContent = "";
@@ -885,12 +938,22 @@
         list.innerHTML = "";
 
         try{
-          const url = `${WORKER_BASE}/api/recent?limit=${LIMIT_RECENT}`;
-          const data = await fetchJson(url);
+          const qs = `?limit=${LIMIT_RECENT}`;
+
+          const data = await fetchJsonProbe([
+            `/api/recent${qs}`,
+            `/recent${qs}`,
+            `/api/recent-tracks${qs}`,
+            `/recent-tracks${qs}`,
+            `/api/scrobbles${qs}`,
+            `/scrobbles${qs}`
+          ]);
+
           const items = normalizeRecentList(data).slice(0, LIMIT_RECENT);
 
           if(items.length === 0){
             hint.textContent = "No recent items.";
+            $("statusText").textContent = "Online";
             return;
           }
 
@@ -958,7 +1021,6 @@
       (function init(){
         bindTabs();
         bindTopControls();
-
         setTab("now");
         loadNow();
         startNowPolling();

@@ -1,20 +1,24 @@
-/* Listening Mirror UI — Worker base fixed */
+/* Listening Mirror UI (hardcoded Worker base)
+   - No Settings (worker base is fixed)
+   - Worker: https://i.errtanq9.workers.dev
+*/
 (() => {
   "use strict";
 
-  const WORKER_BASE = "https://i.errtanq9.workers.dev";
+  const WORKER_BASE = "https://i.errtanq9.workers.dev"; // no trailing slash
 
-  const el = (s) => document.querySelector(s);
-  const els = (s) => Array.from(document.querySelectorAll(s));
+  const el = (sel) => document.querySelector(sel);
+  const els = (sel) => Array.from(document.querySelectorAll(sel));
 
+  // Header
   const statusLine = el("#statusLine");
-  const statusDot = el("#statusDot");
   const btnRefresh = el("#btnRefresh");
 
+  // Tabs
   const panels = els(".panel");
   const tabBtns = els(".tabBtn");
 
-  // Now
+  // Now Playing UI
   const nowUpdated = el("#nowUpdated");
   const nowBadge = el("#nowBadge");
   const nowImg = el("#nowImg");
@@ -25,38 +29,26 @@
   const nowMsg = el("#nowMsg");
   const workerHint = el("#workerHint");
 
-  // Top
+  // Top UI
   const topMeta = el("#topMeta");
   const topBadge = el("#topBadge");
   const topList = el("#topList");
   const topTypeBtns = els("[data-top-type]");
   const topPeriodBtns = els("[data-top-period]");
 
-  // Recent
+  // Recent UI
   const recentMeta = el("#recentMeta");
   const recentList = el("#recentList");
 
-  // Insight
-  const insMeta = el("#insMeta");
-  const insBadge = el("#insBadge");
-  const insPeriodBtns = els("[data-ins-period]");
-  const barEnergy = el("#barEnergy");
-  const barValence = el("#barValence");
-  const barFocus = el("#barFocus");
-  const barNovelty = el("#barNovelty");
-  const valEnergy = el("#valEnergy");
-  const valValence = el("#valValence");
-  const valFocus = el("#valFocus");
-  const valNovelty = el("#valNovelty");
-  const insBullets = el("#insBullets");
-
   let currentTab = "now";
-  let topType = "tracks";
-  let topPeriod = "today";
+  let topType = "tracks";    // tracks | artists | albums
+  let topPeriod = "today";   // today | week | year
   let topLimit = 20;
+  let online = false;
 
-  let insPeriod = "today";
-
+  // ---------------------------
+  // Helpers
+  // ---------------------------
   function setSelected(btns, predicate) {
     btns.forEach((b) => b.setAttribute("aria-selected", predicate(b) ? "true" : "false"));
   }
@@ -73,7 +65,9 @@
     if (tab === "now") refreshNow();
     if (tab === "top") refreshTop();
     if (tab === "recent") refreshRecent();
-    if (tab === "insight") refreshInsight();
+
+    // re-evaluate marquee when changing panels
+    requestAnimationFrame(() => refreshAllMarquees());
   }
 
   function fmtTime(ts = Date.now()) {
@@ -84,48 +78,115 @@
     }
   }
 
-  function setStatus(ok) {
-    if (statusLine) statusLine.textContent = ok ? "Online" : "Offline";
-    if (statusDot) statusDot.classList.toggle("ok", !!ok);
+  function setStatus(text) {
+    if (statusLine) statusLine.textContent = text;
   }
 
+  // IMPORTANT: Worker returns images like "/img?u=..."
+  // We must turn that into "https://i.errtanq9.workers.dev/img?u=..."
   function resolveImageUrl(u) {
     if (!u) return "";
     const s = String(u);
     if (s.startsWith("http://") || s.startsWith("https://")) return s;
     if (s.startsWith("/")) return WORKER_BASE + s;
-    return "";
+    return s;
   }
 
   async function safeFetchJson(path) {
     const url = WORKER_BASE + path;
+
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 12000);
 
     try {
       const r = await fetch(url, { signal: ctrl.signal, cache: "no-store" });
+      const ct = (r.headers.get("content-type") || "").toLowerCase();
       const text = await r.text();
+
+      // If worker returns HTML (404 page etc.), show clean error
+      if (!r.ok || ct.includes("text/html") || text.trim().startsWith("<!DOCTYPE")) {
+        const msg = !r.ok ? `HTTP ${r.status}` : "HTML returned";
+        throw new Error(msg);
+      }
+
       let j = null;
       try { j = JSON.parse(text); } catch { j = null; }
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
       if (!j) throw new Error("Bad JSON");
+
       return j;
     } finally {
       clearTimeout(t);
     }
   }
 // ---------------------------
-  // Now Playing
+  // Marquee (only when overflow)
   // ---------------------------
+  function clearMarquee(node, plainText) {
+    node.classList.remove("marquee", "fast", "slow");
+    node.textContent = plainText ?? "";
+  }
+
+  function applyMarquee(node, text, speed = "slow") {
+    // set plain text first (so we can measure)
+    node.classList.remove("marquee", "fast", "slow");
+    node.textContent = text;
+
+    // measure overflow (needs layout)
+    const overflow = node.scrollWidth > node.clientWidth + 2;
+    if (!overflow) return;
+
+    // build marquee DOM
+    node.innerHTML = "";
+    node.classList.add("marquee");
+    if (speed === "fast") node.classList.add("fast");
+    if (speed === "slow") node.classList.add("slow");
+
+    const track = document.createElement("div");
+    track.className = "marqueeTrack";
+
+    const a = document.createElement("span");
+    a.textContent = text;
+
+    const b = document.createElement("span");
+    b.textContent = text;
+
+    track.appendChild(a);
+    track.appendChild(b);
+    node.appendChild(track);
+  }
+
+  function setSmartText(node, text, speed = "slow") {
+    if (!node) return;
+    const t = (text == null ? "" : String(text));
+    // try marquee on next frame so the element has proper width
+    requestAnimationFrame(() => applyMarquee(node, t, speed));
+  }
+
+  function refreshAllMarquees() {
+    // Now Playing
+    setSmartText(nowTrack, nowTrack?.dataset?.rawText || nowTrack?.textContent || "—", "fast");
+    setSmartText(nowArtist, nowArtist?.dataset?.rawText || nowArtist?.textContent || "—", "slow");
+    setSmartText(nowAlbum, nowAlbum?.dataset?.rawText || nowAlbum?.textContent || "—", "slow");
+
+    // List rows (titles/subtitles)
+    els("[data-marquee='title']").forEach((n) => setSmartText(n, n.dataset.rawText || n.textContent || "", "fast"));
+    els("[data-marquee='sub']").forEach((n) => setSmartText(n, n.dataset.rawText || n.textContent || "", "slow"));
+  }
+
   function clearNow() {
     nowBadge.textContent = "OFF";
     nowBadge.classList.remove("live");
     nowUpdated.textContent = "--";
-    nowTrack.textContent = "—";
-    nowArtist.textContent = "—";
-    nowAlbum.textContent = "—";
     nowMsg.textContent = "";
     setNowCover("");
+
+    // set placeholders + marquee
+    nowTrack.dataset.rawText = "—";
+    nowArtist.dataset.rawText = "—";
+    nowAlbum.dataset.rawText = "—";
+    setSmartText(nowTrack, "—", "fast");
+    setSmartText(nowArtist, "—", "slow");
+    setSmartText(nowAlbum, "—", "slow");
   }
 
   function setNowCover(imgUrl) {
@@ -141,44 +202,6 @@
     }
   }
 
-  async function refreshNow() {
-    clearNow();
-    nowUpdated.textContent = fmtTime(Date.now());
-    nowMsg.textContent = "Loading…";
-
-    try {
-      const j = await safeFetchJson("/api/now");
-      nowUpdated.textContent = fmtTime(Date.now());
-
-      const item = j?.item;
-      if (!item) {
-        nowMsg.textContent = "Not playing now";
-        nowBadge.textContent = "OFF";
-        nowBadge.classList.remove("live");
-        setNowCover("");
-        return;
-      }
-
-      nowBadge.textContent = "LIVE";
-      nowBadge.classList.add("live");
-
-      nowTrack.textContent = item.name || "—";
-      nowArtist.textContent = item.artist || "—";
-      nowAlbum.textContent = item.album || "—";
-      nowMsg.textContent = "Now playing";
-
-      setNowCover(item.image || "");
-    } catch (e) {
-      nowMsg.textContent = "Error loading now playing";
-      nowBadge.textContent = "OFF";
-      nowBadge.classList.remove("live");
-      setNowCover("");
-    }
-  }
-
-  // ---------------------------
-  // Row item
-  // ---------------------------
   function rowItem({ idx, title, subtitle, right, imageUrl }) {
     const wrap = document.createElement("div");
     wrap.className = "row";
@@ -216,11 +239,13 @@
 
     const t = document.createElement("div");
     t.className = "title";
-    t.textContent = `${idx}. ${title}`;
+    t.dataset.marquee = "title";
+    t.dataset.rawText = `${idx}. ${title}`;
 
     const s = document.createElement("div");
     s.className = "sub";
-    s.textContent = subtitle || "";
+    s.dataset.marquee = "sub";
+    s.dataset.rawText = subtitle || "";
 
     mid.appendChild(t);
     mid.appendChild(s);
@@ -233,45 +258,74 @@
     wrap.appendChild(mid);
     wrap.appendChild(r);
 
+    // apply marquee after layout
+    requestAnimationFrame(() => {
+      applyMarquee(t, t.dataset.rawText || "", "fast");
+      applyMarquee(s, s.dataset.rawText || "", "slow");
+    });
+
     return wrap;
   }
 // ---------------------------
-  // Top
+  // Fetch + Render: /api/ping
   // ---------------------------
-  async function refreshTop() {
-    topMeta.textContent = "Loading…";
-    topList.innerHTML = "";
-
-    const path = `/api/top?type=${encodeURIComponent(topType)}&period=${encodeURIComponent(topPeriod)}&limit=${encodeURIComponent(topLimit)}`;
-
+  async function refreshPing() {
     try {
-      const j = await safeFetchJson(path);
-      const items = j?.items || [];
-
-      topMeta.textContent = `${topType} • ${topPeriod}`;
-      topBadge.textContent = String(items.length);
-
-      items.forEach((it, i) => {
-        topList.appendChild(
-          rowItem({
-            idx: i + 1,
-            title: it.name || "—",
-            subtitle: it.artist || "",
-            right: it.playcount ?? "",
-            imageUrl: it.image || ""
-          })
-        );
-      });
-
-      if (!items.length) topMeta.textContent = "No top data returned.";
-    } catch (e) {
-      topMeta.textContent = "Error loading top";
-      topList.innerHTML = "";
+      const j = await safeFetchJson("/api/ping");
+      online = !!j?.ok;
+      setStatus(online ? "Online" : "Offline");
+    } catch {
+      online = false;
+      setStatus("Offline");
     }
   }
 
   // ---------------------------
-  // Recent
+  // Fetch + Render: /api/now
+  // ---------------------------
+  async function refreshNow() {
+    clearNow();
+    nowUpdated.textContent = fmtTime(Date.now());
+    nowMsg.textContent = "Loading…";
+
+    try {
+      const j = await safeFetchJson("/api/now");
+      nowUpdated.textContent = fmtTime(Date.now());
+
+      const item = j?.item;
+      if (!item) {
+        nowMsg.textContent = "Not playing now";
+        nowBadge.textContent = "OFF";
+        nowBadge.classList.remove("live");
+        setNowCover("");
+        return;
+      }
+
+      nowBadge.textContent = "LIVE";
+      nowBadge.classList.add("live");
+
+      nowMsg.textContent = "Now playing";
+
+      // store raw text for marquee refresh
+      nowTrack.dataset.rawText = item.name || "—";
+      nowArtist.dataset.rawText = item.artist || "—";
+      nowAlbum.dataset.rawText = item.album || "—";
+
+      setSmartText(nowTrack, nowTrack.dataset.rawText, "fast");
+      setSmartText(nowArtist, nowArtist.dataset.rawText, "slow");
+      setSmartText(nowAlbum, nowAlbum.dataset.rawText, "slow");
+
+      setNowCover(item.image || "");
+    } catch (e) {
+      nowMsg.textContent = `Error: ${String(e.message || e)}`;
+      nowBadge.textContent = "OFF";
+      nowBadge.classList.remove("live");
+      setNowCover("");
+    }
+  }
+
+  // ---------------------------
+  // Fetch + Render: /api/history
   // ---------------------------
   async function refreshRecent() {
     recentMeta.textContent = "Loading…";
@@ -296,95 +350,84 @@
       });
 
       if (!items.length) recentMeta.textContent = "No recent history returned.";
+
+      requestAnimationFrame(() => refreshAllMarquees());
     } catch (e) {
-      recentMeta.textContent = "Error loading recent";
+      recentMeta.textContent = `Error: ${String(e.message || e)}`;
       recentList.innerHTML = "";
     }
   }
 
   // ---------------------------
-  // Insight (UI-only)
+  // Fetch + Render: /api/top
   // ---------------------------
-  function clamp01(x) {
-    const n = Number(x);
-    if (!Number.isFinite(n)) return 0;
-    return Math.max(0, Math.min(1, n));
-  }
+  async function refreshTop() {
+    topMeta.textContent = "Loading…";
+    topList.innerHTML = "";
 
-  function setBar(fillEl, value01) {
-    const v = clamp01(value01);
-    fillEl.style.width = `${Math.round(v * 100)}%`;
-    // no hardcoded colors; keep default (browser will use inherited background)
-    // We'll set background inline to keep it visible without picking a brand color
-    fillEl.style.background = "rgba(255,255,255,.22)";
-  }
-
-  function setBullets(listEl, bullets) {
-    listEl.innerHTML = "";
-    (bullets || []).slice(0, 6).forEach((b) => {
-      const li = document.createElement("li");
-      li.textContent = String(b);
-      listEl.appendChild(li);
-    });
-  }
-
-  async function refreshInsight() {
-    insMeta.textContent = "Loading…";
-    insBadge.textContent = insPeriod;
-
-    setBar(barEnergy, 0);
-    setBar(barValence, 0);
-    setBar(barFocus, 0);
-    setBar(barNovelty, 0);
-    valEnergy.textContent = "—";
-    valValence.textContent = "—";
-    valFocus.textContent = "—";
-    valNovelty.textContent = "—";
-    setBullets(insBullets, []);
+    const path = `/api/top?type=${encodeURIComponent(topType)}&period=${encodeURIComponent(topPeriod)}&limit=${encodeURIComponent(topLimit)}`;
 
     try {
-      const j = await safeFetchJson(`/api/insight?period=${encodeURIComponent(insPeriod)}&limit=50`);
-      if (!j?.ok) throw new Error(j?.error || "Insight error");
+      const j = await safeFetchJson(path);
+      const items = j?.items || [];
 
-      const s = j?.summary || {};
+      topMeta.textContent = `${topType} • ${topPeriod}`;
+      topBadge.textContent = String(topLimit);
 
-      setBar(barEnergy, s.energy);
-      setBar(barValence, s.valence);
-      setBar(barFocus, s.focus);
-      setBar(barNovelty, s.novelty);
+      items.forEach((it, i) => {
+        if (topType === "artists") {
+          topList.appendChild(
+            rowItem({
+              idx: i + 1,
+              title: it.name || "—",
+              subtitle: "",
+              right: it.playcount ?? "",
+              imageUrl: it.image || ""
+            })
+          );
+        } else if (topType === "albums") {
+          topList.appendChild(
+            rowItem({
+              idx: i + 1,
+              title: it.name || "—",
+              subtitle: it.artist || "",
+              right: it.playcount ?? "",
+              imageUrl: it.image || ""
+            })
+          );
+        } else {
+          topList.appendChild(
+            rowItem({
+              idx: i + 1,
+              title: it.name || "—",
+              subtitle: it.artist || "",
+              right: it.playcount ?? "",
+              imageUrl: it.image || ""
+            })
+          );
+        }
+      });
 
-      valEnergy.textContent = `Energy: ${Math.round(clamp01(s.energy) * 100)}%`;
-      valValence.textContent = `Valence: ${Math.round(clamp01(s.valence) * 100)}%`;
-      valFocus.textContent = `Focus: ${Math.round(clamp01(s.focus) * 100)}%`;
-      valNovelty.textContent = `Novelty: ${Math.round(clamp01(s.novelty) * 100)}%`;
+      if (!items.length) topMeta.textContent = "No top data returned.";
 
-      setBullets(insBullets, j?.bullets || []);
-      insMeta.textContent = `${j?.window || insPeriod} • ${j?.count || 0} plays`;
+      requestAnimationFrame(() => refreshAllMarquees());
     } catch (e) {
-      insMeta.textContent = "Insight not available (AI not configured yet)";
-      setBullets(insBullets, ["Connect AI provider in the Worker to enable insight."]);
+      topMeta.textContent = `Error: ${String(e.message || e)}`;
+      topList.innerHTML = "";
     }
   }
 // ---------------------------
-  // Ping
-  // ---------------------------
-  async function refreshPing() {
-    try {
-      const j = await safeFetchJson("/api/ping");
-      setStatus(!!j?.ok);
-    } catch {
-      setStatus(false);
-    }
-  }
-
-  // ---------------------------
   // Wire UI
   // ---------------------------
   function init() {
-    if (workerHint) workerHint.textContent = WORKER_BASE;
+    if (workerHint) workerHint.textContent = `Worker: ${WORKER_BASE}`;
 
-    tabBtns.forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+    // tabs
+    tabBtns.forEach((b) => {
+      b.addEventListener("click", () => showTab(b.dataset.tab));
+    });
 
+    // top type
     topTypeBtns.forEach((b) => {
       b.addEventListener("click", () => {
         topType = String(b.dataset.topType || "tracks");
@@ -393,6 +436,7 @@
       });
     });
 
+    // top period
     topPeriodBtns.forEach((b) => {
       b.addEventListener("click", () => {
         topPeriod = String(b.dataset.topPeriod || "today");
@@ -401,34 +445,38 @@
       });
     });
 
-    insPeriodBtns.forEach((b) => {
-      b.addEventListener("click", () => {
-        insPeriod = String(b.dataset.insPeriod || "today");
-        setSelected(insPeriodBtns, (x) => x === b);
-        refreshInsight();
-      });
-    });
-
+    // refresh
     if (btnRefresh) {
       btnRefresh.addEventListener("click", async () => {
         await refreshPing();
         if (currentTab === "now") refreshNow();
         if (currentTab === "top") refreshTop();
         if (currentTab === "recent") refreshRecent();
-        if (currentTab === "insight") refreshInsight();
       });
     }
 
+    // initial selected states
     setSelected(tabBtns, (b) => b.dataset.tab === "now");
     setSelected(topTypeBtns, (b) => (b.dataset.topType || "") === "tracks");
     setSelected(topPeriodBtns, (b) => (b.dataset.topPeriod || "") === "today");
-    setSelected(insPeriodBtns, (b) => (b.dataset.insPeriod || "") === "today");
 
+    // boot
     refreshPing();
     showTab("now");
 
+    // auto refresh ping + now (lightweight)
     setInterval(refreshPing, 15000);
-    setInterval(() => { if (currentTab === "now") refreshNow(); }, 15000);
+    setInterval(() => {
+      if (currentTab === "now") refreshNow();
+    }, 15000);
+
+    // re-evaluate marquee on resize/orientation change
+    window.addEventListener("resize", () => {
+      requestAnimationFrame(() => refreshAllMarquees());
+    });
+    window.addEventListener("orientationchange", () => {
+      setTimeout(() => refreshAllMarquees(), 200);
+    });
   }
 
   init();

@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>Listening Mirror</title>
 
-  <!-- Minimal inline styles so GitHub Pages works even if styles.css is missing -->
   <style>
     :root{
       --bg:#0b0c0e;
@@ -32,7 +31,6 @@
                   var(--bg);
       color:var(--text);
     }
-    a{color:inherit}
     .wrap{max-width:980px;margin:0 auto;padding:18px 16px 70px}
     .topbar{
       display:flex;align-items:center;justify-content:space-between;gap:10px;
@@ -59,25 +57,15 @@
     }
     .dot{width:8px;height:8px;border-radius:999px;background:#666}
     .dot.ok{background:var(--ok)}
-    .tabs{
-      display:flex;gap:8px;flex-wrap:wrap;
-      margin:16px 2px 12px;
-    }
+    .tabs{display:flex;gap:8px;flex-wrap:wrap;margin:16px 2px 12px}
     .tabBtn{
-      border:1px solid var(--line);
-      background:var(--pill);
-      color:var(--text);
-      padding:10px 12px;
-      border-radius:14px;
-      font-size:13px;
-      font-weight:650;
-      cursor:pointer;
+      border:1px solid var(--line);background:var(--pill);color:var(--text);
+      padding:10px 12px;border-radius:14px;font-size:13px;font-weight:650;cursor:pointer;
     }
     .tabBtn[aria-selected="true"]{
       outline:2px solid rgba(255,255,255,.12);
       background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
     }
-
     .panel.hidden{display:none}
     .card{
       border:1px solid var(--line);
@@ -87,21 +75,8 @@
       padding:16px;
       margin:12px 0;
     }
-    .card h2{margin:0 0 10px;font-size:14px;letter-spacing:.2px}
     .muted{color:var(--muted);font-size:12px}
-    .grid2{display:grid;grid-template-columns:120px 1fr;gap:14px;align-items:center}
-    .coverBig{
-      width:120px;height:120px;border-radius:18px;
-      border:1px solid var(--line);
-      background: rgba(255,255,255,.02);
-      overflow:hidden;display:grid;place-items:center;
-    }
-    .coverBig img{width:100%;height:100%;object-fit:cover;display:block}
-    .coverFallbackBig{
-      width:100%;height:100%;display:grid;place-items:center;
-      color:rgba(255,255,255,.55);font-size:40px;
-      background: radial-gradient(circle at 30% 20%, rgba(255,255,255,.07), transparent 55%);
-    }
+    .metaRow{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
     .badge{
       display:inline-flex;align-items:center;gap:8px;
       padding:7px 10px;border-radius:999px;
@@ -111,7 +86,6 @@
     .badge.live{border-color: rgba(255,90,90,.55); box-shadow: 0 0 0 2px rgba(255,90,90,.12) inset}
     .badge .miniDot{width:8px;height:8px;border-radius:999px;background:#666}
     .badge.live .miniDot{background:var(--live)}
-    .metaRow{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
     .segRow{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
     .segBtn{
       border:1px solid var(--line);background:var(--pill);color:var(--text);
@@ -146,14 +120,30 @@
     .title{font-weight:750;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .sub{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
     .right{font-size:12px;color:var(--muted);font-weight:700}
-    .kv{display:grid;grid-template-columns:90px 1fr;gap:8px;margin-top:10px}
-    .k{color:var(--muted);font-size:12px}
-    .v{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .footerHint{margin-top:10px;color:var(--muted2);font-size:12px}
+
+    /* Insight UI */
+    .insGrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+    @media (max-width:720px){ .insGrid{grid-template-columns:1fr} }
+    .insCard{
+      border:1px solid var(--line);
+      border-radius:18px;
+      background: rgba(0,0,0,.18);
+      padding:12px;
+    }
+    .insLabel{font-size:12px;color:var(--muted);margin-bottom:8px}
+    .bar{
+      height:12px;border-radius:999px;
+      border:1px solid var(--line);
+      background: rgba(255,255,255,.04);
+      overflow:hidden;
+    }
+    .fill{height:100%;width:0%}
+    .insVal{margin-top:8px;font-size:13px;font-weight:800}
+    .bullets{margin:10px 0 0 0;padding-left:18px;color:var(--text)}
+    .bullets li{margin:6px 0;font-size:13px}
     code.inline{font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;color:var(--muted)}
   </style>
 </head>
-
 <body>
   <div class="wrap">
     <header class="topbar">
@@ -175,6 +165,7 @@
       <button class="tabBtn" data-tab="now" aria-selected="true" type="button">Now Playing</button>
       <button class="tabBtn" data-tab="top" aria-selected="false" type="button">Top</button>
       <button class="tabBtn" data-tab="recent" aria-selected="false" type="button">Recent</button>
+      <button class="tabBtn" data-tab="insight" aria-selected="false" type="button">Insight</button>
     </nav>
 
     <!-- NOW -->
@@ -187,24 +178,24 @@
 
         <div style="height:12px"></div>
 
-        <div class="grid2">
-          <div class="coverBig">
-            <img id="nowImg" alt="" style="display:none" />
-            <div id="nowFallback" class="coverFallbackBig">♪</div>
+        <div style="display:grid;grid-template-columns:120px 1fr;gap:14px;align-items:center">
+          <div style="width:120px;height:120px;border-radius:18px;border:1px solid var(--line);overflow:hidden;display:grid;place-items:center;background:rgba(255,255,255,.02)">
+            <img id="nowImg" alt="" style="display:none;width:100%;height:100%;object-fit:cover" />
+            <div id="nowFallback" style="width:100%;height:100%;display:grid;place-items:center;color:rgba(255,255,255,.55);font-size:40px;background:radial-gradient(circle at 30% 20%, rgba(255,255,255,.07), transparent 55%)">♪</div>
           </div>
 
           <div>
-            <div class="kv">
-              <div class="k">Track</div><div class="v" id="nowTrack">—</div>
-              <div class="k">Artist</div><div class="v" id="nowArtist">—</div>
-              <div class="k">Album</div><div class="v" id="nowAlbum">—</div>
+            <div style="display:grid;grid-template-columns:90px 1fr;gap:8px;margin-top:10px">
+              <div class="muted">Track</div><div id="nowTrack" style="font-size:13px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">—</div>
+              <div class="muted">Artist</div><div id="nowArtist" style="font-size:13px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">—</div>
+              <div class="muted">Album</div><div id="nowAlbum" style="font-size:13px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">—</div>
             </div>
-            <div class="footerHint" id="nowMsg"></div>
+            <div class="muted" id="nowMsg" style="margin-top:10px"></div>
           </div>
         </div>
 
-        <div class="footerHint" style="margin-top:14px">
-          <span class="muted">Worker:</span> <code class="inline" id="workerHint">—</code>
+        <div class="muted" style="margin-top:14px">
+          Worker: <code class="inline" id="workerHint">—</code>
         </div>
       </div>
     </section>
@@ -214,7 +205,7 @@
       <div class="card">
         <div class="metaRow">
           <div>
-            <h2 style="margin:0">Top</h2>
+            <div style="font-size:14px;font-weight:800;margin:0 0 6px 0">Top</div>
             <div class="muted" id="topMeta">—</div>
           </div>
           <div class="badge" title="Limit">
@@ -238,27 +229,79 @@
         <div class="list" id="topList"></div>
       </div>
     </section>
-
-    <!-- RECENT -->
+<!-- RECENT -->
     <section class="panel hidden" data-panel="recent">
       <div class="card">
         <div class="metaRow">
           <div>
-            <h2 style="margin:0">Recent</h2>
+            <div style="font-size:14px;font-weight:800;margin:0 0 6px 0">Recent</div>
             <div class="muted" id="recentMeta">—</div>
           </div>
         </div>
-
         <div class="list" id="recentList"></div>
+        <div class="muted" style="margin-top:10px">Shows last 10 scrobbles (most recent → older).</div>
+      </div>
+    </section>
 
-        <div class="footerHint">
-          Shows last 10 scrobbles (most recent → older).
+    <!-- INSIGHT -->
+    <section class="panel hidden" data-panel="insight">
+      <div class="card">
+        <div class="metaRow">
+          <div>
+            <div style="font-size:14px;font-weight:800;margin:0 0 6px 0">Insight</div>
+            <div class="muted" id="insMeta">—</div>
+          </div>
+          <div class="badge" title="Period">
+            <span class="miniDot" style="background:var(--ok)"></span>
+            <span id="insBadge">today</span>
+          </div>
+        </div>
+
+        <div class="segRow" aria-label="Insight period">
+          <button class="segBtn" data-ins-period="today" aria-selected="true" type="button">Today</button>
+          <button class="segBtn" data-ins-period="week" aria-selected="false" type="button">Week</button>
+          <button class="segBtn" data-ins-period="year" aria-selected="false" type="button">Year</button>
+        </div>
+
+        <div class="insGrid">
+          <div class="insCard">
+            <div class="insLabel">Energy</div>
+            <div class="bar"><div id="barEnergy" class="fill"></div></div>
+            <div id="valEnergy" class="insVal">—</div>
+          </div>
+
+          <div class="insCard">
+            <div class="insLabel">Valence</div>
+            <div class="bar"><div id="barValence" class="fill"></div></div>
+            <div id="valValence" class="insVal">—</div>
+          </div>
+
+          <div class="insCard">
+            <div class="insLabel">Focus / Intensity</div>
+            <div class="bar"><div id="barFocus" class="fill"></div></div>
+            <div id="valFocus" class="insVal">—</div>
+          </div>
+
+          <div class="insCard">
+            <div class="insLabel">Novelty</div>
+            <div class="bar"><div id="barNovelty" class="fill"></div></div>
+            <div id="valNovelty" class="insVal">—</div>
+          </div>
+        </div>
+
+        <div class="insCard" style="margin-top:12px">
+          <div class="insLabel">Highlights</div>
+          <ul id="insBullets" class="bullets"></ul>
+        </div>
+
+        <div class="muted" style="margin-top:10px">
+          (Insight is UI-only. No prompts shown.)
         </div>
       </div>
     </section>
+
   </div>
 
-  <!-- Make sure this matches your repo file name -->
   <script src="./app.js"></script>
 </body>
 </html>

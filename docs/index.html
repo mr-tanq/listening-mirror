@@ -3,437 +3,489 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#0b0c0e" />
   <title>Listening Mirror</title>
+
+  <!-- Optional premium font (safe fallback to system) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
   <style>
     :root{
-      /* Base */
       --bg0:#07080a;
       --bg1:#0b0c0e;
-      --card:#111319;
-      --card2:#0d0f14;
+      --card: rgba(255,255,255,.06);
+      --card2: rgba(255,255,255,.045);
+      --stroke: rgba(255,255,255,.08);
+      --stroke2: rgba(255,255,255,.06);
       --text:#f2f3f5;
       --muted:#a8abb2;
       --muted2:#7f838c;
-      --line:rgba(255,255,255,.08);
-      --line2:rgba(255,255,255,.12);
+      --good:#31d07c;
+      --bad:#ff5a5a;
 
-      /* Accents */
-      --ok:#31d07c;
-      --live:#ff5a5a;
-      --shine:rgba(255,255,255,.09);
+      --shadow: 0 22px 80px rgba(0,0,0,.6);
+      --shadow2: 0 10px 35px rgba(0,0,0,.45);
 
-      /* Radii */
-      --r1:18px;
-      --r2:22px;
-      --r3:28px;
+      --r: 22px;
+      --r2: 16px;
 
-      /* Shadows */
-      --shadow: 0 18px 55px rgba(0,0,0,.55);
-      --shadow2: 0 10px 30px rgba(0,0,0,.45);
-      --shadow3: 0 2px 0 rgba(255,255,255,.04) inset;
+      --pad: 18px;
+      --gap: 14px;
+      --tap: 48px;
 
-      /* Spacing */
-      --p1:12px;
-      --p2:16px;
-      --p3:20px;
-      --p4:24px;
+      --blur: 14px;
+      --glow: 0 0 0 rgba(0,0,0,0);
+
+      --maskFade: 22px;
     }
 
-    *{box-sizing:border-box}
-    html,body{height:100%}
+    *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
+    html,body{ height:100%; }
     body{
       margin:0;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
       color:var(--text);
       background:
-        radial-gradient(900px 500px at 15% -10%, rgba(255,255,255,.08), transparent 60%),
-        radial-gradient(850px 450px at 95% 0%, rgba(255,255,255,.06), transparent 60%),
-        radial-gradient(900px 600px at 40% 110%, rgba(255,255,255,.05), transparent 55%),
+        radial-gradient(1100px 700px at 10% 0%, rgba(120,80,255,.16), transparent 55%),
+        radial-gradient(900px 600px at 90% 15%, rgba(40,210,255,.10), transparent 55%),
+        radial-gradient(900px 650px at 35% 110%, rgba(255,80,160,.10), transparent 55%),
         linear-gradient(180deg, var(--bg0), var(--bg1));
-      -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      letter-spacing: .2px;
       overflow-x:hidden;
     }
 
-    /* Subtle grain */
-    body::before{
-      content:"";
-      position:fixed; inset:0;
-      pointer-events:none;
-      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23n)' opacity='.18'/%3E%3C/svg%3E");
-      mix-blend-mode:overlay;
-      opacity:.12;
-    }
-
     .wrap{
-      max-width:980px;
-      margin:0 auto;
-      padding:18px 14px 44px;
+      max-width: 820px;
+      margin: 0 auto;
+      padding: calc(env(safe-area-inset-top) + 18px) 16px calc(env(safe-area-inset-bottom) + 18px);
     }
 
     /* Top bar */
     .topbar{
-      position:sticky;
-      top:10px;
-      z-index:50;
       display:flex;
       align-items:center;
       justify-content:space-between;
-      gap:12px;
-      padding:14px 14px;
-      border:1px solid var(--line);
-      border-radius:var(--r3);
-      background:
-        linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.03));
-      box-shadow: var(--shadow);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
+      gap: 12px;
+      margin-bottom: 14px;
     }
 
     .brand{
       display:flex;
       align-items:center;
-      gap:12px;
-      min-width:0;
+      gap: 12px;
+      min-width: 0;
     }
     .logo{
-      width:44px;height:44px;
-      border-radius:14px;
-      display:grid;place-items:center;
-      border:1px solid var(--line);
-      background:
-        linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.03));
-      box-shadow: var(--shadow3);
-      font-weight:900;
-      letter-spacing:.4px;
-      flex:0 0 auto;
-      user-select:none;
-    }
-    .btxt{min-width:0}
-    .btitle{
-      font-size:18px;
-      font-weight:900;
-      letter-spacing:.2px;
-      line-height:1.1;
-    }
-    .bsub{
-      margin-top:3px;
-      font-size:13px;
-      color:var(--muted);
-      display:flex;
-      align-items:center;
-      gap:8px;
-    }
-    .dot{
-      width:8px;height:8px;border-radius:999px;
-      background:rgba(255,255,255,.14);
-      box-shadow: 0 0 0 3px rgba(255,255,255,.03);
-    }
-    .dot.on{background:rgba(49,208,124,.85)}
-    .dot.off{background:rgba(255,90,90,.75)}
-.btn{
-      appearance:none;
-      border:1px solid var(--line);
-      border-radius:16px;
-      padding:10px 14px;
-      background:rgba(255,255,255,.04);
-      color:var(--text);
-      cursor:pointer;
-      font-weight:800;
-      box-shadow: var(--shadow3);
-      transition: transform .12s ease, background .12s ease, border-color .12s ease;
-      user-select:none;
-      -webkit-tap-highlight-color: transparent;
-    }
-    .btn:hover{background:rgba(255,255,255,.06)}
-    .btn:active{transform:translateY(1px) scale(.99)}
-    .btn:focus-visible{outline:2px solid rgba(255,255,255,.22); outline-offset:2px}
-
-    /* Segmented Tabs */
-    .segWrap{
-      margin-top:14px;
-      border:1px solid var(--line);
-      border-radius:var(--r3);
-      background: rgba(255,255,255,.03);
-      box-shadow: var(--shadow2);
-      overflow:hidden;
-    }
-    .segRow{
-      display:grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap:0;
-      padding:8px;
-    }
-    .segBtn{
-      appearance:none;
-      border:0;
-      border-radius:18px;
-      padding:12px 10px;
-      background: transparent;
-      color: var(--muted);
-      font-weight:900;
-      cursor:pointer;
-      transition: background .16s ease, color .16s ease, transform .12s ease;
-      -webkit-tap-highlight-color: transparent;
-    }
-    .segBtn[aria-selected="true"]{
-      color:var(--text);
-      background: rgba(255,255,255,.07);
-      box-shadow: var(--shadow3);
-    }
-    .segBtn:active{transform:scale(.995)}
-
-    /* Panels */
-    .panel{margin-top:14px; animation: fadeIn .18s ease both}
-    .hidden{display:none!important}
-    @keyframes fadeIn{from{opacity:.0; transform: translateY(4px)}to{opacity:1; transform:none}}
-
-    /* Card */
-    .card{
-      border:1px solid var(--line);
-      border-radius:var(--r3);
-      background:
-        radial-gradient(800px 300px at 10% 0%, rgba(255,255,255,.07), transparent 55%),
-        linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02));
-      box-shadow: var(--shadow);
-      overflow:hidden;
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
-    }
-    .cardHead{
-      display:flex;
-      align-items:flex-start;
-      justify-content:space-between;
-      gap:12px;
-      padding:16px 16px 12px;
-      border-bottom:1px solid rgba(255,255,255,.06);
-    }
-    .cardTitle{
-      font-weight:950;
-      font-size:22px;
-      letter-spacing:.2px;
-      line-height:1.1;
-    }
-    .cardSub{color:var(--muted);margin-top:4px;font-size:13px}
-
-    .badge{
-      min-width:54px;
-      height:40px;
-      border-radius:18px;
-      border:1px solid var(--line);
-      display:grid;
-      place-items:center;
-      color:var(--muted);
-      background: rgba(255,255,255,.03);
-      font-weight:950;
-      letter-spacing:.2px;
-      flex:0 0 auto;
-      box-shadow: var(--shadow3);
-    }
-    .badge.live{
-      color:white;
-      background: rgba(255,90,90,.18);
-      border-color: rgba(255,90,90,.35);
-    }
-
-    /* Now Playing */
-    .nowBody{padding:14px 16px 16px}
-    .nowGrid{
-      display:grid;
-      grid-template-columns:92px 1fr;
-      gap:14px;
-      align-items:center;
-    }
-    .coverBig{
-      width:92px;height:92px;
-      border-radius:22px;
-      border:1px solid var(--line);
-      background: rgba(255,255,255,.02);
-      overflow:hidden;
-      position:relative;
-      box-shadow: 0 14px 35px rgba(0,0,0,.45);
-    }
-    .coverBig img{width:100%;height:100%;object-fit:cover;display:block}
-    .coverFallback{
-      position:absolute; inset:0;
+      width: 44px; height: 44px;
+      border-radius: 14px;
       display:grid; place-items:center;
-      font-size:26px; color:rgba(255,255,255,.55);
+      background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.04));
+      border: 1px solid var(--stroke);
+      box-shadow: var(--shadow2);
+      flex: 0 0 auto;
+      position: relative;
+      overflow:hidden;
+    }
+    .logo::after{
+      content:"";
+      position:absolute; inset:-2px;
       background:
-        radial-gradient(400px 180px at 30% 0%, rgba(255,255,255,.08), transparent 55%),
-        rgba(255,255,255,.03);
+        radial-gradient(12px 12px at 20% 30%, rgba(255,255,255,.22), transparent 55%),
+        radial-gradient(18px 18px at 70% 65%, rgba(255,255,255,.10), transparent 60%);
+      opacity:.9;
+      pointer-events:none;
+    }
+    .logo span{
+      font-weight: 800;
+      letter-spacing: .6px;
+      opacity: .95;
     }
 
-    .nowLines{min-width:0}
-    .labelSmall{font-size:12px;color:var(--muted);margin-bottom:8px}
-    .line1{font-size:22px;font-weight:950;letter-spacing:.15px;line-height:1.15;min-width:0}
-    .line2{font-size:15px;color:var(--muted);margin-top:4px;line-height:1.25;min-width:0}
-    .line3{font-size:13px;color:var(--muted2);margin-top:4px;line-height:1.25;min-width:0}
-
-    /* Worker */
-    .workerHint{
-      padding:12px 16px;
-      border-top:1px solid rgba(255,255,255,.06);
-      background: rgba(0,0,0,.18);
-      color:var(--muted2);
-      font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
-      font-size:12px;
-      word-break:break-all;
-    }
-/* Top controls */
-    .controls{
+    .brandText{
+      min-width:0;
       display:flex;
       flex-direction:column;
-      gap:10px;
-      padding:10px 16px 12px;
-      border-bottom:1px solid rgba(255,255,255,.06);
+      gap: 2px;
     }
-    .segPills{
-      display:flex; gap:10px; flex-wrap:wrap;
+    .title{
+      font-size: 18px;
+      font-weight: 750;
+      line-height: 1.1;
+      min-width:0;
     }
-    .pillBtn{
-      appearance:none;
-      border:1px solid var(--line);
-      border-radius:999px;
-      padding:10px 12px;
-      background: rgba(255,255,255,.02);
+    .status{
+      font-size: 12.5px;
       color: var(--muted);
-      font-weight:950;
+      display:flex;
+      align-items:center;
+      gap: 8px;
+    }
+    .dot{
+      width: 8px; height: 8px;
+      border-radius: 99px;
+      background: rgba(255,255,255,.18);
+      box-shadow: 0 0 0 rgba(0,0,0,0);
+    }
+    .dot.online{
+      background: var(--good);
+      box-shadow: 0 0 0 6px rgba(49,208,124,.10);
+    }
+    .dot.offline{
+      background: var(--bad);
+      box-shadow: 0 0 0 6px rgba(255,90,90,.10);
+    }
+
+    .btn{
+      height: 42px;
+      padding: 0 14px;
+      border-radius: 14px;
+      border: 1px solid var(--stroke);
+      background: linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.04));
+      color: var(--text);
+      font-weight: 650;
+      font-size: 13px;
+      display:inline-flex;
+      align-items:center;
+      gap:10px;
+      box-shadow: var(--shadow2);
       cursor:pointer;
-      box-shadow: var(--shadow3);
-      transition: transform .12s ease, background .12s ease, border-color .12s ease, color .12s ease;
-      -webkit-tap-highlight-color: transparent;
+      user-select:none;
+      transition: transform .10s ease, filter .15s ease, border-color .15s ease;
     }
-    .pillBtn[aria-selected="true"]{
-      color:var(--text);
-      background: rgba(255,255,255,.07);
-      border-color: rgba(255,255,255,.14);
+    .btn:active{ transform: translateY(1px) scale(.99); }
+    .btn:hover{ filter: brightness(1.03); border-color: rgba(255,255,255,.12); }
+
+    /* Tabs */
+    .tabs{
+      margin-top: 10px;
+      padding: 6px;
+      border-radius: 999px;
+      border: 1px solid var(--stroke2);
+      background: rgba(0,0,0,.22);
+      backdrop-filter: blur(var(--blur));
+      -webkit-backdrop-filter: blur(var(--blur));
+      display:flex;
+      gap: 6px;
+      box-shadow: var(--shadow2);
     }
-    .pillBtn:active{transform:translateY(1px) scale(.99)}
+    .tabBtn{
+      flex:1;
+      height: 44px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: .3px;
+      cursor:pointer;
+      transition: background .18s ease, color .18s ease, transform .10s ease;
+    }
+    .tabBtn[aria-selected="true"]{
+      background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.05));
+      border-color: rgba(255,255,255,.10);
+      color: var(--text);
+    }
+    .tabBtn:active{ transform: scale(.99); }
+
+    /* Panels + Cards */
+    .panel{ margin-top: 14px; }
+    .hidden{ display:none !important; }
+
+    .card{
+      border-radius: var(--r);
+      border: 1px solid var(--stroke2);
+      background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.035));
+      backdrop-filter: blur(var(--blur));
+      -webkit-backdrop-filter: blur(var(--blur));
+      box-shadow: var(--shadow);
+      overflow:hidden;
+    }
+    .cardInner{
+      padding: 18px;
+    }
+
+    .cardHead{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .cardTitle{
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: .2px;
+    }
+    .meta{
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .pill{
+      height: 30px;
+      padding: 0 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(0,0,0,.18);
+      color: var(--muted);
+      font-weight: 800;
+      font-size: 12px;
+      display:inline-flex;
+      align-items:center;
+      gap: 8px;
+    }
+    .pill.live{
+      color: #0b1110;
+      border-color: rgba(49,208,124,.35);
+      background: rgba(49,208,124,.92);
+      box-shadow: 0 0 0 6px rgba(49,208,124,.10);
+    }
+
+    /* Now Playing layout */
+    .np{
+      display:flex;
+      gap: 16px;
+      align-items:flex-start;
+      margin-top: 6px;
+    }
+    .art{
+      width: 120px;
+      height: 120px;
+      border-radius: 22px;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(0,0,0,.22);
+      box-shadow: var(--shadow2);
+      overflow:hidden;
+      position:relative;
+      flex: 0 0 auto;
+    }
+    .art img{
+      width:100%;
+      height:100%;
+      object-fit: cover;
+      display:block;
+    }
+    .art .fallback{
+      position:absolute; inset:0;
+      display:grid;
+      place-items:center;
+      color: rgba(255,255,255,.28);
+      font-size: 26px;
+      letter-spacing: .4px;
+      user-select:none;
+    }
+
+    .npText{
+      min-width:0;
+      flex:1;
+      display:flex;
+      flex-direction:column;
+      gap: 10px;
+    }
+
+    .lines{ display:flex; flex-direction:column; gap: 8px; }
+
+    /* Premium marquee (only when needed) */
+    .marq{
+      position: relative;
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+      --duration: 10s;
+      --gap: 28px;
+      -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--maskFade), #000 calc(100% - var(--maskFade)), transparent 100%);
+              mask-image: linear-gradient(90deg, transparent 0, #000 var(--maskFade), #000 calc(100% - var(--maskFade)), transparent 100%);
+    }
+    .marq .inner{
+      display:inline-flex;
+      align-items:center;
+      gap: var(--gap);
+      white-space: nowrap;
+      will-change: transform;
+    }
+    .marq.animate .inner{
+      animation: scroll var(--duration) linear infinite;
+    }
+    .marq .dup{
+      opacity: 1;
+    }
+    @keyframes scroll{
+      0%{ transform: translateX(0); }
+      100%{ transform: translateX(calc(-1 * var(--shift, 50%))); }
+    }
+
+    .h1{
+      font-size: 22px;
+      font-weight: 850;
+      line-height: 1.15;
+      letter-spacing: .2px;
+    }
+    .h2{
+      font-size: 14px;
+      font-weight: 700;
+      color: rgba(255,255,255,.86);
+      line-height: 1.25;
+    }
+    .h3{
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      line-height: 1.25;
+    }
+
+    .subnote{
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    /* Top controls */
+    .controls{
+      display:flex;
+      flex-wrap:wrap;
+      gap: 10px;
+      align-items:center;
+      margin-top: 10px;
+    }
+    .seg{
+      display:flex;
+      gap: 6px;
+      padding: 6px;
+      border-radius: 999px;
+      border: 1px solid var(--stroke2);
+      background: rgba(0,0,0,.18);
+      backdrop-filter: blur(var(--blur));
+      -webkit-backdrop-filter: blur(var(--blur));
+      box-shadow: var(--shadow2);
+    }
+    .seg button{
+      height: 36px;
+      padding: 0 12px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      font-weight: 800;
+      font-size: 12px;
+      cursor:pointer;
+      transition: background .18s ease, color .18s ease, transform .10s ease, border-color .18s ease;
+    }
+    .seg button[aria-selected="true"]{
+      background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.05));
+      border-color: rgba(255,255,255,.10);
+      color: var(--text);
+    }
+    .seg button:active{ transform: scale(.99); }
+
+    .spacer{ flex:1; }
 
     /* Lists */
-    .list{padding:6px 10px 14px}
-    .row{
-      display:grid;
-      grid-template-columns:64px 1fr auto;
-      gap:12px;
-      align-items:center;
-      padding:10px;
-      border-radius:18px;
-      transition: background .14s ease, transform .12s ease;
+    .list{
+      margin-top: 14px;
+      display:flex;
+      flex-direction:column;
+      gap: 10px;
     }
-    .row:hover{background: rgba(255,255,255,.03)}
-    .row:active{transform:scale(.995)}
-    .row + .row{border-top:1px solid rgba(255,255,255,.05)}
+    .row{
+      display:flex;
+      align-items:center;
+      gap: 12px;
+      padding: 12px;
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,.07);
+      background: rgba(0,0,0,.18);
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+      transition: transform .10s ease, border-color .15s ease, filter .15s ease;
+    }
+    .row:hover{ filter: brightness(1.03); border-color: rgba(255,255,255,.11); }
+    .row:active{ transform: translateY(1px) scale(.995); }
 
     .cover{
-      width:56px;height:56px;
-      border-radius:18px;
-      border:1px solid var(--line);
-      background: rgba(255,255,255,.02);
+      width: 56px;
+      height: 56px;
+      border-radius: 16px;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(0,0,0,.22);
       overflow:hidden;
       position:relative;
-      box-shadow: 0 10px 22px rgba(0,0,0,.35);
+      flex: 0 0 auto;
+      box-shadow: 0 10px 26px rgba(0,0,0,.42);
     }
-    .cover img{width:100%;height:100%;object-fit:cover;display:block}
-    .mid{min-width:0}
-    .title{font-weight:950;font-size:16px;line-height:1.2;min-width:0}
-    .sub{font-size:13px;color:var(--muted);margin-top:3px;min-width:0}
+    .cover img{
+      width:100%;
+      height:100%;
+      object-fit: cover;
+      display:block;
+    }
+    .coverFallback{
+      position:absolute; inset:0;
+      display:grid;
+      place-items:center;
+      color: rgba(255,255,255,.28);
+      font-weight: 900;
+      user-select:none;
+    }
+
+    .mid{
+      min-width:0;
+      flex:1;
+      display:flex;
+      flex-direction:column;
+      gap: 6px;
+    }
+    .rowTitle{
+      font-size: 14px;
+      font-weight: 850;
+      line-height: 1.15;
+      min-width:0;
+    }
+    .rowSub{
+      font-size: 12.5px;
+      color: var(--muted);
+      font-weight: 650;
+      min-width:0;
+    }
     .right{
-      color:var(--muted);
-      font-weight:950;
-      padding-left:10px;
-      min-width:34px;
-      text-align:right;
+      font-size: 13px;
+      font-weight: 850;
+      color: rgba(255,255,255,.84);
+      padding-left: 6px;
+      flex: 0 0 auto;
     }
 
-    /* ---------------------------
-       Marquee (premium edge-fade)
-       --------------------------- */
-    .marquee{
-      overflow:hidden;
-      white-space:nowrap;
-      position:relative;
-      mask-image: linear-gradient(90deg, transparent 0%, black 10%, black 90%, transparent 100%);
-      -webkit-mask-image: linear-gradient(90deg, transparent 0%, black 10%, black 90%, transparent 100%);
-    }
-    .marqueeTrack{
-      display:inline-flex;
-      gap:42px;
-      will-change:transform;
-      animation: marquee 10s linear infinite;
-      padding-right:42px;
-    }
-    .marquee.fast .marqueeTrack{ animation-duration: 8s; }
-    .marquee.slow .marqueeTrack{ animation-duration: 12s; }
-    .marquee.pause .marqueeTrack{ animation-play-state: paused; }
-
-    @keyframes marquee{
-      0%{ transform: translateX(0); }
-      100%{ transform: translateX(-50%); }
-    }
-    @media (prefers-reduced-motion: reduce){
-      .marqueeTrack{animation:none}
+    /* Small footer hint */
+    .hint{
+      margin-top: 14px;
+      color: rgba(255,255,255,.30);
+      font-size: 12px;
+      letter-spacing: .2px;
+      user-select:none;
     }
 
-    /* ---------------------------
-       Skeleton Loading
-       --------------------------- */
+    /* Skeleton */
     .skeleton{
       position:relative;
       overflow:hidden;
-      background: rgba(255,255,255,.04);
-      border:1px solid rgba(255,255,255,.06);
+      background: rgba(255,255,255,.06);
     }
     .skeleton::after{
       content:"";
-      position:absolute; inset:0;
-      background: linear-gradient(90deg, transparent, rgba(255,255,255,.10), transparent);
-      transform: translateX(-60%);
-      animation: shimmer 1.2s ease-in-out infinite;
+      position:absolute; inset:-40%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.12), transparent);
+      transform: translateX(-30%);
+      animation: shimmer 1.2s linear infinite;
     }
     @keyframes shimmer{
-      0%{transform:translateX(-60%)}
-      100%{transform:translateX(120%)}
+      0%{ transform: translateX(-45%); }
+      100%{ transform: translateX(45%); }
     }
 
-    .skRow{
-      display:grid;
-      grid-template-columns:64px 1fr auto;
-      gap:12px;
-      align-items:center;
-      padding:10px;
-      border-radius:18px;
+    @media (max-width: 420px){
+      .art{ width: 104px; height: 104px; border-radius: 20px; }
+      .h1{ font-size: 20px; }
     }
-    .skCover{width:56px;height:56px;border-radius:18px}
-    .skLine{height:12px;border-radius:999px}
-    .skLine.big{height:14px;width:72%}
-    .skLine.small{height:12px;width:48%;margin-top:8px}
-    .skRight{width:34px;height:12px;border-radius:999px}
-
-    /* Toast */
-    .toast{
-      position:fixed;
-      left:50%;
-      bottom:18px;
-      transform:translateX(-50%);
-      background: rgba(20,22,26,.92);
-      border:1px solid rgba(255,255,255,.10);
-      box-shadow: 0 18px 55px rgba(0,0,0,.65);
-      padding:10px 12px;
-      border-radius:16px;
-      color:var(--text);
-      font-weight:800;
-      font-size:13px;
-      max-width:min(92vw,560px);
-      display:none;
-      z-index:999;
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-    }
-    .toast.show{display:block; animation: pop .18s ease both}
-    @keyframes pop{from{opacity:0; transform:translateX(-50%) translateY(6px)}to{opacity:1; transform:translateX(-50%) translateY(0)}}
   </style>
 </head>
 
@@ -441,103 +493,114 @@
   <div class="wrap">
     <div class="topbar">
       <div class="brand">
-        <div class="logo">LM</div>
-        <div class="btxt">
-          <div class="btitle">Listening Mirror</div>
-          <div class="bsub">
-            <span class="dot" id="statusDot"></span>
-            <span id="statusLine">Loading…</span>
-          </div>
+        <div class="logo"><span>LM</span></div>
+        <div class="brandText">
+          <div class="title">Listening Mirror</div>
+          <div class="status"><span id="statusDot" class="dot"></span><span id="statusLine">Offline</span></div>
         </div>
       </div>
-      <button class="btn" id="btnRefresh">Refresh</button>
+
+      <button class="btn" id="btnRefresh" type="button">Refresh</button>
     </div>
 
-    <div class="segWrap">
-      <div class="segRow">
-        <button class="segBtn" data-tab="now" aria-selected="true">Now Playing</button>
-        <button class="segBtn" data-tab="top" aria-selected="false">Top</button>
-        <button class="segBtn" data-tab="recent" aria-selected="false">Recent</button>
-      </div>
+    <div class="tabs" role="tablist" aria-label="Listening Mirror">
+      <button class="tabBtn" data-tab="now" aria-selected="true" type="button">Now Playing</button>
+      <button class="tabBtn" data-tab="top" aria-selected="false" type="button">Top</button>
+      <button class="tabBtn" data-tab="recent" aria-selected="false" type="button">Recent</button>
     </div>
-<!-- NOW -->
+
+    <!-- NOW -->
     <section class="panel" data-panel="now">
       <div class="card">
-        <div class="cardHead">
-          <div>
-            <div class="cardTitle">Now Playing</div>
-            <div class="cardSub">Updated: <span id="nowUpdated">—</span></div>
+        <div class="cardInner">
+          <div class="cardHead">
+            <div>
+              <div class="cardTitle">Now Playing</div>
+              <div class="meta">Updated: <span id="nowUpdated">--</span></div>
+            </div>
+            <div class="pill" id="nowBadge">OFF</div>
           </div>
-          <div class="badge" id="nowBadge">OFF</div>
-        </div>
 
-        <div class="nowBody">
-          <div class="nowGrid">
-            <div class="coverBig">
+          <div class="np">
+            <div class="art">
               <img id="nowImg" alt="" style="display:none" />
-              <div class="coverFallback" id="nowFallback">♪</div>
+              <div id="nowFallback" class="fallback">♪</div>
             </div>
 
-            <div class="nowLines">
-              <div class="labelSmall" id="nowMsg">—</div>
-              <div class="line1" id="nowTrack">—</div>
-              <div class="line2" id="nowArtist">—</div>
-              <div class="line3" id="nowAlbum">—</div>
+            <div class="npText">
+              <div class="lines">
+                <div class="marq h1" data-marq>
+                  <div class="inner"><span id="nowTrack">—</span><span class="dup" aria-hidden="true"></span></div>
+                </div>
+
+                <div class="marq h2" data-marq style="--duration:12s">
+                  <div class="inner"><span id="nowArtist">—</span><span class="dup" aria-hidden="true"></span></div>
+                </div>
+
+                <div class="marq h3" data-marq style="--duration:14s">
+                  <div class="inner"><span id="nowAlbum">—</span><span class="dup" aria-hidden="true"></span></div>
+                </div>
+              </div>
+
+              <div class="subnote" id="nowMsg"></div>
             </div>
           </div>
-        </div>
 
-        <div class="workerHint" id="workerHint">Worker: —</div>
+          <div class="hint" id="workerHint">Worker: —</div>
+        </div>
       </div>
     </section>
 
     <!-- TOP -->
     <section class="panel hidden" data-panel="top">
       <div class="card">
-        <div class="cardHead">
-          <div>
-            <div class="cardTitle">Top</div>
-            <div class="cardSub" id="topMeta">—</div>
+        <div class="cardInner">
+          <div class="cardHead">
+            <div>
+              <div class="cardTitle">Top</div>
+              <div class="meta" id="topMeta">—</div>
+            </div>
+            <div class="pill" id="topBadge">20</div>
           </div>
-          <div class="badge" id="topBadge">20</div>
+
+          <div class="controls">
+            <div class="seg" role="group" aria-label="Top type">
+              <button type="button" data-top-type="tracks" aria-selected="true">Tracks</button>
+              <button type="button" data-top-type="artists" aria-selected="false">Artists</button>
+              <button type="button" data-top-type="albums" aria-selected="false">Albums</button>
+            </div>
+
+            <div class="spacer"></div>
+
+            <div class="seg" role="group" aria-label="Top period">
+              <button type="button" data-top-period="today" aria-selected="true">Today</button>
+              <button type="button" data-top-period="week" aria-selected="false">Week</button>
+              <button type="button" data-top-period="year" aria-selected="false">Year</button>
+            </div>
+          </div>
+
+          <div class="list" id="topList"></div>
         </div>
-
-        <div class="controls">
-          <div class="segPills">
-            <button class="pillBtn" data-top-type="tracks" aria-selected="true">Tracks</button>
-            <button class="pillBtn" data-top-type="artists" aria-selected="false">Artists</button>
-            <button class="pillBtn" data-top-type="albums" aria-selected="false">Albums</button>
-          </div>
-
-          <div class="segPills">
-            <button class="pillBtn" data-top-period="today" aria-selected="true">Today</button>
-            <button class="pillBtn" data-top-period="week" aria-selected="false">Week</button>
-            <button class="pillBtn" data-top-period="year" aria-selected="false">Year</button>
-          </div>
-        </div>
-
-        <div class="list" id="topList"></div>
       </div>
     </section>
 
     <!-- RECENT -->
     <section class="panel hidden" data-panel="recent">
       <div class="card">
-        <div class="cardHead">
-          <div>
-            <div class="cardTitle">Recent</div>
-            <div class="cardSub" id="recentMeta">—</div>
+        <div class="cardInner">
+          <div class="cardHead">
+            <div>
+              <div class="cardTitle">Recent</div>
+              <div class="meta" id="recentMeta">—</div>
+            </div>
+            <div class="pill">last 10</div>
           </div>
-          <div class="badge">last 10</div>
-        </div>
 
-        <div class="list" id="recentList"></div>
+          <div class="list" id="recentList"></div>
+        </div>
       </div>
     </section>
-
   </div>
-
-  <div class="toast" id="toast"></div>
 
   <script src="./app.js"></script>
 </body>

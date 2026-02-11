@@ -1,9 +1,7 @@
-/* app.js (PART 1/4) */
 /* Listening Mirror — app.js (FULL REPLACE)
-   - LIVE badge replaces Updated (no updated label)
-   - Full-page ambient artwork (body background) instead of inside card
-   - Robust /img URL resolution via worker
-   - Keeps baseline stable
+   - LIVE badge replaces Updated
+   - Full-page ambient artwork (body background)
+   - FIX: right column always present + stable alignment
 */
 
 (() => {
@@ -117,23 +115,6 @@
       .replaceAll("'", "&#039;");
   }
 
-  function rowHTML({ idx, title, sub, img, right }) {
-    const imgHtml = img
-      ? `<img src="${img}" alt="" loading="lazy" decoding="async" />`
-      : `<div class="thumbFallback">♪</div>`;
-
-    return `
-      <div class="row" role="listitem" aria-label="${idx}. ${title}">
-        <div class="thumb" aria-hidden="true">${imgHtml}</div>
-        <div class="mid">
-          <div class="title">${escapeHtml(`${idx}. ${title}`)}</div>
-          <div class="sub">${escapeHtml(sub || "")}</div>
-        </div>
-        <div class="right count">${escapeHtml(String(right ?? ""))}</div>
-      </div>
-    `;
-  }
-/* app.js (PART 2/4) */
   // ✅ Full-page ambient controls
   function setPageAmbient(imageUrl) {
     if (imageUrl) {
@@ -145,14 +126,32 @@
     }
   }
 
+  // ✅ Row builder (forces right column)
+  function rowHTML({ idx, title, sub, img, right, rightClass = "" }) {
+    const imgHtml = img
+      ? `<img src="${img}" alt="" loading="lazy" decoding="async" />`
+      : `<div class="thumbFallback">♪</div>`;
+
+    const rTxt = (right === null || right === undefined) ? "" : String(right);
+
+    return `
+      <div class="row" role="listitem" aria-label="${idx}. ${title}">
+        <div class="thumb" aria-hidden="true">${imgHtml}</div>
+        <div class="mid">
+          <div class="title">${escapeHtml(`${idx}. ${title}`)}</div>
+          <div class="sub">${escapeHtml(sub || "")}</div>
+        </div>
+        <div class="right ${escapeHtml(rightClass)}">${escapeHtml(rTxt)}</div>
+      </div>
+    `;
+  }
+
   // -------- NOW --------
   function setNowVisual({ live, item }) {
-    // LIVE chip (top-right)
     if (nowBadge) nowBadge.classList.toggle("live", !!live);
     if (nowBadgeText) nowBadgeText.textContent = live ? "LIVE" : "OFF";
 
     if (!item) {
-      // Empty state
       setPageAmbient("");
 
       if (nowCoverWrap) nowCoverWrap.style.removeProperty("--cover-url");
@@ -184,7 +183,6 @@
     safeText(nowAlbum, album);
     safeText(nowMsg, "", "");
 
-    // Artwork: cover + full-page ambient
     if (img) {
       if (nowImg) {
         nowImg.src = img;
@@ -192,8 +190,6 @@
       }
       if (nowFallback) nowFallback.style.display = "none";
       if (nowCoverWrap) nowCoverWrap.style.setProperty("--cover-url", `url("${img}")`);
-
-      // ✅ This is the key change:
       setPageAmbient(img);
     } else {
       setPageAmbient("");
@@ -215,7 +211,6 @@
       const j = await apiGet("/api/now");
       setOnline(true);
 
-      // worker shape: {ok:true, item: {...} } or {ok:true, item:null}
       const item = j?.ok ? (j.item || null) : null;
       const live = !!item;
 
@@ -239,10 +234,10 @@
     if (state.nowTimer) clearInterval(state.nowTimer);
     state.nowTimer = null;
   }
-/* app.js (PART 3/4) */
+
   // -------- TOP --------
   function setTopLoading() {
-    topList.innerHTML = `<div class="row"><div class="mid"><div class="title">Loading…</div><div class="sub">Fetching your top…</div></div></div>`;
+    topList.innerHTML = `<div class="row"><div class="mid"><div class="title">Loading…</div><div class="sub">Fetching your top…</div></div><div class="right"></div></div>`;
   }
 
   async function loadTop() {
@@ -257,7 +252,7 @@
 
       const items = (j?.ok && Array.isArray(j.items)) ? j.items : [];
       if (!items.length) {
-        topList.innerHTML = `<div class="row"><div class="mid"><div class="title">No data</div><div class="sub">Try another period.</div></div></div>`;
+        topList.innerHTML = `<div class="row"><div class="mid"><div class="title">No data</div><div class="sub">Try another period.</div></div><div class="right"></div></div>`;
         return true;
       }
 
@@ -266,20 +261,20 @@
         const sub = type === "artists" ? "" : (it.artist || "");
         const img = absApi(it.image || "");
         const right = it.playcount ?? "";
-        return rowHTML({ idx: i + 1, title, sub, img, right });
+        return rowHTML({ idx: i + 1, title, sub, img, right, rightClass: "count" });
       }).join("");
 
       return true;
     } catch (e) {
       setOnline(false);
-      topList.innerHTML = `<div class="row"><div class="mid"><div class="title">Couldn’t load Top.</div><div class="sub">Check connection / Worker.</div></div></div>`;
+      topList.innerHTML = `<div class="row"><div class="mid"><div class="title">Couldn’t load Top.</div><div class="sub">Check connection / Worker.</div></div><div class="right"></div></div>`;
       return false;
     }
   }
 
   // -------- RECENT --------
   function setRecentLoading() {
-    recentList.innerHTML = `<div class="row"><div class="mid"><div class="title">Loading…</div><div class="sub">Fetching recent…</div></div></div>`;
+    recentList.innerHTML = `<div class="row"><div class="mid"><div class="title">Loading…</div><div class="sub">Fetching recent…</div></div><div class="right"></div></div>`;
   }
 
   async function loadRecent() {
@@ -296,7 +291,7 @@
         [];
 
       if (!items.length) {
-        recentList.innerHTML = `<div class="row"><div class="mid"><div class="title">No recent tracks</div><div class="sub">Play something and refresh.</div></div></div>`;
+        recentList.innerHTML = `<div class="row"><div class="mid"><div class="title">No recent tracks</div><div class="sub">Play something and refresh.</div></div><div class="right"></div></div>`;
         return true;
       }
 
@@ -304,26 +299,14 @@
         const title = it.name || "—";
         const sub = `${it.artist || ""}${it.album ? " • " + it.album : ""}`.trim();
         const img = absApi(it.image || "");
-        const right = it.time || it.date || "";
-
-        return `
-          <div class="row" role="listitem" aria-label="${i + 1}. ${title}">
-            <div class="thumb" aria-hidden="true">
-              ${img ? `<img src="${img}" alt="" loading="lazy" decoding="async" />` : `<div class="thumbFallback">♪</div>`}
-            </div>
-            <div class="mid">
-              <div class="title">${escapeHtml(`${i + 1}. ${title}`)}</div>
-              <div class="sub">${escapeHtml(sub)}</div>
-            </div>
-            <div class="right">${escapeHtml(String(right))}</div>
-          </div>
-        `;
+        const right = it.time || it.date || ""; // keep like before (optional)
+        return rowHTML({ idx: i + 1, title, sub, img, right, rightClass: "" });
       }).join("");
 
       return true;
     } catch (e) {
       setOnline(false);
-      recentList.innerHTML = `<div class="row"><div class="mid"><div class="title">Couldn’t load Recent.</div><div class="sub">Check connection / Worker.</div></div></div>`;
+      recentList.innerHTML = `<div class="row"><div class="mid"><div class="title">Couldn’t load Recent.</div><div class="sub">Check connection / Worker.</div></div><div class="right"></div></div>`;
       return false;
     }
   }
@@ -359,7 +342,7 @@
       });
     });
   }
-/* app.js (PART 4/4) */
+
   async function boot() {
     wireTabs();
     wireTopControls();

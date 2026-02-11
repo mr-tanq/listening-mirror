@@ -1,280 +1,473 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-<meta name="theme-color" content="#0b0c0e" />
-<title>Listening Mirror</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0c0e" />
+  <title>Listening Mirror</title>
 
-<style>
+  <style>
+    :root{
+      --bg:#0b0c0e;
+      --bg2:#090a0c;
+      --card: rgba(255,255,255,.055);
+      --card2: rgba(255,255,255,.035);
+      --text:#ececee;
+      --muted:#a7abb4;
+      --muted2:#7d828d;
+      --shadow: 0 18px 55px rgba(0,0,0,.55);
+      --r: 22px;
 
-:root{
-  --bg:#0b0c0e;
-  --bg2:#090a0c;
-  --card: rgba(255,255,255,.055);
-  --card2: rgba(255,255,255,.035);
-  --text:#ececee;
-  --muted:#a7abb4;
-  --muted2:#7d828d;
-  --shadow: 0 18px 55px rgba(0,0,0,.55);
-  --r: 22px;
-  --live:#ff3b3b;
-}
+      --live:#ff3b3b;
+      --liveBg: rgba(255,59,59,.10);
+      --liveBd: rgba(255,59,59,.30);
 
-*{box-sizing:border-box}
+      --safeL: max(14px, env(safe-area-inset-left));
+      --safeR: max(14px, env(safe-area-inset-right));
+      --safeT: max(14px, env(safe-area-inset-top));
+      --safeB: max(14px, env(safe-area-inset-bottom));
+    }
 
-body{
-  margin:0;
-  background:linear-gradient(180deg,var(--bg),var(--bg2));
-  color:var(--text);
-  font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
-}
+    *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
+    html,body{ height:100%; }
+    html{ overscroll-behavior-y:none; }
+    body{
+      margin:0;
+      overflow-x:hidden;
+      overscroll-behavior-y:none;
+      background:
+        radial-gradient(1200px 700px at 25% -10%, rgba(255,255,255,.06), transparent 60%),
+        radial-gradient(900px 600px at 90% 0%, rgba(255,255,255,.04), transparent 55%),
+        linear-gradient(180deg, var(--bg), var(--bg2));
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+    }
 
-/* APP WRAP */
-.app{
-  padding:18px;
-  max-width:900px;
-  margin:auto;
-}
+    .app{
+      min-height:100%;
+      padding: calc(var(--safeT) + 14px) var(--safeR) calc(var(--safeB) + 18px) var(--safeL);
+      max-width: 920px;
+      margin: 0 auto;
+    }
 
-/* HEADER */
-.brand{
-  display:flex;
-  align-items:center;
-  gap:10px;
-}
+    header{
+      display:flex;
+      align-items:flex-start;
+      gap:14px;
+      margin-bottom: 14px;
+    }
 
-.title{
-  font-weight:700;
-  font-size:18px;
-}
+    .brand{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding-left: 2px;
+    }
 
-.sub{
-  font-size:12px;
-  color:var(--muted2);
-  display:flex;
-  gap:8px;
-  align-items:center;
-}
+    .glyph{
+      width: 16px;
+      height: 16px;
+      border-radius: 999px;
+      position:relative;
+      background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.22), rgba(255,255,255,.05) 55%, rgba(255,255,255,.03) 70%);
+      outline: 1px solid rgba(255,255,255,.10);
+      box-shadow: 0 10px 35px rgba(0,0,0,.45);
+      flex: 0 0 auto;
+    }
+    .glyph:before{
+      content:"";
+      position:absolute;
+      inset:3px;
+      border-radius: 999px;
+      outline: 1px solid rgba(255,255,255,.10);
+      background: radial-gradient(circle at 65% 35%, rgba(255,255,255,.10), transparent 60%);
+      opacity:.9;
+    }
 
-.dot{
-  width:7px;
-  height:7px;
-  border-radius:99px;
-  background:#444;
-}
+    .wordmark{
+      display:flex;
+      flex-direction:column;
+      line-height: 1.15;
+    }
+    .wordmark .title{
+      font-size: 18px;
+      font-weight: 720;
+      letter-spacing: .35px;
+      margin:0;
+      background: linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.70));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .wordmark .sub{
+      margin-top: 6px;
+      display:flex;
+      align-items:center;
+      gap:8px;
+      color: var(--muted2);
+      font-size: 12px;
+      letter-spacing: .2px;
+    }
+    .dot{
+      width: 7px;
+      height: 7px;
+      border-radius: 99px;
+      background: rgba(255,255,255,.14);
+      outline: 1px solid rgba(255,255,255,.10);
+    }
+    .dot.on{
+      background: rgba(49,208,124,.75);
+      outline-color: rgba(49,208,124,.35);
+      box-shadow: 0 0 0 3px rgba(49,208,124,.10);
+    }
 
-.dot.on{
-  background:#31d07c;
-  box-shadow:0 0 0 4px rgba(49,208,124,.12);
-}
+    .tabs{
+      display:flex;
+      gap:10px;
+      padding: 8px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.04);
+      outline: 1px solid rgba(255,255,255,.08);
+      box-shadow: 0 16px 45px rgba(0,0,0,.35);
+      width: fit-content;
+      margin: 12px 0 16px 0;
+    }
+    .tabBtn{
+      border:0;
+      background: transparent;
+      color: rgba(255,255,255,.72);
+      padding: 10px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      letter-spacing: .2px;
+      cursor:pointer;
+    }
+    .tabBtn[aria-selected="true"]{
+      background: rgba(255,255,255,.085);
+      outline: 1px solid rgba(255,255,255,.10);
+      color: rgba(255,255,255,.95);
+    }
 
-/* TABS */
-.tabs{
-  display:flex;
-  gap:10px;
-  padding:8px;
-  margin:16px 0;
-  border-radius:999px;
-  background:rgba(255,255,255,.05);
-}
+    .panel{ display:block; }
+    .hidden{ display:none; }
 
-.tabBtn{
-  border:0;
-  background:transparent;
-  color:#bbb;
-  padding:10px 14px;
-  border-radius:999px;
-  cursor:pointer;
-}
+    .card{
+      border-radius: var(--r);
+      background: linear-gradient(180deg, var(--card), var(--card2));
+      outline: 1px solid rgba(255,255,255,.08);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+      position:relative;
+    }
 
-.tabBtn[aria-selected="true"]{
-  background:rgba(255,255,255,.1);
-  color:white;
-}
+    /* NOW ambient */
+    .nowAmbient{
+      position:absolute;
+      inset:-1px;
+      opacity: 0;
+      pointer-events:none;
+      transition: opacity .25s ease;
+    }
+    .nowAmbient.on{ opacity: 1; }
+    .nowAmbient:before{
+      content:"";
+      position:absolute;
+      inset:-40px;
+      background-image: var(--ambient-url, none);
+      background-size: cover;
+      background-position: center;
+      filter: blur(28px) saturate(1.12);
+      transform: scale(1.10);
+      opacity:.42;
+    }
+    .nowAmbient:after{
+      content:"";
+      position:absolute;
+      inset:0;
+      background:
+        radial-gradient(900px 500px at 20% 10%, rgba(255,255,255,.06), transparent 55%),
+        linear-gradient(180deg, rgba(10,11,13,.55), rgba(10,11,13,.85));
+    }
 
-/* PANELS */
-.hidden{display:none}
+    .nowWrap{ position:relative; padding: 18px; }
+    .nowTop{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      margin-bottom: 14px;
+      position:relative;
+      z-index:2;
+    }
 
-/* CARD */
-.card{
-  border-radius:22px;
-  background:linear-gradient(180deg,var(--card),var(--card2));
-  padding:18px;
-  position:relative;
-  backdrop-filter:blur(8px);
-}
+    .chip{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.045);
+      outline: 1px solid rgba(255,255,255,.085);
+      color: rgba(255,255,255,.78);
+      font-size: 12px;
+      letter-spacing:.25px;
+      white-space:nowrap;
+    }
+    .chip .miniDot{ width:6px;height:6px;border-radius:999px; background: rgba(255,255,255,.18); }
+    .chip.live{
+      color: rgba(255,255,255,.95);
+      outline-color: var(--liveBd);
+      background: var(--liveBg);
+    }
+    .chip.live .miniDot{
+      background: var(--live);
+      box-shadow: 0 0 0 3px rgba(255,59,59,.12);
+    }
 
-/* LIVE BADGE */
-.chip{
-  position:absolute;
-  top:14px;
-  right:14px;
-  padding:6px 10px;
-  border-radius:999px;
-  background:rgba(255,59,59,.12);
-  color:white;
-  font-size:12px;
-  display:none;
-}
+    .updated{ color: var(--muted2); font-size: 12px; letter-spacing:.2px; white-space:nowrap; }
 
-.chip.live{
-  display:block;
-}
+    .nowMain{
+      display:grid;
+      grid-template-columns: 120px 1fr;
+      gap: 14px;
+      align-items:center;
+      position:relative;
+      z-index:2;
+    }
 
-/* NOW SECTION */
-.nowMain{
-  display:grid;
-  grid-template-columns:110px 1fr;
-  gap:14px;
-  align-items:center;
-}
+    .coverWrap{
+      width: 120px;
+      height: 120px;
+      border-radius: 20px;
+      position:relative;
+      overflow:hidden;
+      outline: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.03);
+      box-shadow: 0 18px 55px rgba(0,0,0,.55);
+    }
+    .coverWrap:before{
+      content:"";
+      position:absolute;
+      inset:-30px;
+      background-image: var(--cover-url, none);
+      background-size: cover;
+      background-position:center;
+      filter: blur(20px) saturate(1.15);
+      opacity:.26;
+      transform: scale(1.10);
+      -webkit-mask-image: radial-gradient(circle at 50% 50%, rgba(0,0,0,.55) 0%, rgba(0,0,0,.25) 35%, rgba(0,0,0,0) 68%);
+      mask-image: radial-gradient(circle at 50% 50%, rgba(0,0,0,.55) 0%, rgba(0,0,0,.25) 35%, rgba(0,0,0,0) 68%);
+      pointer-events:none;
+    }
 
-.coverWrap{
-  width:110px;
-  height:110px;
-  border-radius:20px;
-  overflow:hidden;
-  background:#111;
-  position:relative;
-}
+    .coverImg{ width:100%; height:100%; object-fit:cover; display:none; position:relative; z-index:2; }
+    .coverFallback{
+      position:absolute; inset:0; display:grid; place-items:center;
+      color: rgba(255,255,255,.35); font-size: 30px; z-index:3;
+    }
 
-.coverImg{
-  width:100%;
-  height:100%;
-  object-fit:cover;
-  display:none;
-}
+    .nowText{ min-width:0; padding-left: 4px; } /* <-- fixes first letter */
+    .line1{ font-size: 15px; font-weight: 680; letter-spacing: .15px; }
+    .line2{ margin-top: 6px; font-size: 13px; color: rgba(255,255,255,.72); }
+    .line3{ margin-top: 6px; font-size: 12px; color: var(--muted2); }
 
-.coverFallback{
-  display:grid;
-  place-items:center;
-  height:100%;
-  color:#555;
-  font-size:26px;
-}
+    /* Marquee: NO left fade. Fade only on the RIGHT end (prevents first char cutting) */
+    .marq{ display:inline-block; white-space:nowrap; will-change:transform; }
+    .marqWrap{
+      position:relative;
+      overflow:hidden;
+      padding-left: 3px; /* <-- fixes first letter universally */
+      -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 86%, transparent 100%);
+      mask-image: linear-gradient(90deg, #000 0%, #000 86%, transparent 100%);
+    }
+    .marqOn .marq{ animation: marqMove var(--marqDur, 10s) linear infinite; }
+    @keyframes marqMove{
+      0%{ transform: translateX(0); }
+      100%{ transform: translateX(calc(-1 * var(--marqShift, 60px))); }
+    }
 
-.line1{
-  font-weight:700;
-  font-size:15px;
-}
+    .controls{
+      padding: 14px;
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      border-bottom: 1px solid rgba(255,255,255,.07);
+    }
+    .seg{
+      display:flex;
+      gap:8px;
+      padding: 7px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.04);
+      outline: 1px solid rgba(255,255,255,.08);
+      width: fit-content;
+    }
+    .seg button{
+      border:0;
+      background: transparent;
+      color: rgba(255,255,255,.74);
+      padding: 9px 12px;
+      border-radius: 999px;
+      font-size: 12.5px;
+      cursor:pointer;
+      letter-spacing:.2px;
+    }
+    .seg button[aria-selected="true"]{
+      background: rgba(255,255,255,.085);
+      outline: 1px solid rgba(255,255,255,.10);
+      color: rgba(255,255,255,.95);
+    }
 
-.line2{
-  font-size:13px;
-  color:#ccc;
-  margin-top:6px;
-}
+    .list{ padding: 10px; }
 
-.line3{
-  font-size:12px;
-  color:#888;
-  margin-top:6px;
-}
+    .row{
+      display:grid;
+      grid-template-columns: 52px 1fr auto;
+      gap: 12px;
+      padding: 12px 12px 12px 16px; /* extra left padding */
+      border-radius: 16px;
+      align-items:center;
+      user-select:none;
+    }
+    .row:hover{ background: rgba(255,255,255,.035); }
+    .row:active{ background: rgba(255,255,255,.045); }
 
-/* LIST (Top + Recent) */
-.row{
-  display:grid;
-  grid-template-columns:44px 1fr auto;
-  gap:12px;
-  padding:10px;
-  border-radius:14px;
-  align-items:center;
-}
+    .thumb{
+      width: 44px; height: 44px;
+      border-radius: 14px;
+      overflow:hidden;
+      position:relative;
+      outline: 1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.03);
+      box-shadow: 0 10px 30px rgba(0,0,0,.40);
+    }
+    .thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+    .thumbFallback{
+      position:absolute; inset:0; display:grid; place-items:center;
+      color: rgba(255,255,255,.35); font-size: 18px;
+    }
 
-.thumb{
-  width:44px;
-  height:44px;
-  border-radius:12px;
-  overflow:hidden;
-  background:#111;
-}
+    .mid{ min-width:0; padding-left: 3px; } /* <-- fixes first letter on list text */
+    .title{
+      font-size: 13.5px;
+      font-weight: 650;
+      color: rgba(255,255,255,.92);
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .sub{
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--muted2);
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
 
-.thumb img{
-  width:100%;
-  height:100%;
-  object-fit:cover;
-}
+    .right{
+      font-size: 12.5px;
+      font-weight: 700;
+      color: rgba(255,255,255,.80);
+      padding-left: 8px;
+      white-space:nowrap;
+    }
+    .right.count{
+      color: rgba(255,214,102,.92);
+    }
 
-.mid .title{
-  font-size:13.5px;
-}
-
-.mid .sub{
-  font-size:12px;
-  color:#888;
-}
-
-.right{
-  font-size:12px;
-  color:#ffd666;
-  font-weight:700;
-}
-
-</style>
+    @media (max-width: 520px){
+      .nowMain{ grid-template-columns: 106px 1fr; }
+      .coverWrap{ width:106px;height:106px;border-radius:18px; }
+      .tabs{ width: 100%; justify-content: space-between; }
+    }
+  </style>
 </head>
 
 <body>
-
-<div class="app">
-
-<header class="brand">
-  <div>
-    <div class="title">Listening Mirror</div>
-    <div class="sub">
-      <span id="statusDot" class="dot"></span>
-      <span id="statusLine">Offline</span>
-    </div>
-  </div>
-</header>
-
-<!-- TABS -->
-<div class="tabs">
-  <button class="tabBtn" data-tab="now" aria-selected="true">Now</button>
-  <button class="tabBtn" data-tab="top">Top</button>
-  <button class="tabBtn" data-tab="recent">Recent</button>
-</div>
-
-<!-- NOW -->
-<section class="panel" data-panel="now">
-  <div class="card">
-
-    <div id="nowBadge" class="chip">LIVE</div>
-
-    <div class="nowMain">
-
-      <div class="coverWrap">
-        <img id="nowImg" class="coverImg" />
-        <div id="nowFallback" class="coverFallback">♪</div>
+  <div class="app">
+    <header>
+      <div class="brand">
+        <div class="glyph" aria-hidden="true"></div>
+        <div class="wordmark">
+          <div class="title">Listening Mirror</div>
+          <div class="sub">
+            <span id="statusDot" class="dot" aria-hidden="true"></span>
+            <span id="statusLine">Offline</span>
+          </div>
+        </div>
       </div>
+    </header>
 
-      <div>
-        <div id="nowTrack" class="line1">—</div>
-        <div id="nowArtist" class="line2">—</div>
-        <div id="nowAlbum" class="line3">—</div>
-      </div>
-
+    <div class="tabs" role="tablist" aria-label="Main tabs">
+      <button class="tabBtn" data-tab="now" aria-selected="true" role="tab">Now</button>
+      <button class="tabBtn" data-tab="top" aria-selected="false" role="tab">Top</button>
+      <button class="tabBtn" data-tab="recent" aria-selected="false" role="tab">Recent</button>
     </div>
 
+    <section class="panel" data-panel="now">
+      <div class="card">
+        <div id="nowAmbient" class="nowAmbient"></div>
+
+        <div class="nowWrap">
+          <div class="nowTop">
+            <div id="nowBadge" class="chip">
+              <span class="miniDot" aria-hidden="true"></span>
+              <span id="nowBadgeText">OFF</span>
+            </div>
+            <div class="updated">Updated: <span id="nowUpdated">--</span></div>
+          </div>
+
+          <div class="nowMain">
+            <div class="coverWrap" id="nowCoverWrap">
+              <img id="nowImg" class="coverImg" alt="" />
+              <div id="nowFallback" class="coverFallback">♪</div>
+            </div>
+
+            <div class="nowText">
+              <div class="line1 marqWrap" id="nowTrackWrap">
+                <span class="marq" id="nowTrack">—</span>
+              </div>
+              <div class="line2 marqWrap" id="nowArtistWrap">
+                <span class="marq" id="nowArtist">—</span>
+              </div>
+              <div class="line3 marqWrap" id="nowAlbumWrap">
+                <span class="marq" id="nowAlbum">—</span>
+              </div>
+              <div class="sub" id="nowMsg" style="margin-top:12px;">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel hidden" data-panel="top">
+      <div class="card">
+        <div class="controls">
+          <div class="seg" aria-label="Top type">
+            <button data-top-type="tracks" aria-selected="true">Track</button>
+            <button data-top-type="artists" aria-selected="false">Artist</button>
+            <button data-top-type="albums" aria-selected="false">Album</button>
+          </div>
+
+          <div class="seg" aria-label="Top period">
+            <button data-top-period="today" aria-selected="true">Today</button>
+            <button data-top-period="week" aria-selected="false">Week</button>
+            <button data-top-period="year" aria-selected="false">Year</button>
+          </div>
+        </div>
+
+        <div class="list" id="topList" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <section class="panel hidden" data-panel="recent">
+      <div class="card">
+        <div class="list" id="recentList" aria-live="polite"></div>
+      </div>
+    </section>
   </div>
-</section>
 
-<!-- TOP -->
-<section class="panel hidden" data-panel="top">
-  <div class="card">
-    <div id="topList"></div>
-  </div>
-</section>
-
-<!-- RECENT -->
-<section class="panel hidden" data-panel="recent">
-  <div class="card">
-    <div id="recentList"></div>
-  </div>
-</section>
-
-</div>
-
-<script src="./app.js"></script>
-
+  <script src="./app.js"></script>
 </body>
 </html>

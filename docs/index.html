@@ -1,3 +1,4 @@
+<!-- index.html (FULL) -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -266,17 +267,17 @@
       color: rgba(255,255,255,.35); font-size: 30px; z-index:3;
     }
 
-    .nowText{ min-width:0; padding-left: 4px; } /* <-- fixes first letter */
+    .nowText{ min-width:0; padding-left: 4px; } /* fixes first letter */
     .line1{ font-size: 15px; font-weight: 680; letter-spacing: .15px; }
     .line2{ margin-top: 6px; font-size: 13px; color: rgba(255,255,255,.72); }
     .line3{ margin-top: 6px; font-size: 12px; color: var(--muted2); }
 
-    /* Marquee: NO left fade. Fade only on the RIGHT end (prevents first char cutting) */
+    /* Marquee: no left fade; fade only right */
     .marq{ display:inline-block; white-space:nowrap; will-change:transform; }
     .marqWrap{
       position:relative;
       overflow:hidden;
-      padding-left: 3px; /* <-- fixes first letter universally */
+      padding-left: 3px; /* fixes first letter */
       -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 86%, transparent 100%);
       mask-image: linear-gradient(90deg, #000 0%, #000 86%, transparent 100%);
     }
@@ -347,27 +348,31 @@
       color: rgba(255,255,255,.35); font-size: 18px;
     }
 
-    .mid{ min-width:0; padding-left: 3px; } /* <-- fixes first letter on list text */
+    .mid{ min-width:0; padding-left: 3px; } /* fixes first letter */
     .title{
       font-size: 13.5px;
       font-weight: 650;
       color: rgba(255,255,255,.92);
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
     }
     .sub{
       margin-top: 6px;
       font-size: 12px;
       color: var(--muted2);
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
     }
+
+    /* list marquee wrappers */
+    .tWrap, .sWrap{
+      overflow:hidden;
+      padding-left: 3px;
+      -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 86%, transparent 100%);
+      mask-image: linear-gradient(90deg, #000 0%, #000 86%, transparent 100%);
+    }
+    .tWrap{ font-weight: 650; }
+    .sWrap{ color: var(--muted2); }
 
     .right{
       font-size: 12.5px;
-      font-weight: 700;
+      font-weight: 800;
       color: rgba(255,255,255,.80);
       padding-left: 8px;
       white-space:nowrap;

@@ -1,32 +1,24 @@
 /* Listening Mirror — app.js (FULL REPLACE)
-   - Keeps your stable UI + Worker routes
-   - NOW works with ok:true,item or ok:true,item:null
-   - Mirror card always visible (IDLE vs LISTENING)
-   - Top/Recent: stable numbering + correct right-side values
+   - Stable NOW + Top + Recent
+   - Mirror card always visible
+   - Adds Orb breathing when LISTENING
 */
 
 (() => {
   "use strict";
 
-  // ✅ Your Worker base (no trailing slash)
   const API_BASE = "https://i.errtanq9.workers.dev";
-
-  // Poll NOW
   const NOW_POLL_MS = 12_000;
 
-  // Limits
   const TOP_LIMIT_DEFAULT = 10;
   const RECENT_LIMIT_DEFAULT = 20;
 
-  // -------- DOM helpers --------
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const $ = (sel, root = document) => root.querySelector(sel);
 
-  // Header status
   const statusDot = $("#statusDot");
   const statusLine = $("#statusLine");
 
-  // Tabs
   const tabBtns = $$(".tabBtn");
   const panels = $$(".panel");
 
@@ -60,6 +52,7 @@
   const mirrorPill = $("#mirrorPill");
   const mirrorPillText = $("#mirrorPillText");
   const mirrorState = $("#mirrorState");
+  const mirrorOrb = $("#mirrorOrb");
 
   const mEnergy = $("#mEnergy");
   const mMood = $("#mMood");
@@ -70,7 +63,6 @@
   const mDot = $("#mDot");
   const mCovers = $("#mCovers");
 
-  // -------- State --------
   const state = {
     activeTab: "now",
     topType: "tracks",
@@ -80,11 +72,10 @@
     lastRecentForMirror: [],
   };
 
-  // -------- Helpers --------
   function absApi(urlOrPath) {
     if (!urlOrPath) return "";
     if (/^https?:\/\//i.test(urlOrPath)) return urlOrPath;
-    if (urlOrPath.startsWith("/")) return API_BASE + urlOrPath; // worker returns "/img?u=..."
+    if (urlOrPath.startsWith("/")) return API_BASE + urlOrPath;
     return API_BASE + "/" + urlOrPath;
   }
 
@@ -145,7 +136,6 @@
       .replaceAll("'", "&#039;");
   }
 
-  // -------- Row builder (stable numbering like before) --------
   function rowHTML({ idx, title, sub, img, right, rightClass = "right" }) {
     const imgHtml = img
       ? `<img src="${img}" alt="" loading="lazy" decoding="async" />`
@@ -163,16 +153,44 @@
     `;
   }
 
-  // -------- MIRROR logic (visual only, no "AI text") --------
+  // -------- MIRROR (visual-only) --------
+  function clamp01(x) {
+    const n = Number(x);
+    if (!Number.isFinite(n)) return 0.5;
+    return Math.max(0, Math.min(1, n));
+  }
+
+  function mirrorFromNowItem(item) {
+    if (!item) {
+      return { live: false, energy: 0.28, mood: 0.42, replay: 0.18, axis01: 0.42 };
+    }
+    const t = (item.name || "").length;
+    const a = (item.artist || "").length;
+    const al = (item.album || "").length;
+    const seed = (t * 13 + a * 7 + al * 5) % 100;
+
+    const energy = 0.45 + (seed / 100) * 0.35;
+    const mood = 0.30 + ((100 - seed) / 100) * 0.45;
+    const replay = 0.35 + ((seed % 37) / 37) * 0.45;
+    const axis01 = 0.35 + ((seed % 61) / 61) * 0.45;
+
+    return { live: true, energy, mood, replay, axis01 };
+  }
+
+  function updateMirrorCoversFromRecent() {
+    return (state.lastRecentForMirror || [])
+      .map(it => it?.image || "")
+      .filter(Boolean);
+  }
+
   function setMirror({ live, energy, mood, replay, axis01, covers }) {
-    // pill
     mirrorPill.classList.toggle("on", !!live);
     mirrorPillText.textContent = live ? "LISTENING" : "IDLE";
-
-    // headline
     mirrorState.textContent = live ? "LISTENING" : "IDLE";
 
-    // meters
+    // ✅ Orb breathing
+    mirrorOrb.classList.toggle("on", !!live);
+
     const e = clamp01(energy);
     const m = clamp01(mood);
     const r = clamp01(replay);
@@ -185,11 +203,9 @@
     mMoodNum.textContent = `${Math.round(m * 100)}`;
     mReplayNum.textContent = `${Math.round(r * 100)}`;
 
-    // axis dot (0..1)
     const ax = clamp01(axis01);
     mDot.style.left = `${Math.round(ax * 100)}%`;
 
-    // covers stack (max 6)
     const list = Array.isArray(covers) ? covers.slice(0, 6) : [];
     mCovers.innerHTML = list.map(url => {
       const u = absApi(url || "");
@@ -198,56 +214,12 @@
     }).join("");
   }
 
-  function clamp01(x) {
-    const n = Number(x);
-    if (!Number.isFinite(n)) return 0.5;
-    return Math.max(0, Math.min(1, n));
-  }
-
-  function mirrorFromNowItem(item) {
-    // Visual-only heuristic (stable & deterministic; not "AI copy")
-    // If live => slightly stronger values, else idle.
-    if (!item) {
-      return {
-        live: false,
-        energy: 0.28,
-        mood: 0.42,
-        replay: 0.18,
-        axis01: 0.42,
-      };
-    }
-
-    // live: derive tiny variance from string lengths (stable, no external dependencies)
-    const t = (item.name || "").length;
-    const a = (item.artist || "").length;
-    const al = (item.album || "").length;
-    const seed = (t * 13 + a * 7 + al * 5) % 100;
-
-    const energy = 0.45 + (seed / 100) * 0.35;  // 0.45..0.80
-    const mood = 0.30 + ((100 - seed) / 100) * 0.45; // 0.30..0.75
-    const replay = 0.35 + ((seed % 37) / 37) * 0.45; // 0.35..0.80
-
-    // axis: "dark -> bright" (0 dark, 1 bright)
-    const axis01 = 0.35 + ((seed % 61) / 61) * 0.45;
-
-    return { live: true, energy, mood, replay, axis01 };
-  }
-
-  function updateMirrorCoversFromRecent() {
-    const covers = (state.lastRecentForMirror || [])
-      .map(it => it?.image || "")
-      .filter(Boolean);
-    return covers;
-  }
-
   // -------- NOW --------
   function setNowVisual({ live, item }) {
-    // LIVE/OFF chip (top right)
     nowBadge.classList.toggle("live", !!live);
     nowBadgeText.textContent = live ? "LIVE" : "OFF";
 
     if (!item) {
-      // Empty state
       nowAmbient.classList.remove("on");
       nowCoverWrap.style.removeProperty("--cover-url");
       nowAmbient.style.removeProperty("--ambient-url");
@@ -274,7 +246,6 @@
     safeText(nowMsg, "", "");
 
     if (img) {
-      // even if hidden in CSS, keep it consistent
       nowImg.src = img;
       nowImg.style.display = "block";
       nowFallback.style.display = "none";
@@ -305,20 +276,14 @@
 
       setNowVisual({ live, item });
 
-      // MIRROR update (always visible)
       const base = mirrorFromNowItem(item);
-      setMirror({
-        ...base,
-        covers: updateMirrorCoversFromRecent(),
-      });
+      setMirror({ ...base, covers: updateMirrorCoversFromRecent() });
 
       return true;
     } catch (e) {
       setOnline(false);
 
       setNowVisual({ live: false, item: null });
-
-      // Mirror goes idle on error
       setMirror({
         live: false,
         energy: 0.22,
@@ -417,12 +382,11 @@
   }
 
   function normalizeRecent(j) {
-    // Accept: {ok:true, items:[...]} or {ok:true, history:[...]}
-    const items =
+    return (
       (j && j.ok && Array.isArray(j.items) && j.items) ||
       (j && j.ok && Array.isArray(j.history) && j.history) ||
-      [];
-    return items;
+      []
+    );
   }
 
   async function loadRecent() {
@@ -434,7 +398,7 @@
       setOnline(true);
 
       const items = normalizeRecent(j);
-      state.lastRecentForMirror = items.slice(0, 10); // keep for cover stack
+      state.lastRecentForMirror = items.slice(0, 10);
 
       if (!items.length) {
         recentList.innerHTML = `
@@ -445,8 +409,6 @@
             </div>
           </div>
         `;
-        // Mirror still has covers (empty)
-        setMirror({ ...mirrorFromNowItem(null), covers: [] });
         return true;
       }
 
@@ -455,23 +417,16 @@
         const title = it.name || "—";
         const sub = `${it.artist || ""}${it.album ? " • " + it.album : ""}`.trim();
         const img = absApi(it.image || "");
-
-        // Right side: show time/date if exists
         const right = it.time || it.date || "";
-
         return rowHTML({ idx, title, sub, img, right, rightClass: "right" });
       }).join("");
 
       recentList.innerHTML = html;
 
-      // Update mirror cover stack instantly from recent
-      const currentMirror = mirrorFromNowItem(null);
-      setMirror({
-        ...currentMirror,
-        covers: updateMirrorCoversFromRecent(),
-      });
+      // refresh mirror cover stack quickly
+      const base = mirrorFromNowItem(null);
+      setMirror({ ...base, covers: updateMirrorCoversFromRecent() });
 
-      // If NOW already loaded live, it will overwrite mirror (fine)
       return true;
     } catch (e) {
       setOnline(false);
@@ -487,7 +442,7 @@
     }
   }
 
-  // -------- Events / Wiring --------
+  // -------- Wiring --------
   function wireTabs() {
     tabBtns.forEach(btn => {
       btn.addEventListener("click", async () => {
@@ -519,17 +474,16 @@
     });
   }
 
-  // -------- Boot --------
   async function boot() {
     wireTabs();
     wireTopControls();
 
     showPanel("now");
 
-    // Initial loads (keep it snappy)
-    await loadRecent(); // so Mirror gets cover stack early
-    await loadNow();    // Now + Mirror correct live/idle
-    loadTop();          // load in background
+    // fast + stable
+    await loadRecent(); // mirror gets covers early
+    await loadNow();    // now + mirror correct
+    loadTop();          // background
 
     startNowPolling();
   }

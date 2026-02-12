@@ -1,8 +1,7 @@
-/* spotify-ui.js
-   UI layer for Spotify controls.
-   - Guarantees clickability (no overlays stealing taps)
-   - Shows disabled state clearly
-   - Calls existing globals if present: window.SpotifyAuth / window.SpotifyPlayer
+/* spotify-ui.js (FULL REPLACE)
+   - No Connect button
+   - Tap glyph to login
+   - Icon-only transport buttons
 */
 
 (function () {
@@ -36,30 +35,23 @@
     }
   }
 
-  function icon(kind){
-    const s = (svg) => {
-      const wrap = document.createElement("span");
-      wrap.className = "spIc";
-      wrap.innerHTML = svg;
-      return wrap;
-    };
-    const common = `width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"`;
-    if (kind === "prev")  return s(`<svg ${common}><polygon points="19 20 9 12 19 4 19 20"></polygon><line x1="5" y1="19" x2="5" y2="5"></line></svg>`);
-    if (kind === "play")  return s(`<svg ${common}><polygon points="8 5 19 12 8 19 8 5"></polygon></svg>`);
-    if (kind === "pause") return s(`<svg ${common}><line x1="8" y1="5" x2="8" y2="19"></line><line x1="16" y1="5" x2="16" y2="19"></line></svg>`);
-    if (kind === "next")  return s(`<svg ${common}><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19"></line></svg>`);
-    if (kind === "link")  return s(`<svg ${common}><path d="M10 13a5 5 0 0 0 7.07 0l1.41-1.41a5 5 0 0 0 0-7.07 5 5 0 0 0-7.07 0L10 5"></path><path d="M14 11a5 5 0 0 0-7.07 0L5.52 12.4a5 5 0 0 0 0 7.07 5 5 0 0 0 7.07 0L14 19"></path></svg>`);
-    return document.createTextNode("");
+  function getToken() {
+    if (window.SpotifyAuth && typeof window.SpotifyAuth.getAccessToken === "function") {
+      return window.SpotifyAuth.getAccessToken();
+    }
+    return null;
   }
 
   function ensureCss() {
     if (document.getElementById("spotifyUiCss")) return;
 
     const css = `
+/* --- Spotify UI hardening --- */
 #spotifyBar{
   position: relative;
   z-index: 9999;
   pointer-events: auto;
+  margin: 12px 0 0 0;
 }
 #spotifyBar, #spotifyBar *{
   pointer-events: auto !important;
@@ -71,33 +63,25 @@
   align-items:center;
   gap:10px;
   flex-wrap:wrap;
-  margin: 10px 0 0 0;
 }
 #spotifyBar .spStatus{
   color: rgba(255,255,255,.70);
   font-size: 13px;
   letter-spacing: .2px;
   margin-right: 6px;
+  min-width: 140px;
 }
 #spotifyBar .spBtn{
   border:0;
-  padding: 10px 14px;
+  width: 44px;
+  height: 44px;
   border-radius: 999px;
+  display:grid;
+  place-items:center;
   background: rgba(255,255,255,.055);
   outline: 1px solid rgba(255,255,255,.10);
   box-shadow: 0 14px 40px rgba(0,0,0,.25);
   color: rgba(255,255,255,.92);
-  font-size: 13px;
-  letter-spacing: .15px;
-  display:inline-flex;
-  align-items:center;
-  gap:8px;
-}
-#spotifyBar .spIc{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  opacity:.95;
 }
 #spotifyBar .spBtn:active{
   transform: translateY(1px);
@@ -105,6 +89,15 @@
 }
 #spotifyBar .spBtn:disabled{
   opacity: .38;
+  filter: grayscale(0.15);
+}
+#spotifyBar svg{
+  width: 18px;
+  height: 18px;
+  display:block;
+}
+.glyph{
+  cursor: pointer;
 }
     `.trim();
 
@@ -114,6 +107,27 @@
     document.head.appendChild(style);
   }
 
+  function iconSvg(name){
+    // simple inline icons
+    if (name === "prev") return `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path fill="currentColor" d="M6 6h2v12H6V6zm3.5 6L18 6v12l-8.5-6z"/>
+      </svg>`;
+    if (name === "play") return `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path fill="currentColor" d="M8 5v14l11-7L8 5z"/>
+      </svg>`;
+    if (name === "pause") return `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path fill="currentColor" d="M6 5h4v14H6V5zm8 0h4v14h-4V5z"/>
+      </svg>`;
+    if (name === "next") return `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path fill="currentColor" d="M16 6h2v12h-2V6zM6 18V6l8.5 6L6 18z"/>
+      </svg>`;
+    return "";
+  }
+
   function insertBar() {
     ensureCss();
 
@@ -121,22 +135,23 @@
     if (existing) return existing;
 
     const tabs = document.querySelector(".tabs");
-    const anchor = tabs ? tabs.parentElement : document.querySelector(".app") || document.body;
-
     const status = el("div", { class: "spStatus", id: "spStatus" }, ["Spotify: not linked"]);
 
-    const btnPrev = el("button", { class: "spBtn", id: "spPrev", type: "button" }, [icon("prev"), "Prev"]);
-    const btnPlay = el("button", { class: "spBtn", id: "spPlay", type: "button" }, [icon("play"), "Play"]);
-    const btnPause = el("button", { class: "spBtn", id: "spPause", type: "button" }, [icon("pause"), "Pause"]);
-    const btnNext = el("button", { class: "spBtn", id: "spNext", type: "button" }, [icon("next"), "Next"]);
-    const btnConnect = el("button", { class: "spBtn", id: "spConnect", type: "button" }, [icon("link"), "Connect"]);
+    const btnPrev = el("button", { class: "spBtn", id: "spPrev", type: "button", "aria-label":"Previous" });
+    const btnPlay = el("button", { class: "spBtn", id: "spPlay", type: "button", "aria-label":"Play" });
+    const btnPause = el("button", { class: "spBtn", id: "spPause", type: "button", "aria-label":"Pause" });
+    const btnNext = el("button", { class: "spBtn", id: "spNext", type: "button", "aria-label":"Next" });
 
-    const row = el("div", { class: "spRow" }, [status, btnPrev, btnPlay, btnPause, btnNext, btnConnect]);
+    btnPrev.innerHTML = iconSvg("prev");
+    btnPlay.innerHTML = iconSvg("play");
+    btnPause.innerHTML = iconSvg("pause");
+    btnNext.innerHTML = iconSvg("next");
+
+    const row = el("div", { class: "spRow" }, [status, btnPrev, btnPlay, btnPause, btnNext]);
     const bar = el("div", { id: "spotifyBar" }, [row]);
 
-    if (tabs && tabs.nextSibling) tabs.insertAdjacentElement("afterend", bar);
-    else if (tabs) tabs.parentElement.appendChild(bar);
-    else anchor.insertBefore(bar, anchor.firstChild);
+    if (tabs) tabs.insertAdjacentElement("afterend", bar);
+    else (document.querySelector(".app") || document.body).appendChild(bar);
 
     return bar;
   }
@@ -147,71 +162,76 @@
   }
 
   function setEnabled(enabled) {
-    for (const id of ["spPrev", "spPlay", "spPause", "spNext"]) {
+    const ids = ["spPrev", "spPlay", "spPause", "spNext"];
+    for (const id of ids) {
       const b = document.getElementById(id);
       if (b) b.disabled = !enabled;
     }
-    const c = document.getElementById("spConnect");
-    if (c) c.disabled = false;
   }
 
   function bindHandlers() {
     const byId = (id) => document.getElementById(id);
 
-    byId("spConnect")?.addEventListener("click", async (e) => {
-      e.preventDefault();
-      let r = safeCall("SpotifyAuth.login");
-      if (!r.ok) r = safeCall("SpotifyPlayer.connect");
-      if (!r.ok) {
-        console.warn("[Spotify UI] No connect handler found.");
-        setStatus("Spotify: UI ok (no connect handler)");
-      }
-    });
-
     byId("spPlay")?.addEventListener("click", async (e) => {
       e.preventDefault();
       let r = safeCall("SpotifyPlayer.play");
-      if (!r.ok) r = safeCall("SpotifyPlayer.resume");
-      if (!r.ok) console.warn("[Spotify UI] No play handler found.");
+      if (!r.ok) console.warn("[Spotify UI] Play failed:", r.reason);
     });
 
     byId("spPause")?.addEventListener("click", async (e) => {
       e.preventDefault();
       let r = safeCall("SpotifyPlayer.pause");
-      if (!r.ok) console.warn("[Spotify UI] No pause handler found.");
+      if (!r.ok) console.warn("[Spotify UI] Pause failed:", r.reason);
     });
 
     byId("spNext")?.addEventListener("click", async (e) => {
       e.preventDefault();
       let r = safeCall("SpotifyPlayer.next");
-      if (!r.ok) console.warn("[Spotify UI] No next handler found.");
+      if (!r.ok) console.warn("[Spotify UI] Next failed:", r.reason);
     });
 
     byId("spPrev")?.addEventListener("click", async (e) => {
       e.preventDefault();
       let r = safeCall("SpotifyPlayer.prev");
-      if (!r.ok) r = safeCall("SpotifyPlayer.previous");
-      if (!r.ok) console.warn("[Spotify UI] No prev handler found.");
+      if (!r.ok) console.warn("[Spotify UI] Prev failed:", r.reason);
     });
 
-    setEnabled(false);
+    // Listen for status events from spotify-player.js
+    window.addEventListener("spotify:status", (ev) => {
+      const t = ev?.detail?.text;
+      if (t) setStatus(t);
+    });
+  }
+
+  function bindGlyphConnect() {
+    const glyph = document.querySelector(".glyph");
+    if (!glyph) return;
+
+    glyph.addEventListener("click", (e) => {
+      e.preventDefault();
+      const token = getToken();
+      if (token) {
+        // already linked — keep quiet (no logout here)
+        setStatus("Spotify: linked");
+        return;
+      }
+      // login via PKCE
+      const r = safeCall("SpotifyAuth.login");
+      if (!r.ok) {
+        console.warn("[Spotify UI] SpotifyAuth.login missing:", r.reason);
+        setStatus("Spotify: auth missing");
+      }
+    }, { passive: false });
   }
 
   function observeLinkState() {
-    function getToken() {
-      if (window.SpotifyAuth && typeof window.SpotifyAuth.getAccessToken === "function") {
-        return window.SpotifyAuth.getAccessToken();
-      }
-      return null;
-    }
-
     function tick() {
       const t = getToken();
       if (t) {
         setStatus("Spotify: linked");
         setEnabled(true);
       } else {
-        setStatus("Spotify: not linked");
+        setStatus("Spotify: not linked (tap glyph)");
         setEnabled(false);
       }
       requestAnimationFrame(tick);
@@ -222,6 +242,7 @@
   function boot() {
     insertBar();
     bindHandlers();
+    bindGlyphConnect();
     observeLinkState();
   }
 

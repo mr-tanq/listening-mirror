@@ -9,14 +9,13 @@
 (function(){
   "use strict";
 
-  // ✅ SET THESE
   const CLIENT_ID = "20fca973de8445509d31bf9ab4e13b0b";
 
-  // MUST match EXACTLY the Redirect URI in Spotify dashboard (including trailing slash).
+  // ✅ MUST MATCH Spotify dashboard Redirect URI EXACTLY
+  // Example valid for your GitHub Pages:
   const REDIRECT_URI = "https://mr-tanq.github.io/listening-mirror/";
 
   const SCOPES = [
-    "streaming",                    // ✅ required for Web Playback SDK
     "user-read-playback-state",
     "user-modify-playback-state",
     "user-read-currently-playing"
@@ -49,7 +48,7 @@
   }
 
   function setToken(accessToken, expiresInSec){
-    const expiresAt = nowMs() + (Math.max(10, Number(expiresInSec) || 3600) * 1000) - 15000; // 15s safety
+    const expiresAt = nowMs() + (Math.max(10, Number(expiresInSec) || 3600) * 1000) - 15000;
     localStorage.setItem(LS.token, accessToken);
     localStorage.setItem(LS.expiresAt, String(expiresAt));
   }
@@ -68,7 +67,8 @@
     if (nowMs() >= exp) return null;
     return t;
   }
-async function exchangeCodeForToken(code){
+
+  async function exchangeCodeForToken(code){
     const verifier = localStorage.getItem(LS.verifier);
     if (!verifier) throw new Error("Missing PKCE verifier");
 
@@ -86,9 +86,7 @@ async function exchangeCodeForToken(code){
     });
 
     const json = await res.json().catch(()=> ({}));
-    if (!res.ok) {
-      throw new Error(`Token exchange failed: ${res.status} ${JSON.stringify(json)}`);
-    }
+    if (!res.ok) throw new Error(`Token exchange failed: ${res.status} ${JSON.stringify(json)}`);
 
     setToken(json.access_token, json.expires_in);
     localStorage.removeItem(LS.verifier);
@@ -100,7 +98,7 @@ async function exchangeCodeForToken(code){
     const url = new URL(window.location.href);
     const code = url.searchParams.get("code");
     const err  = url.searchParams.get("error");
-    const returnedState = url.searchParams.get("state");
+    const state = url.searchParams.get("state");
 
     if (err) {
       console.warn("[SpotifyAuth] OAuth error:", err);
@@ -110,10 +108,12 @@ async function exchangeCodeForToken(code){
     }
     if (!code) return;
 
-    // ✅ State check (basic safety)
     const expectedState = localStorage.getItem(LS.state);
-    if (expectedState && returnedState && expectedState !== returnedState) {
+    if (expectedState && state && expectedState !== state) {
       console.error("[SpotifyAuth] State mismatch. Aborting.");
+      url.searchParams.delete("code");
+      url.searchParams.delete("state");
+      window.history.replaceState({}, document.title, url.toString());
       return;
     }
 
@@ -123,12 +123,12 @@ async function exchangeCodeForToken(code){
       console.error("[SpotifyAuth] exchange failed:", e);
     }
 
-    // clean URL
     url.searchParams.delete("code");
     url.searchParams.delete("state");
     window.history.replaceState({}, document.title, url.toString());
   }
-async function login(){
+
+  async function login(){
     if (!CLIENT_ID) {
       alert("spotify-auth.js: Missing CLIENT_ID");
       return;
@@ -138,7 +138,7 @@ async function login(){
     localStorage.setItem(LS.verifier, verifier);
 
     const challenge = base64url(await sha256(verifier));
-    const state = randomString(16);
+    const state = randomString(18);
     localStorage.setItem(LS.state, state);
 
     const params = new URLSearchParams();
@@ -150,14 +150,17 @@ async function login(){
     params.set("code_challenge", challenge);
     params.set("scope", SCOPES.join(" "));
 
-    const authUrl = "https://accounts.spotify.com/authorize?" + params.toString();
-    window.location.assign(authUrl);
+    window.location.assign("https://accounts.spotify.com/authorize?" + params.toString());
   }
 
-  function logout(){ clearToken(); }
-  function getAccessToken(){ return getStoredToken(); }
+  function logout(){
+    clearToken();
+  }
 
-  // Run redirect handler on load
+  function getAccessToken(){
+    return getStoredToken();
+  }
+
   handleRedirectIfPresent();
 
   window.SpotifyAuth = { login, logout, getAccessToken };

@@ -124,20 +124,16 @@
       box-shadow: 0 0 0 3px rgba(49,208,124,.10);
     }
 
-    /* ---------- TABS (professional, LEFT aligned) ---------- */
+    /* ---------- TABS (professional, not scattered) ---------- */
     .tabs{
       width: 100%;
       max-width: 560px;
-
-      /* ✅ MICRO CHANGE: remove centering (no auto margins) */
-      margin: 12px 0 18px 0;
-
+      margin: 12px auto 18px auto;
       padding: 8px;
       border-radius: 999px;
       background: rgba(255,255,255,.04);
       outline: 1px solid rgba(255,255,255,.08);
       box-shadow: 0 16px 45px rgba(0,0,0,.35);
-
       display:grid;
       grid-template-columns: repeat(3, 1fr);
       gap: 8px;
@@ -152,8 +148,6 @@
       font-size: 13px;
       letter-spacing: .2px;
       cursor:pointer;
-
-      /* (κρατάμε centered για premium segmented look) */
       text-align:center;
     }
     .tabBtn[aria-selected="true"]{
@@ -184,6 +178,7 @@
     }
     .nowAmbient.on{ opacity: 1; }
 
+    /* Sharp artwork fills the card */
     .nowAmbient:before{
       content:"";
       position:absolute;
@@ -197,6 +192,7 @@
       opacity: .98;
     }
 
+    /* Premium overlays (ensure readability) + inner vignette */
     .nowAmbient:after{
       content:"";
       position:absolute;
@@ -215,6 +211,7 @@
       padding: 16px;
     }
 
+    /* Inner shadow like real widget */
     .nowWrap:before{
       content:"";
       position:absolute;
@@ -227,6 +224,7 @@
       z-index:2;
     }
 
+    /* LIVE chip top-right */
     .chip{
       position:absolute;
       top: 14px;
@@ -256,6 +254,7 @@
       box-shadow: 0 0 0 3px rgba(255,59,59,.12);
     }
 
+    /* Bottom-left text block */
     .nowText{
       position:absolute;
       left: 16px;
@@ -284,6 +283,7 @@
       text-shadow: 0 10px 28px rgba(0,0,0,.55);
     }
 
+    /* Marquee: fade only right end (never cut first letter) */
     .marq{ display:inline-block; white-space:nowrap; will-change:transform; }
     .marqWrap{
       position:relative;
@@ -298,8 +298,10 @@
       100%{ transform: translateX(calc(-1 * var(--marqShift, 60px))); }
     }
 
+    /* Hide the old message line in NOW (we keep the id for app.js compatibility) */
     #nowMsg{ display:none !important; }
 
+    /* ---------- TOP / RECENT ---------- */
     .controls{
       padding: 14px;
       display:flex;
@@ -426,11 +428,13 @@
         <div id="nowAmbient" class="nowAmbient"></div>
 
         <div class="nowWrap">
+          <!-- LIVE top-right -->
           <div id="nowBadge" class="chip">
             <span class="miniDot" aria-hidden="true"></span>
             <span id="nowBadgeText">OFF</span>
           </div>
 
+          <!-- Bottom-left text (Spotify widget style) -->
           <div class="nowText">
             <div class="line1 marqWrap" id="nowTrackWrap">
               <span class="marq" id="nowTrack">—</span>
@@ -444,7 +448,10 @@
             <div class="sub" id="nowMsg" style="margin-top:12px;">—</div>
           </div>
 
+          <!-- kept for app.js compatibility (no longer shown) -->
           <span id="nowUpdated" style="display:none;">--</span>
+
+          <!-- kept for app.js compatibility (not used visually now) -->
           <div id="nowCoverWrap" style="display:none;"></div>
           <img id="nowImg" style="display:none;" alt="" />
           <div id="nowFallback" style="display:none;">♪</div>

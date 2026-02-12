@@ -32,9 +32,9 @@
       --axis: .50;
       --axisInv: calc(1 - var(--axis));
 
-      /* doodles intensity */
-      --doodleBright: calc(var(--axis) * .65);   /* 0..0.65 */
-      --doodleDark:   calc(var(--axisInv) * .60);/* 0..0.60 */
+      /* doodles intensity (boosted so you actually SEE them) */
+      --doodleBright: calc(.10 + (var(--axis) * .55));     /* ~0.10..0.65 */
+      --doodleDark:   calc(.08 + (var(--axisInv) * .50));  /* ~0.08..0.58 */
     }
 
     *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
@@ -59,7 +59,7 @@
         );
     }
 
-    /* subtle haze (not the doodles) */
+    /* ✅ haze goes BEHIND doodles now */
     body:before{
       content:"";
       position:fixed;
@@ -71,36 +71,36 @@
         radial-gradient(900px 520px at 50% 85%, rgba(0,0,0, calc(.24 + var(--axisInv)*.24)), transparent 62%),
         linear-gradient(180deg, rgba(0,0,0, calc(.26 + var(--axisInv)*.18)), rgba(0,0,0, calc(.46 + var(--axisInv)*.22)));
       opacity:1;
-      z-index:0;
+      z-index:-2; /* <-- key */
     }
 
-    /* DOODLES layers: real motifs (premium mono line-art), NOT the random lines */
+    /* ✅ DOODLES sit above haze, below app */
     .doodles{
       position:fixed;
       inset:0;
       pointer-events:none;
-      z-index:0;
+      z-index:-1; /* <-- key */
       opacity:0;
       transition: opacity .25s ease;
       mix-blend-mode: screen;
-      filter: blur(.2px);
+      filter: blur(.15px);
     }
     .doodles.bright{ opacity: var(--doodleBright); }
     .doodles.dark{ opacity: var(--doodleDark); mix-blend-mode: screen; }
 
-    /* BRIGHT doodles: honeycomb + floral strokes + tiny rainbow-arc (abstract) */
+    /* BRIGHT doodles (premium mono line-art) */
     .doodles.bright{
       background-image:
-        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='1200' viewBox='0 0 1200 1200'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='.22' stroke-width='1.25' stroke-linecap='round' stroke-linejoin='round'%3E%3C!-- honeycomb cluster --%3E%3Cg stroke-opacity='.16'%3E%3Cpath d='M140 170 l26 -15 26 15 0 30 -26 15 -26 -15z'/%3E%3Cpath d='M192 200 l26 -15 26 15 0 30 -26 15 -26 -15z'/%3E%3Cpath d='M244 170 l26 -15 26 15 0 30 -26 15 -26 -15z'/%3E%3Cpath d='M192 140 l26 -15 26 15 0 30 -26 15 -26 -15z'/%3E%3C/g%3E%3C!-- botanical strokes --%3E%3Cpath d='M980 180 C940 210, 920 250, 960 290 C1000 330, 1060 310, 1100 270' stroke-opacity='.18'/%3E%3Cpath d='M995 205 C980 240, 980 265, 1005 292' stroke-opacity='.14'/%3E%3Cpath d='M1038 214 C1012 248, 1010 270, 1030 300' stroke-opacity='.14'/%3E%3C!-- small abstract rainbow arc --%3E%3Cpath d='M120 920 C170 870, 230 870, 280 920' stroke-opacity='.18'/%3E%3Cpath d='M135 920 C175 885, 225 885, 265 920' stroke-opacity='.12'/%3E%3Cpath d='M150 920 C182 900, 218 900, 250 920' stroke-opacity='.08'/%3E%3C!-- tiny flowers (minimal) --%3E%3Cg stroke-opacity='.14'%3E%3Cpath d='M620 980 m0 -8 c8 0 8 16 0 16 c-8 0 -8 -16 0 -16z'/%3E%3Cpath d='M620 972 m-8 0 c0 8 16 8 16 0 c0 -8 -16 -8 -16 0z'/%3E%3C/g%3E%3Ccircle cx='610' cy='320' r='1.2' stroke-opacity='.18'/%3E%3Ccircle cx='640' cy='340' r='1.0' stroke-opacity='.14'/%3E%3Ccircle cx='670' cy='315' r='1.1' stroke-opacity='.14'/%3E%3C/g%3E%3C/svg%3E");
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='1200' viewBox='0 0 1200 1200'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='.22' stroke-width='1.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg stroke-opacity='.16'%3E%3Cpath d='M140 170 l26 -15 26 15 0 30 -26 15 -26 -15z'/%3E%3Cpath d='M192 200 l26 -15 26 15 0 30 -26 15 -26 -15z'/%3E%3Cpath d='M244 170 l26 -15 26 15 0 30 -26 15 -26 -15z'/%3E%3Cpath d='M192 140 l26 -15 26 15 0 30 -26 15 -26 -15z'/%3E%3C/g%3E%3Cpath d='M980 180 C940 210, 920 250, 960 290 C1000 330, 1060 310, 1100 270' stroke-opacity='.18'/%3E%3Cpath d='M995 205 C980 240, 980 265, 1005 292' stroke-opacity='.14'/%3E%3Cpath d='M1038 214 C1012 248, 1010 270, 1030 300' stroke-opacity='.14'/%3E%3Cpath d='M120 920 C170 870, 230 870, 280 920' stroke-opacity='.18'/%3E%3Cpath d='M135 920 C175 885, 225 885, 265 920' stroke-opacity='.12'/%3E%3Cpath d='M150 920 C182 900, 218 900, 250 920' stroke-opacity='.08'/%3E%3Cg stroke-opacity='.14'%3E%3Cpath d='M620 980 m0 -8 c8 0 8 16 0 16 c-8 0 -8 -16 0 -16z'/%3E%3Cpath d='M620 972 m-8 0 c0 8 16 8 16 0 c0 -8 -16 -8 -16 0z'/%3E%3C/g%3E%3Ccircle cx='610' cy='320' r='1.2' stroke-opacity='.18'/%3E%3Ccircle cx='640' cy='340' r='1.0' stroke-opacity='.14'/%3E%3Ccircle cx='670' cy='315' r='1.1' stroke-opacity='.14'/%3E%3C/g%3E%3C/svg%3E");
       background-size: 980px 980px;
       background-repeat: repeat;
       background-position: 40px 40px;
     }
 
-    /* DARK doodles: bats (abstract wings) + constellations dots */
+    /* DARK doodles */
     .doodles.dark{
       background-image:
-        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='1200' viewBox='0 0 1200 1200'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='.18' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3C!-- abstract bats (not cartoon) --%3E%3Cpath d='M180 260 C230 220, 270 220, 320 260 C350 285, 380 280, 410 250'/%3E%3Cpath d='M410 250 C380 310, 340 330, 300 300 C260 330, 220 310, 190 250' stroke-opacity='.14'/%3E%3Cpath d='M880 880 C930 840, 980 840, 1030 880 C1060 905, 1090 900, 1120 870'/%3E%3Cpath d='M1120 870 C1090 930, 1045 950, 1005 920 C965 950, 920 930, 890 870' stroke-opacity='.14'/%3E%3C!-- constellation dots --%3E%3Cg stroke-opacity='.12'%3E%3Ccircle cx='640' cy='160' r='1.1'/%3E%3Ccircle cx='675' cy='180' r='1.0'/%3E%3Ccircle cx='710' cy='155' r='1.0'/%3E%3Ccircle cx='745' cy='175' r='1.1'/%3E%3Cpath d='M640 160 L675 180 L710 155 L745 175'/%3E%3C/g%3E%3Cg stroke-opacity='.10'%3E%3Ccircle cx='220' cy='1020' r='1.0'/%3E%3Ccircle cx='250' cy='1040' r='1.0'/%3E%3Ccircle cx='290' cy='1015' r='1.0'/%3E%3Cpath d='M220 1020 L250 1040 L290 1015'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='1200' viewBox='0 0 1200 1200'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='.18' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M180 260 C230 220, 270 220, 320 260 C350 285, 380 280, 410 250'/%3E%3Cpath d='M410 250 C380 310, 340 330, 300 300 C260 330, 220 310, 190 250' stroke-opacity='.14'/%3E%3Cpath d='M880 880 C930 840, 980 840, 1030 880 C1060 905, 1090 900, 1120 870'/%3E%3Cpath d='M1120 870 C1090 930, 1045 950, 1005 920 C965 950, 920 930, 890 870' stroke-opacity='.14'/%3E%3Cg stroke-opacity='.12'%3E%3Ccircle cx='640' cy='160' r='1.1'/%3E%3Ccircle cx='675' cy='180' r='1.0'/%3E%3Ccircle cx='710' cy='155' r='1.0'/%3E%3Ccircle cx='745' cy='175' r='1.1'/%3E%3Cpath d='M640 160 L675 180 L710 155 L745 175'/%3E%3C/g%3E%3Cg stroke-opacity='.10'%3E%3Ccircle cx='220' cy='1020' r='1.0'/%3E%3Ccircle cx='250' cy='1040' r='1.0'/%3E%3Ccircle cx='290' cy='1015' r='1.0'/%3E%3Cpath d='M220 1020 L250 1040 L290 1015'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
       background-size: 1000px 1000px;
       background-repeat: repeat;
       background-position: 120px 60px;
@@ -186,7 +186,6 @@
       box-shadow: 0 0 0 3px rgba(49,208,124,.10);
     }
 <!-- PART 2/4 -->
-    /* Tabs: left aligned, order Now/Recent/Top */
     .tabs{
       display:flex;
       gap:10px;
@@ -231,7 +230,6 @@
       -webkit-backdrop-filter: blur(calc(6px + var(--axis)*6px));
     }
 
-    /* NOW background — SHARP artwork */
     .nowAmbient{
       position:absolute;
       inset:-1px;
@@ -361,7 +359,6 @@
 
     .list{ padding: 10px; }
 
-    /* ✅ RESTORED LIST ROW STYLES (fixes Top/Recent artwork sizing) */
     .row{
       display:grid;
       grid-template-columns: 52px minmax(0,1fr) max-content;
@@ -419,8 +416,10 @@
     }
     .right.count{ color: rgba(255,214,102,.92); }
 <!-- PART 3/4 -->
-    /* MIRROR + ORB POPUP */
     .mirrorCard{ margin-top: 16px; }
+    /* ✅ critical: allow popup to escape the card */
+    #mirrorCard{ overflow: visible; }
+
     .mirrorWrap{ padding: 16px 18px 18px 18px; position:relative; }
 
     .mirrorTop{
@@ -505,7 +504,7 @@
       outline: 1px solid rgba(255,255,255,.10);
       box-shadow: 0 22px 70px rgba(0,0,0,.62);
       padding: 12px;
-      z-index: 10;
+      z-index: 9999; /* extra safe */
       transform-origin: 12px 0;
       transform: translateY(-4px) scale(.98);
       opacity: 0;
@@ -596,10 +595,7 @@
       letter-spacing: .2px;
       white-space:nowrap;
     }
-    .mirrorPill .miniDot{
-      width:6px;height:6px;border-radius:999px;
-      background: rgba(255,255,255,.20);
-    }
+    .mirrorPill .miniDot{ width:6px;height:6px;border-radius:999px; background: rgba(255,255,255,.20); }
     .mirrorPill.on{
       background: rgba(49,208,124,.10);
       outline-color: rgba(49,208,124,.22);
@@ -610,7 +606,6 @@
       box-shadow: 0 0 0 3px rgba(49,208,124,.10);
     }
 
-    /* ✅ Remove meters from main UI (but keep hidden ids for app.js + popup syncing) */
     .mirrorState{ display:none; }
     .meters{ display:none; }
 
@@ -662,7 +657,6 @@
 </head>
 <!-- PART 4/4 -->
 <body>
-  <!-- doodles layers -->
   <div class="doodles bright" aria-hidden="true"></div>
   <div class="doodles dark" aria-hidden="true"></div>
 
@@ -766,20 +760,16 @@
             </div>
           </div>
 
-          <!-- Keep app.js IDs hidden (so nothing breaks) -->
           <div class="hiddenSignals" aria-hidden="true">
             <div id="mirrorState">IDLE</div>
-
             <div class="meters">
               <div><div class="bar"><i id="mEnergy"></i></div><div id="mEnergyNum">—</div></div>
               <div><div class="bar"><i id="mMood"></i></div><div id="mMoodNum">—</div></div>
               <div><div class="bar"><i id="mReplay"></i></div><div id="mReplayNum">—</div></div>
             </div>
-
             <div id="mDot" style="left:50%"></div>
           </div>
 
-          <!-- Visible: only session covers (space left for future) -->
           <div class="stack">
             <div class="stackLbl">Session covers</div>
             <div id="mCovers" class="covers" aria-label="Covers stack"></div>

@@ -22,7 +22,6 @@
   }
 
   function safeCall(path, ...args) {
-    // path like "SpotifyAuth.login" or "SpotifyPlayer.play"
     try {
       const parts = path.split(".");
       let cur = window;
@@ -37,15 +36,30 @@
     }
   }
 
+  function icon(kind){
+    const s = (svg) => {
+      const wrap = document.createElement("span");
+      wrap.className = "spIc";
+      wrap.innerHTML = svg;
+      return wrap;
+    };
+    const common = `width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"`;
+    if (kind === "prev")  return s(`<svg ${common}><polygon points="19 20 9 12 19 4 19 20"></polygon><line x1="5" y1="19" x2="5" y2="5"></line></svg>`);
+    if (kind === "play")  return s(`<svg ${common}><polygon points="8 5 19 12 8 19 8 5"></polygon></svg>`);
+    if (kind === "pause") return s(`<svg ${common}><line x1="8" y1="5" x2="8" y2="19"></line><line x1="16" y1="5" x2="16" y2="19"></line></svg>`);
+    if (kind === "next")  return s(`<svg ${common}><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19"></line></svg>`);
+    if (kind === "link")  return s(`<svg ${common}><path d="M10 13a5 5 0 0 0 7.07 0l1.41-1.41a5 5 0 0 0 0-7.07 5 5 0 0 0-7.07 0L10 5"></path><path d="M14 11a5 5 0 0 0-7.07 0L5.52 12.4a5 5 0 0 0 0 7.07 5 5 0 0 0 7.07 0L14 19"></path></svg>`);
+    return document.createTextNode("");
+  }
+
   function ensureCss() {
     if (document.getElementById("spotifyUiCss")) return;
 
     const css = `
-/* --- Spotify UI hardening --- */
 #spotifyBar{
   position: relative;
-  z-index: 9999;         /* ✅ above any ambient layers */
-  pointer-events: auto;  /* ✅ clickable */
+  z-index: 9999;
+  pointer-events: auto;
 }
 #spotifyBar, #spotifyBar *{
   pointer-events: auto !important;
@@ -67,22 +81,30 @@
 }
 #spotifyBar .spBtn{
   border:0;
-  padding: 10px 16px;
+  padding: 10px 14px;
   border-radius: 999px;
   background: rgba(255,255,255,.055);
   outline: 1px solid rgba(255,255,255,.10);
   box-shadow: 0 14px 40px rgba(0,0,0,.25);
   color: rgba(255,255,255,.92);
-  font-size: 14px;
+  font-size: 13px;
   letter-spacing: .15px;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+}
+#spotifyBar .spIc{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  opacity:.95;
 }
 #spotifyBar .spBtn:active{
   transform: translateY(1px);
   background: rgba(255,255,255,.075);
 }
 #spotifyBar .spBtn:disabled{
-  opacity: .38;                 /* ✅ obvious */
-  filter: grayscale(0.15);
+  opacity: .38;
 }
     `.trim();
 
@@ -95,7 +117,6 @@
   function insertBar() {
     ensureCss();
 
-    // Avoid duplicates
     const existing = document.getElementById("spotifyBar");
     if (existing) return existing;
 
@@ -104,24 +125,18 @@
 
     const status = el("div", { class: "spStatus", id: "spStatus" }, ["Spotify: not linked"]);
 
-    const btnPrev = el("button", { class: "spBtn", id: "spPrev", type: "button" }, ["Prev"]);
-    const btnPlay = el("button", { class: "spBtn", id: "spPlay", type: "button" }, ["Play"]);
-    const btnPause = el("button", { class: "spBtn", id: "spPause", type: "button" }, ["Pause"]);
-    const btnNext = el("button", { class: "spBtn", id: "spNext", type: "button" }, ["Next"]);
-    const btnConnect = el("button", { class: "spBtn", id: "spConnect", type: "button" }, ["Connect"]);
+    const btnPrev = el("button", { class: "spBtn", id: "spPrev", type: "button" }, [icon("prev"), "Prev"]);
+    const btnPlay = el("button", { class: "spBtn", id: "spPlay", type: "button" }, [icon("play"), "Play"]);
+    const btnPause = el("button", { class: "spBtn", id: "spPause", type: "button" }, [icon("pause"), "Pause"]);
+    const btnNext = el("button", { class: "spBtn", id: "spNext", type: "button" }, [icon("next"), "Next"]);
+    const btnConnect = el("button", { class: "spBtn", id: "spConnect", type: "button" }, [icon("link"), "Connect"]);
 
     const row = el("div", { class: "spRow" }, [status, btnPrev, btnPlay, btnPause, btnNext, btnConnect]);
-
     const bar = el("div", { id: "spotifyBar" }, [row]);
 
-    // Put it right under tabs (like your screenshot)
-    if (tabs && tabs.nextSibling) {
-      tabs.insertAdjacentElement("afterend", bar);
-    } else if (tabs) {
-      tabs.parentElement.appendChild(bar);
-    } else {
-      anchor.insertBefore(bar, anchor.firstChild);
-    }
+    if (tabs && tabs.nextSibling) tabs.insertAdjacentElement("afterend", bar);
+    else if (tabs) tabs.parentElement.appendChild(bar);
+    else anchor.insertBefore(bar, anchor.firstChild);
 
     return bar;
   }
@@ -132,9 +147,7 @@
   }
 
   function setEnabled(enabled) {
-    // Connect should always be enabled
-    const ids = ["spPrev", "spPlay", "spPause", "spNext"];
-    for (const id of ids) {
+    for (const id of ["spPrev", "spPlay", "spPause", "spNext"]) {
       const b = document.getElementById(id);
       if (b) b.disabled = !enabled;
     }
@@ -145,75 +158,49 @@
   function bindHandlers() {
     const byId = (id) => document.getElementById(id);
 
-    // ✅ Make it super obvious if taps reach JS at all
-    function tapPing(label) {
-      // You can comment this out later
-      // alert(label);
-      // For now keep it silent but log:
-      console.log("[Spotify UI tap]", label);
-    }
-
     byId("spConnect")?.addEventListener("click", async (e) => {
       e.preventDefault();
-      tapPing("Connect");
-
-      // Try common APIs
       let r = safeCall("SpotifyAuth.login");
       if (!r.ok) r = safeCall("SpotifyPlayer.connect");
       if (!r.ok) {
-        console.warn("[Spotify UI] No connect handler found (SpotifyAuth.login / SpotifyPlayer.connect).");
+        console.warn("[Spotify UI] No connect handler found.");
         setStatus("Spotify: UI ok (no connect handler)");
-        return;
       }
     });
 
-    byId("spPlay")?.addEventListener("click", (e) => {
+    byId("spPlay")?.addEventListener("click", async (e) => {
       e.preventDefault();
-      tapPing("Play");
       let r = safeCall("SpotifyPlayer.play");
       if (!r.ok) r = safeCall("SpotifyPlayer.resume");
       if (!r.ok) console.warn("[Spotify UI] No play handler found.");
     });
 
-    byId("spPause")?.addEventListener("click", (e) => {
+    byId("spPause")?.addEventListener("click", async (e) => {
       e.preventDefault();
-      tapPing("Pause");
       let r = safeCall("SpotifyPlayer.pause");
       if (!r.ok) console.warn("[Spotify UI] No pause handler found.");
     });
 
-    byId("spNext")?.addEventListener("click", (e) => {
+    byId("spNext")?.addEventListener("click", async (e) => {
       e.preventDefault();
-      tapPing("Next");
       let r = safeCall("SpotifyPlayer.next");
       if (!r.ok) console.warn("[Spotify UI] No next handler found.");
     });
 
-    byId("spPrev")?.addEventListener("click", (e) => {
+    byId("spPrev")?.addEventListener("click", async (e) => {
       e.preventDefault();
-      tapPing("Prev");
       let r = safeCall("SpotifyPlayer.prev");
       if (!r.ok) r = safeCall("SpotifyPlayer.previous");
       if (!r.ok) console.warn("[Spotify UI] No prev handler found.");
     });
 
-    // Initial UI state
     setEnabled(false);
   }
 
   function observeLinkState() {
-    // If your auth/player exposes a token getter, we’ll reflect it.
-    // Works with several patterns:
-    // - SpotifyAuth.getAccessToken()
-    // - SpotifyAuth.token
-    // - SpotifyPlayer.getAccessToken()
     function getToken() {
       if (window.SpotifyAuth && typeof window.SpotifyAuth.getAccessToken === "function") {
         return window.SpotifyAuth.getAccessToken();
-      }
-      if (window.SpotifyAuth && typeof window.SpotifyAuth.token === "string") return window.SpotifyAuth.token;
-      if (window.SpotifyPlayer && typeof window.SpotifyPlayer.getAccessToken === "function") {
-        return window.SpotifyPlayer.getAccessToken();
       }
       return null;
     }

@@ -11,11 +11,14 @@
     :root{
       --bg:#0b0c0e;
       --bg2:#090a0c;
+
       --card: rgba(255,255,255,.055);
       --card2: rgba(255,255,255,.035);
+
       --text:#ececee;
       --muted:#a7abb4;
       --muted2:#7d828d;
+
       --shadow: 0 18px 55px rgba(0,0,0,.55);
       --r: 22px;
 
@@ -125,9 +128,7 @@
       box-shadow: 0 0 0 3px rgba(49,208,124,.10);
     }
 
-    /* Tabs:
-       DOM order stays Now/Top/Recent (for app.js)
-       Visual order is Now/Recent/Top */
+    /* Tabs back to stable order: Now / Recent / Top */
     .tabs{
       display:flex;
       align-items:center;
@@ -164,10 +165,6 @@
       color: rgba(255,255,255,.95);
     }
 
-    .tabBtn[data-tab="now"]{ order: 1; }
-    .tabBtn[data-tab="recent"]{ order: 2; }
-    .tabBtn[data-tab="top"]{ order: 3; }
-
     .panel{ display:block; }
     .hidden{ display:none; }
 
@@ -182,7 +179,7 @@
       -webkit-backdrop-filter: blur(10px);
     }
 <!-- PART 2/4 -->
-    /* NOW ambient artwork */
+    /* NOW ambient artwork (optional, DOES NOT break cover) */
     .nowAmbient{
       position:absolute;
       inset:-1px;
@@ -249,15 +246,34 @@
       box-shadow: 0 0 0 3px rgba(255,59,59,.12);
     }
 
+    /* ✅ restore stable Now layout with cover */
     .nowMain{
       display:grid;
-      grid-template-columns: 1fr;
+      grid-template-columns: 82px minmax(0,1fr);
+      gap: 14px;
+      align-items:center;
       position:relative;
       z-index:2;
     }
-    .coverWrap{ display:none !important; }
 
-    .nowText{ min-width:0; padding-left: 2px; }
+    .coverWrap{
+      width: 82px; height: 82px;
+      border-radius: 18px;
+      overflow:hidden;
+      outline: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.03);
+      box-shadow: 0 14px 40px rgba(0,0,0,.45);
+      position:relative;
+      flex: 0 0 auto;
+    }
+    .coverImg{ width:100%; height:100%; object-fit:cover; display:block; }
+    .coverFallback{
+      position:absolute; inset:0; display:grid; place-items:center;
+      color: rgba(255,255,255,.35);
+      font-size: 22px;
+    }
+
+    .nowText{ min-width:0; }
     .line1{ font-size: 15.5px; font-weight: 720; letter-spacing: .15px; }
     .line2{ margin-top: 6px; font-size: 13.5px; color: rgba(255,255,255,.72); }
     .line3{ margin-top: 6px; font-size: 12px; color: var(--muted2); }
@@ -266,7 +282,6 @@
     .marqWrap{
       position:relative;
       overflow:hidden;
-      padding-left: 3px;
       -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 86%, transparent 100%);
       mask-image: linear-gradient(90deg, #000 0%, #000 86%, transparent 100%);
     }
@@ -276,6 +291,7 @@
       100%{ transform: translateX(calc(-1 * var(--marqShift, 60px))); }
     }
 
+    /* Lists */
     .controls{
       padding: 14px;
       display:flex;
@@ -310,6 +326,11 @@
 
     .list{ padding: 10px; }
 
+    /* Defensive styling: whatever app.js injects in recent/top, it will look fine */
+    #recentList > *, #topList > *{
+      border-radius: 16px;
+    }
+
     .row{
       display:grid;
       grid-template-columns: 52px minmax(0,1fr) max-content;
@@ -337,7 +358,7 @@
       color: rgba(255,255,255,.35); font-size: 18px;
     }
 
-    .mid{ min-width:0; padding-left: 3px; }
+    .mid{ min-width:0; }
     .title{
       font-size: 13.5px;
       font-weight: 650;
@@ -364,7 +385,6 @@
       padding-left: 8px;
       white-space:nowrap;
     }
-    .right.count{ color: rgba(255,214,102,.92); }
 
     /* Mirror */
     .mirrorCard{ margin-top: 16px; overflow: visible; }
@@ -387,56 +407,6 @@
       gap:10px;
       min-width: 0;
     }
-
-    .orbDetails{ position:relative; display:inline-block; }
-    .orbDetails summary{
-      list-style:none;
-      display:inline-flex;
-      align-items:center;
-      gap:10px;
-      cursor:pointer;
-      user-select:none;
-      outline:none;
-    }
-    .orbDetails summary::-webkit-details-marker{ display:none; }
-
-    .orb{
-      width: 18px;
-      height: 18px;
-      border-radius: 999px;
-      position:relative;
-      flex: 0 0 auto;
-      background:
-        radial-gradient(circle at 30% 30%, rgba(255,255,255,.28), rgba(255,255,255,.09) 55%, rgba(255,255,255,.05) 75%),
-        radial-gradient(circle at 70% 65%, rgba(255,255,255,.10), transparent 60%);
-      outline: 1px solid rgba(255,255,255,.10);
-      box-shadow: 0 12px 32px rgba(0,0,0,.45);
-    }
-
-    .orbPopup{
-      position:absolute;
-      top: calc(100% + 10px);
-      left: 0;
-      width: min(320px, calc(100vw - 40px));
-      border-radius: 18px;
-      background: linear-gradient(180deg, rgba(22,24,28,.92), rgba(14,16,19,.92));
-      outline: 1px solid rgba(255,255,255,.10);
-      box-shadow: 0 22px 70px rgba(0,0,0,.62);
-      padding: 12px;
-      z-index: 50;
-    }
-    .orbPopupTitle{
-      font-size: 12px;
-      font-weight: 760;
-      letter-spacing: .25px;
-      color: rgba(255,255,255,.92);
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      margin-bottom: 8px;
-    }
-    .orbPopupHint{ font-size: 11px; color: rgba(255,255,255,.58); line-height: 1.35; }
 
     .mirrorPill{
       display:inline-flex;
@@ -461,11 +431,9 @@
       color: rgba(255,255,255,.94);
     }
 
-    /* Art card (THE doodles live here) */
+    /* Art card */
     .artCard{ margin-top: 16px; }
-    .artWrap{
-      padding: 14px 18px 18px 18px;
-    }
+    .artWrap{ padding: 14px 18px 18px 18px; }
     .artHead{
       display:flex;
       align-items:center;
@@ -494,7 +462,7 @@
       box-shadow: 0 18px 55px rgba(0,0,0,.35);
     }
 
-    /* hidden sensor stays hidden (axis UI removed) */
+    /* keep any “axis” UI hidden if exists */
     .mood{ display:none !important; }
   </style>
 </head>
@@ -514,10 +482,11 @@
       </div>
     </header>
 
+    <!-- ✅ Tabs stable order: Now / Recent / Top -->
     <div class="tabs" role="tablist" aria-label="Main tabs">
       <button class="tabBtn" data-tab="now" aria-selected="true" role="tab">Now</button>
-      <button class="tabBtn" data-tab="top" aria-selected="false" role="tab">Top</button>
       <button class="tabBtn" data-tab="recent" aria-selected="false" role="tab">Recent</button>
+      <button class="tabBtn" data-tab="top" aria-selected="false" role="tab">Top</button>
     </div>
 
     <section class="panel" data-panel="now">
@@ -533,6 +502,7 @@
           </div>
 
           <div class="nowMain">
+            <!-- ✅ cover restored -->
             <div class="coverWrap" id="nowCoverWrap">
               <img id="nowImg" class="coverImg" alt="" />
               <div id="nowFallback" class="coverFallback">♪</div>
@@ -558,19 +528,8 @@
         <div class="mirrorWrap">
           <div class="mirrorTop">
             <div class="mirrorTitle">
-              <details class="orbDetails" id="orbDetails">
-                <summary aria-label="Open Mirror popup">
-                  <span id="mirrorOrb" class="orb" aria-hidden="true"></span>
-                  Mirror
-                </summary>
-                <div class="orbPopup" role="dialog" aria-label="Mirror popup">
-                  <div class="orbPopupTitle">
-                    <span>Mirror</span>
-                    <span highlight style="font-size:11px;color:rgba(255,255,255,.55)">tap orb again</span>
-                  </div>
-                  <div class="orbPopupHint">Visual layer is active.</div>
-                </div>
-              </details>
+              <span style="width:18px;height:18px;border-radius:999px;display:inline-block;background:rgba(255,255,255,.08);outline:1px solid rgba(255,255,255,.10);box-shadow:0 12px 32px rgba(0,0,0,.45);" aria-hidden="true"></span>
+              MIRROR
             </div>
 
             <div id="mirrorPill" class="mirrorPill">
@@ -581,7 +540,7 @@
 
           <div id="mirrorState" class="mirrorState">IDLE</div>
 
-          <!-- hidden sensor (still in DOM if app.js uses it) -->
+          <!-- keep hidden sensor if app.js uses it -->
           <div class="mood">
             <div class="moodBar">
               <div id="mDot" class="moodDot" style="left:50%"></div>
@@ -590,7 +549,7 @@
         </div>
       </div>
 
-      <!-- ✅ DOODLES LIVE HERE (below Mirror) -->
+      <!-- Art card stays below Mirror -->
       <div class="card artCard" id="artCard">
         <div class="artWrap">
           <div class="artHead">
@@ -599,6 +558,12 @@
           </div>
           <canvas id="artCanvas" aria-label="Generated art canvas"></canvas>
         </div>
+      </div>
+    </section>
+
+    <section class="panel hidden" data-panel="recent">
+      <div class="card">
+        <div class="list" id="recentList" aria-live="polite"></div>
       </div>
     </section>
 
@@ -621,18 +586,12 @@
         <div class="list" id="topList" aria-live="polite"></div>
       </div>
     </section>
-
-    <section class="panel hidden" data-panel="recent">
-      <div class="card">
-        <div class="list" id="recentList" aria-live="polite"></div>
-      </div>
-    </section>
   </div>
 
   <script src="./app.js"></script>
 <!-- PART 4/4 -->
   <script>
-    // Doodles: premium ink / poster-ish, ALWAYS visible.
+    // Art canvas (same as before) — just kept clean and visible.
     (function(){
       const c = document.getElementById("artCanvas");
       if(!c) return;
@@ -649,7 +608,6 @@
       window.addEventListener("resize", fit, {passive:true});
 
       function seeded(n){
-        // deterministic-ish (per load) without external deps
         let s = (Date.now() % 100000) + n*9991;
         return () => {
           s = (s * 1664525 + 1013904223) % 4294967296;
@@ -662,37 +620,32 @@
         const H = c.getBoundingClientRect().height;
         ctx.clearRect(0,0,W,H);
 
-        // deep glass base
         ctx.fillStyle = "rgba(0,0,0,.18)";
         ctx.fillRect(0,0,W,H);
 
-        // subtle vignette
         const vg = ctx.createRadialGradient(W*0.55, H*0.35, 10, W*0.55, H*0.35, Math.max(W,H));
         vg.addColorStop(0, "rgba(255,255,255,.06)");
         vg.addColorStop(1, "rgba(0,0,0,.38)");
         ctx.fillStyle = vg;
         ctx.fillRect(0,0,W,H);
 
-        // “premium ink” motif: a few geometric glyphs + stipple
         const rnd = seeded(3);
 
-        // glyph strokes (thin, intentional — not random lines everywhere)
         ctx.lineWidth = 1;
         ctx.strokeStyle = "rgba(255,255,255,.12)";
         ctx.beginPath();
+
         const cx = W*0.72, cy = H*0.62;
         const r = Math.min(W,H)*0.18;
 
-        // 3 hexes cluster
         for(let i=0;i<3;i++){
           const ox = (i-1)*r*0.95;
           const oy = (i===1? -r*0.55 : 0);
           hex(ctx, cx+ox, cy+oy, r*0.55);
- adds(ctx, cx+ox, cy+oy, r*0.55);
+          inner(ctx, cx+ox, cy+oy, r*0.55);
         }
         ctx.stroke();
 
-        // one “ink wave” curve (single elegant stroke)
         ctx.beginPath();
         ctx.strokeStyle = "rgba(255,255,255,.10)";
         const baseY = H*0.78;
@@ -701,7 +654,6 @@
         ctx.bezierCurveTo(W*0.88, baseY-35, W*0.95, baseY-10, W*0.98, baseY-22);
         ctx.stroke();
 
-        // stipple (ink dust)
         const dots = 240;
         for(let i=0;i<dots;i++){
           const x = rnd()*W;
@@ -714,7 +666,6 @@
           ctx.fill();
         }
 
-        // 1 accent “seal” circle (very subtle)
         ctx.beginPath();
         ctx.strokeStyle = "rgba(255,255,255,.10)";
         ctx.arc(W*0.18, H*0.28, Math.min(W,H)*0.12, 0, Math.PI*2);
@@ -728,8 +679,7 @@
           ctx.lineTo(x + r*Math.cos(a), y + r*Math.sin(a));
         }
       }
-      function adds(ctx, x,y,r){
-        // small inner line to make it feel “designed”
+      function inner(ctx, x,y,r){
         ctx.moveTo(x - r*0.45, y + r*0.10);
         ctx.lineTo(x + r*0.42, y - r*0.08);
       }

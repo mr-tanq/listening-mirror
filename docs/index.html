@@ -50,11 +50,9 @@
       margin: 0 auto;
     }
 
-    /* ✅ Header: title left, orb right */
     header{
       display:flex;
-      align-items:center;
-      justify-content:space-between;
+      align-items:flex-start;
       gap:14px;
       margin-bottom: 14px;
     }
@@ -62,15 +60,13 @@
     .brand{
       display:flex;
       align-items:center;
-      gap:12px;
+      gap:10px;
       padding-left: 2px;
-      min-width: 0;
     }
 
-    /* ✅ Orb right, 90px */
     .glyph{
-      width: 90px;
-      height: 90px;
+      width: 16px;
+      height: 16px;
       border-radius: 999px;
       position:relative;
       background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.22), rgba(255,255,255,.05) 55%, rgba(255,255,255,.03) 70%);
@@ -81,7 +77,7 @@
     .glyph:before{
       content:"";
       position:absolute;
-      inset:14px; /* ✅ tuned for 90px */
+      inset:3px;
       border-radius: 999px;
       outline: 1px solid rgba(255,255,255,.10);
       background: radial-gradient(circle at 65% 35%, rgba(255,255,255,.10), transparent 60%);
@@ -91,38 +87,27 @@
     .wordmark{
       display:flex;
       flex-direction:column;
-      line-height: 1.12;
-      padding-top: 1px;
-      min-width: 0;
+      line-height: 1.15;
     }
-
     .wordmark .title{
-      font-size: 19px;
-      font-weight: 820;
-      letter-spacing: .55px;
+      font-size: 18px;
+      font-weight: 720;
+      letter-spacing: .35px;
       margin:0;
-      background: linear-gradient(180deg, rgba(255,255,255,.95), rgba(255,255,255,.68));
+      background: linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.70));
       -webkit-background-clip: text;
       background-clip: text;
       color: transparent;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 620px;
     }
-
     .wordmark .sub{
-      margin-top: 7px;
+      margin-top: 6px;
       display:flex;
       align-items:center;
       gap:8px;
-      color: rgba(255,255,255,.52);
-      font-size: 11.5px;
-      letter-spacing: .45px;
-      text-transform: uppercase;
-      white-space: nowrap;
+      color: var(--muted2);
+      font-size: 12px;
+      letter-spacing: .2px;
     }
-
     .dot{
       width: 7px;
       height: 7px;
@@ -136,7 +121,6 @@
       box-shadow: 0 0 0 3px rgba(49,208,124,.10);
     }
 
-    /* ✅ TABS: left aligned + tidy (no spread) */
     .tabs{
       display:flex;
       gap:10px;
@@ -147,7 +131,6 @@
       box-shadow: 0 16px 45px rgba(0,0,0,.35);
       width: fit-content;
       margin: 12px 0 16px 0;
-      justify-content:flex-start;
     }
     .tabBtn{
       border:0;
@@ -195,8 +178,7 @@
       background-position: center;
       background-repeat: no-repeat;
       transform: scale(1.02);
-      opacity: .98;
-      filter: saturate(1.08) contrast(1.06);
+      opacity: .90; /* slightly less faint */
     }
     .nowAmbient:after{
       content:"";
@@ -205,7 +187,7 @@
       background:
         radial-gradient(900px 520px at 18% 8%, rgba(255,255,255,.10), transparent 55%),
         radial-gradient(700px 420px at 85% 10%, rgba(255,255,255,.06), transparent 60%),
-        linear-gradient(180deg, rgba(8,9,11,.45), rgba(8,9,11,.78));
+        linear-gradient(180deg, rgba(8,9,11,.52), rgba(8,9,11,.90));
     }
 
     .nowWrap{ position:relative; padding: 18px; }
@@ -244,6 +226,7 @@
       box-shadow: 0 0 0 3px rgba(255,59,59,.12);
     }
 
+    /* ✅ NOW content is single column (no square cover) */
     .nowMain{
       display:grid;
       grid-template-columns: 1fr;
@@ -253,6 +236,7 @@
       z-index:2;
     }
 
+    /* kept for app.js compatibility, but hidden */
     .coverWrap{ display:none !important; }
 
     .nowText{ min-width:0; padding-left: 2px; }
@@ -260,6 +244,7 @@
     .line2{ margin-top: 6px; font-size: 13.5px; color: rgba(255,255,255,.72); }
     .line3{ margin-top: 6px; font-size: 12px; color: var(--muted2); }
 
+    /* Marquee: fade only on RIGHT */
     .marq{ display:inline-block; white-space:nowrap; will-change:transform; }
     .marqWrap{
       position:relative;
@@ -366,13 +351,199 @@
       color: rgba(255,214,102,.92);
     }
 
-    /* ✅ Mobile: keep orb from squashing title */
+    /* --------------------------
+       MIRROR CARD (always visible)
+       -------------------------- */
+    .mirrorCard{
+      margin-top: 12px;
+    }
+    .mirrorWrap{
+      padding: 16px 18px 18px 18px;
+      position:relative;
+    }
+    .mirrorTop{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      margin-bottom: 12px;
+    }
+    .mirrorTitle{
+      font-size: 12px;
+      letter-spacing: .32px;
+      color: rgba(255,255,255,.72);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+    .mirrorPill{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.04);
+      outline: 1px solid rgba(255,255,255,.08);
+      color: rgba(255,255,255,.78);
+      font-size: 12px;
+      letter-spacing: .2px;
+      white-space:nowrap;
+    }
+    .mirrorPill .miniDot{
+      width:6px;height:6px;border-radius:999px;
+      background: rgba(255,255,255,.20);
+    }
+    .mirrorPill.on{
+      background: rgba(49,208,124,.10);
+      outline-color: rgba(49,208,124,.22);
+      color: rgba(255,255,255,.92);
+    }
+    .mirrorPill.on .miniDot{
+      background: rgba(49,208,124,.85);
+      box-shadow: 0 0 0 3px rgba(49,208,124,.10);
+    }
+
+    .mirrorState{
+      font-size: 18px;
+      font-weight: 760;
+      letter-spacing: .12px;
+      margin: 6px 0 14px 0;
+      color: rgba(255,255,255,.94);
+    }
+
+    .meters{
+      display:grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap:10px;
+      margin-bottom: 14px;
+    }
+    .meter{
+      border-radius: 16px;
+      background: rgba(255,255,255,.03);
+      outline: 1px solid rgba(255,255,255,.07);
+      padding: 10px 10px 11px 10px;
+      overflow:hidden;
+    }
+    .meterLbl{
+      font-size: 11px;
+      letter-spacing: .25px;
+      color: rgba(255,255,255,.62);
+      text-transform: uppercase;
+    }
+    .meterVal{
+      margin-top: 8px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .bar{
+      height: 6px;
+      flex: 1 1 auto;
+      border-radius: 999px;
+      background: rgba(255,255,255,.08);
+      overflow:hidden;
+      outline: 1px solid rgba(255,255,255,.06);
+    }
+    .bar > i{
+      display:block;
+      height: 100%;
+      width: 40%;
+      background: rgba(255,255,255,.55);
+      border-radius: 999px;
+    }
+    .meterNum{
+      font-size: 12px;
+      font-weight: 750;
+      color: rgba(255,255,255,.82);
+      white-space:nowrap;
+    }
+
+    .mood{
+      border-radius: 16px;
+      background: rgba(255,255,255,.03);
+      outline: 1px solid rgba(255,255,255,.07);
+      padding: 12px 12px 12px 12px;
+    }
+    .moodTop{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom: 10px;
+    }
+    .moodLbl{
+      font-size: 11px;
+      letter-spacing: .25px;
+      color: rgba(255,255,255,.62);
+      text-transform: uppercase;
+    }
+    .moodAxis{
+      font-size: 11px;
+      color: rgba(255,255,255,.55);
+      white-space:nowrap;
+    }
+    .moodBar{
+      position:relative;
+      height: 10px;
+      border-radius: 999px;
+      background:
+        linear-gradient(90deg,
+          rgba(255,255,255,.20),
+          rgba(255,255,255,.10),
+          rgba(255,255,255,.22));
+      outline: 1px solid rgba(255,255,255,.07);
+      overflow:hidden;
+    }
+    .moodDot{
+      position:absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.88);
+      box-shadow: 0 0 0 4px rgba(255,255,255,.10);
+      outline: 1px solid rgba(0,0,0,.25);
+    }
+
+    .stack{
+      margin-top: 12px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .stackLbl{
+      font-size: 11px;
+      letter-spacing: .25px;
+      color: rgba(255,255,255,.55);
+      text-transform: uppercase;
+    }
+    .covers{
+      display:flex;
+      align-items:center;
+      justify-content:flex-end;
+      gap:0;
+    }
+    .cvr{
+      width: 28px; height: 28px;
+      border-radius: 10px;
+      overflow:hidden;
+      outline: 1px solid rgba(255,255,255,.10);
+      box-shadow: 0 10px 25px rgba(0,0,0,.35);
+      background: rgba(255,255,255,.05);
+      margin-left: -8px;
+    }
+    .cvr:first-child{ margin-left: 0; }
+    .cvr img{ width:100%; height:100%; object-fit:cover; display:block; }
+
     @media (max-width: 520px){
-      .wordmark .title{ max-width: 220px; }
-      .glyph{ width: 78px; height: 78px; }   /* optional: keeps header clean on small phones */
-      .glyph:before{ inset: 12px; }
-      .tabs{ width: fit-content; justify-content:flex-start; }
+      .tabs{ width: 100%; justify-content: space-between; }
       .line1{ font-size: 15px; }
+      .meters{ grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -381,6 +552,7 @@
   <div class="app">
     <header>
       <div class="brand">
+        <div class="glyph" aria-hidden="true"></div>
         <div class="wordmark">
           <div class="title">Listening Mirror</div>
           <div class="sub">
@@ -389,9 +561,6 @@
           </div>
         </div>
       </div>
-
-      <!-- ✅ Orb on the right -->
-      <div class="glyph" aria-hidden="true"></div>
     </header>
 
     <div class="tabs" role="tablist" aria-label="Main tabs">
@@ -401,6 +570,7 @@
     </div>
 
     <section class="panel" data-panel="now">
+      <!-- NOW -->
       <div class="card">
         <div id="nowAmbient" class="nowAmbient"></div>
 
@@ -430,6 +600,63 @@
                 <span class="marq" id="nowAlbum">—</span>
               </div>
               <div class="sub" id="nowMsg" style="margin-top:12px;">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MIRROR (always visible) -->
+      <div class="card mirrorCard" id="mirrorCard">
+        <div class="mirrorWrap">
+          <div class="mirrorTop">
+            <div class="mirrorTitle">Mirror</div>
+
+            <div id="mirrorPill" class="mirrorPill">
+              <span class="miniDot" aria-hidden="true"></span>
+              <span id="mirrorPillText">IDLE</span>
+            </div>
+          </div>
+
+          <div id="mirrorState" class="mirrorState">IDLE</div>
+
+          <div class="meters" aria-label="Mirror meters">
+            <div class="meter">
+              <div class="meterLbl">Energy</div>
+              <div class="meterVal">
+                <div class="bar"><i id="mEnergy"></i></div>
+                <div id="mEnergyNum" class="meterNum">—</div>
+              </div>
+            </div>
+
+            <div class="meter">
+              <div class="meterLbl">Mood</div>
+              <div class="meterVal">
+                <div class="bar"><i id="mMood"></i></div>
+                <div id="mMoodNum" class="meterNum">—</div>
+              </div>
+            </div>
+
+            <div class="meter">
+              <div class="meterLbl">Replay</div>
+              <div class="meterVal">
+                <div class="bar"><i id="mReplay"></i></div>
+                <div id="mReplayNum" class="meterNum">—</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mood" aria-label="Mood axis">
+            <div class="moodTop">
+              <div class="moodLbl">Axis</div>
+              <div class="moodAxis">Dark — Bright</div>
+            </div>
+            <div class="moodBar">
+              <div id="mDot" class="moodDot" style="left:50%"></div>
+            </div>
+
+            <div class="stack">
+              <div class="stackLbl">Session covers</div>
+              <div id="mCovers" class="covers" aria-label="Covers stack"></div>
             </div>
           </div>
         </div>
@@ -464,6 +691,5 @@
   </div>
 
   <script src="./app.js"></script>
-  <script src="./orb.js"></script>
 </body>
 </html>

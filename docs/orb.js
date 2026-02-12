@@ -1,28 +1,20 @@
 /* Listening Mirror — orb.js (FULL REPLACE)
-   - ZERO changes to app.js logic
-   - Injects a 4D "Orb" inside the existing .glyph (top-left)
-   - No words. Pure visual indicator.
-   - Reads data from the same Worker endpoints:
-       /api/now
-       /api/history?limit=20
-       /api/top?type=artists&period=week&limit=10  (lightweight, for "discovery")
+   - Injects a 4D Orb inside .glyph
+   - Tap/press shows a tiny popup (minimal words), auto-hides when not touching / click outside
+   - NO changes to app.js behavior
 */
 
 (() => {
   "use strict";
 
-  // Same base as your app.js
   const API_BASE = "https://i.errtanq9.workers.dev";
 
-  // Polling
-  const POLL_MS = 15_000;      // history/now refresh
-  const TOP_POLL_MS = 60_000;  // top artists refresh
+  const POLL_MS = 15_000;
+  const TOP_POLL_MS = 60_000;
 
-  // Limits
   const RECENT_LIMIT = 20;
   const TOP_ARTISTS_LIMIT = 10;
 
-  // ---------- Helpers ----------
   const $ = (sel, root = document) => root.querySelector(sel);
 
   function absApi(urlOrPath) {
@@ -39,24 +31,19 @@
     return await r.json();
   }
 
-  function clamp01(x) {
-    return Math.max(0, Math.min(1, x));
-  }
+  const clamp01 = (x) => Math.max(0, Math.min(1, x));
+  const s = (v) => (v == null ? "" : String(v));
 
-  // String safe (worker returns sometimes empty)
-  function s(v) {
-    return (v == null) ? "" : String(v);
-  }
-
-  // ---------- Find target (existing dot) ----------
+  // ---------- Target ----------
   const glyph = $(".glyph");
   if (!glyph) return;
 
-  // Make sure we can place canvas cleanly without touching CSS files
+  // Style safety (no CSS file edits needed)
   glyph.style.position = "relative";
   glyph.style.overflow = "hidden";
+  glyph.style.cursor = "pointer";
 
-  // Inject canvas
+  // Canvas
   const c = document.createElement("canvas");
   c.setAttribute("aria-hidden", "true");
   c.style.position = "absolute";
@@ -79,51 +66,164 @@
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.scale(dpr, dpr);
   }
-
   resizeCanvas();
   window.addEventListener("resize", resizeCanvas, { passive: true });
 
-  // ---------- Orb State (4 dimensions) ----------
-  // D1 Intensity: how "full" the orb is (size/brightness)
-  // D2 Energy: pulse speed
-  // D3 Focus: sharpness / coherence
-  // D4 Discovery: particle sparks
+  // ---------- Popup (injected) ----------
+  const style = document.createElement("style");
+  style.textContent = `
+    .lmOrbPop{
+      position: fixed;
+      z-index: 9999;
+      min-width: 210px;
+      max-width: 260px;
+      padding: 10px 11px;
+      border-radius: 14px;
+      background: rgba(20,22,26,.88);
+      outline: 1px solid rgba(255,255,255,.12);
+      box-shadow: 0 18px 55px rgba(0,0,0,.55);
+      color: rgba(255,255,255,.92);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      transform: translateY(6px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .14s ease, transform .14s ease;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+    }
+    .lmOrbPop.on{
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+    .lmOrbPop .t{
+      font-size: 12px;
+      font-weight: 750;
+      letter-spacing: .3px;
+      margin: 0 0 6px 0;
+      color: rgba(255,255,255,.92);
+    }
+    .lmOrbPop .r{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      font-size: 11px;
+      letter-spacing: .2px;
+      color: rgba(255,255,255,.70);
+      padding: 4px 0;
+      border-top: 1px solid rgba(255,255,255,.06);
+    }
+    .lmOrbPop .r:first-of-type{ border-top: 0; padding-top: 2px; }
+    .lmOrbPop .k{ color: rgba(255,255,255,.82); }
+    .lmOrbPop .v{ color: rgba(255,255,255,.92); font-weight: 700; }
+    .lmOrbPop .hint{
+      margin-top: 7px;
+      font-size: 10.5px;
+      color: rgba(255,255,255,.55);
+      letter-spacing: .25px;
+    }
+  `;
+  document.head.appendChild(style);
+
+  const pop = document.createElement("div");
+  pop.className = "lmOrbPop";
+  pop.innerHTML = `
+    <div class="t">Orb</div>
+    <div class="r"><span class="k">Intensity</span><span class="v" data-v="i">—</span></div>
+    <div class="r"><span class="k">Energy</span><span class="v" data-v="e">—</span></div>
+    <div class="r"><span class="k">Focus</span><span class="v" data-v="f">—</span></div>
+    <div class="r"><span class="k">Discovery</span><span class="v" data-v="d">—</span></div>
+    <div class="hint">Tap = show • Release = hide</div>
+  `;
+  document.body.appendChild(pop);
+
+  const vI = pop.querySelector('[data-v="i"]');
+  const vE = pop.querySelector('[data-v="e"]');
+  const vF = pop.querySelector('[data-v="f"]');
+  const vD = pop.querySelector('[data-v="d"]');
+
+  function pct(x) {
+    return `${Math.round(clamp01(x) * 100)}%`;
+  }
+
+  function positionPop() {
+    const r = glyph.getBoundingClientRect();
+    const pad = 10;
+    const w = pop.offsetWidth || 240;
+    const h = pop.offsetHeight || 120;
+
+    // Prefer below-right, but keep inside viewport
+    let left = r.left + r.width + 10;
+    let top = r.top + (r.height * 0.5) - (h * 0.5);
+
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    if (left + w + pad > vw) left = r.left - w - 10;
+    left = Math.max(pad, Math.min(vw - w - pad, left));
+
+    if (top + h + pad > vh) top = vh - h - pad;
+    if (top < pad) top = pad;
+
+    pop.style.left = `${Math.round(left)}px`;
+    pop.style.top = `${Math.round(top)}px`;
+  }
+
+  function showPop() {
+    positionPop();
+    pop.classList.add("on");
+  }
+
+  function hidePop() {
+    pop.classList.remove("on");
+  }
+
+  // Hide when click outside
+  document.addEventListener("pointerdown", (e) => {
+    if (!pop.classList.contains("on")) return;
+    const t = e.target;
+    if (t === glyph || glyph.contains(t)) return;
+    if (t === pop || pop.contains(t)) return;
+    hidePop();
+  }, { passive: true });
+
+  // Press behavior: show on down, hide on up/leave
+  glyph.addEventListener("pointerdown", () => {
+    showPop();
+  }, { passive: true });
+
+  glyph.addEventListener("pointerup", () => {
+    hidePop();
+  }, { passive: true });
+
+  glyph.addEventListener("pointercancel", () => {
+    hidePop();
+  }, { passive: true });
+
+  glyph.addEventListener("pointerleave", () => {
+    hidePop();
+  }, { passive: true });
+
+  // ---------- Orb State ----------
   const orb = {
-    intensity: 0.35,
-    energy: 0.25,
-    focus: 0.45,
-    discovery: 0.25,
-
-    // smooth targets
-    tIntensity: 0.35,
-    tEnergy: 0.25,
-    tFocus: 0.45,
-    tDiscovery: 0.25,
-
-    // data caches
+    intensity: 0.35, energy: 0.25, focus: 0.45, discovery: 0.25,
+    tIntensity: 0.35, tEnergy: 0.25, tFocus: 0.45, tDiscovery: 0.25,
     topArtists: [],
     nowLive: false,
     lastFetchOk: true,
   };
 
-  // Smooth step towards target
   function easeTo(current, target, k) {
     return current + (target - current) * k;
   }
 
-  // ---------- Metrics from endpoints ----------
   function computeFromHistory(items, topArtists) {
     const n = Array.isArray(items) ? items.length : 0;
     if (!n) {
-      return {
-        intensity: 0.18,
-        energy: 0.18,
-        focus: 0.25,
-        discovery: 0.18,
-      };
+      return { intensity: 0.18, energy: 0.18, focus: 0.25, discovery: 0.18 };
     }
 
-    // Unique tracks (artist+name)
     const trackKeys = new Set();
     const artists = [];
     for (const it of items) {
@@ -135,14 +235,12 @@
 
     const uniqueTrackRatio = clamp01(trackKeys.size / Math.min(RECENT_LIMIT, Math.max(1, n)));
 
-    // Energy: how often artist changes from row to row
     let changes = 0;
     for (let i = 1; i < artists.length; i++) {
       if (artists[i] && artists[i - 1] && artists[i] !== artists[i - 1]) changes++;
     }
     const changeRatio = artists.length > 1 ? clamp01(changes / (artists.length - 1)) : 0;
 
-    // Focus: longest run of same artist at the top of the list
     let longestRun = 1;
     let run = 1;
     for (let i = 1; i < artists.length; i++) {
@@ -153,9 +251,8 @@
         run = 1;
       }
     }
-    const focusRatio = clamp01(longestRun / Math.min(6, Math.max(1, artists.length))); // cap makes it responsive
+    const focusRatio = clamp01(longestRun / Math.min(6, Math.max(1, artists.length)));
 
-    // Discovery: how many recent artists are NOT in weekly top artists
     const topSet = new Set((topArtists || []).map(x => x.toLowerCase()));
     const recentArtistSet = new Set(artists.map(x => x.toLowerCase()));
     let overlap = 0;
@@ -164,7 +261,6 @@
     const overlapRatio = recentArtistSet.size ? clamp01(overlap / recentArtistSet.size) : 0;
     const discoveryRatio = clamp01(1 - overlapRatio);
 
-    // Map into orb dimensions (tuned for “premium subtle”)
     const intensity = clamp01(0.22 + uniqueTrackRatio * 0.65);
     const energy = clamp01(0.18 + changeRatio * 0.70);
     const focus = clamp01(0.22 + focusRatio * 0.70);
@@ -181,7 +277,6 @@
       }
       orb.lastFetchOk = true;
     } catch {
-      // keep old topArtists; don't kill the orb
       orb.lastFetchOk = false;
     }
   }
@@ -195,7 +290,6 @@
 
       orb.lastFetchOk = true;
 
-      // NOW live
       const nowItem = nowJ?.ok ? (nowJ.item || null) : null;
       orb.nowLive = !!nowItem;
 
@@ -206,7 +300,6 @@
 
       const m = computeFromHistory(items, orb.topArtists);
 
-      // Bias: if LIVE, the orb is more “awake”
       const liveBoost = orb.nowLive ? 0.10 : 0.0;
 
       orb.tIntensity = clamp01(m.intensity + liveBoost);
@@ -214,28 +307,32 @@
       orb.tFocus = clamp01(m.focus + (orb.nowLive ? 0.05 : 0.0));
       orb.tDiscovery = clamp01(m.discovery);
 
+      // Update popup values (minimal words)
+      if (vI) vI.textContent = pct(orb.tIntensity);
+      if (vE) vE.textContent = pct(orb.tEnergy);
+      if (vF) vF.textContent = pct(orb.tFocus);
+      if (vD) vD.textContent = pct(orb.tDiscovery);
+
     } catch {
-      // If fetch fails, go calmer but keep movement
       orb.lastFetchOk = false;
       orb.nowLive = false;
       orb.tIntensity = 0.18;
       orb.tEnergy = 0.16;
       orb.tFocus = 0.22;
       orb.tDiscovery = 0.12;
+
+      if (vI) vI.textContent = pct(orb.tIntensity);
+      if (vE) vE.textContent = pct(orb.tEnergy);
+      if (vF) vF.textContent = pct(orb.tFocus);
+      if (vD) vD.textContent = pct(orb.tDiscovery);
     }
   }
 
-  // ---------- Visual (4D orb) ----------
-  // We keep it high-end: subtle, no neon, no “gamey” look.
-  // We use a soft, glassy orb with:
-  // - coherent inner flow (focus)
-  // - pulse speed (energy)
-  // - fill/brightness (intensity)
-  // - spark particles (discovery)
+  // ---------- Visual ----------
   const particles = [];
   function spawnParticle() {
-    const w = glyph.clientWidth || 16;
-    const h = glyph.clientHeight || 16;
+    const w = glyph.clientWidth || 22;
+    const h = glyph.clientHeight || 22;
     const cx = w * 0.5;
     const cy = h * 0.5;
 
@@ -256,30 +353,27 @@
   }
 
   function draw(t) {
-    const w = glyph.clientWidth || 16;
-    const h = glyph.clientHeight || 16;
+    const w = glyph.clientWidth || 22;
+    const h = glyph.clientHeight || 22;
 
-    // smooth towards targets
     orb.intensity = easeTo(orb.intensity, orb.tIntensity, 0.08);
     orb.energy = easeTo(orb.energy, orb.tEnergy, 0.08);
     orb.focus = easeTo(orb.focus, orb.tFocus, 0.08);
     orb.discovery = easeTo(orb.discovery, orb.tDiscovery, 0.08);
 
-    // orb geometry
     const cx = w * 0.5;
     const cy = h * 0.5;
-    const baseR = Math.min(w, h) * 0.30;
+
+    // Slightly bigger orb fill inside the glyph
+    const baseR = Math.min(w, h) * 0.34; // ✅ bigger than before
     const r = baseR * (0.85 + orb.intensity * 0.55);
 
-    // energy controls pulse
     const pulseSpd = 0.9 + orb.energy * 2.2;
     const pulse = 0.06 + orb.intensity * 0.10;
     const p = 1 + Math.sin(t * 0.001 * pulseSpd) * pulse;
 
-    // focus controls sharpness (less blur)
-    const blur = 1.8 - orb.focus * 1.2; // 1.8 -> 0.6
+    const blur = 1.8 - orb.focus * 1.2;
 
-    // clear
     ctx.clearRect(0, 0, w, h);
 
     // Outer glass
@@ -289,7 +383,6 @@
     ctx.closePath();
     ctx.clip();
 
-    // Inner flow (fake “4D” by mixing 2 sinus fields)
     const g = ctx.createRadialGradient(cx - r * 0.25, cy - r * 0.25, r * 0.15, cx, cy, r * 1.05);
     const a = 0.22 + orb.intensity * 0.35;
     g.addColorStop(0.00, `rgba(255,255,255,${0.18 + a})`);
@@ -298,7 +391,7 @@
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, w, h);
 
-    // Flow lines (coherence = focus)
+    // Flow lines
     ctx.globalAlpha = 0.12 + orb.focus * 0.14;
     ctx.lineWidth = 1;
     ctx.strokeStyle = "rgba(255,255,255,1)";
@@ -331,16 +424,16 @@
     ctx.arc(cx, cy, r * p - 0.5, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Specular dot
+    // Specular
     ctx.globalAlpha = 0.22 + orb.focus * 0.28;
     ctx.fillStyle = "rgba(255,255,255,1)";
     ctx.beginPath();
-    ctx.arc(cx - r * 0.28, cy - r * 0.30, Math.max(0.8, r * 0.14), 0, Math.PI * 2);
+    ctx.arc(cx - r * 0.28, cy - r * 0.30, Math.max(0.9, r * 0.14), 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
 
-    // Discovery sparks (outside clip but still inside glyph)
+    // Sparks
     const sparkRate = orb.discovery * (orb.nowLive ? 0.18 : 0.10);
     if (Math.random() < sparkRate) spawnParticle();
 
@@ -364,7 +457,7 @@
     }
     ctx.globalAlpha = 1;
 
-    // If offline, “dim” slightly (no words, just subtle)
+    // Offline dim
     if (!orb.lastFetchOk) {
       ctx.globalAlpha = 0.35;
       ctx.fillStyle = "rgba(0,0,0,0.30)";
@@ -375,24 +468,21 @@
     requestAnimationFrame(draw);
   }
 
-  // ---------- Start loops ----------
-  // Initial fetches
+  // ---------- Start ----------
   refreshTopArtists().finally(() => {
     refreshNowAndHistory().finally(() => {
-      // start animation once we have something
       requestAnimationFrame(draw);
     });
   });
 
-  // Timers
   let pollTimer = setInterval(refreshNowAndHistory, POLL_MS);
   let topTimer = setInterval(refreshTopArtists, TOP_POLL_MS);
 
-  // Visibility: don’t waste resources when hidden, and refresh on return
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       clearInterval(pollTimer);
       clearInterval(topTimer);
+      hidePop();
     } else {
       refreshTopArtists();
       refreshNowAndHistory();

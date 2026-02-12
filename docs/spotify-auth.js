@@ -11,11 +11,12 @@
 
   // ✅ SET THESE
   const CLIENT_ID = "20fca973de8445509d31bf9ab4e13b0b";
-  // If you use a dedicated callback path, keep it here.
-  // Must match EXACTLY what you have in Spotify dashboard.
+
+  // MUST match EXACTLY the Redirect URI in Spotify dashboard (including trailing slash).
   const REDIRECT_URI = "https://mr-tanq.github.io/listening-mirror/";
 
   const SCOPES = [
+    "streaming",                    // ✅ required for Web Playback SDK
     "user-read-playback-state",
     "user-modify-playback-state",
     "user-read-currently-playing"
@@ -23,9 +24,9 @@
 
   const LS = {
     token: "lm_spotify_access_token",
-    refresh: "lm_spotify_refresh_token",
     expiresAt: "lm_spotify_expires_at",
-    verifier: "lm_spotify_pkce_verifier"
+    verifier: "lm_spotify_pkce_verifier",
+    state: "lm_spotify_oauth_state"
   };
 
   function nowMs(){ return Date.now(); }
@@ -47,18 +48,17 @@
     return base64url(a);
   }
 
-  function setToken(accessToken, expiresInSec, refreshToken){
+  function setToken(accessToken, expiresInSec){
     const expiresAt = nowMs() + (Math.max(10, Number(expiresInSec) || 3600) * 1000) - 15000; // 15s safety
     localStorage.setItem(LS.token, accessToken);
     localStorage.setItem(LS.expiresAt, String(expiresAt));
-    if (refreshToken) localStorage.setItem(LS.refresh, refreshToken);
   }
 
   function clearToken(){
     localStorage.removeItem(LS.token);
-    localStorage.removeItem(LS.refresh);
     localStorage.removeItem(LS.expiresAt);
     localStorage.removeItem(LS.verifier);
+    localStorage.removeItem(LS.state);
   }
 
   function getStoredToken(){
@@ -68,8 +68,7 @@
     if (nowMs() >= exp) return null;
     return t;
   }
-
-  async function exchangeCodeForToken(code){
+async function exchangeCodeForToken(code){
     const verifier = localStorage.getItem(LS.verifier);
     if (!verifier) throw new Error("Missing PKCE verifier");
 
@@ -91,8 +90,9 @@
       throw new Error(`Token exchange failed: ${res.status} ${JSON.stringify(json)}`);
     }
 
-    setToken(json.access_token, json.expires_in, json.refresh_token);
+    setToken(json.access_token, json.expires_in);
     localStorage.removeItem(LS.verifier);
+    localStorage.removeItem(LS.state);
     return json.access_token;
   }
 
@@ -100,14 +100,22 @@
     const url = new URL(window.location.href);
     const code = url.searchParams.get("code");
     const err  = url.searchParams.get("error");
+    const returnedState = url.searchParams.get("state");
+
     if (err) {
       console.warn("[SpotifyAuth] OAuth error:", err);
-      // clean URL
       url.searchParams.delete("error");
       window.history.replaceState({}, document.title, url.toString());
       return;
     }
     if (!code) return;
+
+    // ✅ State check (basic safety)
+    const expectedState = localStorage.getItem(LS.state);
+    if (expectedState && returnedState && expectedState !== returnedState) {
+      console.error("[SpotifyAuth] State mismatch. Aborting.");
+      return;
+    }
 
     try {
       await exchangeCodeForToken(code);
@@ -120,10 +128,9 @@
     url.searchParams.delete("state");
     window.history.replaceState({}, document.title, url.toString());
   }
-
-  async function login(){
-    if (!CLIENT_ID || CLIENT_ID.includes("PASTE_")) {
-      alert("spotify-auth.js: Βάλε το CLIENT_ID σου μέσα στο αρχείο.");
+async function login(){
+    if (!CLIENT_ID) {
+      alert("spotify-auth.js: Missing CLIENT_ID");
       return;
     }
 
@@ -132,6 +139,7 @@
 
     const challenge = base64url(await sha256(verifier));
     const state = randomString(16);
+    localStorage.setItem(LS.state, state);
 
     const params = new URLSearchParams();
     params.set("client_id", CLIENT_ID);
@@ -146,20 +154,11 @@
     window.location.assign(authUrl);
   }
 
-  function logout(){
-    clearToken();
-  }
-
-  function getAccessToken(){
-    return getStoredToken();
-  }
+  function logout(){ clearToken(); }
+  function getAccessToken(){ return getStoredToken(); }
 
   // Run redirect handler on load
   handleRedirectIfPresent();
 
-  window.SpotifyAuth = {
-    login,
-    logout,
-    getAccessToken
-  };
+  window.SpotifyAuth = { login, logout, getAccessToken };
 })();

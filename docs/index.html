@@ -121,6 +121,7 @@
       box-shadow: 0 0 0 3px rgba(49,208,124,.10);
     }
 
+    /* Tabs — πιο “μαζεμένα” + pro spacing */
     .tabs{
       display:flex;
       gap:10px;
@@ -160,7 +161,7 @@
       position:relative;
     }
 
-    /* NOW background — SHARP artwork (less "faint") */
+    /* NOW background — SHARP artwork (λίγο πιο “έντονο”, όχι αχνό) */
     .nowAmbient{
       position:absolute;
       inset:-1px;
@@ -178,16 +179,17 @@
       background-position: center;
       background-repeat: no-repeat;
       transform: scale(1.02);
-      opacity: .95; /* ⬅️ stronger */
+      opacity: .95;
+      filter: saturate(1.02) contrast(1.02);
     }
     .nowAmbient:after{
       content:"";
       position:absolute;
       inset:0;
       background:
-        radial-gradient(900px 520px at 18% 8%, rgba(255,255,255,.12), transparent 55%),
-        radial-gradient(700px 420px at 85% 10%, rgba(255,255,255,.07), transparent 60%),
-        linear-gradient(180deg, rgba(8,9,11,.42), rgba(8,9,11,.86)); /* ⬅️ less washout */
+        radial-gradient(900px 520px at 18% 8%, rgba(255,255,255,.10), transparent 55%),
+        radial-gradient(700px 420px at 85% 10%, rgba(255,255,255,.06), transparent 60%),
+        linear-gradient(180deg, rgba(8,9,11,.50), rgba(8,9,11,.92));
     }
 
     .nowWrap{ position:relative; padding: 18px; }
@@ -226,7 +228,7 @@
       box-shadow: 0 0 0 3px rgba(255,59,59,.12);
     }
 
-    /* ✅ NOW content is single column (no square cover) */
+    /* NOW content is single column (no square cover) */
     .nowMain{
       display:grid;
       grid-template-columns: 1fr;
@@ -235,7 +237,6 @@
       position:relative;
       z-index:2;
     }
-
     /* kept for app.js compatibility, but hidden */
     .coverWrap{ display:none !important; }
 
@@ -352,9 +353,9 @@
     }
 
     /* --------------------------
-       MIRROR CARD + ORB
+       MIRROR CARD + ORB + POPUP
        -------------------------- */
-    .mirrorCard{ margin-top: 12px; }
+    .mirrorCard{ margin-top: 16px; } /* λίγο πιο “editorial” spacing */
     .mirrorWrap{ padding: 16px 18px 18px 18px; position:relative; }
 
     .mirrorTop{
@@ -365,10 +366,11 @@
       margin-bottom: 12px;
     }
 
+    /* πιο subtle “MIRROR” label */
     .mirrorTitle{
-      font-size: 12px;
-      letter-spacing: .32px;
-      color: rgba(255,255,255,.72);
+      font-size: 11.5px;
+      letter-spacing: .34px;
+      color: rgba(255,255,255,.62);
       text-transform: uppercase;
       display:flex;
       align-items:center;
@@ -376,7 +378,27 @@
       min-width: 0;
     }
 
-    /* ✅ High-end Orb (glass + specular + subtle breathing) */
+    /* Orb as <details> summary (popup) */
+    .orbDetails{
+      position:relative;
+      display:inline-block;
+    }
+    .orbDetails summary{
+      list-style:none;
+      display:inline-flex;
+      align-items:center;
+      gap:10px;
+      cursor:pointer;
+      user-select:none;
+      outline:none;
+    }
+    .orbDetails summary::-webkit-details-marker{ display:none; }
+    .orbDetails summary:focus-visible{
+      box-shadow: 0 0 0 3px rgba(255,255,255,.12);
+      border-radius: 999px;
+    }
+
+    /* ✅ The Orb */
     .orb{
       width: 18px;
       height: 18px;
@@ -384,48 +406,113 @@
       position:relative;
       flex: 0 0 auto;
       background:
-        radial-gradient(circle at 30% 28%, rgba(255,255,255,.42), rgba(255,255,255,.12) 42%, rgba(255,255,255,.06) 72%),
-        radial-gradient(circle at 70% 75%, rgba(255,255,255,.10), transparent 58%);
-      outline: 1px solid rgba(255,255,255,.12);
-      box-shadow:
-        0 12px 30px rgba(0,0,0,.55),
-        inset 0 1px 0 rgba(255,255,255,.10);
-    }
-    .orb:before{
-      content:"";
-      position:absolute;
-      inset:2px;
-      border-radius:999px;
-      background: radial-gradient(circle at 35% 30%, rgba(255,255,255,.20), transparent 55%);
-      opacity:.95;
-      pointer-events:none;
+        radial-gradient(circle at 30% 30%, rgba(255,255,255,.28), rgba(255,255,255,.09) 55%, rgba(255,255,255,.05) 75%),
+        radial-gradient(circle at 70% 65%, rgba(255,255,255,.10), transparent 60%);
+      outline: 1px solid rgba(255,255,255,.10);
+      box-shadow: 0 12px 32px rgba(0,0,0,.45);
     }
     .orb:after{
       content:"";
       position:absolute;
-      inset:-8px;
-      border-radius:999px;
-      background: radial-gradient(circle, rgba(49,208,124,.12), transparent 60%);
-      opacity: .0;
+      inset: -6px;
+      border-radius: 999px;
+      background: radial-gradient(circle, rgba(255,255,255,.10), transparent 60%);
+      opacity: .55;
       filter: blur(2px);
       pointer-events:none;
     }
+    /* breathing when listening */
     .orb.on{
-      animation: orbBreath 2.2s ease-in-out infinite;
+      animation: orbBreath 1.9s ease-in-out infinite;
       outline-color: rgba(49,208,124,.22);
-    }
-    .orb.on:after{
-      opacity: .55;
     }
     @keyframes orbBreath{
       0%,100%{
         transform: scale(1);
-        filter: saturate(1);
+        box-shadow: 0 12px 32px rgba(0,0,0,.45), 0 0 0 0 rgba(49,208,124,.00);
       }
       50%{
-        transform: scale(1.04);
-        filter: saturate(1.05);
+        transform: scale(1.05);
+        box-shadow: 0 12px 32px rgba(0,0,0,.45), 0 0 0 10px rgba(49,208,124,.06);
       }
+    }
+
+    /* Orb popup window */
+    .orbPopup{
+      position:absolute;
+      top: calc(100% + 10px);
+      left: 0;
+      width: min(320px, calc(100vw - 40px));
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(22,24,28,.92), rgba(14,16,19,.92));
+      outline: 1px solid rgba(255,255,255,.10);
+      box-shadow: 0 22px 70px rgba(0,0,0,.62);
+      padding: 12px 12px 12px 12px;
+      z-index: 10;
+      transform-origin: 12px 0;
+      transform: translateY(-4px) scale(.98);
+      opacity: 0;
+      pointer-events:none;
+      transition: opacity .16s ease, transform .16s ease;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+    .orbDetails[open] .orbPopup{
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      pointer-events:auto;
+    }
+    .orbPopup:before{
+      content:"";
+      position:absolute;
+      top:-7px;
+      left: 16px;
+      width: 14px;
+      height: 14px;
+      transform: rotate(45deg);
+      background: rgba(22,24,28,.92);
+      outline: 1px solid rgba(255,255,255,.10);
+      border-radius: 4px;
+    }
+    .orbPopupTitle{
+      font-size: 12px;
+      font-weight: 760;
+      letter-spacing: .25px;
+      color: rgba(255,255,255,.92);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom: 8px;
+    }
+    .orbPopupHint{
+      font-size: 11px;
+      color: rgba(255,255,255,.58);
+      line-height: 1.35;
+      margin-bottom: 10px;
+    }
+    .orbPopupGrid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:10px;
+    }
+    .orbMini{
+      border-radius: 14px;
+      background: rgba(255,255,255,.03);
+      outline: 1px solid rgba(255,255,255,.07);
+      padding: 10px 10px 10px 10px;
+    }
+    .orbMiniLbl{
+      font-size: 10px;
+      letter-spacing: .28px;
+      color: rgba(255,255,255,.60);
+      text-transform: uppercase;
+    }
+    .orbMiniVal{
+      margin-top: 8px;
+      font-size: 13px;
+      font-weight: 760;
+      color: rgba(255,255,255,.90);
     }
 
     .mirrorPill{
@@ -471,7 +558,7 @@
     }
     .meter{
       border-radius: 16px;
-      background: rgba(255,255,255,.03);
+      background: rgba(255,255,255,.028);
       outline: 1px solid rgba(255,255,255,.07);
       padding: 10px 10px 11px 10px;
       overflow:hidden;
@@ -490,25 +577,22 @@
       gap:10px;
     }
 
-    /* ✅ Premium bars (less "white", more depth) */
+    /* bar = πιο high-end (λιγότερο “άσπρο πλαστικό”) */
     .bar{
-      height: 7px;
+      height: 6px;
       flex: 1 1 auto;
       border-radius: 999px;
-      background: rgba(255,255,255,.075);
+      background: rgba(255,255,255,.06);
       overflow:hidden;
       outline: 1px solid rgba(255,255,255,.06);
-      box-shadow: inset 0 1px 2px rgba(0,0,0,.25);
     }
     .bar > i{
       display:block;
       height: 100%;
       width: 40%;
       border-radius: 999px;
-      background: linear-gradient(180deg, rgba(255,255,255,.78), rgba(255,255,255,.52));
-      box-shadow:
-        0 6px 18px rgba(0,0,0,.22),
-        inset 0 1px 0 rgba(255,255,255,.25);
+      background: linear-gradient(180deg, rgba(255,255,255,.62), rgba(255,255,255,.38));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.28);
     }
 
     .meterNum{
@@ -517,8 +601,7 @@
       color: rgba(255,255,255,.82);
       white-space:nowrap;
     }
-
-    .mood{
+.mood{
       border-radius: 16px;
       background: rgba(255,255,255,.03);
       outline: 1px solid rgba(255,255,255,.07);
@@ -548,9 +631,9 @@
       border-radius: 999px;
       background:
         linear-gradient(90deg,
-          rgba(255,255,255,.20),
-          rgba(255,255,255,.10),
-          rgba(255,255,255,.22));
+          rgba(255,255,255,.18),
+          rgba(255,255,255,.09),
+          rgba(255,255,255,.20));
       outline: 1px solid rgba(255,255,255,.07);
       overflow:hidden;
     }
@@ -580,11 +663,14 @@
       color: rgba(255,255,255,.55);
       text-transform: uppercase;
     }
+
+    /* session covers = λίγο πιο “άνετα” δεξιά + λιγότερο overlap */
     .covers{
       display:flex;
       align-items:center;
       justify-content:flex-end;
       gap:0;
+      padding-right: 2px;
     }
     .cvr{
       width: 28px; height: 28px;
@@ -593,7 +679,7 @@
       outline: 1px solid rgba(255,255,255,.10);
       box-shadow: 0 10px 25px rgba(0,0,0,.35);
       background: rgba(255,255,255,.05);
-      margin-left: -8px;
+      margin-left: -6px;
     }
     .cvr:first-child{ margin-left: 0; }
     .cvr img{ width:100%; height:100%; object-fit:cover; display:block; }
@@ -602,6 +688,7 @@
       .tabs{ width: 100%; justify-content: space-between; }
       .line1{ font-size: 15px; }
       .meters{ grid-template-columns: 1fr; }
+      .orbPopup{ left: 0; }
     }
   </style>
 </head>
@@ -668,8 +755,33 @@
         <div class="mirrorWrap">
           <div class="mirrorTop">
             <div class="mirrorTitle">
-              <span id="mirrorOrb" class="orb" aria-hidden="true"></span>
-              Mirror
+              <!-- Orb + Popup (tap on orb area) -->
+              <details class="orbDetails" id="orbDetails">
+                <summary aria-label="Open Mirror popup">
+                  <span id="mirrorOrb" class="orb" aria-hidden="true"></span>
+                  Mirror
+                </summary>
+
+                <div class="orbPopup" role="dialog" aria-label="Mirror popup">
+                  <div class="orbPopupTitle">
+                    <span>Listening Mirror</span>
+                    <span style="font-size:11px;color:rgba(255,255,255,.55)">tap orb again</span>
+                  </div>
+                  <div class="orbPopupHint">
+                    Quick view of the live session signals. (Later εδώ μπορεί να μπει καθαρά “AI visual”, χωρίς κείμενα.)
+                  </div>
+                  <div class="orbPopupGrid">
+                    <div class="orbMini">
+                      <div class="orbMiniLbl">State</div>
+                      <div class="orbMiniVal">LISTENING</div>
+                    </div>
+                    <div class="orbMini">
+                      <div class="orbMiniLbl">Axis</div>
+                      <div class="orbMiniVal">Dark → Bright</div>
+                    </div>
+                  </div>
+                </div>
+              </details>
             </div>
 
             <div id="mirrorPill" class="mirrorPill">

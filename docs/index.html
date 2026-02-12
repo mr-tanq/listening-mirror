@@ -35,9 +35,9 @@
       --doodleBright: calc(.14 + (var(--axis) * .26));
       --doodleDark:   calc(.12 + (var(--axisInv) * .22));
 
-      /* floor doodles strength (visible) */
-      --floorBright:  calc(.46 + (var(--axis) * .44));
-      --floorDark:    calc(.38 + (var(--axisInv) * .42));
+      /* ✅ floor doodles strength (visible) */
+      --floorBright:  calc(.46 + (var(--axis) * .44));   /* ~0.46..0.90 */
+      --floorDark:    calc(.38 + (var(--axisInv) * .42));/* ~0.38..0.80 */
     }
 
     *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
@@ -95,7 +95,6 @@
       mix-blend-mode: screen;
     }
 
-    /* shared SVG patterns */
     .doodles.bright,
     .doodleFloor.bright{
       background-image:
@@ -112,6 +111,54 @@
       background-size: 760px 760px;
       background-repeat: repeat;
       background-position: center;
+    }
+
+    .doodleZone{
+      position: relative;
+      margin-top: 14px;
+      height: min(42vh, 420px);
+      min-height: 280px;
+      border-radius: var(--r);
+      overflow:hidden;
+      outline: 1px solid rgba(255,255,255,.06);
+      background: rgba(255,255,255,.015);
+      box-shadow: 0 18px 55px rgba(0,0,0,.35);
+    }
+
+    .doodleFloor{
+      position:absolute;
+      inset:0;
+      pointer-events:none;
+      opacity: 0;
+      transition: opacity .25s ease;
+      background-position: center;
+      z-index: 1;
+    }
+    .doodleFloor.bright{
+      opacity: var(--floorBright);
+      mix-blend-mode: soft-light;
+      filter: contrast(1.08) saturate(1.06);
+    }
+    .doodleFloor.dark{
+      opacity: var(--floorDark);
+      mix-blend-mode: screen;
+      filter: contrast(1.08) saturate(1.06);
+    }
+
+    .doodleZone:after{
+      content:"";
+      position:absolute;
+      inset:0;
+      z-index: 2;
+      background:
+        radial-gradient(900px 520px at 20% 15%, rgba(255,255,255, calc(.03 + var(--axis)*.06)), transparent 62%),
+        radial-gradient(900px 520px at 80% 10%, rgba(255,255,255, calc(.02 + var(--axis)*.05)), transparent 64%),
+        linear-gradient(180deg,
+          rgba(0,0,0, calc(.10 + var(--axisInv)*.10)),
+          rgba(0,0,0, calc(.26 + var(--axisInv)*.18))
+        );
+      pointer-events:none;
+      opacity: .62;
     }
 
     .app{
@@ -193,7 +240,8 @@
       outline-color: rgba(49,208,124,.35);
       box-shadow: 0 0 0 3px rgba(49,208,124,.10);
     }
-.tabs{
+
+    .tabs{
       display:flex;
       gap:10px;
       padding: 8px;
@@ -303,33 +351,15 @@
       box-shadow: 0 0 0 3px rgba(255,59,59,.12);
     }
 
-    /* ✅ FIX: Now shows cover + text */
     .nowMain{
       display:grid;
-      grid-template-columns: 82px minmax(0,1fr);
-      gap: 14px;
+      grid-template-columns: 1fr;
+      gap: 0;
       align-items:center;
       position:relative;
       z-index:2;
     }
-
-    .coverWrap{
-      width: 82px; height: 82px;
-      border-radius: 18px;
-      overflow:hidden;
-      outline: 1px solid rgba(255,255,255,.12);
-      background: rgba(255,255,255,.03);
-      box-shadow: 0 14px 40px rgba(0,0,0,.45);
-      position:relative;
-      flex: 0 0 auto;
-      display:block;
-    }
-    .coverImg{ width:100%; height:100%; object-fit:cover; display:block; }
-    .coverFallback{
-      position:absolute; inset:0; display:grid; place-items:center;
-      color: rgba(255,255,255,.35);
-      font-size: 22px;
-    }
+    .coverWrap{ display:none !important; }
 
     .nowText{ min-width:0; padding-left: 2px; }
     .line1{ font-size: 15.5px; font-weight: 720; letter-spacing: .15px; }
@@ -440,11 +470,10 @@
       white-space:nowrap;
     }
     .right.count{ color: rgba(255,214,102,.92); }
-.mirrorCard{ margin-top: 16px; }
-    #mirrorCard{ overflow: visible; } /* ✅ ensures orb popup not clipped */
 
+    .mirrorCard{ margin-top: 16px; }
+    #mirrorCard{ overflow: visible; }
     .mirrorWrap{ padding: 16px 18px 18px 18px; position:relative; }
-
     .mirrorTop{
       display:flex;
       align-items:center;
@@ -672,80 +701,18 @@
     .cvr:first-child{ margin-left: 0; }
     .cvr img{ width:100%; height:100%; object-fit:cover; display:block; }
 
-    /* doodles zone below mirror */
-    .doodleZone{
-      position: relative;
-      margin-top: 14px;
-      height: min(42vh, 420px);
-      min-height: 280px;
-      border-radius: var(--r);
-      overflow:hidden;
-      outline: 1px solid rgba(255,255,255,.06);
-      background: rgba(255,255,255,.015);
-      box-shadow: 0 18px 55px rgba(0,0,0,.35);
-    }
-
-    .doodleFloor{
-      position:absolute;
-      inset:0;
-      pointer-events:none;
-      opacity: 0;
-      transition: opacity .25s ease;
-      background-position: center;
-      z-index: 1;
-    }
-    .doodleFloor.bright{
-      opacity: var(--floorBright);
-      mix-blend-mode: soft-light;
-      filter: contrast(1.08) saturate(1.06);
-    }
-    .doodleFloor.dark{
-      opacity: var(--floorDark);
-      mix-blend-mode: screen;
-      filter: contrast(1.08) saturate(1.06);
-    }
-
-    .doodleZone:after{
-      content:"";
-      position:absolute;
-      inset:0;
-      z-index: 2;
-      background:
-        radial-gradient(900px 520px at 20% 15%, rgba(255,255,255, calc(.03 + var(--axis)*.06)), transparent 62%),
-        radial-gradient(900px 520px at 80% 10%, rgba(255,255,255, calc(.02 + var(--axis)*.05)), transparent 64%),
-        linear-gradient(180deg,
-          rgba(0,0,0, calc(.10 + var(--axisInv)*.10)),
-          rgba(0,0,0, calc(.26 + var(--axisInv)*.18))
-        );
-      pointer-events:none;
-      opacity: .62;
-    }
-
     @media (max-width: 520px){
       .line1{ font-size: 15px; }
       .orbPopup{ left: 0; }
     }
   </style>
 </head>
+
 <body>
   <div class="doodles bright" aria-hidden="true"></div>
   <div class="doodles dark" aria-hidden="true"></div>
 
   <div class="app">
-<!-- ✅ LEGACY ANCHORS required by app.js (DO NOT TOUCH) -->
-    <div id="orb" style="position:absolute;opacity:0;pointer-events:none"></div>
-    <div style="display:none">
-      <img id="cover" alt="">
-      <span id="track"></span>
-      <span id="artist"></span>
-      <span id="album"></span>
-      <span id="status"></span>
-      <span id="time"></span>
-    </div>
-    <div id="recent"></div>
-    <div id="top"></div>
-    <!-- /legacy anchors -->
-
     <header>
       <div class="brand">
         <div class="glyph" aria-hidden="true"></div>
@@ -765,7 +732,6 @@
       <button class="tabBtn" data-tab="top" aria-selected="false" role="tab">Top</button>
     </div>
 
-    <!-- ✅ panels in stable order: Now / Recent / Top -->
     <section class="panel" data-panel="now">
       <div class="card">
         <div id="nowAmbient" class="nowAmbient"></div>
@@ -863,16 +829,9 @@
         </div>
       </div>
 
-      <!-- DOODLES BELOW MIRROR -->
       <div class="doodleZone" aria-hidden="true">
         <div class="doodleFloor bright"></div>
         <div class="doodleFloor dark"></div>
-      </div>
-    </section>
-
-    <section class="panel hidden" data-panel="recent">
-      <div class="card">
-        <div class="list" id="recentList" aria-live="polite"></div>
       </div>
     </section>
 
@@ -895,15 +854,21 @@
         <div class="list" id="topList" aria-live="polite"></div>
       </div>
     </section>
+
+    <section class="panel hidden" data-panel="recent">
+      <div class="card">
+        <div class="list" id="recentList" aria-live="polite"></div>
+      </div>
+    </section>
   </div>
+window.SPOTIFY_RESOLVER_BASE = "https://i.errtanq9.workers.dev";
+  </script>
 
-<!-- Spotify Web Playback SDK (MUST be before spotify-player.js) -->
-<script src="https://sdk.scdn.co/spotify-player.js"></script>
-
-<script src="./spotify-auth.js?v=20260212a"></script>
-<script src="./spotify-player.js?v=20260212a"></script>
-<script src="./spotify-ui.js?v=20260212a"></script>
-<script src="./app.js?v=20260212a"></script>
+  <!-- ✅ Spotify UI (buttons) + auth + player + app -->
+  <script src="./spotify-ui.js?v=20260212a"></script>
+  <script src="./spotify-auth.js?v=20260212a"></script>
+  <script src="./spotify-player.js?v=20260212a"></script>
+  <script src="./app.js?v=20260212a"></script>
 
   <script>
     (function(){
@@ -961,3 +926,4 @@
   </script>
 </body>
 </html>
+     

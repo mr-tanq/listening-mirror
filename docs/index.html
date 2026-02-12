@@ -27,6 +27,10 @@
       --safeR: max(14px, env(safe-area-inset-right));
       --safeT: max(14px, env(safe-area-inset-top));
       --safeB: max(14px, env(safe-area-inset-bottom));
+
+      /* ✅ axis driver (0..1). app.js updates mDot -> we mirror it here via tiny JS */
+      --axis: .50;
+      --axisInv: calc(1 - var(--axis));
     }
 
     *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
@@ -36,12 +40,33 @@
       margin:0;
       overflow-x:hidden;
       overscroll-behavior-y:none;
-      background:
-        radial-gradient(1200px 700px at 25% -10%, rgba(255,255,255,.06), transparent 60%),
-        radial-gradient(900px 600px at 90% 0%, rgba(255,255,255,.04), transparent 55%),
-        linear-gradient(180deg, var(--bg), var(--bg2));
       color: var(--text);
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+
+      /* ✅ Premium, abstract global background driven by axis */
+      background:
+        radial-gradient(1200px 700px at 22% -10%, rgba(255,255,255, calc(.04 + var(--axis)*.10)), transparent 60%),
+        radial-gradient(900px 600px at 92% 0%, rgba(255,255,255, calc(.03 + var(--axis)*.08)), transparent 55%),
+        radial-gradient(900px 600px at 50% 110%, rgba(255,255,255, calc(.02 + var(--axis)*.06)), transparent 60%),
+        linear-gradient(180deg,
+          color-mix(in srgb, var(--bg)  calc(90% - var(--axis)*25%), #171a1f calc(10% + var(--axis)*25%)),
+          color-mix(in srgb, var(--bg2) calc(92% - var(--axis)*22%), #1a1e24 calc(8%  + var(--axis)*22%))
+        );
+    }
+
+    /* Subtle premium overlay (abstract haze + particles) */
+    body:before{
+      content:"";
+      position:fixed;
+      inset:-2px;
+      pointer-events:none;
+      opacity: 1;
+      background:
+        radial-gradient(800px 500px at 18% 18%, rgba(255,255,255, calc(.015 + var(--axis)*.05)), transparent 60%),
+        radial-gradient(700px 420px at 86% 22%, rgba(255,255,255, calc(.012 + var(--axis)*.04)), transparent 62%),
+        radial-gradient(900px 520px at 50% 85%, rgba(0,0,0, calc(.28 + var(--axisInv)*.22)), transparent 62%),
+        linear-gradient(180deg, rgba(0,0,0, calc(.30 + var(--axisInv)*.18)), rgba(0,0,0, calc(.48 + var(--axisInv)*.22)));
+      filter: blur(0px);
     }
 
     .app{
@@ -49,6 +74,8 @@
       padding: calc(var(--safeT) + 14px) var(--safeR) calc(var(--safeB) + 18px) var(--safeL);
       max-width: 920px;
       margin: 0 auto;
+      position:relative;
+      z-index:1;
     }
 
     header{
@@ -70,7 +97,8 @@
       height: 16px;
       border-radius: 999px;
       position:relative;
-      background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.22), rgba(255,255,255,.05) 55%, rgba(255,255,255,.03) 70%);
+      background:
+        radial-gradient(circle at 30% 30%, rgba(255,255,255,.22), rgba(255,255,255,.05) 55%, rgba(255,255,255,.03) 70%);
       outline: 1px solid rgba(255,255,255,.10);
       box-shadow: 0 10px 35px rgba(0,0,0,.45);
       flex: 0 0 auto;
@@ -122,18 +150,19 @@
       box-shadow: 0 0 0 3px rgba(49,208,124,.10);
     }
 
-    /* Tabs: keep DOM order for JS (Now/Top/Recent) BUT visually show Now/Recent/Top */
+    /* ✅ Tabs: left aligned, order Now/Recent/Top, premium spacing */
     .tabs{
       display:flex;
-      justify-content:flex-start;
-      gap:8px;
-      padding: 6px;
+      gap:10px;
+      padding: 8px;
       border-radius: 999px;
-      background: rgba(255,255,255,.035);
-      outline: 1px solid rgba(255,255,255,.07);
-      box-shadow: 0 14px 40px rgba(0,0,0,.35);
+      background: rgba(255,255,255,.04);
+      outline: 1px solid rgba(255,255,255,.08);
+      box-shadow: 0 16px 45px rgba(0,0,0,.35);
       width: 100%;
       margin: 12px 0 16px 0;
+      justify-content:flex-start;
+      overflow:hidden;
     }
     .tabBtn{
       border:0;
@@ -144,12 +173,8 @@
       font-size: 13px;
       letter-spacing: .2px;
       cursor:pointer;
-      order: 10; /* default */
+      flex: 0 0 auto;
     }
-    .tabBtn[data-tab="now"]{ order: 1; }
-    .tabBtn[data-tab="recent"]{ order: 2; }
-    .tabBtn[data-tab="top"]{ order: 3; }
-
     .tabBtn[aria-selected="true"]{
       background: rgba(255,255,255,.085);
       outline: 1px solid rgba(255,255,255,.10);
@@ -166,8 +191,12 @@
       box-shadow: var(--shadow);
       overflow:hidden;
       position:relative;
-    }
 
+      /* subtle axis-driven glass intensity */
+      backdrop-filter: blur(calc(6px + var(--axis)*6px));
+      -webkit-backdrop-filter: blur(calc(6px + var(--axis)*6px));
+    }
+<!-- PART 2/4 -->
     /* NOW background — SHARP artwork */
     .nowAmbient{
       position:absolute;
@@ -235,6 +264,7 @@
       box-shadow: 0 0 0 3px rgba(255,59,59,.12);
     }
 
+    /* NOW content is single column (no square cover) */
     .nowMain{
       display:grid;
       grid-template-columns: 1fr;
@@ -243,6 +273,7 @@
       position:relative;
       z-index:2;
     }
+    /* kept for app.js compatibility, but hidden */
     .coverWrap{ display:none !important; }
 
     .nowText{ min-width:0; padding-left: 2px; }
@@ -250,6 +281,7 @@
     .line2{ margin-top: 6px; font-size: 13.5px; color: rgba(255,255,255,.72); }
     .line3{ margin-top: 6px; font-size: 12px; color: var(--muted2); }
 
+    /* Marquee: fade only on RIGHT */
     .marq{ display:inline-block; white-space:nowrap; will-change:transform; }
     .marqWrap{
       position:relative;
@@ -263,7 +295,7 @@
       0%{ transform: translateX(0); }
       100%{ transform: translateX(calc(-1 * var(--marqShift, 60px))); }
     }
-<!-- PART 2/4 -->
+
     .controls{
       padding: 14px;
       display:flex;
@@ -352,12 +384,10 @@
       padding-left: 8px;
       white-space:nowrap;
     }
-    .right.count{
-      color: rgba(255,214,102,.92);
-    }
-
+    .right.count{ color: rgba(255,214,102,.92); }
+<!-- PART 3/4 -->
     /* --------------------------
-       MIRROR CARD + ORB + POPUP
+       MIRROR CARD + ORB + POPUP (clean)
        -------------------------- */
     .mirrorCard{ margin-top: 16px; }
     .mirrorWrap{ padding: 16px 18px 18px 18px; position:relative; }
@@ -381,6 +411,7 @@
       min-width: 0;
     }
 
+    /* Orb as <details> summary (popup) */
     .orbDetails{ position:relative; display:inline-block; }
     .orbDetails summary{
       list-style:none;
@@ -397,6 +428,7 @@
       border-radius: 999px;
     }
 
+    /* Orb */
     .orb{
       width: 18px;
       height: 18px;
@@ -434,6 +466,7 @@
       }
     }
 
+    /* ✅ Orb popup: NO text, only compact signals */
     .orbPopup{
       position:absolute;
       top: calc(100% + 10px);
@@ -471,56 +504,55 @@
       border-radius: 4px;
     }
 
-    /* visual-only popup */
-    .orbViz{ display:grid; grid-template-columns: 1fr; gap: 10px; }
-    .orbMiniBars{
+    .orbPopupGrid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:10px;
+    }
+    .orbMini{
       border-radius: 14px;
       background: rgba(255,255,255,.03);
       outline: 1px solid rgba(255,255,255,.07);
       padding: 10px;
-      display:grid;
-      gap: 8px;
+      overflow:hidden;
+    }
+    .orbMiniLbl{
+      font-size: 10px;
+      letter-spacing: .28px;
+      color: rgba(255,255,255,.60);
+      text-transform: uppercase;
+    }
+    .orbMiniVal{
+      margin-top: 8px;
+      font-size: 13px;
+      font-weight: 760;
+      color: rgba(255,255,255,.90);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
     }
     .orbMiniBar{
       height: 6px;
+      flex: 1 1 auto;
       border-radius: 999px;
       background: rgba(255,255,255,.06);
-      outline: 1px solid rgba(255,255,255,.06);
       overflow:hidden;
+      outline: 1px solid rgba(255,255,255,.06);
     }
     .orbMiniBar > i{
       display:block;
       height:100%;
-      width: 55%;
+      width: 40%;
       border-radius: 999px;
-      background: linear-gradient(180deg, rgba(255,255,255,.60), rgba(255,255,255,.35));
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.22);
+      background: linear-gradient(180deg, rgba(255,255,255,.62), rgba(255,255,255,.38));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.28);
     }
-    .orbMiniAxis{
-      border-radius: 14px;
-      background: rgba(255,255,255,.03);
-      outline: 1px solid rgba(255,255,255,.07);
-      padding: 10px;
-    }
-    .orbAxisLine{
-      position:relative;
-      height: 10px;
-      border-radius: 999px;
-      background: linear-gradient(90deg, rgba(255,255,255,.16), rgba(255,255,255,.08), rgba(255,255,255,.18));
-      outline: 1px solid rgba(255,255,255,.07);
-      overflow:hidden;
-    }
-    .orbAxisDot{
-      position:absolute;
-      top: 50%;
-      left: 58%;
-      transform: translate(-50%, -50%);
-      width: 12px;
-      height: 12px;
-      border-radius: 999px;
-      background: rgba(255,255,255,.88);
-      box-shadow: 0 0 0 4px rgba(255,255,255,.10);
-      outline: 1px solid rgba(0,0,0,.25);
+    .orbMiniNum{
+      font-size: 12px;
+      font-weight: 750;
+      color: rgba(255,255,255,.82);
+      white-space:nowrap;
     }
 
     .mirrorPill{
@@ -550,8 +582,8 @@
       box-shadow: 0 0 0 3px rgba(49,208,124,.10);
     }
 
-    /* keep #mirrorState for JS, but hide it */
-    #mirrorState{ display:none !important; }
+    /* ✅ remove big LISTENING under Mirror, but keep element in DOM for app.js */
+    .mirrorState{ display:none; }
 
     .meters{
       display:grid;
@@ -603,58 +635,18 @@
       color: rgba(255,255,255,.82);
       white-space:nowrap;
     }
-<!-- PART 3/4 -->
-    .mood{
-      border-radius: 16px;
-      background: rgba(255,255,255,.03);
-      outline: 1px solid rgba(255,255,255,.07);
-      padding: 12px;
-    }
-    .moodTop{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      margin-bottom: 10px;
-    }
-    .moodLbl{
-      font-size: 11px;
-      letter-spacing: .25px;
-      color: rgba(255,255,255,.62);
-      text-transform: uppercase;
-    }
-    .moodAxis{
-      font-size: 11px;
-      color: rgba(255,255,255,.55);
-      white-space:nowrap;
-    }
-    .moodBar{
-      position:relative;
-      height: 10px;
-      border-radius: 999px;
-      background:
-        linear-gradient(90deg,
-          rgba(255,255,255,.18),
-          rgba(255,255,255,.09),
-          rgba(255,255,255,.20));
-      outline: 1px solid rgba(255,255,255,.07);
-      overflow:hidden;
-    }
-    .moodDot{
+
+    /* ✅ Axis UI removed; keep mDot hidden for app.js updates */
+    .axisHidden{
       position:absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      width: 12px;
-      height: 12px;
-      border-radius: 999px;
-      background: rgba(255,255,255,.88);
-      box-shadow: 0 0 0 4px rgba(255,255,255,.10);
-      outline: 1px solid rgba(0,0,0,.25);
+      width:0;height:0;
+      overflow:hidden;
+      opacity:0;
+      pointer-events:none;
     }
 
     .stack{
-      margin-top: 12px;
+      margin-top: 8px;
       display:flex;
       align-items:center;
       justify-content:space-between;
@@ -666,7 +658,6 @@
       color: rgba(255,255,255,.55);
       text-transform: uppercase;
     }
-
     .covers{
       display:flex;
       align-items:center;
@@ -687,14 +678,13 @@
     .cvr img{ width:100%; height:100%; object-fit:cover; display:block; }
 
     @media (max-width: 520px){
-      .tabs{ width: 100%; justify-content:flex-start; }
       .line1{ font-size: 15px; }
       .meters{ grid-template-columns: 1fr; }
       .orbPopup{ left: 0; }
     }
   </style>
 </head>
-
+<!-- PART 4/4 -->
 <body>
   <div class="app">
     <header>
@@ -710,14 +700,15 @@
       </div>
     </header>
 
-    <!-- IMPORTANT: DOM order stays Now / Top / Recent for JS -->
+    <!-- ✅ Tabs order: Now / Recent / Top -->
     <div class="tabs" role="tablist" aria-label="Main tabs">
       <button class="tabBtn" data-tab="now" aria-selected="true" role="tab">Now</button>
-      <button class="tabBtn" data-tab="top" aria-selected="false" role="tab">Top</button>
       <button class="tabBtn" data-tab="recent" aria-selected="false" role="tab">Recent</button>
+      <button class="tabBtn" data-tab="top" aria-selected="false" role="tab">Top</button>
     </div>
 
     <section class="panel" data-panel="now">
+      <!-- NOW -->
       <div class="card">
         <div id="nowAmbient" class="nowAmbient"></div>
 
@@ -730,6 +721,7 @@
           </div>
 
           <div class="nowMain">
+            <!-- kept for app.js compatibility, but hidden by CSS -->
             <div class="coverWrap" id="nowCoverWrap">
               <img id="nowImg" class="coverImg" alt="" />
               <div id="nowFallback" class="coverFallback">♪</div>
@@ -751,26 +743,42 @@
         </div>
       </div>
 
+      <!-- MIRROR (always visible) -->
       <div class="card mirrorCard" id="mirrorCard">
         <div class="mirrorWrap">
           <div class="mirrorTop">
             <div class="mirrorTitle">
+              <!-- Orb + Popup -->
               <details class="orbDetails" id="orbDetails">
                 <summary aria-label="Open Mirror popup">
                   <span id="mirrorOrb" class="orb" aria-hidden="true"></span>
                   Mirror
                 </summary>
 
-                <div class="orbPopup" role="dialog" aria-label="Mirror visual popup">
-                  <div class="orbViz" aria-hidden="true">
-                    <div class="orbMiniBars">
-                      <div class="orbMiniBar"><i style="width:55%"></i></div>
-                      <div class="orbMiniBar"><i style="width:62%"></i></div>
-                      <div class="orbMiniBar"><i style="width:48%"></i></div>
+                <!-- ✅ Clean popup (no essays, no “tap again” text) -->
+                <div class="orbPopup" role="dialog" aria-label="Mirror popup">
+                  <div class="orbPopupGrid" aria-label="Quick signals">
+                    <div class="orbMini">
+                      <div class="orbMiniLbl">Energy</div>
+                      <div class="orbMiniVal">
+                        <span class="orbMiniBar"><i id="pEnergy"></i></span>
+                        <span id="pEnergyNum" class="orbMiniNum">—</span>
+                      </div>
                     </div>
-                    <div class="orbMiniAxis">
-                      <div class="orbAxisLine">
-                        <div class="orbAxisDot"></div>
+
+                    <div class="orbMini">
+                      <div class="orbMiniLbl">Mood</div>
+                      <div class="orbMiniVal">
+                        <span class="orbMiniBar"><i id="pMood"></i></span>
+                        <span id="pMoodNum" class="orbMiniNum">—</span>
+                      </div>
+                    </div>
+
+                    <div class="orbMini" style="grid-column: 1 / -1;">
+                      <div class="orbMiniLbl">Replay</div>
+                      <div class="orbMiniVal">
+                        <span class="orbMiniBar"><i id="pReplay"></i></span>
+                        <span id="pReplayNum" class="orbMiniNum">—</span>
                       </div>
                     </div>
                   </div>
@@ -784,7 +792,7 @@
             </div>
           </div>
 
-          <!-- Keep for JS but hidden via CSS -->
+          <!-- kept for app.js, but hidden by CSS -->
           <div id="mirrorState" class="mirrorState">IDLE</div>
 
           <div class="meters" aria-label="Mirror meters">
@@ -813,24 +821,19 @@
             </div>
           </div>
 
-          <div class="mood" aria-label="Mood axis">
-            <div class="moodTop">
-              <div class="moodLbl">Axis</div>
-              <div class="moodAxis">Dark — Bright</div>
-            </div>
-            <div class="moodBar">
-              <div id="mDot" class="moodDot" style="left:50%"></div>
-            </div>
+          <!-- ✅ Axis UI removed, but keep mDot in DOM for app.js -->
+          <div class="axisHidden">
+            <div id="mDot" style="left:50%"></div>
+          </div>
 
-            <div class="stack">
-              <div class="stackLbl">Session covers</div>
-              <div id="mCovers" class="covers" aria-label="Covers stack"></div>
-            </div>
+          <div class="stack">
+            <div class="stackLbl">Session covers</div>
+            <div id="mCovers" class="covers" aria-label="Covers stack"></div>
           </div>
         </div>
       </div>
     </section>
-<!-- PART 4/4 -->
+
     <section class="panel hidden" data-panel="top">
       <div class="card">
         <div class="controls">
@@ -859,5 +862,66 @@
   </div>
 
   <script src="./app.js"></script>
+
+  <!-- ✅ tiny glue: read mDot (axis) and drive global background + popup mirrors -->
+  <script>
+    (function(){
+      const root = document.documentElement;
+      const mDot = document.getElementById('mDot');
+
+      // popup mirrors
+      const pEnergy = document.getElementById('pEnergy');
+      const pMood   = document.getElementById('pMood');
+      const pReplay = document.getElementById('pReplay');
+      const pEnergyNum = document.getElementById('pEnergyNum');
+      const pMoodNum   = document.getElementById('pMoodNum');
+      const pReplayNum = document.getElementById('pReplayNum');
+
+      // mirror meters
+      const mEnergy = document.getElementById('mEnergy');
+      const mMood   = document.getElementById('mMood');
+      const mReplay = document.getElementById('mReplay');
+      const mEnergyNum = document.getElementById('mEnergyNum');
+      const mMoodNum   = document.getElementById('mMoodNum');
+      const mReplayNum = document.getElementById('mReplayNum');
+
+      function clamp01(x){ return Math.max(0, Math.min(1, x)); }
+      function pctFromLeftStyle(el){
+        if(!el) return .5;
+        const left = (el.style.left || "50%").trim();
+        const m = left.match(/^([0-9.]+)%$/);
+        if(!m) return .5;
+        return clamp01(parseFloat(m[1]) / 100);
+      }
+
+      function syncPopupBars(){
+        // copy widths/numbers from main meters to popup meters (no dependency on app.js changes)
+        if(mEnergy && pEnergy) pEnergy.style.width = mEnergy.style.width || '0%';
+        if(mMood   && pMood)   pMood.style.width   = mMood.style.width   || '0%';
+        if(mReplay && pReplay) pReplay.style.width = mReplay.style.width || '0%';
+
+        if(mEnergyNum && pEnergyNum) pEnergyNum.textContent = mEnergyNum.textContent || '—';
+        if(mMoodNum   && pMoodNum)   pMoodNum.textContent   = mMoodNum.textContent   || '—';
+        if(mReplayNum && pReplayNum) pReplayNum.textContent = mReplayNum.textContent || '—';
+      }
+
+      // close popup on outside tap
+      const details = document.getElementById('orbDetails');
+      document.addEventListener('click', (e)=>{
+        if(!details || !details.open) return;
+        if(details.contains(e.target)) return;
+        details.open = false;
+      }, {passive:true});
+
+      // drive axis -> global UI
+      function tick(){
+        const axis = pctFromLeftStyle(mDot); // 0..1
+        root.style.setProperty('--axis', axis.toFixed(4));
+        syncPopupBars();
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    })();
+  </script>
 </body>
 </html>

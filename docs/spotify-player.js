@@ -1,157 +1,80 @@
 /* spotify-player.js
-   Spotify Web API playback control using the token from SpotifyAuth.getToken()
-
+   Uses Spotify Web API to control playback on user's active device.
    Exposes:
-   - SpotifyPlayer.refreshState()
-   - SpotifyPlayer.play()
-   - SpotifyPlayer.pause()
-   - SpotifyPlayer.next()
-   - SpotifyPlayer.prev()
-   - SpotifyPlayer.playUri(uri)   // play a track/album/playlist URI directly
-   - SpotifyPlayer.ensureActiveDevice() // tries to find/activate a device
-   - SpotifyPlayer.getDevices()
-
-   Notes:
-   - This controls playback on the user's active Spotify Connect device (phone, speaker, desktop etc).
-   - If you have no active device, Spotify returns 404 / 403 depending on context.
+     - window.SpotifyPlayer.play(), pause(), next(), prev()
+     - window.SpotifyPlayer.playUri(uri)
+     - window.SpotifyPlayer.connect()  (just alias to login)
 */
 
-(() => {
+(function(){
   "use strict";
 
-  const API = "https://api.spotify.com/v1";
+  function token(){
+    if (window.SpotifyAuth && typeof window.SpotifyAuth.getAccessToken === "function") {
+      return window.SpotifyAuth.getAccessToken();
+    }
+    return null;
+  }
 
-  async function apiFetch(path, { method = "GET", body = null, query = null } = {}) {
-    const token = window.SpotifyAuth?.getToken?.();
-    if (!token) {
-      const err = { status: 401, message: "No token provided" };
-      throw err;
+  async function api(path, { method="GET", body=null } = {}) {
+    const t = token();
+    if (!t) {
+      return { ok:false, status:401, json:{ error:{ status:401, message:"No token provided" } } };
     }
 
-    let url = API + path;
-    if (query) {
-      const qs = new URLSearchParams(query);
-      url += `?${qs.toString()}`;
-    }
-
-    const res = await fetch(url, {
+    const res = await fetch("https://api.spotify.com/v1" + path, {
       method,
       headers: {
-        Authorization: `Bearer ${token}`,
-        ...(body ? { "Content-Type": "application/json" } : {})
+        "Authorization": "Bearer " + t,
+        ...(body ? { "Content-Type":"application/json" } : {})
       },
       body: body ? JSON.stringify(body) : null
     });
 
-    // Spotify sometimes returns 204 No Content for success
-    if (res.status === 204) return null;
-
-    let data = null;
-    const text = await res.text();
-    try {
-      data = text ? JSON.parse(text) : null;
-    } catch {
-      data = text || null;
-    }
-
-    if (!res.ok) {
-      // Normalize error
-      const message =
-        (data && data.error && (data.error.message || data.error.reason)) ||
-        (typeof data === "string" ? data : res.statusText) ||
-        "Spotify API error";
-
-      throw { status: res.status, message, raw: data };
-    }
-
-    return data;
-  }
-
-  async function getDevices() {
-    return apiFetch("/me/player/devices");
-  }
-
-  async function ensureActiveDevice() {
-    // We try:
-    // 1) If there is an active device, OK
-    // 2) Else, pick the first available device and transfer playback
-    //    (requires user-modify-playback-state)
-    const devices = await getDevices();
-    const list = devices?.devices || [];
-
-    const active = list.find(d => d.is_active);
-    if (active) return active;
-
-    const candidate = list.find(d => d.is_restricted === false) || list[0];
-    if (!candidate) {
-      throw { status: 404, message: "No Spotify devices found. Open Spotify on a device first." };
-    }
-
-    // Transfer to candidate (doesn't necessarily auto-play; we can request play: true)
-    await apiFetch("/me/player", {
-      method: "PUT",
-      body: { device_ids: [candidate.id], play: true }
-    });
-
-    return candidate;
-  }
-
-  async function refreshState() {
-    // Returns current playback state
-    // NOTE: if nothing is active, Spotify can return 204
-    return apiFetch("/me/player");
+    const json = await res.json().catch(()=> ({}));
+    return { ok: res.ok, status: res.status, json };
   }
 
   async function play() {
-    await ensureActiveDevice();
-    return apiFetch("/me/player/play", { method: "PUT" });
+    // resume
+    const r = await api("/me/player/play", { method:"PUT" });
+    if (!r.ok) console.warn("[SpotifyPlayer.play] failed", r.status, r.json);
+    return r;
   }
 
   async function pause() {
-    return apiFetch("/me/player/pause", { method: "PUT" });
+    const r = await api("/me/player/pause", { method:"PUT" });
+    if (!r.ok) console.warn("[SpotifyPlayer.pause] failed", r.status, r.json);
+    return r;
   }
 
   async function next() {
-    await ensureActiveDevice();
-    return apiFetch("/me/player/next", { method: "POST" });
+    const r = await api("/me/player/next", { method:"POST" });
+    if (!r.ok) console.warn("[SpotifyPlayer.next] failed", r.status, r.json);
+    return r;
   }
 
   async function prev() {
-    await ensureActiveDevice();
-    return apiFetch("/me/player/previous", { method: "POST" });
+    const r = await api("/me/player/previous", { method:"POST" });
+    if (!r.ok) console.warn("[SpotifyPlayer.prev] failed", r.status, r.json);
+    return r;
   }
 
   async function playUri(uri) {
-    // uri examples:
-    // - spotify:track:...
-    // - spotify:album:...
-    // - spotify:playlist:...
-    if (!uri) throw { status: 400, message: "Missing uri" };
-    await ensureActiveDevice();
-
-    // For track URI you can also pass { uris: [uri] }
-    // For context URI (album/playlist) pass { context_uri: uri }
-    const isTrack = uri.startsWith("spotify:track:");
-    const body = isTrack ? { uris: [uri] } : { context_uri: uri };
-
-    return apiFetch("/me/player/play", { method: "PUT", body });
+    const r = await api("/me/player/play", {
+      method:"PUT",
+      body: { uris: [uri] }
+    });
+    if (!r.ok) console.warn("[SpotifyPlayer.playUri] failed", r.status, r.json);
+    return r;
   }
 
-  // Small helper: tells if linked
-  function isLinked() {
-    return !!window.SpotifyAuth?.getToken?.();
+  function connect() {
+    if (window.SpotifyAuth && typeof window.SpotifyAuth.login === "function") {
+      return window.SpotifyAuth.login();
+    }
+    console.warn("[SpotifyPlayer.connect] SpotifyAuth.login missing");
   }
 
-  window.SpotifyPlayer = {
-    isLinked,
-    apiFetch,
-    getDevices,
-    ensureActiveDevice,
-    refreshState,
-    play,
-    pause,
-    next,
-    prev,
-    playUri
-  };
+  window.SpotifyPlayer = { play, pause, next, prev, playUri, connect };
 })();

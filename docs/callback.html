@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Spotify linking...</title>
+</head>
+<body style="background:#0b0c0e;color:white;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh">
+
+Linking Spotify...
+
+<script>
+(function(){
+  // grab token from hash
+  const hash = window.location.hash.substring(1);
+  const params = new URLSearchParams(hash);
+
+  const token = params.get("access_token");
+  const expires = params.get("expires_in");
+
+  if(token){
+    localStorage.setItem("spotify_token", token);
+    localStorage.setItem("spotify_token_exp", Date.now() + (expires*1000));
+
+    // go back to app
+    window.location.replace("/listening-mirror/");
+  }else{
+    document.body.innerText = "Spotify linking failed.";
+  }
+})();
+</script>
+
+</body>
+</html>

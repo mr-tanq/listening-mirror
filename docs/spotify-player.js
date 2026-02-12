@@ -1,16 +1,8 @@
-/* spotify-player.js
-   Spotify playback control via Web API.
-   Requires:
-     - window.SpotifyAuth.getAccessToken()
-     - window.SPOTIFY_RESOLVER_BASE (your Cloudflare Worker base URL)
-   Exposes:
-     - window.SpotifyPlayer.connect()
-     - window.SpotifyPlayer.play()
-     - window.SpotifyPlayer.pause()
-     - window.SpotifyPlayer.next()
-     - window.SpotifyPlayer.prev()
-     - window.SpotifyPlayer.playUri(uri)
-     - window.SpotifyPlayer.playByMeta({artist, track, album})
+/* spotify-player.js (FULL REPLACE)
+   Spotify Web API controller for playback (phone as device).
+   Exposes window.SpotifyPlayer with:
+     - play(), pause(), next(), prev()
+     - playUri(uri)  // (optional for later)
 */
 
 (function(){
@@ -19,153 +11,141 @@
   const API = "https://api.spotify.com/v1";
 
   function getToken(){
-    if (!window.SpotifyAuth || typeof window.SpotifyAuth.getAccessToken !== "function") return null;
-    return window.SpotifyAuth.getAccessToken();
+    if (window.SpotifyAuth && typeof window.SpotifyAuth.getAccessToken === "function") {
+      return window.SpotifyAuth.getAccessToken();
+    }
+    return null;
   }
 
-  async function apiFetch(path, opts = {}){
-    const t = gets;
-    function T(){ return getToken(); }
-    const token = T();
-    if (!token) throw new Error("No Spotify token (not linked).");
+  function emitStatus(text){
+    try {
+      window.dispatchEvent(new CustomEvent("spotify:status", { detail: { text } }));
+    } catch {}
+  }
 
-    const res = await fetch(API + path, {
-      ...opts,
-      headers: {
-        "Authorization": "Bearer " + token,
-        ...(opts.headers || {})
+  async function apiFetch(path, { method="GET", qs=null, body=null } = {}) {
+    const token = getToken();
+    if (!token) {
+      emitStatus("Spotify: not linked");
+      throw new Error("No token provided");
+    }
+
+    const url = new URL(API + path);
+    if (qs && typeof qs === "object") {
+      for (const [k,v] of Object.entries(qs)) {
+        if (v != null && v !== "") url.searchParams.set(k, String(v));
       }
-    });
+    }
 
-    // Some endpoints return 204
+    const headers = { "Authorization": "Bearer " + token };
+    let payload = undefined;
+
+    if (body != null) {
+      headers["Content-Type"] = "application/json";
+      payload = JSON.stringify(body);
+    }
+
+    const res = await fetch(url.toString(), { method, headers, body: payload });
+
+    // 204 = No Content is common for playback endpoints
     if (res.status === 204) return { ok: true, status: 204, json: null };
 
-    const json = await res.json().catch(()=> null);
+    let json = null;
+    try { json = await res.json(); } catch { json = null; }
+
     if (!res.ok) {
-      const msg = json?.error?.message || ("HTTP " + res.status);
-      throw new Error(msg);
+      // Helpful statuses
+      if (res.status === 401) emitStatus("Spotify: token expired (tap glyph)");
+      if (res.status === 403) emitStatus("Spotify: forbidden (check scopes)");
+      if (res.status === 404) emitStatus("Spotify: no active device (open Spotify on phone)");
+      throw new Error(json?.error?.message || `Spotify HTTP ${res.status}`);
     }
+
     return { ok: true, status: res.status, json };
   }
 
-  async function getPlaybackState(){
-    return apiFetch("/me/player", { method: "GET" });
-  }
-
   async function getDevices(){
-    return apiFetch("/me/player/devices", { method: "GET" });
+    const r = await apiFetch("/me/player/devices");
+    const devices = r.json?.devices || [];
+    return devices;
   }
 
-  async function pickActiveDeviceId(){
-    const d = await getDevices();
-    const devices = d.json?.devices || [];
-    // prefer active
-    const active = devices.find(x => x.is_active);
-    if (active) return active.id;
+  async function pickDeviceId(){
+    const devices = await getDevices();
+    if (!devices.length) return null;
 
-    // otherwise: pick first non-restricted
-    const first = devices.find(x => !x.is_restricted) || devices[0];
-    return first ? first.id : null;
+    // Prefer active device (usually your phone if Spotify is open)
+    const active = devices.find(d => d && d.is_active);
+    if (active?.id) return active.id;
+
+    // Else: take first device
+    const first = devices.find(d => d && d.id);
+    return first?.id || null;
   }
 
-  async function connect(){
-    // “Connect” here just verifies token + finds device
-    const token = getToken();
-    if (!token) throw new Error("Not linked. Press Connect again after login.");
-
-    const deviceId = await pickActiveDeviceId();
+  async function ensurePlaybackDevice(){
+    const deviceId = await pickDeviceId();
     if (!deviceId) {
-      // This usually means Spotify app not open on any device.
-      // User action required at least once.
-      console.warn("[SpotifyPlayer] No devices found. Open Spotify app once and start any song, then retry.");
-      return { ok:false, reason:"no_device" };
+      emitStatus("Spotify: open Spotify on phone");
+      throw new Error("No Spotify device available");
     }
-    return { ok:true, deviceId };
-  }
 
-  async function play(){
-    const c = await connect();
-    if (!c.ok) return c;
-    await apiFetch(`/me/player/play?device_id=${encodeURIComponent(c.deviceId)}`, { method: "PUT" });
-    return { ok:true };
-  }
-
-  async function pause(){
-    const c = await connect();
-    if (!c.ok) return c;
-    await apiFetch(`/me/player/pause?device_id=${encodeURIComponent(c.deviceId)}`, { method: "PUT" });
-    return { ok:true };
-  }
-
-  async function next(){
-    const c = await connect();
-    if (!c.ok) return c;
-    await apiFetch(`/me/player/next?device_id=${encodeURIComponent(c.deviceId)}`, { method: "POST" });
-    return { ok:true };
-  }
-
-  async function prev(){
-    const c = await connect();
-    if (!c.ok) return c;
-    await apiFetch(`/me/player/previous?device_id=${encodeURIComponent(c.deviceId)}`, { method: "POST" });
-    return { ok:true };
-  }
-
-  async function playUri(uri){
-    if (!uri) throw new Error("Missing uri");
-    const c = await connect();
-    if (!c.ok) return c;
-
-    const body = JSON.stringify({ uris: [uri] });
-    await apiFetch(`/me/player/play?device_id=${encodeURIComponent(c.deviceId)}`, {
+    // Transfer playback to that device (does not auto-play)
+    await apiFetch("/me/player", {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body
+      body: { device_ids: [deviceId], play: false }
     });
-    return { ok:true };
+
+    return deviceId;
   }
 
-  async function resolveUriViaWorker(meta){
-    const base = (window.SPOTIFY_RESOLVER_BASE || "").replace(/\/+$/,"");
-    if (!base || base.includes("YOUR-WORKER-URL")) {
-      throw new Error("Missing window.SPOTIFY_RESOLVER_BASE in index.html");
-    }
-
-    const artist = (meta?.artist || "").trim();
-    const track  = (meta?.track  || "").trim();
-    const album  = (meta?.album  || "").trim();
-
-    if (!artist || !track) throw new Error("resolve: need artist + track");
-
-    const u = new URL(base + "/resolve");
-    u.searchParams.set("artist", artist);
-    u.searchParams.set("track", track);
-    if (album) u.searchParams.set("album", album);
-
-    const res = await fetch(u.toString(), { method: "GET" });
-    const json = await res.json().catch(()=> ({}));
-    if (!res.ok || !json?.ok) {
-      const msg = json?.error || ("resolve failed " + res.status);
-      throw new Error(msg);
-    }
-    if (!json.uri) throw new Error("resolve: no uri");
-    return json;
+  async function play() {
+    emitStatus("Spotify: play…");
+    const deviceId = await ensurePlaybackDevice();
+    await apiFetch("/me/player/play", { method: "PUT", qs: { device_id: deviceId } });
+    emitStatus("Spotify: playing");
   }
 
-  async function playByMeta(meta){
-    const r = await resolveUriViaWorker(meta);
-    return playUri(r.uri);
+  async function pause() {
+    emitStatus("Spotify: pause…");
+    const deviceId = await ensurePlaybackDevice();
+    await apiFetch("/me/player/pause", { method: "PUT", qs: { device_id: deviceId } });
+    emitStatus("Spotify: paused");
   }
 
-  // Optional: allow other code to call this on row click
+  async function next() {
+    emitStatus("Spotify: next…");
+    const deviceId = await ensurePlaybackDevice();
+    await apiFetch("/me/player/next", { method: "POST", qs: { device_id: deviceId } });
+    emitStatus("Spotify: ok");
+  }
+
+  async function prev() {
+    emitStatus("Spotify: prev…");
+    const deviceId = await ensurePlaybackDevice();
+    await apiFetch("/me/player/previous", { method: "POST", qs: { device_id: deviceId } });
+    emitStatus("Spotify: ok");
+  }
+
+  // Optional (for later when we wire click-to-play from Top/Recent)
+  async function playUri(uri) {
+    if (!uri) throw new Error("Missing uri");
+    emitStatus("Spotify: play track…");
+    const deviceId = await ensurePlaybackDevice();
+    await apiFetch("/me/player/play", {
+      method: "PUT",
+      qs: { device_id: deviceId },
+      body: { uris: [uri] }
+    });
+    emitStatus("Spotify: playing");
+  }
+
   window.SpotifyPlayer = {
-    connect,
     play,
     pause,
     next,
     prev,
     playUri,
-    playByMeta,
-    getPlaybackState
+    getAccessToken: getToken
   };
 })();

@@ -1,12 +1,16 @@
 /* spotify-ui.js (FULL REPLACE)
-   - Bullet-proof mount for Spotify dock (never disappears)
-   - Dock pinned bottom-right inside NOW card
+   - Dock NEVER disappears (fixed-position + follows Now card bounds)
    - Spotify logo = login/logout indicator
-   - Mini-play button per row to avoid accidents (no row-click autoplay)
+   - Artwork click on list items = Play that track (no extra mini buttons)
 */
 
 (function () {
   "use strict";
+
+  // ====== CONFIG (set this if you want) ======
+  // If your frontend doesn't expose a resolver, we'll use /resolve?q=...
+  // You can override this in console: window.LISTENING_MIRROR_API = "https://i.errtanq9.workers.dev";
+  const API_BASE = (window.LISTENING_MIRROR_API || "https://i.errtanq9.workers.dev").replace(/\/+$/, "");
 
   // ---------- DOM helpers ----------
   function el(tag, props = {}, children = []) {
@@ -44,12 +48,12 @@
     return null;
   }
 
-  function pulse(btn) {
-    if (!btn) return;
-    btn.classList.remove("spPulse");
-    void btn.offsetWidth;
-    btn.classList.add("spPulse");
-    setTimeout(() => btn.classList.remove("spPulse"), 220);
+  function pulse(node) {
+    if (!node) return;
+    node.classList.remove("spPulse");
+    void node.offsetWidth;
+    node.classList.add("spPulse");
+    setTimeout(() => node.classList.remove("spPulse"), 220);
   }
 
   // ---------- CSS ----------
@@ -57,26 +61,16 @@
     if (document.getElementById("spotifyUiCss")) return;
 
     const css = `
-/* Ensure host is relative */
-.spNowHost{ position: relative !important; }
-
-/* Dock pinned bottom-right inside NOW card */
-#spNowDock{
-  position: absolute;
-  right: 16px;
-  bottom: 14px; /* ✅ DOWN DOWN */
-  z-index: 999;
+#spDock{
+  position: fixed;
+  z-index: 9999;
   display: flex;
   align-items: center;
   gap: 10px;
   pointer-events: auto;
+  transform: translate3d(0,0,0);
 }
-#spNowDock, #spNowDock *{
-  pointer-events: auto !important;
-  -webkit-user-select: none;
-  user-select: none;
-}
-#spNowDock::before{
+#spDock::before{
   content:"";
   position:absolute;
   inset:-10px -12px -10px -12px;
@@ -88,8 +82,12 @@
   box-shadow: 0 18px 60px rgba(0,0,0,.35);
   z-index:-1;
 }
+#spDock, #spDock *{
+  pointer-events: auto !important;
+  -webkit-user-select: none;
+  user-select: none;
+}
 
-/* Spotify indicator */
 #spIndicator{
   width: 18px;
   height: 18px;
@@ -105,8 +103,7 @@
 }
 #spIndicator svg{ width:18px; height:18px; display:block; }
 
-/* Transport buttons */
-#spNowDock .spBtn{
+#spDock .spBtn{
   border: 0;
   width: 34px;
   height: 34px;
@@ -120,39 +117,24 @@
   padding: 0;
   transition: transform .12s ease, background .12s ease, outline-color .12s ease;
 }
-#spNowDock .spBtn:active{ transform: translateY(1px); background: rgba(255,255,255,.08); }
-#spNowDock .spBtn:disabled{ opacity:.32; }
-#spNowDock svg.icon{ width:16px; height:16px; display:block; }
-#spNowDock .spPulse{
+#spDock .spBtn:active{ transform: translateY(1px); background: rgba(255,255,255,.08); }
+#spDock .spBtn:disabled{ opacity:.32; }
+#spDock svg.icon{ width:16px; height:16px; display:block; }
+#spDock .spPulse{
   outline-color: rgba(49,208,124,.55);
   box-shadow: 0 18px 70px rgba(0,0,0,.28);
 }
 
-/* Mini play button per list row */
-.spMiniPlay{
-  border:0;
-  width: 26px;
-  height: 26px;
-  border-radius: 999px;
-  display:grid;
-  place-items:center;
-  background: rgba(255,255,255,.05);
-  outline: 1px solid rgba(255,255,255,.08);
-  color: rgba(255,255,255,.85);
-  margin-left: 10px;
-  flex: 0 0 auto;
+/* Click-to-play affordance on artworks */
+.spArtworkPlayable{
+  cursor: pointer !important;
+  outline: 1px solid rgba(49,208,124,.0);
+  border-radius: 12px;
+  transition: outline-color .12s ease, transform .12s ease;
 }
-.spMiniPlay svg{ width: 13px; height: 13px; }
-.spMiniPlay:active{ transform: translateY(1px); }
-
-/* Make rows accept appended mini play without breaking layout */
-.spRowFlex{
-  display:flex !important;
-  align-items:center !important;
-}
-.spRowFlex .spRowMain{
-  flex: 1 1 auto;
-  min-width: 0;
+.spArtworkPlayable:active{
+  transform: translateY(1px);
+  outline-color: rgba(49,208,124,.35);
 }
     `.trim();
 
@@ -223,54 +205,12 @@
     } catch {}
   }
 
-  // ---------- Find NOW host (bullet-proof) ----------
-  function findNowHost() {
-    // 1) If we already mounted before
-    const mounted = document.querySelector(".spNowHost");
-    if (mounted) return mounted;
-
-    // 2) Prefer card that contains LIVE badge
-    const liveNodes = Array.from(document.querySelectorAll("*"))
-      .filter(n => n && n.childElementCount < 30) // small-ish nodes
-      .filter(n => (n.textContent || "").trim().toLowerCase() === "live");
-
-    for (const ln of liveNodes) {
-      const card = ln.closest(".card, .panel, .tile, section, article, div");
-      if (card) return card;
-    }
-
-    // 3) Fallback: tab bar (Now/Recent/Top) exists -> take next big card under it
-    const tab = Array.from(document.querySelectorAll("*"))
-      .find(n => {
-        const t = (n.textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
-        return t.includes("now") && t.includes("recent") && t.includes("top");
-      });
-
-    if (tab) {
-      const container = tab.closest(".card, .panel, .tile, section, article, div") || tab.parentElement;
-      if (container) {
-        // first big card after tabs
-        const nextCards = Array.from(container.querySelectorAll(".card, .panel, .tile, section, article, div"));
-        if (nextCards.length) return nextCards[0];
-      }
-    }
-
-    // 4) Absolute fallback: first big card on page
-    const first = document.querySelector(".card, .panel, .tile, section, article");
-    return first || null;
-  }
-
-  // ---------- Dock ----------
+  // ---------- Dock (fixed, never lost) ----------
   function ensureDock() {
     ensureCss();
 
-    let dock = document.getElementById("spNowDock");
+    let dock = document.getElementById("spDock");
     if (dock) return dock;
-
-    const host = findNowHost();
-    if (!host) return null;
-
-    host.classList.add("spNowHost");
 
     const indicator = el("div", { id: "spIndicator", title: "Spotify (login/logout)" });
     indicator.innerHTML = spotifyLogoSvg();
@@ -285,9 +225,10 @@
     btnPause.innerHTML = iconSvg("pause");
     btnNext.innerHTML = iconSvg("next");
 
-    dock = el("div", { id: "spNowDock" }, [indicator, btnPrev, btnPlay, btnPause, btnNext]);
-    host.appendChild(dock);
+    dock = el("div", { id: "spDock" }, [indicator, btnPrev, btnPlay, btnPause, btnNext]);
+    document.body.appendChild(dock);
 
+    bindDockHandlers();
     return dock;
   }
 
@@ -317,7 +258,8 @@
       pause.style.display = "none";
     }
   }
-function bindDockHandlers() {
+
+  function bindDockHandlers() {
     const $ = (id) => document.getElementById(id);
 
     $("spIndicator")?.addEventListener("click", (e) => {
@@ -353,8 +295,71 @@ function bindDockHandlers() {
       if (!r.ok) console.warn("[Spotify UI] Prev failed:", r.reason);
     }, { passive: false });
   }
+// ---------- Find NOW card bounds (for positioning dock inside it) ----------
+  function findNowCardElement() {
+    // Prefer an element that contains LIVE pill and also has track text.
+    const liveEls = Array.from(document.querySelectorAll("*"))
+      .filter(n => (n?.textContent || "").trim().toLowerCase() === "live")
+      .slice(0, 10);
 
-  // ---------- Mini play for list rows ----------
+    for (const ln of liveEls) {
+      const card = ln.closest("section, article, .card, .panel, .tile, div");
+      if (card) return card;
+    }
+
+    // Fallback: first element that contains the tabs "Now Recent Top"
+    const tab = Array.from(document.querySelectorAll("*")).find(n => {
+      const t = (n.textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
+      return t.includes("now") && t.includes("recent") && t.includes("top");
+    });
+
+    if (tab) {
+      const container = tab.closest("section, article, .card, .panel, .tile, div") || tab.parentElement;
+      if (container) {
+        // try: the first card-like element after tabs
+        const cards = Array.from(container.querySelectorAll("section, article, .card, .panel, .tile, div"));
+        if (cards.length) return cards[0];
+      }
+    }
+
+    return null;
+  }
+
+  function positionDock() {
+    const dock = ensureDock();
+    if (!dock) return;
+
+    const nowCard = findNowCardElement();
+    const fallbackRight = 16;
+    const fallbackTop = 140;
+
+    if (!nowCard) {
+      dock.style.right = `${fallbackRight}px`;
+      dock.style.top = `${fallbackTop}px`;
+      dock.style.left = "auto";
+      dock.style.bottom = "auto";
+      return;
+    }
+
+    const r = nowCard.getBoundingClientRect();
+
+    // Place dock bottom-right INSIDE the Now card (as you want)
+    const rightPad = 16;
+    const bottomPad = 14;
+
+    // dock has fixed positioning, so compute absolute viewport coords
+    const x = Math.max(8, r.right - rightPad);
+    const y = Math.max(8, r.bottom - bottomPad);
+
+    // We'll anchor using translate so we don't need dock width
+    dock.style.left = `${x}px`;
+    dock.style.top = `${y}px`;
+    dock.style.right = "auto";
+    dock.style.bottom = "auto";
+    dock.style.transform = "translate(-100%, -100%)"; // bottom-right anchor
+  }
+
+  // ---------- Artwork click => play ----------
   function extractSpotifyUriFromNode(node) {
     const ds = node?.dataset || {};
     const cand =
@@ -381,94 +386,108 @@ function bindDockHandlers() {
     return null;
   }
 
-  function rowLabel(row) {
-    const t = (row?.innerText || "").trim().replace(/\s+/g, " ");
-    return t ? t.slice(0, 120) : "";
+  function guessArtistTrackFromRow(row) {
+    // Best case: data attributes
+    const ds = row?.dataset || {};
+    const a1 = (ds.artist || ds.lastfmArtist || "").trim();
+    const t1 = (ds.track || ds.name || ds.lastfmTrack || "").trim();
+    if (a1 && t1) return { artist: a1, track: t1 };
+
+    // Heuristic: first strong line = track, next line = artist
+    const text = (row?.innerText || "").split("\n").map(s => s.trim()).filter(Boolean);
+    if (!text.length) return { artist: "", track: "" };
+
+    // Remove leading "1. " numbering
+    const line0 = (text[0] || "").replace(/^\s*\d+\.\s+/, "").trim();
+    const line1 = (text[1] || "").replace(/^\s*\d+\.\s+/, "").trim();
+
+    // In your UI it looks like:
+    // "1. Track Name" then "Artist"
+    const track = line0;
+    const artist = line1;
+
+    return { artist, track };
   }
 
-  function guessTrackRows() {
-    // The UI seems to use list rows with artwork + title + artist.
-    // We'll take any element that contains a numbered title like "1. Something"
-    // or any row with an artwork img + text.
-    const candidates = Array.from(document.querySelectorAll("li, .row, .track, .trackRow, .listItem, div"))
-      .filter(n => n && n.children && n.children.length)
-      .filter(n => {
-        const txt = (n.textContent || "").trim();
-        if (!txt) return false;
-        // numbered list pattern: "12. Track Name"
-        if (/^\s*\d+\.\s+/.test(txt)) return true;
-        // has artwork img + some title text
-        const hasImg = !!n.querySelector("img");
-        const hasWords = txt.length > 8;
-        return hasImg && hasWords;
-      });
+  async function resolveUriForRow(row) {
+    // 1) If DOM already has it
+    const u0 = extractSpotifyUriFromNode(row);
+    if (u0) return u0;
 
-    // de-dup (keep higher-level rows)
+    // 2) If app exposes a resolver hook, use it
+    const hook = window.ListeningMirror?.resolveRowToSpotifyUri;
+    if (typeof hook === "function") {
+      try {
+        const u1 = await hook(row);
+        if (u1) return u1;
+      } catch {}
+    }
+
+    // 3) Use worker /resolve?q=...
+    const { artist, track } = guessArtistTrackFromRow(row);
+    const q = [artist, track].filter(Boolean).join(" ");
+    if (!q) return "";
+
+    try {
+      const r = await fetch(`${API_BASE}/resolve?q=${encodeURIComponent(q)}`, { method: "GET" });
+      const j = await r.json();
+      const id = j?.best?.id;
+      if (id && /^[A-Za-z0-9]{22}$/.test(id)) return `spotify:track:${id}`;
+    } catch {}
+
+    return "";
+  }
+
+  function guessRows() {
+    // Candidate rows: list items or row-ish divs with an image and some text
+    const nodes = Array.from(document.querySelectorAll("li, .row, .track, .trackRow, .listItem, div"))
+      .filter(n => n && n.querySelector && n.querySelector("img"))
+      .filter(n => ((n.textContent || "").trim().length > 5));
+
+    // de-dup (keep higher-level nodes)
     const uniq = [];
-    for (const c of candidates) {
+    for (const c of nodes) {
       if (uniq.some(u => u.contains(c))) continue;
       uniq.push(c);
     }
     return uniq;
   }
-
-  function attachMiniPlayButtons() {
+function attachArtworkPlay() {
     if (!getToken()) return;
 
-    const rows = guessTrackRows();
-    for (const r of rows) {
-      if (r.id === "spNowDock") continue;
-      if (r.querySelector(".spMiniPlay")) continue;
+    const rows = guessRows();
+    for (const row of rows) {
+      // For each row, pick the first IMG (artwork)
+      const img = row.querySelector("img");
+      if (!img) continue;
 
-      const uri = extractSpotifyUriFromNode(r);
-      // If uri not present in DOM, we still might resolve later (Top list uses backend resolve)
-      // We'll still add button, and on click we'll try:
-      // 1) uri from dataset / link
-      // 2) window.resolveSpotifyForRow(row) if app provides
-      // 3) no-op
-      const btn = el("button", { class: "spMiniPlay", type: "button", "aria-label": "Play" });
-      btn.innerHTML = `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M9 7v10l8-5-8-5z"/></svg>`;
+      // Avoid double-binding
+      if (img.dataset.spBound === "1") continue;
+      img.dataset.spBound = "1";
 
-      btn.addEventListener("click", async (e) => {
+      img.classList.add("spArtworkPlayable");
+
+      img.addEventListener("click", async (e) => {
         e.preventDefault();
         e.stopPropagation();
-        pulse(btn);
+        pulse(img);
 
-        const u1 = extractSpotifyUriFromNode(r);
-        if (u1) return playUri(u1);
+        const uri = await resolveUriForRow(row);
+        if (uri) return playUri(uri);
 
-        // Optional hook if your app exposes a resolver:
-        // window.ListeningMirror.resolveRowToSpotifyUri(row) -> Promise<string>
-        const hook = window.ListeningMirror?.resolveRowToSpotifyUri;
-        if (typeof hook === "function") {
-          try {
-            const u2 = await hook(r);
-            if (u2) return playUri(u2);
-          } catch {}
-        }
-
-        console.warn("[Spotify UI] No URI found for row:", rowLabel(r));
+        console.warn("[Spotify UI] Could not resolve URI for row.");
       }, { passive: false });
-
-      // Make row flex-friendly without breaking existing layout
-      r.classList.add("spRowFlex");
-      // Wrap existing children into main container if not already wrapped
-      if (!r.querySelector(":scope > .spRowMain")) {
-        const main = el("div", { class: "spRowMain" });
-        while (r.firstChild) main.appendChild(r.firstChild);
-        r.appendChild(main);
-      }
-      r.appendChild(btn);
     }
   }
-// ---------- State loop ----------
-  async function observeStateLoop() {
+
+  // ---------- State loop ----------
+  async function observeLoop() {
     let lastLinked = null;
     let lastPlaying = null;
 
     async function tick() {
-      // ensure dock always exists (page transitions / tab switches)
       ensureDock();
+      positionDock();
 
       const linked = !!getToken();
       if (linked !== lastLinked) {
@@ -491,8 +510,9 @@ function bindDockHandlers() {
           setPlayPauseVisible(isPlaying);
           lastPlaying = isPlaying;
         }
-        // keep adding mini-play buttons (lists change)
-        attachMiniPlayButtons();
+
+        // Bind artwork clicks continuously as lists change
+        attachArtworkPlay();
       }
 
       requestAnimationFrame(tick);
@@ -502,20 +522,17 @@ function bindDockHandlers() {
   }
 
   function boot() {
-    const dock = ensureDock();
-    if (dock) bindDockHandlers();
+    ensureDock();
 
-    // also handle re-mount after navigation
+    // Re-run bindings on DOM changes
     const mo = new MutationObserver(() => {
-      const d = ensureDock();
-      if (d && !d._bound) {
-        bindDockHandlers();
-        d._bound = true;
-      }
+      ensureDock();
+      positionDock();
+      attachArtworkPlay();
     });
     mo.observe(document.documentElement, { subtree: true, childList: true });
 
-    observeStateLoop();
+    observeLoop();
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);

@@ -1,5 +1,8 @@
 /* spotify-ui.js (FULL REPLACE)
-   Premium dock + safe play popup + play/pause toggle + Spotify logo login/logout
+   - Bullet-proof mount for Spotify dock (never disappears)
+   - Dock pinned bottom-right inside NOW card
+   - Spotify logo = login/logout indicator
+   - Mini-play button per row to avoid accidents (no row-click autoplay)
 */
 
 (function () {
@@ -17,14 +20,6 @@
     }
     for (const c of children) n.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
     return n;
-  }
-
-  function closestAny(node, selectors) {
-    for (const sel of selectors) {
-      const hit = node?.closest?.(sel);
-      if (hit) return hit;
-    }
-    return null;
   }
 
   function safeCall(path, ...args) {
@@ -52,7 +47,6 @@
   function pulse(btn) {
     if (!btn) return;
     btn.classList.remove("spPulse");
-    // force reflow
     void btn.offsetWidth;
     btn.classList.add("spPulse");
     setTimeout(() => btn.classList.remove("spPulse"), 220);
@@ -63,15 +57,15 @@
     if (document.getElementById("spotifyUiCss")) return;
 
     const css = `
-/* Host must be relative */
+/* Ensure host is relative */
 .spNowHost{ position: relative !important; }
 
-/* --- Dock pinned bottom-right inside NOW card --- */
+/* Dock pinned bottom-right inside NOW card */
 #spNowDock{
   position: absolute;
   right: 16px;
   bottom: 14px; /* ✅ DOWN DOWN */
-  z-index: 70;
+  z-index: 999;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -82,8 +76,6 @@
   -webkit-user-select: none;
   user-select: none;
 }
-
-/* Subtle premium base behind dock (optional) */
 #spNowDock::before{
   content:"";
   position:absolute;
@@ -97,7 +89,7 @@
   z-index:-1;
 }
 
-/* Spotify indicator: acts as login/logout button */
+/* Spotify indicator */
 #spIndicator{
   width: 18px;
   height: 18px;
@@ -105,7 +97,6 @@
   place-items: center;
   opacity: .35;
   filter: grayscale(1);
-  transform: translateY(.5px);
   cursor: pointer;
 }
 #spIndicator.linked{
@@ -114,7 +105,7 @@
 }
 #spIndicator svg{ width:18px; height:18px; display:block; }
 
-/* Transport buttons smaller + premium */
+/* Transport buttons */
 #spNowDock .spBtn{
   border: 0;
   width: 34px;
@@ -132,14 +123,12 @@
 #spNowDock .spBtn:active{ transform: translateY(1px); background: rgba(255,255,255,.08); }
 #spNowDock .spBtn:disabled{ opacity:.32; }
 #spNowDock svg.icon{ width:16px; height:16px; display:block; }
-
-/* Pulse feedback */
 #spNowDock .spPulse{
   outline-color: rgba(49,208,124,.55);
   box-shadow: 0 18px 70px rgba(0,0,0,.28);
 }
 
-/* -------- SAFE PLAY: mini play button for rows -------- */
+/* Mini play button per list row */
 .spMiniPlay{
   border:0;
   width: 26px;
@@ -156,51 +145,15 @@
 .spMiniPlay svg{ width: 13px; height: 13px; }
 .spMiniPlay:active{ transform: translateY(1px); }
 
-/* -------- SAFE PLAY POPUP -------- */
-#spModal{
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  display: none;
-  align-items: center;
-  justify-content: center;
+/* Make rows accept appended mini play without breaking layout */
+.spRowFlex{
+  display:flex !important;
+  align-items:center !important;
 }
-#spModal.show{ display:flex; }
-
-#spModalBackdrop{
-  position:absolute;
-  inset:0;
-  background: rgba(0,0,0,.55);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+.spRowFlex .spRowMain{
+  flex: 1 1 auto;
+  min-width: 0;
 }
-
-#spModalCard{
-  position:relative;
-  width: min(92vw, 420px);
-  border-radius: 22px;
-  background: rgba(14,16,18,.78);
-  outline: 1px solid rgba(255,255,255,.10);
-  box-shadow: 0 28px 90px rgba(0,0,0,.55);
-  padding: 16px 16px 14px 16px;
-}
-#spModalTitle{ font-size: 16px; font-weight: 700; color: rgba(255,255,255,.95); margin: 0 0 6px 0; }
-#spModalMeta{ font-size: 13px; color: rgba(255,255,255,.68); margin: 0 0 14px 0; }
-#spModalActions{ display:flex; gap: 10px; justify-content: flex-end; }
-.spModalBtn{
-  border: 0;
-  height: 36px;
-  padding: 0 14px;
-  border-radius: 12px;
-  background: rgba(255,255,255,.07);
-  outline: 1px solid rgba(255,255,255,.10);
-  color: rgba(255,255,255,.92);
-}
-.spModalBtn.primary{
-  background: rgba(49,208,124,.16);
-  outline-color: rgba(49,208,124,.35);
-}
-.spModalBtn:active{ transform: translateY(1px); }
     `.trim();
 
     const style = document.createElement("style");
@@ -225,86 +178,14 @@
       </svg>
     `;
   }
-// ---------- Find NOW card host ----------
-  function findNowHost() {
-    const candidates = [
-      document.querySelector("#nowCard"),
-      document.querySelector(".nowCard"),
-      document.querySelector(".now-card"),
-      document.querySelector('[data-view="now"] .card'),
-      document.querySelector('[data-section="now"]'),
-      document.querySelector(".view.now"),
-      document.querySelector("#viewNow"),
-    ].filter(Boolean);
-    if (candidates.length) return candidates[0];
-
-    // heuristic: card that contains LIVE pill
-    const allCards = Array.from(document.querySelectorAll(".card, .panel, section, .tile"));
-    for (const c of allCards) {
-      const txt = (c.innerText || "").toLowerCase();
-      if (txt.includes("live") && (txt.includes("now") || txt.includes("listening"))) return c;
-    }
-    return null;
-  }
-
-  // ---------- Modal (confirm play) ----------
-  function ensureModal() {
-    if (document.getElementById("spModal")) return;
-
-    const backdrop = el("div", { id: "spModalBackdrop" });
-    const title = el("p", { id: "spModalTitle" }, ["Play this track?"]);
-    const meta = el("p", { id: "spModalMeta" }, [""]);
-    const btnCancel = el("button", { class: "spModalBtn", type: "button" }, ["Cancel"]);
-    const btnPlay = el("button", { class: "spModalBtn primary", type: "button" }, ["Play"]);
-    const actions = el("div", { id: "spModalActions" }, [btnCancel, btnPlay]);
-    const card = el("div", { id: "spModalCard" }, [title, meta, actions]);
-
-    const modal = el("div", { id: "spModal" }, [backdrop, card]);
-    document.body.appendChild(modal);
-
-    backdrop.addEventListener("click", () => hideModal(), { passive: true });
-    btnCancel.addEventListener("click", () => hideModal(), { passive: true });
-
-    modal._metaEl = meta;
-    modal._confirmBtn = btnPlay;
-
-    btnPlay.addEventListener("click", async () => {
-      const uri = modal._pendingUri;
-      if (!uri) return hideModal();
-      await playUri(uri);
-      hideModal();
-    });
-  }
-
-  function showModal(uri, label) {
-    ensureModal();
-    const modal = document.getElementById("spModal");
-    if (!modal) return;
-
-    modal._pendingUri = uri;
-    modal._metaEl.textContent = label || uri;
-
-    modal.classList.add("show");
-  }
-
-  function hideModal() {
-    const modal = document.getElementById("spModal");
-    if (!modal) return;
-    modal.classList.remove("show");
-    modal._pendingUri = null;
-  }
-
-  // ---------- Spotify actions ----------
+// ---------- Spotify actions ----------
   async function playUri(uri) {
-    // 1) prefer explicit playUri if exists
     let r = safeCall("SpotifyPlayer.playUri", uri);
     if (r.ok) return;
 
-    // 2) fallback to play({ uri })
     r = safeCall("SpotifyPlayer.play", { uri });
     if (r.ok) return;
 
-    // 3) fallback to play(uri)
     r = safeCall("SpotifyPlayer.play", uri);
     if (r.ok) return;
 
@@ -312,17 +193,12 @@
   }
 
   async function getPlaybackState() {
-    // Try a few known patterns
     let r = safeCall("SpotifyPlayer.getState");
-    if (r.ok) {
-      const v = await Promise.resolve(r.value);
-      return v || null;
-    }
+    if (r.ok) return await Promise.resolve(r.value);
+
     r = safeCall("SpotifyPlayer.getPlaybackState");
-    if (r.ok) {
-      const v = await Promise.resolve(r.value);
-      return v || null;
-    }
+    if (r.ok) return await Promise.resolve(r.value);
+
     return null;
   }
 
@@ -334,7 +210,6 @@
       return;
     }
 
-    // logout if available, otherwise soft logout (clear common storage keys)
     let r = safeCall("SpotifyAuth.logout");
     if (r.ok) return;
 
@@ -347,7 +222,45 @@
       sessionStorage.removeItem("spotify_refresh_token");
     } catch {}
   }
-// ---------- Dock ----------
+
+  // ---------- Find NOW host (bullet-proof) ----------
+  function findNowHost() {
+    // 1) If we already mounted before
+    const mounted = document.querySelector(".spNowHost");
+    if (mounted) return mounted;
+
+    // 2) Prefer card that contains LIVE badge
+    const liveNodes = Array.from(document.querySelectorAll("*"))
+      .filter(n => n && n.childElementCount < 30) // small-ish nodes
+      .filter(n => (n.textContent || "").trim().toLowerCase() === "live");
+
+    for (const ln of liveNodes) {
+      const card = ln.closest(".card, .panel, .tile, section, article, div");
+      if (card) return card;
+    }
+
+    // 3) Fallback: tab bar (Now/Recent/Top) exists -> take next big card under it
+    const tab = Array.from(document.querySelectorAll("*"))
+      .find(n => {
+        const t = (n.textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
+        return t.includes("now") && t.includes("recent") && t.includes("top");
+      });
+
+    if (tab) {
+      const container = tab.closest(".card, .panel, .tile, section, article, div") || tab.parentElement;
+      if (container) {
+        // first big card after tabs
+        const nextCards = Array.from(container.querySelectorAll(".card, .panel, .tile, section, article, div"));
+        if (nextCards.length) return nextCards[0];
+      }
+    }
+
+    // 4) Absolute fallback: first big card on page
+    const first = document.querySelector(".card, .panel, .tile, section, article");
+    return first || null;
+  }
+
+  // ---------- Dock ----------
   function ensureDock() {
     ensureCss();
 
@@ -359,7 +272,7 @@
 
     host.classList.add("spNowHost");
 
-    const indicator = el("div", { id: "spIndicator", title: "Spotify" });
+    const indicator = el("div", { id: "spIndicator", title: "Spotify (login/logout)" });
     indicator.innerHTML = spotifyLogoSvg();
 
     const btnPrev = el("button", { class: "spBtn", id: "spPrev", type: "button", "aria-label": "Previous" });
@@ -379,8 +292,7 @@
   }
 
   function setEnabled(enabled) {
-    const ids = ["spPrev", "spPlay", "spPause", "spNext"];
-    for (const id of ids) {
+    for (const id of ["spPrev", "spPlay", "spPause", "spNext"]) {
       const b = document.getElementById(id);
       if (b) b.disabled = !enabled;
     }
@@ -389,8 +301,7 @@
   function setIndicatorLinked(linked) {
     const ind = document.getElementById("spIndicator");
     if (!ind) return;
-    if (linked) ind.classList.add("linked");
-    else ind.classList.remove("linked");
+    ind.classList.toggle("linked", !!linked);
   }
 
   function setPlayPauseVisible(isPlaying) {
@@ -398,7 +309,6 @@
     const pause = document.getElementById("spPause");
     if (!play || !pause) return;
 
-    // ✅ show only one
     if (isPlaying) {
       play.style.display = "none";
       pause.style.display = "grid";
@@ -407,49 +317,45 @@
       pause.style.display = "none";
     }
   }
+function bindDockHandlers() {
+    const $ = (id) => document.getElementById(id);
 
-  function bindDockHandlers() {
-    const byId = (id) => document.getElementById(id);
-
-    byId("spIndicator")?.addEventListener("click", (e) => {
+    $("spIndicator")?.addEventListener("click", (e) => {
       e.preventDefault();
       doLoginOrLogout();
     }, { passive: false });
 
-    byId("spPlay")?.addEventListener("click", (e) => {
+    $("spPlay")?.addEventListener("click", (e) => {
       e.preventDefault();
-      pulse(byId("spPlay"));
+      pulse($("spPlay"));
       const r = safeCall("SpotifyPlayer.play");
       if (!r.ok) console.warn("[Spotify UI] Play failed:", r.reason);
     }, { passive: false });
 
-    byId("spPause")?.addEventListener("click", (e) => {
+    $("spPause")?.addEventListener("click", (e) => {
       e.preventDefault();
-      pulse(byId("spPause"));
+      pulse($("spPause"));
       const r = safeCall("SpotifyPlayer.pause");
       if (!r.ok) console.warn("[Spotify UI] Pause failed:", r.reason);
     }, { passive: false });
 
-    byId("spNext")?.addEventListener("click", (e) => {
+    $("spNext")?.addEventListener("click", (e) => {
       e.preventDefault();
-      pulse(byId("spNext"));
+      pulse($("spNext"));
       const r = safeCall("SpotifyPlayer.next");
       if (!r.ok) console.warn("[Spotify UI] Next failed:", r.reason);
     }, { passive: false });
 
-    byId("spPrev")?.addEventListener("click", (e) => {
+    $("spPrev")?.addEventListener("click", (e) => {
       e.preventDefault();
-      pulse(byId("spPrev"));
+      pulse($("spPrev"));
       const r = safeCall("SpotifyPlayer.prev");
       if (!r.ok) console.warn("[Spotify UI] Prev failed:", r.reason);
     }, { passive: false });
   }
-// ---------- Safe play for list items ----------
+
+  // ---------- Mini play for list rows ----------
   function extractSpotifyUriFromNode(node) {
-    // Accept:
-    // - data-spotify-uri / data-uri
-    // - links to open.spotify.com/track/...
-    // - spotify:track:...
     const ds = node?.dataset || {};
     const cand =
       ds.spotifyUri ||
@@ -460,11 +366,11 @@
 
     if (cand) {
       if (cand.startsWith("spotify:")) return cand;
-      // if it's an ID, assume track id
       if (/^[A-Za-z0-9]{22}$/.test(cand)) return `spotify:track:${cand}`;
     }
 
-    const a = node?.closest?.("a[href]");
+    const a = node?.querySelector?.("a[href*='open.spotify.com/track/'], a[href^='spotify:track:']") ||
+              node?.closest?.("a[href*='open.spotify.com/track/'], a[href^='spotify:track:']");
     const href = a?.getAttribute?.("href") || "";
     if (href.includes("open.spotify.com/track/")) {
       const m = href.match(/track\/([A-Za-z0-9]{22})/);
@@ -475,66 +381,143 @@
     return null;
   }
 
-  function extractLabelFromNode(node) {
-    // Try to build a nice label for the popup
-    const row = node.closest?.(".row, .track, .trackRow, .item, li, .listItem") || node;
-    const text = (row?.innerText || "").trim().replace(/\s+/g, " ");
-    if (text) return text.slice(0, 90);
-    return "";
+  function rowLabel(row) {
+    const t = (row?.innerText || "").trim().replace(/\s+/g, " ");
+    return t ? t.slice(0, 120) : "";
+  }
+
+  function guessTrackRows() {
+    // The UI seems to use list rows with artwork + title + artist.
+    // We'll take any element that contains a numbered title like "1. Something"
+    // or any row with an artwork img + text.
+    const candidates = Array.from(document.querySelectorAll("li, .row, .track, .trackRow, .listItem, div"))
+      .filter(n => n && n.children && n.children.length)
+      .filter(n => {
+        const txt = (n.textContent || "").trim();
+        if (!txt) return false;
+        // numbered list pattern: "12. Track Name"
+        if (/^\s*\d+\.\s+/.test(txt)) return true;
+        // has artwork img + some title text
+        const hasImg = !!n.querySelector("img");
+        const hasWords = txt.length > 8;
+        return hasImg && hasWords;
+      });
+
+    // de-dup (keep higher-level rows)
+    const uniq = [];
+    for (const c of candidates) {
+      if (uniq.some(u => u.contains(c))) continue;
+      uniq.push(c);
+    }
+    return uniq;
   }
 
   function attachMiniPlayButtons() {
-    // try to find list rows that represent tracks
-    const rows = Array.from(document.querySelectorAll(".row, .track, .trackRow, .listItem, li"))
-      .filter(r => extractSpotifyUriFromNode(r));
+    if (!getToken()) return;
 
+    const rows = guessTrackRows();
     for (const r of rows) {
+      if (r.id === "spNowDock") continue;
       if (r.querySelector(".spMiniPlay")) continue;
 
-      // Make sure it's not the NOW card
-      if (r.closest?.("#spNowDock")) continue;
-
-      const btn = el("button", { class: "spMiniPlay", type: "button", "aria-label": "Play track" });
+      const uri = extractSpotifyUriFromNode(r);
+      // If uri not present in DOM, we still might resolve later (Top list uses backend resolve)
+      // We'll still add button, and on click we'll try:
+      // 1) uri from dataset / link
+      // 2) window.resolveSpotifyForRow(row) if app provides
+      // 3) no-op
+      const btn = el("button", { class: "spMiniPlay", type: "button", "aria-label": "Play" });
       btn.innerHTML = `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M9 7v10l8-5-8-5z"/></svg>`;
-      btn.addEventListener("click", (e) => {
+
+      btn.addEventListener("click", async (e) => {
         e.preventDefault();
         e.stopPropagation();
-        const uri = extractSpotifyUriFromNode(r) || extractSpotifyUriFromNode(e.target);
-        if (!uri) return;
-        const label = extractLabelFromNode(r);
-        showModal(uri, label);
+        pulse(btn);
+
+        const u1 = extractSpotifyUriFromNode(r);
+        if (u1) return playUri(u1);
+
+        // Optional hook if your app exposes a resolver:
+        // window.ListeningMirror.resolveRowToSpotifyUri(row) -> Promise<string>
+        const hook = window.ListeningMirror?.resolveRowToSpotifyUri;
+        if (typeof hook === "function") {
+          try {
+            const u2 = await hook(r);
+            if (u2) return playUri(u2);
+          } catch {}
+        }
+
+        console.warn("[Spotify UI] No URI found for row:", rowLabel(r));
       }, { passive: false });
 
-      // append at end, keep layout safe
-      r.style.display = r.style.display || "flex";
-      r.style.alignItems = r.style.alignItems || "center";
+      // Make row flex-friendly without breaking existing layout
+      r.classList.add("spRowFlex");
+      // Wrap existing children into main container if not already wrapped
+      if (!r.querySelector(":scope > .spRowMain")) {
+        const main = el("div", { class: "spRowMain" });
+        while (r.firstChild) main.appendChild(r.firstChild);
+        r.appendChild(main);
+      }
       r.appendChild(btn);
     }
   }
+// ---------- State loop ----------
+  async function observeStateLoop() {
+    let lastLinked = null;
+    let lastPlaying = null;
 
-  function interceptRowClicks() {
-    // Click anywhere on a track row opens confirmation modal (prevents accidental play)
-    document.addEventListener("click", (e) => {
-      const token = getToken();
-      if (!token) return;
+    async function tick() {
+      // ensure dock always exists (page transitions / tab switches)
+      ensureDock();
 
-      const hit = closestAny(e.target, [
-        ".row[data-spotify-uri]",
-        ".row[data-uri]",
-        ".track[data-spotify-uri]",
-        ".track[data-uri]",
-        ".trackRow[data-spotify-uri]",
-        ".trackRow[data-uri]",
-        "a[href*='open.spotify.com/track/']",
-        "a[href^='spotify:track:']"
-      ]);
+      const linked = !!getToken();
+      if (linked !== lastLinked) {
+        setIndicatorLinked(linked);
+        setEnabled(linked);
+        lastLinked = linked;
+      }
 
-      if (!hit) return;
+      if (!linked) {
+        setPlayPauseVisible(false);
+      } else {
+        let isPlaying = false;
+        const st = await getPlaybackState();
+        if (st && typeof st === "object") {
+          if (typeof st.isPlaying === "boolean") isPlaying = st.isPlaying;
+          else if (typeof st.playing === "boolean") isPlaying = st.playing;
+          else if (typeof st.paused === "boolean") isPlaying = !st.paused;
+        }
+        if (isPlaying !== lastPlaying) {
+          setPlayPauseVisible(isPlaying);
+          lastPlaying = isPlaying;
+        }
+        // keep adding mini-play buttons (lists change)
+        attachMiniPlayButtons();
+      }
 
-      // If user clicked the mini play button, let it handle it
-      if (e.target?.closest?.(".spMiniPlay")) return;
+      requestAnimationFrame(tick);
+    }
 
-      // Do NOT intercept clicks inside the NOW dock
-      if (e.target?.closest?.("#spNowDock")) return;
+    requestAnimationFrame(tick);
+  }
 
-      const uri = extractSpotifyUriFromNode(hit);
+  function boot() {
+    const dock = ensureDock();
+    if (dock) bindDockHandlers();
+
+    // also handle re-mount after navigation
+    const mo = new MutationObserver(() => {
+      const d = ensureDock();
+      if (d && !d._bound) {
+        bindDockHandlers();
+        d._bound = true;
+      }
+    });
+    mo.observe(document.documentElement, { subtree: true, childList: true });
+
+    observeStateLoop();
+  }
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
+  else boot();
+})();

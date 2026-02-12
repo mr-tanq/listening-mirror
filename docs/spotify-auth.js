@@ -1,77 +1,87 @@
-// spotify-auth.js
-// No secrets here. Client ID only.
+/* spotify-auth.js
+   Frontend-only Spotify OAuth (Implicit Grant) + localStorage token saved by callback.html
+   Requirements:
+   - Spotify Dashboard Redirect URI:
+     https://mr-tanq.github.io/listening-mirror/callback.html
+   - callback.html saves:
+     localStorage.spotify_token
+     localStorage.spotify_token_exp
+*/
 
-const CLIENT_ID = "ΒΑΛΕ_ΕΔΩ_ΤΟ_CLIENT_ID_ΣΟΥ";
+(() => {
+  "use strict";
 
-const SCOPES = [
-  "user-read-playback-state",
-  "user-modify-playback-state",
-  "user-read-currently-playing"
-];
+  // ✅ EDIT THIS: your Spotify App Client ID
+  const CLIENT_ID = "PASTE_YOUR_CLIENT_ID_HERE";
 
-function getRedirectUri(){
-  // Always redirect back to the exact page the user is on (GitHub Pages path included)
-  // Remove hash and query, keep trailing slash if present
-  const url = new URL(window.location.href);
-  url.hash = "";
-  url.search = "";
-  return url.toString();
-}
+  // ✅ Must match Spotify Dashboard redirect EXACTLY
+  const REDIRECT_URI = "https://mr-tanq.github.io/listening-mirror/callback.html";
 
-function loginSpotify(){
-  const redirectUri = getRedirectUri();
-const authUrl =
-    "https://accounts.spotify.com/authorize?" +
-    new URLSearchParams({
-      response_type: "token",
+  // Scopes for controlling playback + reading what plays
+  // (add/remove as needed, but these are the core ones)
+  const SCOPES = [
+    "user-read-playback-state",
+    "user-modify-playback-state",
+    "user-read-currently-playing"
+  ];
+
+  const LS_TOKEN = "spotify_token";
+  const LS_EXP = "spotify_token_exp";
+
+  function nowMs() {
+    return Date.now();
+  }
+
+  function getStoredToken() {
+    const t = localStorage.getItem(LS_TOKEN);
+    const exp = Number(localStorage.getItem(LS_EXP) || "0");
+    if (!t) return null;
+    if (!exp || nowMs() > exp - 10_000) return null; // 10s safety
+    return t;
+  }
+
+  function clearToken() {
+    localStorage.removeItem(LS_TOKEN);
+    localStorage.removeItem(LS_EXP);
+  }
+
+  function buildAuthUrl() {
+    const params = new URLSearchParams({
       client_id: CLIENT_ID,
+      response_type: "token",
+      redirect_uri: REDIRECT_URI,
       scope: SCOPES.join(" "),
-      redirect_uri: redirectUri,
       show_dialog: "false"
     });
 
-  window.location.assign(authUrl);
-}
-
-function getTokenFromUrl(){
-  const hash = window.location.hash;
-  if(!hash) return null;
-
-  const params = new URLSearchParams(hash.substring(1));
-  const token = params.get("access_token");
-  const expiresIn = params.get("expires_in"); // seconds
-if(token){
-    const now = Date.now();
-    const ttlMs = (parseInt(expiresIn || "3600", 10) * 1000);
-
-    localStorage.setItem("spotify_token", token);
-    localStorage.setItem("spotify_token_exp", String(now + ttlMs));
-
-    // clean URL
-    window.location.hash = "";
-    return token;
+    return `https://accounts.spotify.com/authorize?${params.toString()}`;
   }
-  return null;
-}
 
-function tokenExpired(){
-  const exp = parseInt(localStorage.getItem("spotify_token_exp") || "0", 10);
-  return !exp || Date.now() > exp;
-}
-function getSpotifyToken(){
-  // 1) if token is in URL hash right now, capture it
-  const fromHash = getTokenFromUrl();
-  if(fromHash) return fromHash;
+  function requireClientId() {
+    if (!CLIENT_ID || CLIENT_ID.includes("PASTE_YOUR_CLIENT_ID_HERE")) {
+      console.error("[spotify-auth] Missing CLIENT_ID. Set it in spotify-auth.js");
+      return false;
+    }
+    return true;
+  }
 
-  // 2) otherwise use stored token if not expired
-  const token = localStorage.getItem("spotify_token");
-  if(!token) return null;
-  if(tokenExpired()) return null;
+  function login() {
+    if (!requireClientId()) return;
+    window.location.href = buildAuthUrl();
+  }
 
-  return token;
-}
+  function isLinked() {
+    return !!getStoredToken();
+  }
 
-function logoutSpotify(){
-  localStorage.removeItem("spotify_token");
-  localStorage.removeItem("spotify_token_exp");
-}
+  // Public API (attached to window for app.js to use)
+  window.SpotifyAuth = {
+    CLIENT_ID,
+    REDIRECT_URI,
+    SCOPES,
+    login,
+    logout: clearToken,
+    isLinked,
+    getToken: getStoredToken
+  };
+})();

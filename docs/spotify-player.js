@@ -1,228 +1,157 @@
-(function(){
+/* spotify-player.js
+   Spotify Web API playback control using the token from SpotifyAuth.getToken()
+
+   Exposes:
+   - SpotifyPlayer.refreshState()
+   - SpotifyPlayer.play()
+   - SpotifyPlayer.pause()
+   - SpotifyPlayer.next()
+   - SpotifyPlayer.prev()
+   - SpotifyPlayer.playUri(uri)   // play a track/album/playlist URI directly
+   - SpotifyPlayer.ensureActiveDevice() // tries to find/activate a device
+   - SpotifyPlayer.getDevices()
+
+   Notes:
+   - This controls playback on the user's active Spotify Connect device (phone, speaker, desktop etc).
+   - If you have no active device, Spotify returns 404 / 403 depending on context.
+*/
+
+(() => {
   "use strict";
 
-  const TEST_TRACK_URI = "spotify:track:0VjIjW4GlUZAMYd2vXMi3b"; // άλλαξέ το όποτε θες
+  const API = "https://api.spotify.com/v1";
 
-  function $(sel){ return document.querySelector(sel); }
-  function clampStr(s, n){ s = String(s || ""); return s.length > n ? s.slice(0,n-1)+"…" : s; }
+  async function apiFetch(path, { method = "GET", body = null, query = null } = {}) {
+    const token = window.SpotifyAuth?.getToken?.();
+    if (!token) {
+      const err = { status: 401, message: "No token provided" };
+      throw err;
+    }
 
-  function getToken(){
-    try{
-      if(typeof getSpotifyToken === "function") return getSpotifyToken();
-    }catch(e){}
-    return localStorage.getItem("spotify_token");
-  }
+    let url = API + path;
+    if (query) {
+      const qs = new URLSearchParams(query);
+      url += `?${qs.toString()}`;
+    }
 
-  async function spFetch(path, {method="GET", body=null} = {}){
-    const token = getToken();
-    if(!token) throw new Error("NO_TOKEN");
-
-    const res = await fetch("https://api.spotify.com/v1" + path, {
+    const res = await fetch(url, {
       method,
       headers: {
-        "Authorization": "Bearer " + token,
-        "Content-Type": "application/json"
+        Authorization: `Bearer ${token}`,
+        ...(body ? { "Content-Type": "application/json" } : {})
       },
       body: body ? JSON.stringify(body) : null
     });
 
-    if(res.status === 401) throw new Error("TOKEN_EXPIRED_OR_INVALID");
-    if(res.status === 204) return null;
+    // Spotify sometimes returns 204 No Content for success
+    if (res.status === 204) return null;
 
-    const txt = await res.text();
-    let json = null;
-    try{ json = txt ? JSON.parse(txt) : null; }catch(e){}
-
-    if(!res.ok){
-      const msg = json?.error?.message || ("HTTP_" + res.status);
-      const err = new Error(msg);
-      err.status = res.status;
-      err.payload = json;
-      throw err;
+    let data = null;
+    const text = await res.text();
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = text || null;
     }
-    return json;
+
+    if (!res.ok) {
+      // Normalize error
+      const message =
+        (data && data.error && (data.error.message || data.error.reason)) ||
+        (typeof data === "string" ? data : res.statusText) ||
+        "Spotify API error";
+
+      throw { status: res.status, message, raw: data };
+    }
+
+    return data;
   }
 
-  async function getDevices(){
-    const data = await spFetch("/me/player/devices");
-    return data?.devices || [];
+  async function getDevices() {
+    return apiFetch("/me/player/devices");
   }
-async function ensureActiveDevice(){
+
+  async function ensureActiveDevice() {
+    // We try:
+    // 1) If there is an active device, OK
+    // 2) Else, pick the first available device and transfer playback
+    //    (requires user-modify-playback-state)
     const devices = await getDevices();
-    if(!devices.length) throw new Error("NO_DEVICES");
+    const list = devices?.devices || [];
 
-    // προτίμησε active device, αλλιώς πάρε το πρώτο διαθέσιμο
-    const active = devices.find(d => d.is_active) || devices[0];
+    const active = list.find(d => d.is_active);
+    if (active) return active;
 
-    // αν δεν είναι active, κάνε transfer playback εκεί
-    if(!active.is_active){
-      await spFetch("/me/player", {
-        method: "PUT",
-        body: { device_ids: [active.id], play: false }
-      });
+    const candidate = list.find(d => d.is_restricted === false) || list[0];
+    if (!candidate) {
+      throw { status: 404, message: "No Spotify devices found. Open Spotify on a device first." };
     }
 
-    return active;
-  }
-
-  async function playUri(uri){
-    await ensureActiveDevice();
-    await spFetch("/me/player/play", {
+    // Transfer to candidate (doesn't necessarily auto-play; we can request play: true)
+    await apiFetch("/me/player", {
       method: "PUT",
-      body: { uris: [uri] }
+      body: { device_ids: [candidate.id], play: true }
     });
+
+    return candidate;
   }
 
-  async function pause(){
-    await spFetch("/me/player/pause", { method: "PUT" });
+  async function refreshState() {
+    // Returns current playback state
+    // NOTE: if nothing is active, Spotify can return 204
+    return apiFetch("/me/player");
   }
 
-  async function next(){
-    await spFetch("/me/player/next", { method: "POST" });
+  async function play() {
+    await ensureActiveDevice();
+    return apiFetch("/me/player/play", { method: "PUT" });
   }
 
-  async function prev(){
-    await spFetch("/me/player/previous", { method: "POST" });
+  async function pause() {
+    return apiFetch("/me/player/pause", { method: "PUT" });
   }
 
-  function setStatus(msg){
-    let el = document.getElementById("statusLine");
-    if(el) el.textContent = msg;
+  async function next() {
+    await ensureActiveDevice();
+    return apiFetch("/me/player/next", { method: "POST" });
   }
 
-  function pillMsg(el, msg){
-    if(!el) return;
-    el.textContent = msg;
-  }
-function mountPill(){
-    const host = document.querySelector(".app") || document.body;
-
-    const wrap = document.createElement("div");
-    wrap.style.position = "sticky";
-    wrap.style.top = "10px";
-    wrap.style.zIndex = "9999";
-    wrap.style.display = "flex";
-    wrap.style.justifyContent = "flex-end";
-    wrap.style.pointerEvents = "none";
-    wrap.style.margin = "0 0 10px 0";
-
-    const pill = document.createElement("div");
-    pill.style.pointerEvents = "auto";
-    pill.style.display = "inline-flex";
-    pill.style.alignItems = "center";
-    pill.style.gap = "8px";
-    pill.style.padding = "8px 10px";
-    pill.style.borderRadius = "999px";
-    pill.style.background = "rgba(255,255,255,.06)";
-    pill.style.outline = "1px solid rgba(255,255,255,.10)";
-    pill.style.boxShadow = "0 16px 45px rgba(0,0,0,.35)";
-    pill.style.backdropFilter = "blur(10px)";
-    pill.style.webkitBackdropFilter = "blur(10px)";
-    pill.style.fontSize = "12px";
-    pill.style.color = "rgba(255,255,255,.86)";
-    pill.style.userSelect = "none";
-
-    const dot = document.createElement("span");
-    dot.style.width = "7px";
-    dot.style.height = "7px";
-    dot.style.borderRadius = "999px";
-    dot.style.background = "rgba(255,255,255,.18)";
-    dot.style.outline = "1px solid rgba(255,255,255,.10)";
-
-    const label = document.createElement("span");
-    label.textContent = "Spotify: not linked";
-
-    const btn = (txt) => {
-      const b = document.createElement("button");
-      b.textContent = txt;
-      b.style.border = "0";
-      b.style.cursor = "pointer";
-      b.style.padding = "7px 10px";
-      b.style.borderRadius = "999px";
-      b.style.background = "rgba(255,255,255,.08)";
-      b.style.color = "rgba(255,255,255,.92)";
-      b.style.outline = "1px solid rgba(255,255,255,.10)";
-      return b;
-    };
-
-    const bLogin = btn("Connect");
-    const bPlay  = btn("Play");
-    const bPause = btn("Pause");
-    const bNext  = btn("Next");
-    const bPrev  = btn("Prev");
-    const bLogout = btn("Logout");
-
-    pill.append(dot, label, bPrev, bPlay, bPause, bNext, bLogin, bLogout);
-    wrap.appendChild(pill);
-
-    // βάλε το αμέσως μετά τα tabs (αν υπάρχουν), αλλιώς πάνω-πάνω
-    const tabs = document.querySelector(".tabs");
-    if(tabs && tabs.parentNode){
-      tabs.parentNode.insertBefore(wrap, tabs.nextSibling);
-    }else{
-      host.insertBefore(wrap, host.firstChild);
-    }
-
-    return { dot, label, bLogin, bPlay, bPause, bNext, bPrev, bLogout };
-  }
-function updatePill(ui){
-    const token = getToken();
-    if(token){
-      ui.dot.style.background = "rgba(49,208,124,.75)";
-      ui.dot.style.outlineColor = "rgba(49,208,124,.35)";
-      ui.dot.style.boxShadow = "0 0 0 3px rgba(49,208,124,.10)";
-      pillMsg(ui.label, "Spotify: linked");
-      ui.bLogin.style.display = "none";
-      ui.bLogout.style.display = "inline-flex";
-    }else{
-      ui.dot.style.background = "rgba(255,255,255,.18)";
-      ui.dot.style.outlineColor = "rgba(255,255,255,.10)";
-      ui.dot.style.boxShadow = "none";
-      pillMsg(ui.label, "Spotify: not linked");
-      ui.bLogin.style.display = "inline-flex";
-      ui.bLogout.style.display = "none";
-    }
+  async function prev() {
+    await ensureActiveDevice();
+    return apiFetch("/me/player/previous", { method: "POST" });
   }
 
-  async function safe(action, ui){
-    try{
-      await action();
-      updatePill(ui);
-    }catch(e){
-      if(e.message === "NO_TOKEN"){
-        pillMsg(ui.label, "Spotify: connect first");
-        return;
-      }
-      if(e.message === "TOKEN_EXPIRED_OR_INVALID"){
-        pillMsg(ui.label, "Spotify: token expired (reconnect)");
-        logoutSpotify?.();
-        updatePill(ui);
-        return;
-      }
-      if(e.message === "NO_DEVICES"){
-        pillMsg(ui.label, "Open Spotify once (need an active device)");
-        return;
-      }
-      pillMsg(ui.label, "Error: " + clampStr(e.message, 40));
-    }
+  async function playUri(uri) {
+    // uri examples:
+    // - spotify:track:...
+    // - spotify:album:...
+    // - spotify:playlist:...
+    if (!uri) throw { status: 400, message: "Missing uri" };
+    await ensureActiveDevice();
+
+    // For track URI you can also pass { uris: [uri] }
+    // For context URI (album/playlist) pass { context_uri: uri }
+    const isTrack = uri.startsWith("spotify:track:");
+    const body = isTrack ? { uris: [uri] } : { context_uri: uri };
+
+    return apiFetch("/me/player/play", { method: "PUT", body });
   }
 
-  document.addEventListener("DOMContentLoaded", ()=>{
-    // 1) αν γύρισες από Spotify redirect, θα αποθηκεύσει token εδώ
-    getToken();
+  // Small helper: tells if linked
+  function isLinked() {
+    return !!window.SpotifyAuth?.getToken?.();
+  }
 
-    const ui = mountPill();
-    updatePill(ui);
-
-    ui.bLogin.addEventListener("click", ()=> loginSpotify());
-    ui.bLogout.addEventListener("click", ()=> { logoutSpotify?.(); updatePill(ui); });
-
-    ui.bPlay.addEventListener("click", ()=> safe(()=> playUri(TEST_TRACK_URI), ui));
-    ui.bPause.addEventListener("click", ()=> safe(()=> pause(), ui));
-    ui.bNext.addEventListener("click", ()=> safe(()=> next(), ui));
-    ui.bPrev.addEventListener("click", ()=> safe(()=> prev(), ui));
-
-    // Προαιρετικό: δείξε στο status line ότι έχουμε control layer
-    setStatus("Offline"); // δεν πειράζω το app.js σου
-  });
+  window.SpotifyPlayer = {
+    isLinked,
+    apiFetch,
+    getDevices,
+    ensureActiveDevice,
+    refreshState,
+    play,
+    pause,
+    next,
+    prev,
+    playUri
+  };
 })();

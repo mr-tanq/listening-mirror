@@ -28,13 +28,13 @@
       --safeT: max(14px, env(safe-area-inset-top));
       --safeB: max(14px, env(safe-area-inset-bottom));
 
-      /* axis driver (0..1). app.js updates mDot -> we mirror it via tiny JS */
+      /* axis driver (0..1) */
       --axis: .50;
       --axisInv: calc(1 - var(--axis));
 
-      /* doodle intensities */
-      --doodleBright: calc(var(--axis) * .55);   /* 0..0.55 */
-      --doodleDark:   calc(var(--axisInv) * .50);/* 0..0.50 */
+      /* doodles intensity */
+      --doodleBright: calc(var(--axis) * .65);   /* 0..0.65 */
+      --doodleDark:   calc(var(--axisInv) * .60);/* 0..0.60 */
     }
 
     *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
@@ -48,67 +48,62 @@
       color: var(--text);
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
 
-      /* Premium, abstract global background driven by axis */
+      /* Premium global background driven by axis */
       background:
-        radial-gradient(1200px 700px at 22% -10%, rgba(255,255,255, calc(.04 + var(--axis)*.10)), transparent 60%),
-        radial-gradient(900px 600px at 92% 0%, rgba(255,255,255, calc(.03 + var(--axis)*.08)), transparent 55%),
-        radial-gradient(900px 600px at 50% 110%, rgba(255,255,255, calc(.02 + var(--axis)*.06)), transparent 60%),
+        radial-gradient(1200px 700px at 22% -10%, rgba(255,255,255, calc(.04 + var(--axis)*.12)), transparent 60%),
+        radial-gradient(900px 600px at 92% 0%, rgba(255,255,255, calc(.03 + var(--axis)*.10)), transparent 55%),
+        radial-gradient(900px 600px at 50% 110%, rgba(255,255,255, calc(.02 + var(--axis)*.08)), transparent 60%),
         linear-gradient(180deg,
-          color-mix(in srgb, var(--bg)  calc(90% - var(--axis)*25%), #171a1f calc(10% + var(--axis)*25%)),
-          color-mix(in srgb, var(--bg2) calc(92% - var(--axis)*22%), #1a1e24 calc(8%  + var(--axis)*22%))
+          color-mix(in srgb, var(--bg)  calc(92% - var(--axis)*26%), #1a1f26 calc(8% + var(--axis)*26%)),
+          color-mix(in srgb, var(--bg2) calc(92% - var(--axis)*22%), #1d232b calc(8% + var(--axis)*22%))
         );
     }
 
-    /* Subtle premium overlay (abstract haze) */
+    /* subtle haze (not the doodles) */
     body:before{
       content:"";
       position:fixed;
       inset:-2px;
       pointer-events:none;
       background:
-        radial-gradient(800px 500px at 18% 18%, rgba(255,255,255, calc(.015 + var(--axis)*.05)), transparent 60%),
-        radial-gradient(700px 420px at 86% 22%, rgba(255,255,255, calc(.012 + var(--axis)*.04)), transparent 62%),
-        radial-gradient(900px 520px at 50% 85%, rgba(0,0,0, calc(.28 + var(--axisInv)*.22)), transparent 62%),
-        linear-gradient(180deg, rgba(0,0,0, calc(.30 + var(--axisInv)*.18)), rgba(0,0,0, calc(.48 + var(--axisInv)*.22)));
+        radial-gradient(820px 520px at 18% 18%, rgba(255,255,255, calc(.015 + var(--axis)*.06)), transparent 60%),
+        radial-gradient(720px 450px at 86% 22%, rgba(255,255,255, calc(.012 + var(--axis)*.05)), transparent 62%),
+        radial-gradient(900px 520px at 50% 85%, rgba(0,0,0, calc(.24 + var(--axisInv)*.24)), transparent 62%),
+        linear-gradient(180deg, rgba(0,0,0, calc(.26 + var(--axisInv)*.18)), rgba(0,0,0, calc(.46 + var(--axisInv)*.22)));
       opacity:1;
+      z-index:0;
     }
 
-    /* ✅ DOODLES LAYER (premium line art) */
-    body:after{
-      content:"";
+    /* DOODLES layers: real motifs (premium mono line-art), NOT the random lines */
+    .doodles{
       position:fixed;
       inset:0;
       pointer-events:none;
       z-index:0;
-
-      /* Two SVG patterns layered; we fade each by axis using separate pseudo blending via background + opacity */
-      background-image:
-        /* BRIGHT doodles */
-        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='1200' viewBox='0 0 1200 1200'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='.18' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M70 290 C230 120, 420 170, 560 90 C720 -5, 900 40, 1120 210'/%3E%3Cpath d='M110 980 C260 820, 430 880, 560 770 C700 650, 900 680, 1120 840'/%3E%3Cpath d='M240 420 C320 360, 390 360, 450 420 C510 480, 580 480, 650 420'/%3E%3Cpath d='M720 460 C780 410, 860 420, 900 480 C940 540, 1010 560, 1090 520'/%3E%3Cpath d='M190 650 C230 610, 280 610, 320 650 C360 690, 420 690, 460 650'/%3E%3Cpath d='M835 250 C860 220, 900 220, 925 250 C950 280, 990 280, 1015 250'/%3E%3Ccircle cx='180' cy='210' r='1.8'/%3E%3Ccircle cx='310' cy='180' r='1.2'/%3E%3Ccircle cx='980' cy='310' r='1.4'/%3E%3Ccircle cx='1040' cy='360' r='1.1'/%3E%3Ccircle cx='890' cy='930' r='1.5'/%3E%3Ccircle cx='220' cy='930' r='1.3'/%3E%3Cpath d='M570 550 C540 520, 520 480, 540 450 C560 420, 610 420, 630 450 C650 480, 630 520, 600 550' stroke-opacity='.14'/%3E%3Cpath d='M600 550 C585 575, 565 600, 540 610' stroke-opacity='.12'/%3E%3Cpath d='M600 550 C615 575, 635 600, 660 610' stroke-opacity='.12'/%3E%3C/g%3E%3C/svg%3E"),
-        /* DARK doodles */
-        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='1200' viewBox='0 0 1200 1200'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='.16' stroke-width='1.35' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M90 300 C180 260, 240 300, 300 250 C350 210, 420 220, 470 260'/%3E%3Cpath d='M470 260 C520 220, 590 210, 640 250 C700 300, 760 260, 850 300'/%3E%3Cpath d='M160 840 C240 780, 320 780, 400 840'/%3E%3Cpath d='M400 840 C480 900, 560 900, 640 840'/%3E%3Cpath d='M780 420 C840 360, 920 360, 980 420'/%3E%3Cpath d='M980 420 C1040 480, 1120 480, 1180 420'/%3E%3Cpath d='M260 560 C290 520, 340 520, 370 560' stroke-opacity='.10'/%3E%3Cpath d='M830 880 C860 840, 910 840, 940 880' stroke-opacity='.10'/%3E%3Ccircle cx='220' cy='180' r='1.2'/%3E%3Ccircle cx='260' cy='210' r='1.0'/%3E%3Ccircle cx='980' cy='170' r='1.1'/%3E%3Ccircle cx='1010' cy='220' r='1.0'/%3E%3Ccircle cx='180' cy='980' r='1.1'/%3E%3Ccircle cx='1030' cy='980' r='1.1'/%3E%3C/g%3E%3C/svg%3E");
-
-      background-size: 900px 900px, 900px 900px;
-      background-repeat: repeat, repeat;
-      background-position: 0 0, 120px 60px;
-
-      /* Make it feel “printed on glass” */
+      opacity:0;
+      transition: opacity .25s ease;
       mix-blend-mode: screen;
-      filter: blur(.25px);
+      filter: blur(.2px);
+    }
+    .doodles.bright{ opacity: var(--doodleBright); }
+    .doodles.dark{ opacity: var(--doodleDark); mix-blend-mode: screen; }
 
-      /* overall cap (actual intensity happens in the 2 extra overlays below) */
-      opacity: .75;
+    /* BRIGHT doodles: honeycomb + floral strokes + tiny rainbow-arc (abstract) */
+    .doodles.bright{
+      background-image:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='1200' viewBox='0 0 1200 1200'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='.22' stroke-width='1.25' stroke-linecap='round' stroke-linejoin='round'%3E%3C!-- honeycomb cluster --%3E%3Cg stroke-opacity='.16'%3E%3Cpath d='M140 170 l26 -15 26 15 0 30 -26 15 -26 -15z'/%3E%3Cpath d='M192 200 l26 -15 26 15 0 30 -26 15 -26 -15z'/%3E%3Cpath d='M244 170 l26 -15 26 15 0 30 -26 15 -26 -15z'/%3E%3Cpath d='M192 140 l26 -15 26 15 0 30 -26 15 -26 -15z'/%3E%3C/g%3E%3C!-- botanical strokes --%3E%3Cpath d='M980 180 C940 210, 920 250, 960 290 C1000 330, 1060 310, 1100 270' stroke-opacity='.18'/%3E%3Cpath d='M995 205 C980 240, 980 265, 1005 292' stroke-opacity='.14'/%3E%3Cpath d='M1038 214 C1012 248, 1010 270, 1030 300' stroke-opacity='.14'/%3E%3C!-- small abstract rainbow arc --%3E%3Cpath d='M120 920 C170 870, 230 870, 280 920' stroke-opacity='.18'/%3E%3Cpath d='M135 920 C175 885, 225 885, 265 920' stroke-opacity='.12'/%3E%3Cpath d='M150 920 C182 900, 218 900, 250 920' stroke-opacity='.08'/%3E%3C!-- tiny flowers (minimal) --%3E%3Cg stroke-opacity='.14'%3E%3Cpath d='M620 980 m0 -8 c8 0 8 16 0 16 c-8 0 -8 -16 0 -16z'/%3E%3Cpath d='M620 972 m-8 0 c0 8 16 8 16 0 c0 -8 -16 -8 -16 0z'/%3E%3C/g%3E%3Ccircle cx='610' cy='320' r='1.2' stroke-opacity='.18'/%3E%3Ccircle cx='640' cy='340' r='1.0' stroke-opacity='.14'/%3E%3Ccircle cx='670' cy='315' r='1.1' stroke-opacity='.14'/%3E%3C/g%3E%3C/svg%3E");
+      background-size: 980px 980px;
+      background-repeat: repeat;
+      background-position: 40px 40px;
     }
 
-    /* Bright-only doodles fade-in with axis */
-    .doodleBrightOverlay{
-      content:"";
-      position:fixed;
-      inset:0;
-      pointer-events:none;
-      z-index:0;
-      background-image: inherit;
-      opacity: var(--doodleBright);
+    /* DARK doodles: bats (abstract wings) + constellations dots */
+    .doodles.dark{
+      background-image:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='1200' viewBox='0 0 1200 1200'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='.18' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'%3E%3C!-- abstract bats (not cartoon) --%3E%3Cpath d='M180 260 C230 220, 270 220, 320 260 C350 285, 380 280, 410 250'/%3E%3Cpath d='M410 250 C380 310, 340 330, 300 300 C260 330, 220 310, 190 250' stroke-opacity='.14'/%3E%3Cpath d='M880 880 C930 840, 980 840, 1030 880 C1060 905, 1090 900, 1120 870'/%3E%3Cpath d='M1120 870 C1090 930, 1045 950, 1005 920 C965 950, 920 930, 890 870' stroke-opacity='.14'/%3E%3C!-- constellation dots --%3E%3Cg stroke-opacity='.12'%3E%3Ccircle cx='640' cy='160' r='1.1'/%3E%3Ccircle cx='675' cy='180' r='1.0'/%3E%3Ccircle cx='710' cy='155' r='1.0'/%3E%3Ccircle cx='745' cy='175' r='1.1'/%3E%3Cpath d='M640 160 L675 180 L710 155 L745 175'/%3E%3C/g%3E%3Cg stroke-opacity='.10'%3E%3Ccircle cx='220' cy='1020' r='1.0'/%3E%3Ccircle cx='250' cy='1040' r='1.0'/%3E%3Ccircle cx='290' cy='1015' r='1.0'/%3E%3Cpath d='M220 1020 L250 1040 L290 1015'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+      background-size: 1000px 1000px;
+      background-repeat: repeat;
+      background-position: 120px 60px;
     }
 
     .app{
@@ -139,8 +134,7 @@
       height: 16px;
       border-radius: 999px;
       position:relative;
-      background:
-        radial-gradient(circle at 30% 30%, rgba(255,255,255,.22), rgba(255,255,255,.05) 55%, rgba(255,255,255,.03) 70%);
+      background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.22), rgba(255,255,255,.05) 55%, rgba(255,255,255,.03) 70%);
       outline: 1px solid rgba(255,255,255,.10);
       box-shadow: 0 10px 35px rgba(0,0,0,.45);
       flex: 0 0 auto;
@@ -366,8 +360,66 @@
     }
 
     .list{ padding: 10px; }
+
+    /* ✅ RESTORED LIST ROW STYLES (fixes Top/Recent artwork sizing) */
+    .row{
+      display:grid;
+      grid-template-columns: 52px minmax(0,1fr) max-content;
+      gap: 12px;
+      padding: 12px 12px 12px 16px;
+      border-radius: 16px;
+      align-items:center;
+      user-select:none;
+    }
+    .row:hover{ background: rgba(255,255,255,.035); }
+    .row:active{ background: rgba(255,255,255,.045); }
+
+    .thumb{
+      width: 44px; height: 44px;
+      border-radius: 14px;
+      overflow:hidden;
+      position:relative;
+      outline: 1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.03);
+      box-shadow: 0 10px 30px rgba(0,0,0,.40);
+      flex: 0 0 auto;
+    }
+    .thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+    .thumbFallback{
+      position:absolute; inset:0; display:grid; place-items:center;
+      color: rgba(255,255,255,.35); font-size: 18px;
+    }
+
+    .mid{ min-width:0; padding-left: 3px; }
+    .title{
+      font-size: 13.5px;
+      font-weight: 650;
+      color: rgba(255,255,255,.92);
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .sub{
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--muted2);
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+
+    .right{
+      justify-self:end;
+      text-align:right;
+      font-size: 12.5px;
+      font-weight: 700;
+      color: rgba(255,255,255,.80);
+      padding-left: 8px;
+      white-space:nowrap;
+    }
+    .right.count{ color: rgba(255,214,102,.92); }
 <!-- PART 3/4 -->
-    /* MIRROR + POPUP */
+    /* MIRROR + ORB POPUP */
     .mirrorCard{ margin-top: 16px; }
     .mirrorWrap{ padding: 16px 18px 18px 18px; position:relative; }
 
@@ -558,58 +610,11 @@
       box-shadow: 0 0 0 3px rgba(49,208,124,.10);
     }
 
+    /* ✅ Remove meters from main UI (but keep hidden ids for app.js + popup syncing) */
     .mirrorState{ display:none; }
+    .meters{ display:none; }
 
-    .meters{
-      display:grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap:10px;
-      margin-bottom: 14px;
-    }
-    .meter{
-      border-radius: 16px;
-      background: rgba(255,255,255,.028);
-      outline: 1px solid rgba(255,255,255,.07);
-      padding: 10px 10px 11px 10px;
-      overflow:hidden;
-    }
-    .meterLbl{
-      font-size: 11px;
-      letter-spacing: .25px;
-      color: rgba(255,255,255,.62);
-      text-transform: uppercase;
-    }
-    .meterVal{
-      margin-top: 8px;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-    }
-    .bar{
-      height: 6px;
-      flex: 1 1 auto;
-      border-radius: 999px;
-      background: rgba(255,255,255,.06);
-      overflow:hidden;
-      outline: 1px solid rgba(255,255,255,.06);
-    }
-    .bar > i{
-      display:block;
-      height: 100%;
-      width: 40%;
-      border-radius: 999px;
-      background: linear-gradient(180deg, rgba(255,255,255,.62), rgba(255,255,255,.38));
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.28);
-    }
-    .meterNum{
-      font-size: 12px;
-      font-weight: 750;
-      color: rgba(255,255,255,.82);
-      white-space:nowrap;
-    }
-
-    .axisHidden{
+    .hiddenSignals{
       position:absolute;
       width:0;height:0;
       overflow:hidden;
@@ -618,7 +623,7 @@
     }
 
     .stack{
-      margin-top: 8px;
+      margin-top: 6px;
       display:flex;
       align-items:center;
       justify-content:space-between;
@@ -651,13 +656,16 @@
 
     @media (max-width: 520px){
       .line1{ font-size: 15px; }
-      .meters{ grid-template-columns: 1fr; }
       .orbPopup{ left: 0; }
     }
   </style>
 </head>
 <!-- PART 4/4 -->
 <body>
+  <!-- doodles layers -->
+  <div class="doodles bright" aria-hidden="true"></div>
+  <div class="doodles dark" aria-hidden="true"></div>
+
   <div class="app">
     <header>
       <div class="brand">
@@ -758,38 +766,20 @@
             </div>
           </div>
 
-          <div id="mirrorState" class="mirrorState">IDLE</div>
+          <!-- Keep app.js IDs hidden (so nothing breaks) -->
+          <div class="hiddenSignals" aria-hidden="true">
+            <div id="mirrorState">IDLE</div>
 
-          <div class="meters" aria-label="Mirror meters">
-            <div class="meter">
-              <div class="meterLbl">Energy</div>
-              <div class="meterVal">
-                <div class="bar"><i id="mEnergy"></i></div>
-                <div id="mEnergyNum" class="meterNum">—</div>
-              </div>
+            <div class="meters">
+              <div><div class="bar"><i id="mEnergy"></i></div><div id="mEnergyNum">—</div></div>
+              <div><div class="bar"><i id="mMood"></i></div><div id="mMoodNum">—</div></div>
+              <div><div class="bar"><i id="mReplay"></i></div><div id="mReplayNum">—</div></div>
             </div>
 
-            <div class="meter">
-              <div class="meterLbl">Mood</div>
-              <div class="meterVal">
-                <div class="bar"><i id="mMood"></i></div>
-                <div id="mMoodNum" class="meterNum">—</div>
-              </div>
-            </div>
-
-            <div class="meter">
-              <div class="meterLbl">Replay</div>
-              <div class="meterVal">
-                <div class="bar"><i id="mReplay"></i></div>
-                <div id="mReplayNum" class="meterNum">—</div>
-              </div>
-            </div>
-          </div>
-
-          <div class="axisHidden">
             <div id="mDot" style="left:50%"></div>
           </div>
 
+          <!-- Visible: only session covers (space left for future) -->
           <div class="stack">
             <div class="stackLbl">Session covers</div>
             <div id="mCovers" class="covers" aria-label="Covers stack"></div>

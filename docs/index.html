@@ -28,14 +28,19 @@
       --safeT: max(14px, env(safe-area-inset-top));
       --safeB: max(14px, env(safe-area-inset-bottom));
 
-      /* ✅ axis driver (0..1). app.js updates mDot -> we mirror it here via tiny JS */
+      /* axis driver (0..1). app.js updates mDot -> we mirror it via tiny JS */
       --axis: .50;
       --axisInv: calc(1 - var(--axis));
+
+      /* doodle intensities */
+      --doodleBright: calc(var(--axis) * .55);   /* 0..0.55 */
+      --doodleDark:   calc(var(--axisInv) * .50);/* 0..0.50 */
     }
 
     *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
     html,body{ height:100%; }
     html{ overscroll-behavior-y:none; }
+
     body{
       margin:0;
       overflow-x:hidden;
@@ -43,7 +48,7 @@
       color: var(--text);
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
 
-      /* ✅ Premium, abstract global background driven by axis */
+      /* Premium, abstract global background driven by axis */
       background:
         radial-gradient(1200px 700px at 22% -10%, rgba(255,255,255, calc(.04 + var(--axis)*.10)), transparent 60%),
         radial-gradient(900px 600px at 92% 0%, rgba(255,255,255, calc(.03 + var(--axis)*.08)), transparent 55%),
@@ -54,19 +59,56 @@
         );
     }
 
-    /* Subtle premium overlay (abstract haze + particles) */
+    /* Subtle premium overlay (abstract haze) */
     body:before{
       content:"";
       position:fixed;
       inset:-2px;
       pointer-events:none;
-      opacity: 1;
       background:
         radial-gradient(800px 500px at 18% 18%, rgba(255,255,255, calc(.015 + var(--axis)*.05)), transparent 60%),
         radial-gradient(700px 420px at 86% 22%, rgba(255,255,255, calc(.012 + var(--axis)*.04)), transparent 62%),
         radial-gradient(900px 520px at 50% 85%, rgba(0,0,0, calc(.28 + var(--axisInv)*.22)), transparent 62%),
         linear-gradient(180deg, rgba(0,0,0, calc(.30 + var(--axisInv)*.18)), rgba(0,0,0, calc(.48 + var(--axisInv)*.22)));
-      filter: blur(0px);
+      opacity:1;
+    }
+
+    /* ✅ DOODLES LAYER (premium line art) */
+    body:after{
+      content:"";
+      position:fixed;
+      inset:0;
+      pointer-events:none;
+      z-index:0;
+
+      /* Two SVG patterns layered; we fade each by axis using separate pseudo blending via background + opacity */
+      background-image:
+        /* BRIGHT doodles */
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='1200' viewBox='0 0 1200 1200'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='.18' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M70 290 C230 120, 420 170, 560 90 C720 -5, 900 40, 1120 210'/%3E%3Cpath d='M110 980 C260 820, 430 880, 560 770 C700 650, 900 680, 1120 840'/%3E%3Cpath d='M240 420 C320 360, 390 360, 450 420 C510 480, 580 480, 650 420'/%3E%3Cpath d='M720 460 C780 410, 860 420, 900 480 C940 540, 1010 560, 1090 520'/%3E%3Cpath d='M190 650 C230 610, 280 610, 320 650 C360 690, 420 690, 460 650'/%3E%3Cpath d='M835 250 C860 220, 900 220, 925 250 C950 280, 990 280, 1015 250'/%3E%3Ccircle cx='180' cy='210' r='1.8'/%3E%3Ccircle cx='310' cy='180' r='1.2'/%3E%3Ccircle cx='980' cy='310' r='1.4'/%3E%3Ccircle cx='1040' cy='360' r='1.1'/%3E%3Ccircle cx='890' cy='930' r='1.5'/%3E%3Ccircle cx='220' cy='930' r='1.3'/%3E%3Cpath d='M570 550 C540 520, 520 480, 540 450 C560 420, 610 420, 630 450 C650 480, 630 520, 600 550' stroke-opacity='.14'/%3E%3Cpath d='M600 550 C585 575, 565 600, 540 610' stroke-opacity='.12'/%3E%3Cpath d='M600 550 C615 575, 635 600, 660 610' stroke-opacity='.12'/%3E%3C/g%3E%3C/svg%3E"),
+        /* DARK doodles */
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='1200' viewBox='0 0 1200 1200'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='.16' stroke-width='1.35' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M90 300 C180 260, 240 300, 300 250 C350 210, 420 220, 470 260'/%3E%3Cpath d='M470 260 C520 220, 590 210, 640 250 C700 300, 760 260, 850 300'/%3E%3Cpath d='M160 840 C240 780, 320 780, 400 840'/%3E%3Cpath d='M400 840 C480 900, 560 900, 640 840'/%3E%3Cpath d='M780 420 C840 360, 920 360, 980 420'/%3E%3Cpath d='M980 420 C1040 480, 1120 480, 1180 420'/%3E%3Cpath d='M260 560 C290 520, 340 520, 370 560' stroke-opacity='.10'/%3E%3Cpath d='M830 880 C860 840, 910 840, 940 880' stroke-opacity='.10'/%3E%3Ccircle cx='220' cy='180' r='1.2'/%3E%3Ccircle cx='260' cy='210' r='1.0'/%3E%3Ccircle cx='980' cy='170' r='1.1'/%3E%3Ccircle cx='1010' cy='220' r='1.0'/%3E%3Ccircle cx='180' cy='980' r='1.1'/%3E%3Ccircle cx='1030' cy='980' r='1.1'/%3E%3C/g%3E%3C/svg%3E");
+
+      background-size: 900px 900px, 900px 900px;
+      background-repeat: repeat, repeat;
+      background-position: 0 0, 120px 60px;
+
+      /* Make it feel “printed on glass” */
+      mix-blend-mode: screen;
+      filter: blur(.25px);
+
+      /* overall cap (actual intensity happens in the 2 extra overlays below) */
+      opacity: .75;
+    }
+
+    /* Bright-only doodles fade-in with axis */
+    .doodleBrightOverlay{
+      content:"";
+      position:fixed;
+      inset:0;
+      pointer-events:none;
+      z-index:0;
+      background-image: inherit;
+      opacity: var(--doodleBright);
     }
 
     .app{
@@ -149,8 +191,8 @@
       outline-color: rgba(49,208,124,.35);
       box-shadow: 0 0 0 3px rgba(49,208,124,.10);
     }
-
-    /* ✅ Tabs: left aligned, order Now/Recent/Top, premium spacing */
+<!-- PART 2/4 -->
+    /* Tabs: left aligned, order Now/Recent/Top */
     .tabs{
       display:flex;
       gap:10px;
@@ -191,12 +233,10 @@
       box-shadow: var(--shadow);
       overflow:hidden;
       position:relative;
-
-      /* subtle axis-driven glass intensity */
       backdrop-filter: blur(calc(6px + var(--axis)*6px));
       -webkit-backdrop-filter: blur(calc(6px + var(--axis)*6px));
     }
-<!-- PART 2/4 -->
+
     /* NOW background — SHARP artwork */
     .nowAmbient{
       position:absolute;
@@ -264,7 +304,6 @@
       box-shadow: 0 0 0 3px rgba(255,59,59,.12);
     }
 
-    /* NOW content is single column (no square cover) */
     .nowMain{
       display:grid;
       grid-template-columns: 1fr;
@@ -273,7 +312,6 @@
       position:relative;
       z-index:2;
     }
-    /* kept for app.js compatibility, but hidden */
     .coverWrap{ display:none !important; }
 
     .nowText{ min-width:0; padding-left: 2px; }
@@ -281,7 +319,6 @@
     .line2{ margin-top: 6px; font-size: 13.5px; color: rgba(255,255,255,.72); }
     .line3{ margin-top: 6px; font-size: 12px; color: var(--muted2); }
 
-    /* Marquee: fade only on RIGHT */
     .marq{ display:inline-block; white-space:nowrap; will-change:transform; }
     .marqWrap{
       position:relative;
@@ -329,66 +366,8 @@
     }
 
     .list{ padding: 10px; }
-
-    .row{
-      display:grid;
-      grid-template-columns: 52px minmax(0,1fr) max-content;
-      gap: 12px;
-      padding: 12px 12px 12px 16px;
-      border-radius: 16px;
-      align-items:center;
-      user-select:none;
-    }
-    .row:hover{ background: rgba(255,255,255,.035); }
-    .row:active{ background: rgba(255,255,255,.045); }
-
-    .thumb{
-      width: 44px; height: 44px;
-      border-radius: 14px;
-      overflow:hidden;
-      position:relative;
-      outline: 1px solid rgba(255,255,255,.10);
-      background: rgba(255,255,255,.03);
-      box-shadow: 0 10px 30px rgba(0,0,0,.40);
-    }
-    .thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
-    .thumbFallback{
-      position:absolute; inset:0; display:grid; place-items:center;
-      color: rgba(255,255,255,.35); font-size: 18px;
-    }
-
-    .mid{ min-width:0; padding-left: 3px; }
-    .title{
-      font-size: 13.5px;
-      font-weight: 650;
-      color: rgba(255,255,255,.92);
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-    }
-    .sub{
-      margin-top: 6px;
-      font-size: 12px;
-      color: var(--muted2);
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-    }
-
-    .right{
-      justify-self:end;
-      text-align:right;
-      font-size: 12.5px;
-      font-weight: 700;
-      color: rgba(255,255,255,.80);
-      padding-left: 8px;
-      white-space:nowrap;
-    }
-    .right.count{ color: rgba(255,214,102,.92); }
 <!-- PART 3/4 -->
-    /* --------------------------
-       MIRROR CARD + ORB + POPUP (clean)
-       -------------------------- */
+    /* MIRROR + POPUP */
     .mirrorCard{ margin-top: 16px; }
     .mirrorWrap{ padding: 16px 18px 18px 18px; position:relative; }
 
@@ -411,7 +390,6 @@
       min-width: 0;
     }
 
-    /* Orb as <details> summary (popup) */
     .orbDetails{ position:relative; display:inline-block; }
     .orbDetails summary{
       list-style:none;
@@ -428,7 +406,6 @@
       border-radius: 999px;
     }
 
-    /* Orb */
     .orb{
       width: 18px;
       height: 18px;
@@ -466,7 +443,6 @@
       }
     }
 
-    /* ✅ Orb popup: NO text, only compact signals */
     .orbPopup{
       position:absolute;
       top: calc(100% + 10px);
@@ -582,7 +558,6 @@
       box-shadow: 0 0 0 3px rgba(49,208,124,.10);
     }
 
-    /* ✅ remove big LISTENING under Mirror, but keep element in DOM for app.js */
     .mirrorState{ display:none; }
 
     .meters{
@@ -611,7 +586,6 @@
       justify-content:space-between;
       gap:10px;
     }
-
     .bar{
       height: 6px;
       flex: 1 1 auto;
@@ -628,7 +602,6 @@
       background: linear-gradient(180deg, rgba(255,255,255,.62), rgba(255,255,255,.38));
       box-shadow: inset 0 1px 0 rgba(255,255,255,.28);
     }
-
     .meterNum{
       font-size: 12px;
       font-weight: 750;
@@ -636,7 +609,6 @@
       white-space:nowrap;
     }
 
-    /* ✅ Axis UI removed; keep mDot hidden for app.js updates */
     .axisHidden{
       position:absolute;
       width:0;height:0;
@@ -700,7 +672,6 @@
       </div>
     </header>
 
-    <!-- ✅ Tabs order: Now / Recent / Top -->
     <div class="tabs" role="tablist" aria-label="Main tabs">
       <button class="tabBtn" data-tab="now" aria-selected="true" role="tab">Now</button>
       <button class="tabBtn" data-tab="recent" aria-selected="false" role="tab">Recent</button>
@@ -708,7 +679,6 @@
     </div>
 
     <section class="panel" data-panel="now">
-      <!-- NOW -->
       <div class="card">
         <div id="nowAmbient" class="nowAmbient"></div>
 
@@ -721,7 +691,6 @@
           </div>
 
           <div class="nowMain">
-            <!-- kept for app.js compatibility, but hidden by CSS -->
             <div class="coverWrap" id="nowCoverWrap">
               <img id="nowImg" class="coverImg" alt="" />
               <div id="nowFallback" class="coverFallback">♪</div>
@@ -743,19 +712,16 @@
         </div>
       </div>
 
-      <!-- MIRROR (always visible) -->
       <div class="card mirrorCard" id="mirrorCard">
         <div class="mirrorWrap">
           <div class="mirrorTop">
             <div class="mirrorTitle">
-              <!-- Orb + Popup -->
               <details class="orbDetails" id="orbDetails">
                 <summary aria-label="Open Mirror popup">
                   <span id="mirrorOrb" class="orb" aria-hidden="true"></span>
                   Mirror
                 </summary>
 
-                <!-- ✅ Clean popup (no essays, no “tap again” text) -->
                 <div class="orbPopup" role="dialog" aria-label="Mirror popup">
                   <div class="orbPopupGrid" aria-label="Quick signals">
                     <div class="orbMini">
@@ -792,7 +758,6 @@
             </div>
           </div>
 
-          <!-- kept for app.js, but hidden by CSS -->
           <div id="mirrorState" class="mirrorState">IDLE</div>
 
           <div class="meters" aria-label="Mirror meters">
@@ -821,7 +786,6 @@
             </div>
           </div>
 
-          <!-- ✅ Axis UI removed, but keep mDot in DOM for app.js -->
           <div class="axisHidden">
             <div id="mDot" style="left:50%"></div>
           </div>
@@ -863,13 +827,11 @@
 
   <script src="./app.js"></script>
 
-  <!-- ✅ tiny glue: read mDot (axis) and drive global background + popup mirrors -->
   <script>
     (function(){
       const root = document.documentElement;
       const mDot = document.getElementById('mDot');
 
-      // popup mirrors
       const pEnergy = document.getElementById('pEnergy');
       const pMood   = document.getElementById('pMood');
       const pReplay = document.getElementById('pReplay');
@@ -877,7 +839,6 @@
       const pMoodNum   = document.getElementById('pMoodNum');
       const pReplayNum = document.getElementById('pReplayNum');
 
-      // mirror meters
       const mEnergy = document.getElementById('mEnergy');
       const mMood   = document.getElementById('mMood');
       const mReplay = document.getElementById('mReplay');
@@ -895,7 +856,6 @@
       }
 
       function syncPopupBars(){
-        // copy widths/numbers from main meters to popup meters (no dependency on app.js changes)
         if(mEnergy && pEnergy) pEnergy.style.width = mEnergy.style.width || '0%';
         if(mMood   && pMood)   pMood.style.width   = mMood.style.width   || '0%';
         if(mReplay && pReplay) pReplay.style.width = mReplay.style.width || '0%';
@@ -905,7 +865,6 @@
         if(mReplayNum && pReplayNum) pReplayNum.textContent = mReplayNum.textContent || '—';
       }
 
-      // close popup on outside tap
       const details = document.getElementById('orbDetails');
       document.addEventListener('click', (e)=>{
         if(!details || !details.open) return;
@@ -913,9 +872,8 @@
         details.open = false;
       }, {passive:true});
 
-      // drive axis -> global UI
       function tick(){
-        const axis = pctFromLeftStyle(mDot); // 0..1
+        const axis = pctFromLeftStyle(mDot);
         root.style.setProperty('--axis', axis.toFixed(4));
         syncPopupBars();
         requestAnimationFrame(tick);

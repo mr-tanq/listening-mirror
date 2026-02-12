@@ -1,3 +1,4 @@
+<!-- PART 1/4 -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -121,16 +122,17 @@
       box-shadow: 0 0 0 3px rgba(49,208,124,.10);
     }
 
-    /* Tabs — πιο “μαζεμένα” + pro spacing */
+    /* Tabs — LEFT aligned + order Now/Recent/Top */
     .tabs{
       display:flex;
-      gap:10px;
-      padding: 8px;
+      justify-content:flex-start;
+      gap:8px;
+      padding: 6px;
       border-radius: 999px;
-      background: rgba(255,255,255,.04);
-      outline: 1px solid rgba(255,255,255,.08);
-      box-shadow: 0 16px 45px rgba(0,0,0,.35);
-      width: fit-content;
+      background: rgba(255,255,255,.035);
+      outline: 1px solid rgba(255,255,255,.07);
+      box-shadow: 0 14px 40px rgba(0,0,0,.35);
+      width: 100%;
       margin: 12px 0 16px 0;
     }
     .tabBtn{
@@ -161,7 +163,7 @@
       position:relative;
     }
 
-    /* NOW background — SHARP artwork (λίγο πιο “έντονο”, όχι αχνό) */
+    /* NOW background — SHARP artwork (λίγο πιο έντονο) */
     .nowAmbient{
       position:absolute;
       inset:-1px;
@@ -259,7 +261,7 @@
       0%{ transform: translateX(0); }
       100%{ transform: translateX(calc(-1 * var(--marqShift, 60px))); }
     }
-
+<!-- PART 2/4 -->
     .controls{
       padding: 14px;
       display:flex;
@@ -353,9 +355,9 @@
     }
 
     /* --------------------------
-       MIRROR CARD + ORB + POPUP
+       MIRROR CARD + ORB + POPUP (visual-only)
        -------------------------- */
-    .mirrorCard{ margin-top: 16px; } /* λίγο πιο “editorial” spacing */
+    .mirrorCard{ margin-top: 16px; }
     .mirrorWrap{ padding: 16px 18px 18px 18px; position:relative; }
 
     .mirrorTop{
@@ -366,7 +368,6 @@
       margin-bottom: 12px;
     }
 
-    /* πιο subtle “MIRROR” label */
     .mirrorTitle{
       font-size: 11.5px;
       letter-spacing: .34px;
@@ -398,7 +399,7 @@
       border-radius: 999px;
     }
 
-    /* ✅ The Orb */
+    /* The Orb */
     .orb{
       width: 18px;
       height: 18px;
@@ -421,7 +422,6 @@
       filter: blur(2px);
       pointer-events:none;
     }
-    /* breathing when listening */
     .orb.on{
       animation: orbBreath 1.9s ease-in-out infinite;
       outline-color: rgba(49,208,124,.22);
@@ -437,7 +437,7 @@
       }
     }
 
-    /* Orb popup window */
+    /* Orb popup window (NO TEXT) */
     .orbPopup{
       position:absolute;
       top: calc(100% + 10px);
@@ -447,7 +447,7 @@
       background: linear-gradient(180deg, rgba(22,24,28,.92), rgba(14,16,19,.92));
       outline: 1px solid rgba(255,255,255,.10);
       box-shadow: 0 22px 70px rgba(0,0,0,.62);
-      padding: 12px 12px 12px 12px;
+      padding: 12px;
       z-index: 10;
       transform-origin: 12px 0;
       transform: translateY(-4px) scale(.98);
@@ -474,45 +474,62 @@
       outline: 1px solid rgba(255,255,255,.10);
       border-radius: 4px;
     }
-    .orbPopupTitle{
-      font-size: 12px;
-      font-weight: 760;
-      letter-spacing: .25px;
-      color: rgba(255,255,255,.92);
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      margin-bottom: 8px;
-    }
-    .orbPopupHint{
-      font-size: 11px;
-      color: rgba(255,255,255,.58);
-      line-height: 1.35;
-      margin-bottom: 10px;
-    }
-    .orbPopupGrid{
+
+    /* Visual-only content inside popup */
+    .orbViz{
       display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap:10px;
+      grid-template-columns: 1fr;
+      gap: 10px;
     }
-    .orbMini{
+    .orbMiniBars{
       border-radius: 14px;
       background: rgba(255,255,255,.03);
       outline: 1px solid rgba(255,255,255,.07);
-      padding: 10px 10px 10px 10px;
+      padding: 10px;
+      display:grid;
+      gap: 8px;
     }
-    .orbMiniLbl{
-      font-size: 10px;
-      letter-spacing: .28px;
-      color: rgba(255,255,255,.60);
-      text-transform: uppercase;
+    .orbMiniBar{
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.06);
+      outline: 1px solid rgba(255,255,255,.06);
+      overflow:hidden;
+      position:relative;
     }
-    .orbMiniVal{
-      margin-top: 8px;
-      font-size: 13px;
-      font-weight: 760;
-      color: rgba(255,255,255,.90);
+    .orbMiniBar > i{
+      display:block;
+      height:100%;
+      width: 55%;
+      border-radius: 999px;
+      background: linear-gradient(180deg, rgba(255,255,255,.60), rgba(255,255,255,.35));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.22);
+    }
+    .orbMiniAxis{
+      border-radius: 14px;
+      background: rgba(255,255,255,.03);
+      outline: 1px solid rgba(255,255,255,.07);
+      padding: 10px;
+    }
+    .orbAxisLine{
+      position:relative;
+      height: 10px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(255,255,255,.16), rgba(255,255,255,.08), rgba(255,255,255,.18));
+      outline: 1px solid rgba(255,255,255,.07);
+      overflow:hidden;
+    }
+    .orbAxisDot{
+      position:absolute;
+      top: 50%;
+      left: 58%;
+      transform: translate(-50%, -50%);
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.88);
+      box-shadow: 0 0 0 4px rgba(255,255,255,.10);
+      outline: 1px solid rgba(0,0,0,.25);
     }
 
     .mirrorPill{
@@ -542,14 +559,6 @@
       box-shadow: 0 0 0 3px rgba(49,208,124,.10);
     }
 
-    .mirrorState{
-      font-size: 18px;
-      font-weight: 760;
-      letter-spacing: .12px;
-      margin: 6px 0 14px 0;
-      color: rgba(255,255,255,.94);
-    }
-
     .meters{
       display:grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -577,7 +586,6 @@
       gap:10px;
     }
 
-    /* bar = πιο high-end (λιγότερο “άσπρο πλαστικό”) */
     .bar{
       height: 6px;
       flex: 1 1 auto;
@@ -601,7 +609,8 @@
       color: rgba(255,255,255,.82);
       white-space:nowrap;
     }
-.mood{
+<!-- PART 3/4 -->
+    .mood{
       border-radius: 16px;
       background: rgba(255,255,255,.03);
       outline: 1px solid rgba(255,255,255,.07);
@@ -664,7 +673,6 @@
       text-transform: uppercase;
     }
 
-    /* session covers = λίγο πιο “άνετα” δεξιά + λιγότερο overlap */
     .covers{
       display:flex;
       align-items:center;
@@ -685,7 +693,7 @@
     .cvr img{ width:100%; height:100%; object-fit:cover; display:block; }
 
     @media (max-width: 520px){
-      .tabs{ width: 100%; justify-content: space-between; }
+      .tabs{ width: 100%; justify-content: flex-start; }
       .line1{ font-size: 15px; }
       .meters{ grid-template-columns: 1fr; }
       .orbPopup{ left: 0; }
@@ -708,10 +716,11 @@
       </div>
     </header>
 
+    <!-- Tabs order: Now / Recent / Top -->
     <div class="tabs" role="tablist" aria-label="Main tabs">
       <button class="tabBtn" data-tab="now" aria-selected="true" role="tab">Now</button>
-      <button class="tabBtn" data-tab="top" aria-selected="false" role="tab">Top</button>
       <button class="tabBtn" data-tab="recent" aria-selected="false" role="tab">Recent</button>
+      <button class="tabBtn" data-tab="top" aria-selected="false" role="tab">Top</button>
     </div>
 
     <section class="panel" data-panel="now">
@@ -755,29 +764,24 @@
         <div class="mirrorWrap">
           <div class="mirrorTop">
             <div class="mirrorTitle">
-              <!-- Orb + Popup (tap on orb area) -->
               <details class="orbDetails" id="orbDetails">
                 <summary aria-label="Open Mirror popup">
                   <span id="mirrorOrb" class="orb" aria-hidden="true"></span>
                   Mirror
                 </summary>
 
-                <div class="orbPopup" role="dialog" aria-label="Mirror popup">
-                  <div class="orbPopupTitle">
-                    <span>Listening Mirror</span>
-                    <span style="font-size:11px;color:rgba(255,255,255,.55)">tap orb again</span>
-                  </div>
-                  <div class="orbPopupHint">
-                    Quick view of the live session signals. (Later εδώ μπορεί να μπει καθαρά “AI visual”, χωρίς κείμενα.)
-                  </div>
-                  <div class="orbPopupGrid">
-                    <div class="orbMini">
-                      <div class="orbMiniLbl">State</div>
-                      <div class="orbMiniVal">LISTENING</div>
+                <!-- Visual-only popup (no text) -->
+                <div class="orbPopup" role="dialog" aria-label="Mirror visual popup">
+                  <div class="orbViz" aria-hidden="true">
+                    <div class="orbMiniBars">
+                      <div class="orbMiniBar"><i></i></div>
+                      <div class="orbMiniBar"><i style="width:62%"></i></div>
+                      <div class="orbMiniBar"><i style="width:48%"></i></div>
                     </div>
-                    <div class="orbMini">
-                      <div class="orbMiniLbl">Axis</div>
-                      <div class="orbMiniVal">Dark → Bright</div>
+                    <div class="orbMiniAxis">
+                      <div class="orbAxisLine">
+                        <div class="orbAxisDot"></div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -790,7 +794,7 @@
             </div>
           </div>
 
-          <div id="mirrorState" class="mirrorState">IDLE</div>
+          <!-- (REMOVED) mirrorState big text under Mirror -->
 
           <div class="meters" aria-label="Mirror meters">
             <div class="meter">
@@ -835,7 +839,7 @@
         </div>
       </div>
     </section>
-
+<!-- PART 4/4 -->
     <section class="panel hidden" data-panel="top">
       <div class="card">
         <div class="controls">

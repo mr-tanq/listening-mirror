@@ -45,16 +45,6 @@
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
     }
 
-    /* background canvas (does NOT affect layout) */
-    #bgCanvas{
-      position: fixed;
-      inset: 0;
-      width: 100vw;
-      height: 100vh;
-      z-index: 0;
-      pointer-events: none;
-    }
-
     .app{
       position: relative;
       z-index: 1;
@@ -135,9 +125,9 @@
       box-shadow: 0 0 0 3px rgba(49,208,124,.10);
     }
 
-    /* ✅ Tabs: full width, left aligned, NO offside
-       IMPORTANT: DOM order stays Now/Top/Recent for app.js
-       Visual order becomes Now/Recent/Top via CSS order */
+    /* Tabs:
+       DOM order stays Now/Top/Recent (for app.js)
+       Visual order is Now/Recent/Top */
     .tabs{
       display:flex;
       align-items:center;
@@ -174,7 +164,6 @@
       color: rgba(255,255,255,.95);
     }
 
-    /* Visual order only */
     .tabBtn[data-tab="now"]{ order: 1; }
     .tabBtn[data-tab="recent"]{ order: 2; }
     .tabBtn[data-tab="top"]{ order: 3; }
@@ -193,7 +182,7 @@
       -webkit-backdrop-filter: blur(10px);
     }
 <!-- PART 2/4 -->
-    /* NOW background — sharp artwork, not too faint */
+    /* NOW ambient artwork */
     .nowAmbient{
       position:absolute;
       inset:-1px;
@@ -263,8 +252,6 @@
     .nowMain{
       display:grid;
       grid-template-columns: 1fr;
-      gap: 0;
-      align-items:center;
       position:relative;
       z-index:2;
     }
@@ -377,9 +364,7 @@
       padding-left: 8px;
       white-space:nowrap;
     }
-    .right.count{
-      color: rgba(255,214,102,.92);
-    }
+    .right.count{ color: rgba(255,214,102,.92); }
 
     /* Mirror */
     .mirrorCard{ margin-top: 16px; overflow: visible; }
@@ -392,7 +377,6 @@
       gap:12px;
       margin-bottom: 12px;
     }
-
     .mirrorTitle{
       font-size: 11.5px;
       letter-spacing: .34px;
@@ -452,11 +436,7 @@
       gap:10px;
       margin-bottom: 8px;
     }
-    .orbPopupHint{
-      font-size: 11px;
-      color: rgba(255,255,255,.58);
-      line-height: 1.35;
-    }
+    .orbPopupHint{ font-size: 11px; color: rgba(255,255,255,.58); line-height: 1.35; }
 
     .mirrorPill{
       display:inline-flex;
@@ -471,10 +451,7 @@
       letter-spacing: .2px;
       white-space:nowrap;
     }
-    .mirrorPill .miniDot{
-      width:6px;height:6px;border-radius:999px;
-      background: rgba(255,255,255,.20);
-    }
+    .mirrorPill .miniDot{ width:6px;height:6px;border-radius:999px; background: rgba(255,255,255,.20); }
 
     .mirrorState{
       font-size: 18px;
@@ -484,14 +461,45 @@
       color: rgba(255,255,255,.94);
     }
 
-    /* keep mDot in DOM as sensor but hide axis UI */
+    /* Art card (THE doodles live here) */
+    .artCard{ margin-top: 16px; }
+    .artWrap{
+      padding: 14px 18px 18px 18px;
+    }
+    .artHead{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      margin-bottom: 10px;
+    }
+    .artTitle{
+      font-size: 11.5px;
+      letter-spacing: .34px;
+      color: rgba(255,255,255,.62);
+      text-transform: uppercase;
+    }
+    .artHint{
+      font-size: 12px;
+      color: rgba(255,255,255,.55);
+      letter-spacing: .15px;
+    }
+    #artCanvas{
+      width: 100%;
+      height: 240px;
+      display:block;
+      border-radius: 18px;
+      outline: 1px solid rgba(255,255,255,.08);
+      background: rgba(0,0,0,.12);
+      box-shadow: 0 18px 55px rgba(0,0,0,.35);
+    }
+
+    /* hidden sensor stays hidden (axis UI removed) */
     .mood{ display:none !important; }
   </style>
 </head>
 <!-- PART 3/4 -->
 <body>
-  <canvas id="bgCanvas" aria-hidden="true"></canvas>
-
   <div class="app">
     <header>
       <div class="brand">
@@ -506,8 +514,6 @@
       </div>
     </header>
 
-    <!-- ✅ DOM order: Now / Top / Recent (for app.js) -->
-    <!-- ✅ Visual order: Now / Recent / Top (CSS order above) -->
     <div class="tabs" role="tablist" aria-label="Main tabs">
       <button class="tabBtn" data-tab="now" aria-selected="true" role="tab">Now</button>
       <button class="tabBtn" data-tab="top" aria-selected="false" role="tab">Top</button>
@@ -560,9 +566,9 @@
                 <div class="orbPopup" role="dialog" aria-label="Mirror popup">
                   <div class="orbPopupTitle">
                     <span>Mirror</span>
-                    <span style="font-size:11px;color:rgba(255,255,255,.55)">tap orb again</span>
+                    <span highlight style="font-size:11px;color:rgba(255,255,255,.55)">tap orb again</span>
                   </div>
-                  <div class="orbPopupHint">Visual layer is active. (No text AI.)</div>
+                  <div class="orbPopupHint">Visual layer is active.</div>
                 </div>
               </details>
             </div>
@@ -575,13 +581,23 @@
 
           <div id="mirrorState" class="mirrorState">IDLE</div>
 
-          <!-- hidden sensor -->
+          <!-- hidden sensor (still in DOM if app.js uses it) -->
           <div class="mood">
             <div class="moodBar">
               <div id="mDot" class="moodDot" style="left:50%"></div>
             </div>
           </div>
+        </div>
+      </div>
 
+      <!-- ✅ DOODLES LIVE HERE (below Mirror) -->
+      <div class="card artCard" id="artCard">
+        <div class="artWrap">
+          <div class="artHead">
+            <div class="artTitle">Art</div>
+            <div class="artHint" id="artHint">session sketch</div>
+          </div>
+          <canvas id="artCanvas" aria-label="Generated art canvas"></canvas>
         </div>
       </div>
     </section>
@@ -616,65 +632,109 @@
   <script src="./app.js"></script>
 <!-- PART 4/4 -->
   <script>
-    // Minimal safe canvas loop (won't break tabs / panels)
+    // Doodles: premium ink / poster-ish, ALWAYS visible.
     (function(){
-      const canvas = document.getElementById("bgCanvas");
-      const ctx = canvas.getContext("2d", { alpha: true });
-      let W=0,H=0,DPR=Math.min(2, window.devicePixelRatio||1);
+      const c = document.getElementById("artCanvas");
+      if(!c) return;
+      const ctx = c.getContext("2d");
 
-      function resize(){
-        W = Math.floor(window.innerWidth);
-        H = Math.floor(window.innerHeight);
-        DPR = Math.min(2, window.devicePixelRatio||1);
-        canvas.width = Math.floor(W*DPR);
-        canvas.height = Math.floor(H*DPR);
-        canvas.style.width = W+"px";
-        canvas.style.height = H+"px";
-        ctx.setTransform(DPR,0,0,DPR,0,0);
+      function fit(){
+        const rect = c.getBoundingClientRect();
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        c.width  = Math.floor(rect.width * dpr);
+        c.height = Math.floor(rect.height * dpr);
+        ctx.setTransform(dpr,0,0,dpr,0,0);
+        draw();
       }
-      window.addEventListener("resize", resize, { passive:true });
-      resize();
+      window.addEventListener("resize", fit, {passive:true});
 
-      function readB(){
-        const dot = document.getElementById("mDot");
-        if(!dot) return 0.5;
-        const m = (dot.style.left||"").match(/([\d.]+)\%/);
-        if(!m) return 0.5;
-        const p = Math.max(0, Math.min(100, parseFloat(m[1])));
-        return p/100;
+      function seeded(n){
+        // deterministic-ish (per load) without external deps
+        let s = (Date.now() % 100000) + n*9991;
+        return () => {
+          s = (s * 1664525 + 1013904223) % 4294967296;
+          return s / 4294967296;
+        };
       }
 
-      let b = 0.5;
-      function loop(){
-        requestAnimationFrame(loop);
-        const target = readB();
-        b += (target-b)*0.04;
-
-        // premium paper background
-        const dark = {r:10,g:11,b:14};
-        const bright = {r:235,g:238,b:242};
-        const rr = Math.round(dark.r + (bright.r-dark.r)*b);
-        const gg = Math.round(dark.g + (bright.g-dark.g)*b);
-        const bb = Math.round(dark.b + (bright.b-dark.b)*b);
-
+      function draw(){
+        const W = c.getBoundingClientRect().width;
+        const H = c.getBoundingClientRect().height;
         ctx.clearRect(0,0,W,H);
-        ctx.fillStyle = `rgb(${rr},${gg},${bb})`;
+
+        // deep glass base
+        ctx.fillStyle = "rgba(0,0,0,.18)";
         ctx.fillRect(0,0,W,H);
 
-        // super subtle ink specks (always visible, not lines)
-        const ink = b>0.55 ? "rgba(18,20,24," : "rgba(240,242,246,";
-        const n = 28;
-        for(let i=0;i<n;i++){
-          const x = (Math.sin((i+1)*999) * 0.5 + 0.5) * W;
-          const y = (Math.cos((i+1)*777) * 0.5 + 0.5) * H;
-          const r = 0.8 + (i%5)*0.2;
+        // subtle vignette
+        const vg = ctx.createRadialGradient(W*0.55, H*0.35, 10, W*0.55, H*0.35, Math.max(W,H));
+        vg.addColorStop(0, "rgba(255,255,255,.06)");
+        vg.addColorStop(1, "rgba(0,0,0,.38)");
+        ctx.fillStyle = vg;
+        ctx.fillRect(0,0,W,H);
+
+        // “premium ink” motif: a few geometric glyphs + stipple
+        const rnd = seeded(3);
+
+        // glyph strokes (thin, intentional — not random lines everywhere)
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "rgba(255,255,255,.12)";
+        ctx.beginPath();
+        const cx = W*0.72, cy = H*0.62;
+        const r = Math.min(W,H)*0.18;
+
+        // 3 hexes cluster
+        for(let i=0;i<3;i++){
+          const ox = (i-1)*r*0.95;
+          const oy = (i===1? -r*0.55 : 0);
+          hex(ctx, cx+ox, cy+oy, r*0.55);
+ adds(ctx, cx+ox, cy+oy, r*0.55);
+        }
+        ctx.stroke();
+
+        // one “ink wave” curve (single elegant stroke)
+        ctx.beginPath();
+        ctx.strokeStyle = "rgba(255,255,255,.10)";
+        const baseY = H*0.78;
+        ctx.moveTo(W*0.12, baseY);
+        ctx.bezierCurveTo(W*0.28, baseY-30, W*0.52, baseY+20, W*0.78, baseY-18);
+        ctx.bezierCurveTo(W*0.88, baseY-35, W*0.95, baseY-10, W*0.98, baseY-22);
+        ctx.stroke();
+
+        // stipple (ink dust)
+        const dots = 240;
+        for(let i=0;i<dots;i++){
+          const x = rnd()*W;
+          const y = rnd()*H;
+          const a = 0.02 + rnd()*0.04;
+          const rr = 0.6 + rnd()*1.2;
           ctx.beginPath();
-          ctx.fillStyle = ink + (0.03 + (i%7)*0.002) + ")";
-          ctx.arc(x,y,r,0,Math.PI*2);
+          ctx.fillStyle = `rgba(255,255,255,${a})`;
+          ctx.arc(x,y,rr,0,Math.PI*2);
           ctx.fill();
         }
+
+        // 1 accent “seal” circle (very subtle)
+        ctx.beginPath();
+        ctx.strokeStyle = "rgba(255,255,255,.10)";
+        ctx.arc(W*0.18, H*0.28, Math.min(W,H)*0.12, 0, Math.PI*2);
+        ctx.stroke();
       }
-      loop();
+
+      function hex(ctx, x,y,r){
+        ctx.moveTo(x + r, y);
+        for(let i=1;i<=6;i++){
+          const a = i*Math.PI/3;
+          ctx.lineTo(x + r*Math.cos(a), y + r*Math.sin(a));
+        }
+      }
+      function adds(ctx, x,y,r){
+        // small inner line to make it feel “designed”
+        ctx.moveTo(x - r*0.45, y + r*0.10);
+        ctx.lineTo(x + r*0.42, y - r*0.08);
+      }
+
+      fit();
     })();
   </script>
 </body>

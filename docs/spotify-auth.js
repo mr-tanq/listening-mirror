@@ -10,7 +10,7 @@
   "use strict";
 
   // ✅ SET THESE
-  const CLIENT_ID = "PASTE_YOUR_CLIENT_ID_HERE";
+  const CLIENT_ID = "20fca973de8445509d31bf9ab4e13b0b";
   // If you use a dedicated callback path, keep it here.
   // Must match EXACTLY what you have in Spotify dashboard.
   const REDIRECT_URI = "https://mr-tanq.github.io/listening-mirror/";

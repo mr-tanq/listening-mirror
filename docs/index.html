@@ -50,38 +50,38 @@
       margin: 0 auto;
     }
 
-    /* ✅ header: left brand + right orb */
     header{
       display:flex;
       align-items:center;
-      justify-content:space-between;
       gap:14px;
       margin-bottom: 14px;
+      min-height: 100px;
     }
 
     .brand{
       display:flex;
       align-items:center;
-      gap:12px;
+      gap:10px;
       padding-left: 2px;
-      min-width: 0;
+      padding-top: 6px;
     }
 
-    /* ✅ Orb moved to the RIGHT, now 48px */
+    /* ✅ ORB 100px */
     .glyph{
-      width: 48px;
-      height: 48px;
+      width: 100px;
+      height: 100px;
       border-radius: 999px;
       position:relative;
       background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.22), rgba(255,255,255,.05) 55%, rgba(255,255,255,.03) 70%);
       outline: 1px solid rgba(255,255,255,.10);
-      box-shadow: 0 10px 35px rgba(0,0,0,.45);
+      box-shadow: 0 18px 55px rgba(0,0,0,.60);
       flex: 0 0 auto;
     }
+    /* ✅ inner ring scaled for 100px */
     .glyph:before{
       content:"";
       position:absolute;
-      inset:9px; /* tuned for 48px */
+      inset:20px;
       border-radius: 999px;
       outline: 1px solid rgba(255,255,255,.10);
       background: radial-gradient(circle at 65% 35%, rgba(255,255,255,.10), transparent 60%);
@@ -91,36 +91,27 @@
     .wordmark{
       display:flex;
       flex-direction:column;
-      line-height: 1.12;
-      padding-top: 1px;
-      min-width: 0;
+      line-height: 1.15;
     }
     .wordmark .title{
-      font-size: 19px;
-      font-weight: 820;
-      letter-spacing: .55px;
+      font-size: 18px;
+      font-weight: 720;
+      letter-spacing: .35px;
       margin:0;
-      background: linear-gradient(180deg, rgba(255,255,255,.95), rgba(255,255,255,.68));
+      background: linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.70));
       -webkit-background-clip: text;
       background-clip: text;
       color: transparent;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 100%;
     }
     .wordmark .sub{
-      margin-top: 7px;
+      margin-top: 6px;
       display:flex;
       align-items:center;
       gap:8px;
-      color: rgba(255,255,255,.52);
-      font-size: 11.5px;
-      letter-spacing: .45px;
-      text-transform: uppercase;
-      white-space: nowrap;
+      color: var(--muted2);
+      font-size: 12px;
+      letter-spacing: .2px;
     }
-
     .dot{
       width: 7px;
       height: 7px;
@@ -242,6 +233,7 @@
       box-shadow: 0 0 0 3px rgba(255,59,59,.12);
     }
 
+    /* NOW content is single column (no square cover) */
     .nowMain{
       display:grid;
       grid-template-columns: 1fr;
@@ -251,6 +243,7 @@
       z-index:2;
     }
 
+    /* Keep these IDs in DOM (so app.js is fine) but hide them */
     .coverWrap{ display:none !important; }
 
     .nowText{ min-width:0; padding-left: 2px; }
@@ -258,6 +251,7 @@
     .line2{ margin-top: 6px; font-size: 13.5px; color: rgba(255,255,255,.72); }
     .line3{ margin-top: 6px; font-size: 12px; color: var(--muted2); }
 
+    /* Marquee: fade only on RIGHT */
     .marq{ display:inline-block; white-space:nowrap; will-change:transform; }
     .marqWrap{
       position:relative;
@@ -364,17 +358,13 @@
       color: rgba(255,214,102,.92);
     }
 
+    /* ✅ mobile: keep tabs NOT spread */
     @media (max-width: 520px){
       .tabs{
         width: fit-content;
         justify-content:flex-start;
       }
       .line1{ font-size: 15px; }
-
-      /* keep header neat on mobile */
-      .wordmark .title{ font-size: 18px; }
-      .glyph{ width: 44px; height: 44px; }   /* optional: slightly smaller on tiny screens */
-      .glyph:before{ inset: 8px; }
     }
   </style>
 </head>
@@ -383,6 +373,7 @@
   <div class="app">
     <header>
       <div class="brand">
+        <div class="glyph" aria-hidden="true"></div>
         <div class="wordmark">
           <div class="title">Listening Mirror</div>
           <div class="sub">
@@ -391,9 +382,6 @@
           </div>
         </div>
       </div>
-
-      <!-- ✅ Orb on the right -->
-      <div class="glyph" aria-hidden="true"></div>
     </header>
 
     <div class="tabs" role="tablist" aria-label="Main tabs">
@@ -466,6 +454,5 @@
   </div>
 
   <script src="./app.js"></script>
-  <script src="./orb.js"></script>
 </body>
 </html>

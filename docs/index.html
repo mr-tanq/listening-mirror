@@ -50,9 +50,11 @@
       margin: 0 auto;
     }
 
+    /* ✅ header: left brand + right orb */
     header{
       display:flex;
-      align-items:flex-start;
+      align-items:center;
+      justify-content:space-between;
       gap:14px;
       margin-bottom: 14px;
     }
@@ -60,14 +62,15 @@
     .brand{
       display:flex;
       align-items:center;
-      gap:12px;              /* ✅ a touch more breathing room */
+      gap:12px;
       padding-left: 2px;
+      min-width: 0;
     }
 
-    /* ✅ Bigger orb */
+    /* ✅ Orb moved to the RIGHT, now 48px */
     .glyph{
-      width: 22px;           /* ✅ was 16 */
-      height: 22px;          /* ✅ was 16 */
+      width: 48px;
+      height: 48px;
       border-radius: 999px;
       position:relative;
       background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.22), rgba(255,255,255,.05) 55%, rgba(255,255,255,.03) 70%);
@@ -78,7 +81,7 @@
     .glyph:before{
       content:"";
       position:absolute;
-      inset:4px;             /* ✅ tuned for new size */
+      inset:9px; /* tuned for 48px */
       border-radius: 999px;
       outline: 1px solid rgba(255,255,255,.10);
       background: radial-gradient(circle at 65% 35%, rgba(255,255,255,.10), transparent 60%);
@@ -90,31 +93,32 @@
       flex-direction:column;
       line-height: 1.12;
       padding-top: 1px;
+      min-width: 0;
     }
-
-    /* ✅ Premium title (still native fonts, but more “logo-like”) */
     .wordmark .title{
-      font-size: 19px;       /* ✅ was 18 */
-      font-weight: 820;      /* ✅ more premium */
-      letter-spacing: .55px; /* ✅ more logotype */
+      font-size: 19px;
+      font-weight: 820;
+      letter-spacing: .55px;
       margin:0;
-      text-transform: none;
       background: linear-gradient(180deg, rgba(255,255,255,.95), rgba(255,255,255,.68));
       -webkit-background-clip: text;
       background-clip: text;
       color: transparent;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
     }
-
-    /* ✅ Subline more “product” than “plain” */
     .wordmark .sub{
       margin-top: 7px;
       display:flex;
       align-items:center;
       gap:8px;
       color: rgba(255,255,255,.52);
-      font-size: 11.5px;     /* ✅ slightly smaller */
-      letter-spacing: .45px; /* ✅ more refined */
+      font-size: 11.5px;
+      letter-spacing: .45px;
       text-transform: uppercase;
+      white-space: nowrap;
     }
 
     .dot{
@@ -366,6 +370,11 @@
         justify-content:flex-start;
       }
       .line1{ font-size: 15px; }
+
+      /* keep header neat on mobile */
+      .wordmark .title{ font-size: 18px; }
+      .glyph{ width: 44px; height: 44px; }   /* optional: slightly smaller on tiny screens */
+      .glyph:before{ inset: 8px; }
     }
   </style>
 </head>
@@ -374,7 +383,6 @@
   <div class="app">
     <header>
       <div class="brand">
-        <div class="glyph" aria-hidden="true"></div>
         <div class="wordmark">
           <div class="title">Listening Mirror</div>
           <div class="sub">
@@ -383,6 +391,9 @@
           </div>
         </div>
       </div>
+
+      <!-- ✅ Orb on the right -->
+      <div class="glyph" aria-hidden="true"></div>
     </header>
 
     <div class="tabs" role="tablist" aria-label="Main tabs">

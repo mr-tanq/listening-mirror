@@ -1,7 +1,7 @@
 /* spotify-ui.js (FULL REPLACE)
    - No status text ("Spotify: linked" removed)
    - Spotify logo indicator: gray when not linked, normal when linked
-   - Transport buttons smaller + placed INSIDE the Now frame (top-right)
+   - Transport buttons smaller + placed INSIDE the Now frame (top-right, LOWER)
    - Tap glyph to login (no hint text)
 */
 
@@ -50,8 +50,9 @@
 /* --- Spotify UI (inside NOW card) --- */
 #spNowDock{
   position: absolute;
-  top: 12px;
-  right: 12px;
+  /* ✅ MOVED DOWN (was 12px) */
+  top: 58px;
+  right: 14px;
   z-index: 50;
   display: flex;
   align-items: center;
@@ -77,7 +78,6 @@
 #spIndicator.linked{
   opacity: .95;
   filter: none;
-  /* subtle “alive” feel, still minimal */
   drop-shadow: 0 6px 18px rgba(0,0,0,.35);
 }
 #spIndicator svg{
@@ -146,8 +146,7 @@
       </svg>`;
     return "";
   }
-
-  function spotifyLogoSvg(){
+function spotifyLogoSvg(){
     // Minimal Spotify logo (single color, inherits currentColor)
     return `
       <svg viewBox="0 0 168 168" aria-hidden="true">
@@ -171,12 +170,11 @@
 
     if (candidates.length) return candidates[0];
 
-    // 2) heuristic: card that contains LIVE pill (your screenshot has LIVE in the Now card)
+    // 2) heuristic: card that contains LIVE pill
     const allCards = Array.from(document.querySelectorAll(".card, .panel, section, .tile"));
     for (const c of allCards) {
       const txt = (c.innerText || "").toLowerCase();
       if (txt.includes("live") && txt.includes("now")) return c;
-      if (txt.includes("live") && txt.includes("puscifer")) return c; // safe-ish for your current screen
       if (txt.includes("live") && txt.includes("listening")) return c;
     }
 
@@ -221,8 +219,7 @@
 
     return dock;
   }
-
-  function setEnabled(enabled) {
+function setEnabled(enabled) {
     const ids = ["spPrev", "spPlay", "spPause", "spNext"];
     for (const id of ids) {
       const b = document.getElementById(id);
@@ -291,8 +288,7 @@
     }
     requestAnimationFrame(tick);
   }
-
-  function boot() {
+function boot() {
     const dock = ensureDock();
     if (!dock) {
       // If NOW host isn't ready yet, retry a few times

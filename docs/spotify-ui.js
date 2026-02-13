@@ -1,20 +1,13 @@
-/* spotify-ui.js (FULL REPLACE) — FIXED play/pause + click-to-play
-   Based on your "old working" version.
-   Fixes:
-   - Removes requestAnimationFrame + await loop (runaway)
-   - Throttles playback polling + bindings
-   - Adds Web API fallback for click-to-play (PUT /me/player/play with uris)
-   Keeps:
-   - Dock locked to Listening Mirror header visibility
-   - Orb hard exclude
-   - No-artwork playable (placeholder + row fallback)
-   - Agust D / Haegeum hard block
+/* spotify-ui.js (FULL REPLACE) — FIXED glyph->Mirror accidental playback
+   - Adds HARD click guard inside Listening Mirror header container:
+     clicks on glyph/header will NOT trigger click-to-play,
+     and will call openStats() if available.
+   - Keeps previous fixes (throttled loops + Web API fallback playUri)
 */
 
 (function () {
   "use strict";
 
-  // IMPORTANT: your paste had markdown; keep it as plain URL
   const API_BASE = String(window.LISTENING_MIRROR_API || "https://i.errtanq9.workers.dev").replace(/\/+$/, "");
 
   // ---------------- DOM helpers ----------------
@@ -192,10 +185,8 @@
   async function apiPause() { return (await spotifyApi("/me/player/pause", "PUT")).ok; }
   async function apiPlay()  { return (await spotifyApi("/me/player/play", "PUT")).ok; }
 
-  // NEW: play a specific track uri using Web API (so click-to-play works even without SpotifyPlayer bridge)
   async function apiPlayUri(uri) {
     if (!uri || typeof uri !== "string") return false;
-    // We only support track URIs here: spotify:track:xxxx
     const m = uri.match(/^spotify:track:([A-Za-z0-9]{22})$/);
     if (!m) return false;
     const ok = await spotifyApi("/me/player/play", "PUT", { uris: [uri] });
@@ -203,7 +194,6 @@
   }
 
   async function playUri(uri) {
-    // 1) Try your internal bridge first (fast + good if available)
     let r = safeCall("SpotifyPlayer.playUri", uri);
     if (r.ok) return true;
     r = safeCall("SpotifyPlayer.play", { uri });
@@ -211,7 +201,6 @@
     r = safeCall("SpotifyPlayer.play", uri);
     if (r.ok) return true;
 
-    // 2) Web API fallback (THIS fixes click-to-play when bridge is missing/broken)
     const ok = await apiPlayUri(uri);
     if (ok) return true;
 
@@ -220,14 +209,12 @@
   }
 
   async function getPlaybackState() {
-    // Prefer bridge
     let r = safeCall("SpotifyPlayer.getState");
     if (r.ok) return await Promise.resolve(r.value);
 
     r = safeCall("SpotifyPlayer.getPlaybackState");
     if (r.ok) return await Promise.resolve(r.value);
 
-    // Web API fallback
     const token = getToken();
     if (!token) return null;
     try {
@@ -346,7 +333,6 @@
       doLoginOrLogout();
     }, { passive: false });
 
-    // FIX: don’t rely on ultra-frequent loop; do a fresh state read on click
     $("spToggle")?.addEventListener("click", async (e) => {
       e.preventDefault(); e.stopPropagation();
       pulse($("spToggle"));
@@ -355,19 +341,13 @@
       const isPlaying = inferIsPlaying(st);
 
       if (isPlaying === true) {
-        // optimistic icon update
         setToggleIcon(false);
         const ok = await pauseSafe();
-        if (!ok) {
-          // revert if failed
-          setToggleIcon(true);
-        }
+        if (!ok) setToggleIcon(true);
       } else {
         setToggleIcon(true);
         const ok = await resumeSafe();
-        if (!ok) {
-          setToggleIcon(false);
-        }
+        if (!ok) setToggleIcon(false);
       }
     }, { passive: false });
 
@@ -385,7 +365,7 @@
       if (!r.ok) console.warn("[Spotify UI] Prev failed:", r.reason);
     }, { passive: false });
   }
-// ---------------- Header anchor + Orb hard-exclude ----------------
+// ---------------- Header anchor + Orb hard-exclude + NEW glyph guard ----------------
   function findHeaderTitleNode() {
     const nodes = Array.from(document.querySelectorAll("h1,h2,div,span")).slice(0, 3500);
     for (const n of nodes) {
@@ -405,6 +385,39 @@
     return null;
   }
 
+  // NEW: hard-guard clicks in the Listening Mirror header container
+  // so glyph clicks NEVER trigger click-to-play handlers.
+  let lastGuardedHeader = null;
+  function guardHeaderClicks(titleNode) {
+    if (!titleNode) return;
+    const header = titleNode.closest("header, section, article") || titleNode.closest("div") || titleNode.parentElement;
+    if (!header) return;
+    if (header === lastGuardedHeader) return;
+
+    lastGuardedHeader = header;
+
+    // Mark header as no-play zone
+    header.setAttribute("data-sp-no-play", "1");
+
+    const handler = (e) => {
+      // allow player dock clicks
+      if (e.target && e.target.closest && e.target.closest("#spDock")) return;
+
+      // kill any bubbling that might reach row/play bindings
+      e.preventDefault();
+      e.stopPropagation();
+
+      // show stats/index if the app has it
+      if (typeof window.openStats === "function") {
+        try { window.openStats(); } catch {}
+      }
+    };
+
+    // Capture phase: before anything else
+    header.addEventListener("pointerdown", handler, { capture: true, passive: false });
+    header.addEventListener("click", handler, { capture: true, passive: false });
+  }
+
   function markHeaderOrbNoPlay(titleNode) {
     if (!titleNode) return;
 
@@ -416,7 +429,6 @@
 
     for (const n of candidates) {
       if (n === titleNode) continue;
-      if (n.dataset && n.dataset.spNoPlay === "1") continue;
 
       const r = n.getBoundingClientRect?.();
       if (!r) continue;
@@ -424,7 +436,6 @@
       const closeY = Math.abs((r.top + r.bottom) / 2 - (titleRect.top + titleRect.bottom) / 2) < 24;
       const leftOfTitle = r.right <= titleRect.left + 10;
       const small = r.width >= 10 && r.width <= 46 && r.height >= 10 && r.height <= 46;
-
       if (!closeY || !leftOfTitle || !small) continue;
 
       const cs = window.getComputedStyle(n);
@@ -433,6 +444,7 @@
       if (!roundish) continue;
 
       n.dataset.spNoPlay = "1";
+      n.setAttribute("data-sp-no-play", "1");
       n.classList.remove("spArtworkPlayable", "spRowPlayable");
       n.addEventListener("click", (e) => { e.stopPropagation(); }, { passive: true });
       n.addEventListener("pointerdown", (e) => { e.stopPropagation(); }, { passive: true });
@@ -470,12 +482,27 @@
       return;
     }
 
+    guardHeaderClicks(titleNode);       // <<< NEW
     markHeaderOrbNoPlay(titleNode);
     setDockPositionNearTitle(titleNode);
     setDockHidden(false);
   }
 
-  // ---------------- Tabs + Mode detection (UNCHANGED) ----------------
+  // ---------------- List click-to-play logic (unchanged) ----------------
+  function isSessionCoversArea(node) {
+    const root = node?.closest?.("section, article, div") || null;
+    const txt = ((root?.innerText || node?.innerText || "")).toUpperCase();
+    if (!txt) return false;
+    if (txt.includes("SESSION COVERS")) return true;
+    if (txt.includes("MIRROR") && txt.includes("LISTENING")) return true;
+    return false;
+  }
+
+  function isExplicitNoPlay(node) {
+    return !!(node?.dataset?.spNoPlay === "1" || node?.closest?.("[data-sp-no-play='1']"));
+  }
+
+  // ---------------- Tabs + Mode detection + resolve/play bindings ----------------
   function getTopMode() {
     const nodes = Array.from(document.querySelectorAll("*")).slice(0, 3500);
     for (const n of nodes) {
@@ -503,20 +530,6 @@
     return null;
   }
 
-  function isSessionCoversArea(node) {
-    const root = node?.closest?.("section, article, div") || null;
-    const txt = ((root?.innerText || node?.innerText || "")).toUpperCase();
-    if (!txt) return false;
-    if (txt.includes("SESSION COVERS")) return true;
-    if (txt.includes("MIRROR") && txt.includes("LISTENING")) return true;
-    return false;
-  }
-
-  function isExplicitNoPlay(node) {
-    return !!(node?.dataset?.spNoPlay === "1" || node?.closest?.("[data-sp-no-play='1']"));
-  }
-
-  // ---------------- Resolve + play from lists (UNCHANGED except uses playUri async w/ Web API fallback) ----------------
   function extractSpotifyUriFromNode(node) {
     const ds = node?.dataset || {};
     const cand = ds.spotifyUri || ds.uri || ds.spotifyTrackUri || ds.spotifyId || null;
@@ -753,7 +766,7 @@
     }
   }
 
-  // ---------------- FIXED State loop (throttled) ----------------
+  // ---------------- Throttled loops ----------------
   let lastLinked = null;
   let lastPlaying = null;
   let pollTimer = null;
@@ -787,16 +800,10 @@
   function startLoops() {
     stopLoops();
 
-    // playback polling: 1.2s
-    pollTimer = setInterval(() => {
-      pollPlaybackOnce().catch(() => {});
-    }, 1200);
+    pollTimer = setInterval(() => { pollPlaybackOnce().catch(() => {}); }, 1200);
     pollPlaybackOnce().catch(() => {});
 
-    // bindings refresh: 700ms
-    bindTimer = setInterval(() => {
-      try { attachPlayBindings(); } catch {}
-    }, 700);
+    bindTimer = setInterval(() => { try { attachPlayBindings(); } catch {} }, 700);
     try { attachPlayBindings(); } catch {}
   }
 

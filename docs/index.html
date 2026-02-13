@@ -36,19 +36,18 @@
       --doodleBright: calc(.14 + (var(--axis) * .26));
       --doodleDark:   calc(.12 + (var(--axisInv) * .22));
 
-      /* ✅ floor doodles strength (visible) */
-      --floorBright:  calc(.46 + (var(--axis) * .44));   /* ~0.46..0.90 */
-      --floorDark:    calc(.38 + (var(--axisInv) * .42));/* ~0.38..0.80 */
+      /* floor doodles strength */
+      --floorBright:  calc(.46 + (var(--axis) * .44));
+      --floorDark:    calc(.38 + (var(--axisInv) * .42));
     }
 
     *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
     html,body{ height:100%; }
-    html{ overscroll-behavior-y:none; }
 
+    /* ✅ IMPORTANT: body will NOT scroll. .app will scroll. */
     body{
       margin:0;
-      overflow-x:hidden;
-      overscroll-behavior-y:none;
+      overflow:hidden;          /* ✅ lock body scrolling */
       color: var(--text);
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
 
@@ -113,7 +112,7 @@
       background-repeat: repeat;
       background-position: center;
     }
-
+<!-- PART 2/4 -->
     .doodleZone{
       position: relative;
       margin-top: 14px;
@@ -162,8 +161,14 @@
       opacity: .62;
     }
 
+    /* ✅ Now the app is the scroll container */
     .app{
-      min-height:100%;
+      height: 100dvh;                 /* ✅ viewport-height, stable on mobile */
+      overflow-y: auto;               /* ✅ scroll here */
+      -webkit-overflow-scrolling: touch;
+      touch-action: pan-y;
+      overscroll-behavior: contain;
+
       padding: calc(var(--safeT) + 14px) var(--safeR) calc(var(--safeB) + 18px) var(--safeL);
       max-width: 920px;
       margin: 0 auto;
@@ -241,7 +246,7 @@
       outline-color: rgba(49,208,124,.35);
       box-shadow: 0 0 0 3px rgba(49,208,124,.10);
     }
-<!-- PART 2/4 -->
+
     .tabs{
       display:flex;
       gap:10px;
@@ -285,7 +290,7 @@
       backdrop-filter: blur(calc(6px + var(--axis)*6px));
       -webkit-backdrop-filter: blur(calc(6px + var(--axis)*6px));
     }
-
+<!-- PART 3/4 -->
     .nowAmbient{
       position:absolute;
       inset:-1px;
@@ -546,7 +551,7 @@
         box-shadow: 0 12px 32px rgba(0,0,0,.45), 0 0 0 10px rgba(49,208,124,.06);
       }
     }
-<!-- PART 3/4 -->
+<!-- PART 4/4 -->
     .orbPopup{
       position:absolute;
       top: calc(100% + 10px);
@@ -584,43 +589,11 @@
       border-radius: 4px;
     }
 
-    .orbPopupGrid{
-      display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap:10px;
-    }
-    .orbMini{
-      border-radius: 14px;
-      background: rgba(255,255,255,.03);
-      outline: 1px solid rgba(255,255,255,.07);
-      padding: 10px;
-      overflow:hidden;
-    }
-    .orbMiniLbl{
-      font-size: 10px;
-      letter-spacing: .28px;
-      color: rgba(255,255,255,.60);
-      text-transform: uppercase;
-    }
-    .orbMiniVal{
-      margin-top: 8px;
-      font-size: 13px;
-      font-weight: 760;
-      color: rgba(255,255,255,.90);
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-    }
-    .orbMiniBar{
-      height: 6px;
-      flex: 1 1 auto;
-      border-radius: 999px;
-      background: rgba(255,255,255,.06);
-      overflow:hidden;
-      outline: 1px solid rgba(255,255,255,.06);
-    }
-    /* ✅ FIX: was ". .orbMiniBar > i" */
+    .orbPopupGrid{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    .orbMini{ border-radius: 14px; background: rgba(255,255,255,.03); outline: 1px solid rgba(255,255,255,.07); padding: 10px; overflow:hidden; }
+    .orbMiniLbl{ font-size: 10px; letter-spacing: .28px; color: rgba(255,255,255,.60); text-transform: uppercase; }
+    .orbMiniVal{ margin-top: 8px; font-size: 13px; font-weight: 760; color: rgba(255,255,255,.90); display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .orbMiniBar{ height: 6px; flex: 1 1 auto; border-radius: 999px; background: rgba(255,255,255,.06); overflow:hidden; outline: 1px solid rgba(255,255,255,.06); }
     .orbMiniBar > i{
       display:block;
       height:100%;
@@ -629,12 +602,7 @@
       background: linear-gradient(180deg, rgba(255,255,255,.62), rgba(255,255,255,.38));
       box-shadow: inset 0 1px 0 rgba(255,255,255,.28);
     }
-    .orbMiniNum{
-      font-size: 12px;
-      font-weight: 750;
-      color: rgba(255,255,255,.82);
-      white-space:nowrap;
-    }
+    .orbMiniNum{ font-size: 12px; font-weight: 750; color: rgba(255,255,255,.82); white-space:nowrap; }
 
     .mirrorPill{
       display:inline-flex;
@@ -650,103 +618,29 @@
       white-space:nowrap;
     }
     .mirrorPill .miniDot{ width:6px;height:6px;border-radius:999px; background: rgba(255,255,255,.20); }
-    .mirrorPill.on{
-      background: rgba(49,208,124,.10);
-      outline-color: rgba(49,208,124,.22);
-      color: rgba(255,255,255,.92);
-    }
-    .mirrorPill.on .miniDot{
-      background: rgba(49,208,124,.85);
-      box-shadow: 0 0 0 3px rgba(49,208,124,.10);
-    }
+    .mirrorPill.on{ background: rgba(49,208,124,.10); outline-color: rgba(49,208,124,.22); color: rgba(255,255,255,.92); }
+    .mirrorPill.on .miniDot{ background: rgba(49,208,124,.85); box-shadow: 0 0 0 3px rgba(49,208,124,.10); }
 
     .mirrorState{ display:none; }
     .meters{ display:none; }
 
-    .hiddenSignals{
-      position:absolute;
-      width:0;height:0;
-      overflow:hidden;
-      opacity:0;
-      pointer-events:none;
-    }
+    .hiddenSignals{ position:absolute; width:0;height:0; overflow:hidden; opacity:0; pointer-events:none; }
 
-    .stack{
-      margin-top: 6px;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-    }
-    .stackLbl{
-      font-size: 11px;
-      letter-spacing: .25px;
-      color: rgba(255,255,255,.55);
-      text-transform: uppercase;
-    }
-    .covers{
-      display:flex;
-      align-items:center;
-      justify-content:flex-end;
-      gap:0;
-      padding-right: 2px;
-    }
-    .cvr{
-      width: 28px; height: 28px;
-      border-radius: 10px;
-      overflow:hidden;
-      outline: 1px solid rgba(255,255,255,.10);
-      box-shadow: 0 10px 25px rgba(0,0,0,.35);
-      background: rgba(255,255,255,.05);
-      margin-left: -6px;
-    }
+    .stack{ margin-top: 6px; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .stackLbl{ font-size: 11px; letter-spacing: .25px; color: rgba(255,255,255,.55); text-transform: uppercase; }
+    .covers{ display:flex; align-items:center; justify-content:flex-end; gap:0; padding-right: 2px; }
+    .cvr{ width: 28px; height: 28px; border-radius: 10px; overflow:hidden; outline: 1px solid rgba(255,255,255,.10); box-shadow: 0 10px 25px rgba(0,0,0,.35); background: rgba(255,255,255,.05); margin-left: -6px; }
     .cvr:first-child{ margin-left: 0; }
     .cvr img{ width:100%; height:100%; object-fit:cover; display:block; }
 
-    /* ============================
-       ✅ eConcerts additions
-       ============================ */
-    .econcertsHead{
-      padding: 14px;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      border-bottom: 1px solid rgba(255,255,255,.07);
-    }
-    .econcertsTitle{
-      font-size: 12px;
-      letter-spacing: .34px;
-      color: rgba(255,255,255,.62);
-      text-transform: uppercase;
-      display:flex;
-      align-items:center;
-      gap:10px;
-      min-width: 0;
-    }
-    .eBtn{
-      border:0;
-      cursor:pointer;
-      padding: 9px 12px;
-      border-radius: 999px;
-      font-size: 12.5px;
-      letter-spacing:.2px;
-      background: rgba(255,255,255,.06);
-      outline: 1px solid rgba(255,255,255,.10);
-      color: rgba(255,255,255,.90);
-    }
+    /* eConcerts */
+    .econcertsHead{ padding: 14px; display:flex; align-items:center; justify-content:space-between; gap:10px; border-bottom: 1px solid rgba(255,255,255,.07); }
+    .econcertsTitle{ font-size: 12px; letter-spacing: .34px; color: rgba(255,255,255,.62); text-transform: uppercase; display:flex; align-items:center; gap:10px; min-width: 0; }
+    .eBtn{ border:0; cursor:pointer; padding: 9px 12px; border-radius: 999px; font-size: 12.5px; letter-spacing:.2px; background: rgba(255,255,255,.06); outline: 1px solid rgba(255,255,255,.10); color: rgba(255,255,255,.90); }
     .eBtn:active{ transform: translateY(1px); }
-    .eBtn.ghost{
-      background: transparent;
-      color: rgba(255,255,255,.78);
-    }
-    .econcertsGrid{
-      padding: 10px;
-      display:grid;
-      gap:10px;
-    }
+    .eBtn.ghost{ background: transparent; color: rgba(255,255,255,.78); }
+    .econcertsGrid{ padding: 10px; display:grid; gap:10px; }
 
-    /* ✅ Scroll performance: make the list a proper scroll container */
     #econcertsList{
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
@@ -754,104 +648,28 @@
       overscroll-behavior: contain;
     }
 
-    .eCard{
-      border-radius: 16px;
-      outline: 1px solid rgba(255,255,255,.08);
-      background: rgba(255,255,255,.03);
-      padding: 12px 12px 12px 14px;
-      display:grid;
-      grid-template-columns: minmax(0,1fr) max-content;
-      gap:12px;
-      align-items:start;
-    }
+    .eCard{ border-radius: 16px; outline: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.03); padding: 12px 12px 12px 14px; display:grid; grid-template-columns: minmax(0,1fr) max-content; gap:12px; align-items:start; }
     .eMain{ min-width:0; }
-    .eArtist{
-      font-size: 14px;
-      font-weight: 760;
-      color: rgba(255,255,255,.94);
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-    }
-    .eMeta{
-      margin-top: 6px;
-      font-size: 12px;
-      color: rgba(255,255,255,.72);
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-    }
-    .eMeta2{
-      margin-top: 6px;
-      font-size: 12px;
-      color: var(--muted2);
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-    }
-    .ePills{
-      margin-top: 10px;
-      display:flex;
-      flex-wrap:wrap;
-      gap:8px;
-    }
-    .ePill{
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
-      padding: 6px 10px;
-      border-radius: 999px;
-      background: rgba(255,255,255,.04);
-      outline: 1px solid rgba(255,255,255,.08);
-      color: rgba(255,255,255,.80);
-      font-size: 12px;
-      letter-spacing: .2px;
-      white-space:nowrap;
-    }
-    .eRight{
-      display:flex;
-      flex-direction:column;
-      align-items:flex-end;
-      gap:8px;
-      white-space:nowrap;
-    }
-    .eScore{
-      font-size: 12px;
-      font-weight: 800;
-      color: rgba(255,214,102,.92);
-    }
-    .eActions{
-      display:flex;
-      gap:8px;
-    }
-    .eBadge{
-      font-size: 12px;
-      font-weight: 750;
-      color: rgba(255,255,255,.85);
-      padding: 6px 10px;
-      border-radius: 999px;
-      background: rgba(255,255,255,.04);
-      outline: 1px solid rgba(255,255,255,.08);
-    }
-    .eEmpty{
-      padding: 14px;
-      color: rgba(255,255,255,.70);
-      font-size: 13px;
-    }
+    .eArtist{ font-size: 14px; font-weight: 760; color: rgba(255,255,255,.94); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .eMeta{ margin-top: 6px; font-size: 12px; color: rgba(255,255,255,.72); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .eMeta2{ margin-top: 6px; font-size: 12px; color: var(--muted2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .ePills{ margin-top: 10px; display:flex; flex-wrap:wrap; gap:8px; }
+    .ePill{ display:inline-flex; align-items:center; gap:8px; padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,.04); outline: 1px solid rgba(255,255,255,.08); color: rgba(255,255,255,.80); font-size: 12px; letter-spacing: .2px; white-space:nowrap; }
+    .eRight{ display:flex; flex-direction:column; align-items:flex-end; gap:8px; white-space:nowrap; }
+    .eScore{ font-size: 12px; font-weight: 800; color: rgba(255,214,102,.92); }
+    .eActions{ display:flex; gap:8px; }
+    .eBadge{ font-size: 12px; font-weight: 750; color: rgba(255,255,255,.85); padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,.04); outline: 1px solid rgba(255,255,255,.08); }
+    .eEmpty{ padding: 14px; color: rgba(255,255,255,.70); font-size: 13px; }
 
-    /* ✅ Mobile perf killers: disable expensive effects on small screens */
+    /* Mobile perf */
     @media (max-width: 720px){
       .doodles{ background-attachment: scroll !important; }
+      .card{ backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+      .orbPopup{ backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
 
-      .card{
-        backdrop-filter: none !important;
-        -webkit-backdrop-filter: none !important;
-      }
-
-      .orbPopup{
-        backdrop-filter: none !important;
-        -webkit-backdrop-filter: none !important;
-      }
+      /* extra: reduce heavy shadows a bit on mobile */
+      .thumb{ box-shadow: none !important; }
+      .cvr{ box-shadow: none !important; }
     }
 
     @media (max-width: 520px){
@@ -862,7 +680,7 @@
     }
   </style>
 </head>
-<!-- PART 4/4 -->
+
 <body>
   <div class="doodles bright" aria-hidden="true"></div>
   <div class="doodles dark" aria-hidden="true"></div>
@@ -885,8 +703,6 @@
       <button class="tabBtn" data-tab="now" aria-selected="true" role="tab">Now</button>
       <button class="tabBtn" data-tab="recent" aria-selected="false" role="tab">Recent</button>
       <button class="tabBtn" data-tab="top" aria-selected="false" role="tab">Top</button>
-
-      <!-- ✅ NEW TAB -->
       <button class="tabBtn" data-tab="econcerts" aria-selected="false" role="tab">eConcerts</button>
     </div>
 
@@ -1019,7 +835,6 @@
       </div>
     </section>
 
-    <!-- ✅ NEW PANEL -->
     <section class="panel hidden" data-panel="econcerts">
       <div class="card">
         <div class="econcertsHead">
@@ -1101,15 +916,11 @@
       }
 
       function tick(ts){
-        // throttle to ~12fps
         if(!last || (ts - last) > 80){
           last = ts;
-
-          // Only do heavy work when Now tab is visible
           if(isNowPanelActive()){
             const axis = pctFromLeftStyle(mDot);
             root.style.setProperty('--axis', axis.toFixed(4));
-            // Only sync bars when popup is open (big win)
             if(details && details.open) syncPopupBars();
           }
         }

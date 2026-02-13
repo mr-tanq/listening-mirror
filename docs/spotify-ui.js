@@ -1,11 +1,11 @@
 /* spotify-ui.js (FULL REPLACE)
    Goal:
-   - KEEP original header Spotify controls (login + prev/play/next) exactly as they are
+   - KEEP original header Spotify controls if they exist
+   - If they DON'T exist, inject FALLBACK controls in the SAME header area (not floating)
    - HARD block playback triggered by header/orb/title area ("Mirror bug")
-   - BUT never block taps on the original Spotify header controls
+   - NEVER block taps on original OR fallback controls
    - Click-to-play on list rows (Recent/Top)
-   Fix:
-   - Rows without artwork: strip placeholder notes (♪/♫/♬/♩) so resolve works
+   Fix: rows without artwork (♪/♫) must still resolve + play
 */
 
 (function () {
@@ -14,6 +14,19 @@
   const API_BASE = String(window.LISTENING_MIRROR_API || "https://i.errtanq9.workers.dev").replace(/\/+$/, "");
 
   // ---------------- helpers ----------------
+  function el(tag, props = {}, children = []) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(props)) {
+      if (k === "class") n.className = v;
+      else if (k === "style") n.setAttribute("style", v);
+      else if (k.startsWith("on") && typeof v === "function") n.addEventListener(k.slice(2), v, { passive: false });
+      else if (v === true) n.setAttribute(k, "");
+      else if (v !== false && v != null) n.setAttribute(k, String(v));
+    }
+    for (const c of children) n.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+    return n;
+  }
+
   function safeCall(path, ...args) {
     try {
       const parts = path.split(".");
@@ -48,9 +61,37 @@
   function ensureCss() {
     if (document.getElementById("spotifyUiCss")) return;
     const css = `
-/* only for row clickability */
+/* row clickability */
 .spArtworkPlayable{ cursor: pointer !important; border-radius: 12px; }
 .spRowPlayable{ cursor: pointer !important; }
+
+/* fallback controls styling (matches your header pill vibe) */
+#spFallbackControls{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px 12px;
+  border-radius:999px;
+  background: rgba(10,12,14,.42);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  outline: 1px solid rgba(255,255,255,.10);
+  box-shadow: 0 18px 60px rgba(0,0,0,.35);
+}
+#spFallbackControls button{
+  border:0;
+  width:40px;
+  height:40px;
+  border-radius:999px;
+  background: rgba(255,255,255,.06);
+  outline: 1px solid rgba(255,255,255,.10);
+  display:grid;
+  place-items:center;
+  color: rgba(255,255,255,.92);
+  padding:0;
+}
+#spFallbackControls button:active{ transform: translateY(1px); background: rgba(255,255,255,.08); }
+#spFallbackControls svg{ width:18px; height:18px; display:block; }
     `.trim();
     const st = document.createElement("style");
     st.id = "spotifyUiCss";
@@ -58,6 +99,22 @@
     document.head.appendChild(st);
   }
 
+  function iconSvg(name) {
+    if (name === "prev") return `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 6h2v12H6V6zm3.5 6L18 6v12l-8.5-6z"/></svg>`;
+    if (name === "play") return `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M8 5v14l11-7L8 5z"/></svg>`;
+    if (name === "pause") return `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 5h4v14H6V5zm8 0h4v14h-4V5z"/></svg>`;
+    if (name === "next") return `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M16 6h2v12h-2V6zM6 18V6l8.5 6L6 18z"/></svg>`;
+    return "";
+  }
+
+  function spotifyLogoSvg() {
+    return `
+      <svg viewBox="0 0 168 168" aria-hidden="true">
+        <path fill="currentColor" d="M84 0C37.6 0 0 37.6 0 84s37.6 84 84 84 84-37.6 84-84S130.4 0 84 0zm38.6 121.3c-1.5 2.4-4.6 3.2-7 1.7-19.2-11.7-43.4-14.3-72-7.8-2.8.6-5.6-1.1-6.2-3.9-.6-2.8 1.1-5.6 3.9-6.2 31.5-7.2 58.5-4.2 80.3 9.1 2.4 1.5 3.2 4.6 1.7 7.1z"/>
+      </svg>
+    `;
+  }
+// ---------------- header/orb detection ----------------
   function callIndexOrStats() {
     const tries = [
       "openStats","showStats","toggleStats",
@@ -81,7 +138,6 @@
     return false;
   }
 
-  // ---------------- header/orb detection ----------------
   function findHeaderTitleNode() {
     const nodes = Array.from(document.querySelectorAll("h1,h2,div,span")).slice(0, 3500);
     for (const n of nodes) {
@@ -189,16 +245,17 @@
     LM_ORB_EL = findOrbNearTitle(titleNode);
     if (LM_ORB_EL) bindOrbHoverForIndex();
   }
-// ---------------- IMPORTANT: allow ORIGINAL Spotify header controls ----------------
-  // We do NOT rely on marking containers (which can fail early on Android).
-  // Instead we whitelist taps based on "this looks like a Spotify control button".
+
+  // ---------------- allow ORIGINAL controls OR fallback ----------------
   function isOriginalSpotifyControlTarget(target) {
     if (!target) return false;
+
+    // our fallback must always be allowed
+    if (target.closest && target.closest("#spFallbackControls")) return true;
 
     const btn = target.closest ? target.closest("button,a,[role='button'],div") : null;
     if (!btn) return false;
 
-    // 1) aria-label / title
     const aria = (btn.getAttribute?.("aria-label") || btn.getAttribute?.("title") || "").toLowerCase();
     if (aria) {
       if (aria.includes("spotify")) return true;
@@ -209,32 +266,17 @@
       if (aria.includes("play") || aria.includes("pause")) return true;
     }
 
-    // 2) icon svg heuristics (spotify logo / transport icons)
-    const svg = btn.querySelector?.("svg") || btn.closest?.("svg") || null;
-    if (svg) {
-      const vb = (svg.getAttribute?.("viewBox") || "").trim();
-      // Many transport icons use 0 0 24 24
-      if (vb === "0 0 24 24") return true;
-
-      // Spotify logo often has wider viewbox; also has multiple curved paths.
-      // We keep this loose: if the button contains svg + looks round, accept.
-      const r = btn.getBoundingClientRect?.();
-      if (r && r.width >= 28 && r.width <= 64 && r.height >= 28 && r.height <= 64) {
-        const cs = window.getComputedStyle(btn);
-        const br = parseFloat(cs.borderRadius || "0");
-        const roundish = br > 12 || cs.borderRadius === "999px";
-        if (roundish) return true;
-      }
+    const r = btn.getBoundingClientRect?.();
+    if (r && r.width >= 28 && r.width <= 80 && r.height >= 28 && r.height <= 80) {
+      const cs = window.getComputedStyle(btn);
+      const br = parseFloat(cs.borderRadius || "0");
+      const roundish = br > 12 || cs.borderRadius === "999px";
+      if (roundish && (btn.querySelector?.("svg") || btn.closest?.("svg"))) return true;
     }
-
-    // 3) class/id hints (non-breaking, optional)
-    const cls = ((btn.className || "") + " " + (btn.id || "")).toLowerCase();
-    if (cls.includes("spotify") && (cls.includes("btn") || cls.includes("control") || cls.includes("player"))) return true;
 
     return false;
   }
-
-  // ---------------- HARD blocker (header click bug) ----------------
+// ---------------- HARD blocker (header click bug) ----------------
   let blockerInstalled = false;
   function installWindowCaptureBlocker() {
     if (blockerInstalled) return;
@@ -248,7 +290,7 @@
     const killDownOrClick = (e) => {
       if (!inHeader(e.target)) return;
 
-      // ✅ NEVER block the original Spotify header controls (login + prev/play/next)
+      // ✅ NEVER block the original controls OR fallback controls
       if (isOriginalSpotifyControlTarget(e.target)) return;
 
       // orb: show index, never play
@@ -260,7 +302,6 @@
         return;
       }
 
-      // rest of header: block playback triggers
       try { e.preventDefault(); } catch {}
       try { e.stopImmediatePropagation(); } catch {}
       try { e.stopPropagation(); } catch {}
@@ -272,7 +313,31 @@
     window.addEventListener("click",       killDownOrClick, { capture: true, passive: false });
   }
 
-  // ---------------- Spotify Web API / player ----------------
+  // ---------------- FALLBACK header controls (ONLY if originals missing) ----------------
+  function findExistingHeaderControls(headerEl) {
+    if (!headerEl) return null;
+
+    // detect cluster of 3+ round buttons near top-right of header
+    const candidates = Array.from(headerEl.querySelectorAll("button,a,[role='button'],div,span")).slice(0, 600);
+    const round = candidates.filter(n => {
+      const r = n.getBoundingClientRect?.();
+      if (!r) return false;
+      if (r.width < 26 || r.width > 80) return false;
+      if (r.height < 26 || r.height > 80) return false;
+      const cs = window.getComputedStyle(n);
+      const br = parseFloat(cs.borderRadius || "0");
+      const roundish = br > 12 || cs.borderRadius === "999px";
+      if (!roundish) return false;
+      // must have svg icon or be inside one
+      return !!(n.querySelector?.("svg") || n.closest?.("svg"));
+    });
+
+    // if we see multiple round icon buttons, assume controls exist
+    if (round.length >= 3) return round[0].closest("div,nav,section,header") || headerEl;
+
+    return null;
+  }
+
   async function spotifyApi(endpoint, method = "GET", body = null) {
     const token = getToken();
     if (!token) return { ok: false, status: 401 };
@@ -288,28 +353,141 @@
     }
   }
 
-  async function apiPlayUri(uri) {
-    if (!uri || typeof uri !== "string") return false;
-    const m = uri.match(/^spotify:track:([A-Za-z0-9]{22})$/);
-    if (!m) return false;
-    return !!(await spotifyApi("/me/player/play", "PUT", { uris: [uri] })).ok;
+  async function apiPause() { return (await spotifyApi("/me/player/pause", "PUT")).ok; }
+  async function apiPlay()  { return (await spotifyApi("/me/player/play", "PUT")).ok; }
+
+  async function getPlaybackState() {
+    let r = safeCall("SpotifyPlayer.getState");
+    if (r.ok) return await Promise.resolve(r.value);
+
+    r = safeCall("SpotifyPlayer.getPlaybackState");
+    if (r.ok) return await Promise.resolve(r.value);
+
+    const token = getToken();
+    if (!token) return null;
+    try {
+      const rr = await fetch("https://api.spotify.com/v1/me/player", {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      if (!rr.ok) return null;
+      const j = await rr.json();
+      return { isPlaying: !!j?.is_playing, paused: typeof j?.is_playing === "boolean" ? !j.is_playing : undefined };
+    } catch {
+      return null;
+    }
   }
 
-  async function playUri(uri) {
-    let r = safeCall("SpotifyPlayer.playUri", uri);
-    if (r.ok) return true;
-    r = safeCall("SpotifyPlayer.play", { uri });
-    if (r.ok) return true;
-    r = safeCall("SpotifyPlayer.play", uri);
-    if (r.ok) return true;
+  function inferIsPlaying(state) {
+    if (!state) return null;
+    if (state.isPlaying === true) return true;
+    if (state.playing === true) return true;
+    if (typeof state.paused === "boolean") return !state.paused;
+    return null;
+  }
 
-    const ok = await apiPlayUri(uri);
+  function doLoginOrLogout() {
+    const token = getToken();
+    if (!token) {
+      const r = safeCall("SpotifyAuth.login");
+      if (!r.ok) console.warn("[Spotify UI] SpotifyAuth.login missing:", r.reason);
+      return;
+    }
+    let r = safeCall("SpotifyAuth.logout");
+    if (r.ok) return;
+    try {
+      localStorage.removeItem("spotify_access_token");
+      localStorage.removeItem("spotify_refresh_token");
+      localStorage.removeItem("SPOTIFY_ACCESS_TOKEN");
+      localStorage.removeItem("SPOTIFY_REFRESH_TOKEN");
+      sessionStorage.removeItem("spotify_access_token");
+      sessionStorage.removeItem("spotify_refresh_token");
+    } catch {}
+  }
+
+  async function pauseSafe() {
+    const ok = await apiPause();
     if (ok) return true;
-
-    console.warn("[Spotify UI] Cannot play URI:", uri);
-    return false;
+    const r = safeCall("SpotifyPlayer.pause");
+    return !!r.ok;
   }
-// ---------------- List click-to-play ----------------
+
+  async function resumeSafe() {
+    const ok = await apiPlay();
+    if (ok) return true;
+    let r = safeCall("SpotifyPlayer.play");
+    if (r.ok) return true;
+    r = safeCall("SpotifyPlayer.resume");
+    return !!r.ok;
+  }
+
+  function ensureFallbackControls(headerEl) {
+    if (!headerEl) return;
+
+    // if original controls exist, do nothing
+    const existing = findExistingHeaderControls(headerEl);
+    if (existing && !document.getElementById("spFallbackControls")) return;
+
+    let fc = document.getElementById("spFallbackControls");
+    if (fc) return;
+
+    // create fallback bar
+    const bSpotify = el("button", { type: "button", title: "Spotify (login/logout)", "aria-label": "Spotify login" });
+    bSpotify.innerHTML = spotifyLogoSvg();
+
+    const bPrev = el("button", { type: "button", title: "Previous", "aria-label": "Previous" });
+    bPrev.innerHTML = iconSvg("prev");
+
+    const bToggle = el("button", { type: "button", title: "Play/Pause", "aria-label": "Play/Pause" });
+    bToggle.innerHTML = iconSvg("play");
+
+    const bNext = el("button", { type: "button", title: "Next", "aria-label": "Next" });
+    bNext.innerHTML = iconSvg("next");
+
+    fc = el("div", { id: "spFallbackControls" }, [bSpotify, bPrev, bToggle, bNext]);
+
+    // place it top-right inside header
+    // (we don't change layout; we overlay safely)
+    const wrap = el("div", {
+      id: "spFallbackWrap",
+      style: "position:absolute; top:14px; right:14px; z-index:50;"
+    }, [fc]);
+
+    // make header positioned so absolute works
+    const cs = window.getComputedStyle(headerEl);
+    if (cs.position === "static") headerEl.style.position = "relative";
+
+    headerEl.appendChild(wrap);
+
+    // bind handlers
+    bSpotify.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); doLoginOrLogout(); }, { passive: false });
+    bPrev.addEventListener("click", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const r = safeCall("SpotifyPlayer.prev");
+      if (!r.ok) console.warn("[Spotify UI] Prev failed:", r.reason);
+    }, { passive: false });
+
+    bNext.addEventListener("click", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const r = safeCall("SpotifyPlayer.next");
+      if (!r.ok) console.warn("[Spotify UI] Next failed:", r.reason);
+    }, { passive: false });
+
+    bToggle.addEventListener("click", async (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const st = await getPlaybackState();
+      const isPlaying = inferIsPlaying(st);
+      if (isPlaying === true) {
+        bToggle.innerHTML = iconSvg("play");
+        const ok = await pauseSafe();
+        if (!ok) bToggle.innerHTML = iconSvg("pause");
+      } else {
+        bToggle.innerHTML = iconSvg("pause");
+        const ok = await resumeSafe();
+        if (!ok) bToggle.innerHTML = iconSvg("play");
+      }
+    }, { passive: false });
+  }
+// ---------------- Click-to-play on list rows ----------------
   function isSessionCoversArea(node) {
     const root = node?.closest?.("section, article, div") || null;
     const txt = ((root?.innerText || node?.innerText || "")).toUpperCase();
@@ -352,14 +530,12 @@
     return parts.length ? parts[0] : s;
   }
 
-  // ✅ FIX for no-artwork rows: remove music-note placeholder lines (♪/♫/♬/♩)
+  // ✅ FIX: remove music-note placeholders so "no artwork" rows resolve correctly
   function cleanLine(s) {
     let x = (s || "").replace(/\s+/g, " ").trim();
     if (!x) return "";
-
     x = x.replace(/[♪♫♬♩]/g, "").trim();
     if (!x) return "";
-
     x = x.replace(/^LIVE$/i, "").trim();
     x = x.replace(/^\d+\.\s+/, "").trim();
     x = x.replace(/\b\d{1,2}\s+[A-Za-z]{3}\s+\d{4}(,\s*\d{2}:\d{2})?\b/gi, "").trim();
@@ -442,7 +618,8 @@
     if (t.endsWith("…") || a.endsWith("…")) return false;
     return true;
   }
-async function resolveUriForRow(row) {
+
+  async function resolveUriForRow(row) {
     const u0 = extractSpotifyUriFromNode(row);
     if (u0) return u0;
 
@@ -464,6 +641,28 @@ async function resolveUriForRow(row) {
     return "";
   }
 
+  async function apiPlayUri(uri) {
+    if (!uri || typeof uri !== "string") return false;
+    const m = uri.match(/^spotify:track:([A-Za-z0-9]{22})$/);
+    if (!m) return false;
+    return !!(await spotifyApi("/me/player/play", "PUT", { uris: [uri] })).ok;
+  }
+
+  async function playUri(uri) {
+    let r = safeCall("SpotifyPlayer.playUri", uri);
+    if (r.ok) return true;
+    r = safeCall("SpotifyPlayer.play", { uri });
+    if (r.ok) return true;
+    r = safeCall("SpotifyPlayer.play", uri);
+    if (r.ok) return true;
+
+    const ok = await apiPlayUri(uri);
+    if (ok) return true;
+
+    console.warn("[Spotify UI] Cannot play URI:", uri);
+    return false;
+  }
+
   function rectIsSquareish(r) {
     if (!r) return false;
     const w = r.width, h = r.height;
@@ -479,7 +678,6 @@ async function resolveUriForRow(row) {
     const img = row.querySelector?.("img");
     if (img && !isExplicitNoPlay(img)) return img;
 
-    // fallback: square-ish element (covers "no artwork" placeholders too)
     const kids = Array.from(row.querySelectorAll?.("div, span, a") || []);
     for (const n of kids) {
       if (isSessionCoversArea(n) || isExplicitNoPlay(n)) continue;
@@ -545,7 +743,6 @@ async function resolveUriForRow(row) {
         art.classList.add("spArtworkPlayable");
 
         art.addEventListener("click", async (e) => {
-          // ✅ never interfere with original Spotify header controls
           if (isOriginalSpotifyControlTarget(e.target)) return;
           if (isExplicitNoPlay(e.target) || isSessionCoversArea(e.target)) return;
 
@@ -577,34 +774,25 @@ async function resolveUriForRow(row) {
   // ---------------- loops ----------------
   let bindTimer = null;
 
-  function startLoops() {
-    if (bindTimer) clearInterval(bindTimer);
-    bindTimer = setInterval(() => {
-      try {
-        refreshHeaderRefs();
-        attachPlayBindings();
-      } catch {}
-    }, 900);
+  function tick() {
+    refreshHeaderRefs();
+    installWindowCaptureBlocker();
 
-    try {
-      refreshHeaderRefs();
-      attachPlayBindings();
-    } catch {}
+    // fallback controls only if originals missing
+    if (LM_HEADER_EL) ensureFallbackControls(LM_HEADER_EL);
+
+    try { attachPlayBindings(); } catch {}
   }
 
   function boot() {
     ensureCss();
-    refreshHeaderRefs();
-    installWindowCaptureBlocker();
+    tick();
 
-    const mo = new MutationObserver(() => {
-      ensureCss();
-      refreshHeaderRefs();
-      try { attachPlayBindings(); } catch {}
-    });
+    const mo = new MutationObserver(() => { ensureCss(); tick(); });
     mo.observe(document.documentElement, { subtree: true, childList: true });
 
-    startLoops();
+    if (bindTimer) clearInterval(bindTimer);
+    bindTimer = setInterval(tick, 900);
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);

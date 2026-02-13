@@ -1,10 +1,7 @@
 /* spotify-ui.js (FULL REPLACE) — PART 1/4
-   Fixes:
-   - Tabs always clickable (no global capture blockers on tabs)
-   - Glyph (orb) toggles play/pause ONLY
-   - Spotify icon injected next to "Online" (always visible; grey when logged out)
-   - Click-to-play works even when rows have no artwork
-   - No scroll crash (delegated click + debounced observers, no heavy scans loops)
+   Only changes requested:
+   - Spotify icon +10px right
+   - Glyph left of "Listening Mirror" toggles play/pause
 */
 
 (function () {
@@ -85,12 +82,12 @@
 #lmSpotifyBtn.lmOff{ opacity:.35; filter: grayscale(1); }
 #lmSpotifyBtn.lmOn{ opacity:.95; filter:none; }
 
-/* Placement: -5px up, +25px right from the "Online" label area */
+/* Placement: -5px up, +35px right from the "Online" label area (was +25px) */
 .lmOnlineRow{ position:relative !important; }
 #lmSpotifyBtn{
   position:absolute !important;
   top:50% !important;
-  transform: translate(25px, calc(-50% - 5px)) !important;
+  transform: translate(35px, calc(-50% - 5px)) !important;
   left:0 !important;
 }
 
@@ -136,7 +133,6 @@
   }
 
   async function apiTogglePlayPause() {
-    // Use /me/player to detect state, then pause/play
     const st = await spotifyApi("/me/player", "GET");
     if (!st.ok) return false;
 
@@ -167,12 +163,9 @@
   }
 
   async function togglePlayPause() {
-    // Prefer SDK style methods if present
     let r = safeCall("SpotifyPlayer.togglePlay");
     if (r.ok) return true;
 
-    // Some SDKs expose pause/resume or play/pause without args
-    // We'll fall back to Web API toggle
     const ok = await apiTogglePlayPause();
     return !!ok;
   }
@@ -181,7 +174,6 @@
   // ---------------- Header / Glyph / Spotify icon ----------------
 
   function findHeaderTitleNode() {
-    // Small targeted scan: only likely text nodes
     const nodes = $$("h1,h2,h3,div,span").slice(0, 1200);
     for (const n of nodes) {
       const t = (n.textContent || "").trim();
@@ -210,14 +202,12 @@
       if (cur) chain.push(cur);
     }
 
-    // Choose the first ancestor that is "header-like" and not too tall (so it won't include tabs)
     for (const el of chain) {
       const r = el.getBoundingClientRect?.();
       if (!r) continue;
       if (r.height >= 40 && r.height <= 170) return el;
     }
 
-    // fallback
     return (
       titleNode.closest("header") ||
       titleNode.closest("section") ||
@@ -231,7 +221,6 @@
   function findOnlineLabelNode(headerEl) {
     if (!headerEl) return null;
 
-    // Search for a node with exact text "Online" (case-insensitive)
     const candidates = $$("div,span,p", headerEl).slice(0, 300);
     for (const n of candidates) {
       const t = (n.textContent || "").trim().toLowerCase();
@@ -240,22 +229,36 @@
     return null;
   }
 
-  function findOrbNearTitle(titleNode, headerEl) {
-    if (!titleNode || !headerEl) return null;
+  // NEW: pick the glyph that is immediately left of the title (guaranteed)
+  function findGlyphLeftOfTitle(titleNode) {
+    if (!titleNode) return null;
 
-    const titleRect = titleNode.getBoundingClientRect();
-    const candidates = $$("div,span,button,a", headerEl).slice(0, 200);
+    const titleRect = titleNode.getBoundingClientRect?.();
+    if (!titleRect) return null;
+
+    const container =
+      titleNode.parentElement ||
+      titleNode.closest("header") ||
+      titleNode.closest("div") ||
+      null;
+
+    if (!container) return null;
+
+    const candidates = Array.from(container.children || []);
+    // If titleNode itself isn't a direct child, fallback to query within container
+    const pool = candidates.length ? candidates : $$("div,span,button,a", container).slice(0, 80);
 
     let best = null;
     let bestScore = Infinity;
 
-    for (const n of candidates) {
+    for (const n of pool) {
       if (!n || n === titleNode) continue;
 
       const r = n.getBoundingClientRect?.();
       if (!r) continue;
 
-      const small = r.width >= 10 && r.width <= 56 && r.height >= 10 && r.height <= 56;
+      // small, roundish element near left of title
+      const small = r.width >= 10 && r.width <= 60 && r.height >= 10 && r.height <= 60;
       if (!small) continue;
 
       const cs = window.getComputedStyle(n);
@@ -263,13 +266,14 @@
       const roundish = br > 12 || cs.borderRadius === "999px";
       if (!roundish) continue;
 
-      const midY = (r.top + r.bottom) / 2;
-      const titleMidY = (titleRect.top + titleRect.bottom) / 2;
-      if (Math.abs(midY - titleMidY) > 38) continue;
+      const sameLine = Math.abs(((r.top + r.bottom) / 2) - ((titleRect.top + titleRect.bottom) / 2)) < 42;
+      if (!sameLine) continue;
 
-      // Prefer left side near title
+      const isLeft = r.right <= titleRect.left + 8;
+      if (!isLeft) continue;
+
       const dx = Math.abs(titleRect.left - r.right);
-      const dy = Math.abs(titleMidY - midY);
+      const dy = Math.abs(((titleRect.top + titleRect.bottom) / 2) - ((r.top + r.bottom) / 2));
       const score = dx + dy * 2;
 
       if (score < bestScore) {
@@ -282,7 +286,6 @@
   }
 
   function svgSpotify() {
-    // Simple Spotify-like circle+waves (monochrome by CSS opacity/filters)
     return `
 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <path d="M12 2a10 10 0 1 0 .001 20.001A10 10 0 0 0 12 2zm4.59 14.37a.75.75 0 0 1-1.03.25c-2.82-1.72-6.37-2.11-10.55-1.15a.75.75 0 1 1-.34-1.46c4.55-1.05 8.45-.6 11.6 1.31.36.22.47.68.32 1.05zm1.05-2.6a.9.9 0 0 1-1.24.3c-3.23-1.98-8.16-2.55-11.99-1.38a.9.9 0 0 1-.53-1.72c4.37-1.33 9.81-.69 13.54 1.6.42.25.55.79.22 1.2zm.12-2.71c-3.73-2.22-9.9-2.43-13.45-1.35a1.05 1.05 0 0 1-.61-2.01c4.08-1.24 10.87-1 15.22 1.6a1.05 1.05 0 0 1-1.16 1.76z"/>
@@ -295,7 +298,6 @@
     const onlineNode = findOnlineLabelNode(headerEl);
     if (!onlineNode) return;
 
-    // We need a stable positioning anchor
     const row = onlineNode.parentElement || onlineNode;
     row.classList.add("lmOnlineRow");
 
@@ -311,12 +313,9 @@
         e.preventDefault();
         e.stopPropagation();
 
-        // Login/logout behavior:
-        // If token exists -> try logout/disconnect if available, else re-login
         const token = getToken();
 
         if (!token) {
-          // login
           if (window.SpotifyAuth) {
             const r1 = safeCall("SpotifyAuth.login");
             if (r1.ok) return;
@@ -328,14 +327,12 @@
           console.warn("[Spotify UI] No SpotifyAuth login method found.");
           return;
         } else {
-          // logout/disconnect if exists, otherwise just re-login
           if (window.SpotifyAuth) {
             const r1 = safeCall("SpotifyAuth.logout");
             if (r1.ok) return;
             const r2 = safeCall("SpotifyAuth.disconnect");
             if (r2.ok) return;
           }
-          // If no explicit logout, you still keep token; so just open login to refresh
           if (window.SpotifyAuth) {
             safeCall("SpotifyAuth.login");
           }
@@ -343,19 +340,16 @@
       }, { passive: false });
     }
 
-    // Attach next to Online row (absolute positioning via CSS)
     if (btn.parentElement !== row) {
       row.appendChild(btn);
     }
 
-    // Update state style
     const token = getToken();
     btn.classList.toggle("lmOn", !!token);
     btn.classList.toggle("lmOff", !token);
   }
 
   function markTabsClickable() {
-    // mark tab containers to guarantee pointer-events
     const tabTexts = new Set(["now", "recent", "top", "econcerts"]);
     const nodes = $$("button,a,div,span").slice(0, 1200);
     for (const n of nodes) {
@@ -377,14 +371,10 @@
     LM_ORB.dataset.lmOrbBound = "1";
 
     LM_ORB.addEventListener("click", async (e) => {
-      // Orb should ONLY toggle play/pause. Never resolve anything.
       e.preventDefault();
       e.stopPropagation();
 
-      if (!getToken()) {
-        // If not logged, tapping orb does nothing (so it won't trigger weird search/play)
-        return;
-      }
+      if (!getToken()) return;
       await togglePlayPause();
     }, { passive: false });
   }
@@ -400,7 +390,8 @@
     LM_HEADER = pickCompactHeaderContainer(LM_TITLE);
     if (!LM_HEADER) return;
 
-    LM_ORB = findOrbNearTitle(LM_TITLE, LM_HEADER);
+    // CHANGE: force the glyph left of title to be the orb for play/pause
+    LM_ORB = findGlyphLeftOfTitle(LM_TITLE) || null;
     bindOrbAsPlayPause();
 
     ensureSpotifyIconNearOnline(LM_HEADER);
@@ -416,7 +407,6 @@
 
   function isInsideHeaderOrTabs(node) {
     if (!node) return false;
-    // Never treat clicks inside header or tablist as play
     if (node.closest && node.closest("#lmSpotifyBtn")) return true;
     if (node.closest && node.closest("[data-lm-tab='1']")) return true;
     if (LM_HEADER && node.closest && node.closest("*") && LM_HEADER.contains(node)) return true;
@@ -429,7 +419,6 @@
     const tag = (node.tagName || "").toLowerCase();
     if (tag === "button" || tag === "a" || tag === "input" || tag === "textarea" || tag === "select") return true;
 
-    // chips/pills often are div/span with role
     const role = (node.getAttribute?.("role") || "").toLowerCase();
     if (role === "tab" || role === "button" || role === "link") return true;
 
@@ -487,7 +476,6 @@
       .map(cleanLine)
       .filter(Boolean);
 
-    // Remove obvious UI words
     const filtered = lines.filter(l => {
       const u = l.toUpperCase();
       if (u === "ONLINE") return false;
@@ -498,18 +486,15 @@
       return true;
     });
 
-    // Usually: [track, artist, album?]
     const track = cleanLine(filtered[0] || "");
     const artist = normalizeArtistLine(cleanLine(filtered[1] || ""));
     return { track, artist };
   }
 
   function looksLikeArtistOnlyRow(row) {
-    // More conservative now: only consider artist-only if we truly have a single meaningful line
     const text = (row?.innerText || "").split("\n").map(cleanLine).filter(Boolean);
     if (!text.length) return true;
     if (text.length === 1) return true;
-    // If second line is only a number/count, treat as artist-only
     const l1 = (text[1] || "").trim();
     if (l1 && /^[\d,.\s]+$/.test(l1)) return true;
     return false;
@@ -520,13 +505,9 @@
     if (u0) return u0;
 
     const { artist, track } = guessArtistTrackFromRow(row);
-
-    // Require both artist + track for safe resolve
     const a = (artist || "").trim();
     const t = (track || "").trim();
     if (!a || !t) return "";
-
-    // Don’t resolve if ellipsized (usually truncated)
     if (a.endsWith("…") || t.endsWith("…")) return "";
 
     const q = `${a} ${t}`.trim();
@@ -545,7 +526,6 @@
   function findRowFromTarget(target) {
     if (!target) return null;
 
-    // Only bind to REAL list items. This avoids tabs entirely.
     const row =
       target.closest?.("li") ||
       target.closest?.("[role='listitem']") ||
@@ -553,24 +533,19 @@
 
     if (!row) return null;
 
-    // Exclude anything inside header/tabs or special areas
     if (isInsideHeaderOrTabs(row)) return null;
     if (isExplicitNoPlay(row)) return null;
-
-    // Avoid artist-only lists (Top->Artist)
     if (looksLikeArtistOnlyRow(row)) return null;
 
     return row;
   }
 
   async function handleDocumentClick(e) {
-    // Never interfere with UI controls
     if (!getToken()) return;
 
     const target = e.target;
     if (!target) return;
 
-    // If click is on/inside UI controls/tabs/header, do nothing
     if (isInsideHeaderOrTabs(target)) return;
     if (isUiControlTarget(target)) return;
     if (isExplicitNoPlay(target)) return;
@@ -578,14 +553,11 @@
     const row = findRowFromTarget(target);
     if (!row) return;
 
-    // If click is inside a link/button within the row, leave it alone
     const innerControl = target.closest?.("a,button,input,[role='button'],[role='link'],[role='tab']");
     if (innerControl) return;
 
-    // Mark cursor affordance (optional)
     row.classList.add("spRowPlayable");
 
-    // Prevent scrolling crash: do minimal work and no per-row listeners
     e.preventDefault();
     e.stopPropagation();
 
@@ -604,15 +576,12 @@
 
     if (!clickBound) {
       clickBound = true;
-      // IMPORTANT: bubble listener only (no capture) so tabs always work
       document.addEventListener("click", handleDocumentClick, { passive: false, capture: false });
     }
 
-    // MutationObserver: lightweight + debounced refresh
     const refreshDebounced = debounce(() => {
       ensureCss();
       refreshHeader();
-      // refresh Spotify icon state if token changed
       const btn = document.getElementById("lmSpotifyBtn");
       if (btn) {
         const token = getToken();
@@ -624,7 +593,6 @@
     const mo = new MutationObserver(() => refreshDebounced());
     mo.observe(document.documentElement, { subtree: true, childList: true });
 
-    // Also refresh on resize/orientation (position stability)
     window.addEventListener("resize", refreshDebounced, { passive: true });
     window.addEventListener("orientationchange", refreshDebounced, { passive: true });
   }

@@ -1,15 +1,21 @@
-/* spotify-ui.js (FULL REPLACE) — PLAYER FIX ONLY
-   - Fixes "buttons visible but not working" by:
-     1) Removing requestAnimationFrame + await (runaway network loop)
-     2) Throttling playback polling
-     3) Adding Spotify Web API fallback for Next/Prev
-   - Leaves your existing docking/orb/list-play logic intact as much as possible.
+/* spotify-ui.js (FULL REPLACE) — FIXED play/pause + click-to-play
+   Based on your "old working" version.
+   Fixes:
+   - Removes requestAnimationFrame + await loop (runaway)
+   - Throttles playback polling + bindings
+   - Adds Web API fallback for click-to-play (PUT /me/player/play with uris)
+   Keeps:
+   - Dock locked to Listening Mirror header visibility
+   - Orb hard exclude
+   - No-artwork playable (placeholder + row fallback)
+   - Agust D / Haegeum hard block
 */
 
 (function () {
   "use strict";
 
-  const API_BASE = (window.LISTENING_MIRROR_API || "https://i.errtanq9.workers.dev").replace(/\/+$/, "");
+  // IMPORTANT: your paste had markdown; keep it as plain URL
+  const API_BASE = String(window.LISTENING_MIRROR_API || "https://i.errtanq9.workers.dev").replace(/\/+$/, "");
 
   // ---------------- DOM helpers ----------------
   function el(tag, props = {}, children = []) {
@@ -167,7 +173,7 @@
       </svg>
     `;
   }
-// ---------------- Spotify Web API (stable pause/play + NEXT/PREV fallback) ----------------
+// ---------------- Spotify Web API (stable pause/play + click-to-play fallback) ----------------
   async function spotifyApi(endpoint, method = "GET", body = null) {
     const token = getToken();
     if (!token) return { ok: false, status: 401 };
@@ -185,28 +191,43 @@
 
   async function apiPause() { return (await spotifyApi("/me/player/pause", "PUT")).ok; }
   async function apiPlay()  { return (await spotifyApi("/me/player/play", "PUT")).ok; }
-  async function apiNext()  { return (await spotifyApi("/me/player/next", "POST")).ok; }      // Spotify expects POST
-  async function apiPrev()  { return (await spotifyApi("/me/player/previous", "POST")).ok; }  // Spotify expects POST
+
+  // NEW: play a specific track uri using Web API (so click-to-play works even without SpotifyPlayer bridge)
+  async function apiPlayUri(uri) {
+    if (!uri || typeof uri !== "string") return false;
+    // We only support track URIs here: spotify:track:xxxx
+    const m = uri.match(/^spotify:track:([A-Za-z0-9]{22})$/);
+    if (!m) return false;
+    const ok = await spotifyApi("/me/player/play", "PUT", { uris: [uri] });
+    return !!ok.ok;
+  }
 
   async function playUri(uri) {
+    // 1) Try your internal bridge first (fast + good if available)
     let r = safeCall("SpotifyPlayer.playUri", uri);
-    if (r.ok) return;
+    if (r.ok) return true;
     r = safeCall("SpotifyPlayer.play", { uri });
-    if (r.ok) return;
+    if (r.ok) return true;
     r = safeCall("SpotifyPlayer.play", uri);
-    if (r.ok) return;
+    if (r.ok) return true;
+
+    // 2) Web API fallback (THIS fixes click-to-play when bridge is missing/broken)
+    const ok = await apiPlayUri(uri);
+    if (ok) return true;
+
     console.warn("[Spotify UI] Cannot play URI:", uri);
+    return false;
   }
 
   async function getPlaybackState() {
-    // Prefer your local bridge first
+    // Prefer bridge
     let r = safeCall("SpotifyPlayer.getState");
     if (r.ok) return await Promise.resolve(r.value);
 
     r = safeCall("SpotifyPlayer.getPlaybackState");
     if (r.ok) return await Promise.resolve(r.value);
 
-    // Fallback to Web API
+    // Web API fallback
     const token = getToken();
     if (!token) return null;
     try {
@@ -237,31 +258,6 @@
     r = safeCall("SpotifyPlayer.resume");
     if (r.ok) return true;
     console.warn("[Spotify UI] Resume failed.");
-    return false;
-  }
-
-  async function nextSafe() {
-    // 1) Try your bridge
-    let r = safeCall("SpotifyPlayer.next");
-    if (r.ok) return true;
-    // 2) Web API fallback
-    const ok = await apiNext();
-    if (ok) return true;
-
-    console.warn("[Spotify UI] Next failed:", r.reason || "no bridge + apiNext failed");
-    return false;
-  }
-
-  async function prevSafe() {
-    let r = safeCall("SpotifyPlayer.prev");
-    if (r.ok) return true;
-    r = safeCall("SpotifyPlayer.previous");
-    if (r.ok) return true;
-
-    const ok = await apiPrev();
-    if (ok) return true;
-
-    console.warn("[Spotify UI] Prev failed:", r.reason || "no bridge + apiPrev failed");
     return false;
   }
 
@@ -350,6 +346,7 @@
       doLoginOrLogout();
     }, { passive: false });
 
+    // FIX: don’t rely on ultra-frequent loop; do a fresh state read on click
     $("spToggle")?.addEventListener("click", async (e) => {
       e.preventDefault(); e.stopPropagation();
       pulse($("spToggle"));
@@ -358,24 +355,34 @@
       const isPlaying = inferIsPlaying(st);
 
       if (isPlaying === true) {
+        // optimistic icon update
         setToggleIcon(false);
-        await pauseSafe();
+        const ok = await pauseSafe();
+        if (!ok) {
+          // revert if failed
+          setToggleIcon(true);
+        }
       } else {
         setToggleIcon(true);
-        await resumeSafe();
+        const ok = await resumeSafe();
+        if (!ok) {
+          setToggleIcon(false);
+        }
       }
     }, { passive: false });
 
-    $("spNext")?.addEventListener("click", async (e) => {
+    $("spNext")?.addEventListener("click", (e) => {
       e.preventDefault(); e.stopPropagation();
       pulse($("spNext"));
-      await nextSafe();
+      const r = safeCall("SpotifyPlayer.next");
+      if (!r.ok) console.warn("[Spotify UI] Next failed:", r.reason);
     }, { passive: false });
 
-    $("spPrev")?.addEventListener("click", async (e) => {
+    $("spPrev")?.addEventListener("click", (e) => {
       e.preventDefault(); e.stopPropagation();
       pulse($("spPrev"));
-      await prevSafe();
+      const r = safeCall("SpotifyPlayer.prev");
+      if (!r.ok) console.warn("[Spotify UI] Prev failed:", r.reason);
     }, { passive: false });
   }
 // ---------------- Header anchor + Orb hard-exclude ----------------
@@ -423,7 +430,6 @@
       const cs = window.getComputedStyle(n);
       const br = parseFloat(cs.borderRadius || "0");
       const roundish = br > 12 || cs.borderRadius === "999px";
-
       if (!roundish) continue;
 
       n.dataset.spNoPlay = "1";
@@ -469,9 +475,7 @@
     setDockHidden(false);
   }
 
-  // ---------------- Your existing list-play code below stays as-is ----------------
-  // (I’m keeping everything you already had for Top/Recent artwork clicking, resolve, etc.)
-
+  // ---------------- Tabs + Mode detection (UNCHANGED) ----------------
   function getTopMode() {
     const nodes = Array.from(document.querySelectorAll("*")).slice(0, 3500);
     for (const n of nodes) {
@@ -512,7 +516,7 @@
     return !!(node?.dataset?.spNoPlay === "1" || node?.closest?.("[data-sp-no-play='1']"));
   }
 
-  // ---------------- Resolve + play from lists ----------------
+  // ---------------- Resolve + play from lists (UNCHANGED except uses playUri async w/ Web API fallback) ----------------
   function extractSpotifyUriFromNode(node) {
     const ds = node?.dataset || {};
     const cand = ds.spotifyUri || ds.uri || ds.spotifyTrackUri || ds.spotifyId || null;
@@ -636,7 +640,6 @@
     if (u0) return u0;
 
     const { artist, track } = guessArtistTrackFromRow(row);
-
     const strict = isLikelyFirstRowInTop(row);
     const ok = strict ? strictOk(row, artist, track) : relaxedOk(artist, track);
     if (!ok) return "";
@@ -680,8 +683,8 @@
     const kids = Array.from(row.querySelectorAll?.("div, span") || []);
     for (const n of kids) {
       if (isSessionCoversArea(n) || isExplicitNoPlay(n)) continue;
-      const r = n.getBoundingClientRect?.();
-      if (!rectIsSquareish(r)) continue;
+      const rr = n.getBoundingClientRect?.();
+      if (!rectIsSquareish(rr)) continue;
       return n;
     }
     return null;
@@ -725,7 +728,7 @@
           pulse(art);
 
           const uri = await resolveUriForRow(row);
-          if (uri) return playUri(uri);
+          if (uri) await playUri(uri);
         }, { passive: false });
       }
 
@@ -744,47 +747,53 @@
           pulse(row);
 
           const uri = await resolveUriForRow(row);
-          if (uri) return playUri(uri);
+          if (uri) await playUri(uri);
         }, { passive: false });
       }
     }
   }
 
-  // ---------------- State loop (FIXED: throttled, no runaway) ----------------
+  // ---------------- FIXED State loop (throttled) ----------------
+  let lastLinked = null;
+  let lastPlaying = null;
   let pollTimer = null;
   let bindTimer = null;
 
-  async function playerPollTick() {
-    try {
-      ensureDock();
-      positionDock();
+  async function pollPlaybackOnce() {
+    ensureDock();
+    positionDock();
 
-      const linked = !!getToken();
+    const linked = !!getToken();
+    if (linked !== lastLinked) {
       setIndicatorLinked(linked);
       setEnabled(linked);
+      lastLinked = linked;
+    }
 
-      if (!linked) {
-        setToggleIcon(false);
-        return;
-      }
+    if (!linked) {
+      setToggleIcon(false);
+      lastPlaying = null;
+      return;
+    }
 
-      const st = await getPlaybackState();
-      const isPlaying = inferIsPlaying(st);
-      if (typeof isPlaying === "boolean") setToggleIcon(isPlaying);
-    } catch (e) {
-      // never crash UI
-      // console.warn("[Spotify UI] poll error", e);
+    const st = await getPlaybackState();
+    const isPlaying = inferIsPlaying(st);
+    if (typeof isPlaying === "boolean" && isPlaying !== lastPlaying) {
+      setToggleIcon(isPlaying);
+      lastPlaying = isPlaying;
     }
   }
 
   function startLoops() {
     stopLoops();
 
-    // Poll player state ~1.2s (fast enough, not spam)
-    pollTimer = setInterval(playerPollTick, 1200);
-    playerPollTick();
+    // playback polling: 1.2s
+    pollTimer = setInterval(() => {
+      pollPlaybackOnce().catch(() => {});
+    }, 1200);
+    pollPlaybackOnce().catch(() => {});
 
-    // Re-attach bindings less frequently (DOM changes)
+    // bindings refresh: 700ms
     bindTimer = setInterval(() => {
       try { attachPlayBindings(); } catch {}
     }, 700);
@@ -800,12 +809,10 @@
 
   function boot() {
     ensureDock();
-    positionDock();
 
     const mo = new MutationObserver(() => {
       ensureDock();
       positionDock();
-      // bindings happen on interval, but do a quick attempt here too
       try { attachPlayBindings(); } catch {}
     });
     mo.observe(document.documentElement, { subtree: true, childList: true });
@@ -815,4 +822,5 @@
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
   else boot();
+
 })();

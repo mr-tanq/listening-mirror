@@ -1,8 +1,10 @@
 /* spotify-ui.js (FULL REPLACE)
-   Fixes:
-   - Spotify icon now FIXED-positioned exactly next to "Online" (red X spot), not inside layout (no wrapping)
-   - Classic Spotify look: green when logged in, grey when logged out
-   - Keeps: header blocker, row click-to-play, no-play for MIRROR/SESSION COVERS, scroll safety
+   Fixes (FINAL):
+   - Spotify icon fixed next to "Online": +5px UP, +25px LEFT from previous placement
+   - No jitter: position updates only when Online moves materially (thresholded)
+   - No scroll crashes: replaces heavy scan loops with IntersectionObserver
+   - Click-to-play works even when no artwork (row listener in CAPTURE phase)
+   - Keeps: header blocker, orb opens stats/index (never plays), session covers excluded
 */
 
 (function () {
@@ -69,11 +71,13 @@
   cursor:pointer;
   box-shadow: 0 10px 26px rgba(0,0,0,.38);
   -webkit-tap-highlight-color: transparent;
+  transform: translateZ(0);
+  will-change: transform, top, left;
 }
 #lmSpotifyOnlineBtn svg{ width:14px; height:14px; display:block; }
 
 #lmSpotifyOnlineBtn[data-logged="1"]{
-  background:#1DB954; /* classic Spotify green */
+  background:#1DB954;
   opacity:1;
 }
 #lmSpotifyOnlineBtn[data-logged="0"]{
@@ -127,9 +131,9 @@
     console.warn("[Spotify UI] Cannot play URI:", uri);
     return false;
   }
-// ---------------- ALWAYS-visible Spotify icon next to "Online" (fixed-position) ----------------
+// ---------------- ALWAYS-visible Spotify icon next to "Online" ----------------
   function findOnlineTextNode() {
-    const nodes = Array.from(document.querySelectorAll("span,div,p,small")).slice(0, 2800);
+    const nodes = Array.from(document.querySelectorAll("span,div,p,small")).slice(0, 3200);
     for (const n of nodes) {
       const t = (n.textContent || "").trim();
       if (t !== "Online") continue;
@@ -140,32 +144,16 @@
   }
 
   function tryLogin() {
-    const tries = [
-      "SpotifyAuth.login",
-      "SpotifyAuth.authorize",
-      "SpotifyAuth.start",
-      "SpotifyAuth.connect",
-    ];
-    for (const p of tries) {
-      const r = safeCall(p);
-      if (r.ok) return true;
-    }
+    const tries = ["SpotifyAuth.login","SpotifyAuth.authorize","SpotifyAuth.start","SpotifyAuth.connect"];
+    for (const p of tries) { const r = safeCall(p); if (r.ok) return true; }
     const btn = document.querySelector("button[data-spotify-login], button[id*='login'], button[class*='login']");
     if (btn) { try { btn.click(); return true; } catch {} }
     return false;
   }
 
   function tryLogout() {
-    const tries = [
-      "SpotifyAuth.logout",
-      "SpotifyAuth.disconnect",
-      "SpotifyAuth.clear",
-      "SpotifyAuth.reset",
-    ];
-    for (const p of tries) {
-      const r = safeCall(p);
-      if (r.ok) return true;
-    }
+    const tries = ["SpotifyAuth.logout","SpotifyAuth.disconnect","SpotifyAuth.clear","SpotifyAuth.reset"];
+    for (const p of tries) { const r = safeCall(p); if (r.ok) return true; }
     try {
       localStorage.removeItem("spotify_access_token");
       localStorage.removeItem("SPOTIFY_ACCESS_TOKEN");
@@ -174,31 +162,42 @@
     return true;
   }
 
+  // placement tweaks requested:
+  // "5px πάνω κ 25 αριστερά"
+  const SPOTIFY_BTN_SIZE = 22;
+  const SPOTIFY_GAP_RIGHT_OF_ONLINE = 10; // base gap
+  const SPOTIFY_OFFSET_X = -25;           // 25 left
+  const SPOTIFY_OFFSET_Y = -5;            // 5 up
+
+  // jitter control: only move if Online changed position by > threshold px
+  const MOVE_THRESHOLD = 4;
+
+  let lastBtnPos = { top: null, left: null };
+  let spotifyBtn = null;
+
   function ensureSpotifyIconNextToOnline() {
     const onlineNode = findOnlineTextNode();
     if (!onlineNode) return;
 
-    let btn = document.getElementById("lmSpotifyOnlineBtn");
-    if (!btn) {
-      btn = document.createElement("button");
-      btn.id = "lmSpotifyOnlineBtn";
-      btn.setAttribute("type", "button");
-      btn.setAttribute("aria-label", "Spotify login/logout");
-
-      // IMPORTANT: allow clicks even with header blocker
-      btn.setAttribute("data-sp-controls", "1");
-
-      // Classic-ish Spotify mark (3 arcs) — we color via CSS above
-      btn.innerHTML = `
+    if (!spotifyBtn) {
+      spotifyBtn = document.getElementById("lmSpotifyOnlineBtn");
+    }
+    if (!spotifyBtn) {
+      spotifyBtn = document.createElement("button");
+      spotifyBtn.id = "lmSpotifyOnlineBtn";
+      spotifyBtn.setAttribute("type", "button");
+      spotifyBtn.setAttribute("aria-label", "Spotify login/logout");
+      spotifyBtn.setAttribute("data-sp-controls", "1");
+      spotifyBtn.innerHTML = `
 <svg viewBox="0 0 24 24" aria-hidden="true">
   <path d="M7.2 9.7c3.6-1.1 7.8-.7 11.2 1.0" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
   <path d="M7.8 12.5c3.0-.8 6.4-.4 9.2 0.9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
   <path d="M8.5 15.2c2.2-.5 4.7-.2 6.7 0.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
 </svg>`.trim();
 
-      document.body.appendChild(btn);
+      document.body.appendChild(spotifyBtn);
 
-      btn.addEventListener("click", (e) => {
+      spotifyBtn.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
 
@@ -206,47 +205,44 @@
         if (logged) tryLogout();
         else tryLogin();
 
-        setTimeout(syncSpotifyIconStateAndPosition, 80);
-        setTimeout(syncSpotifyIconStateAndPosition, 400);
+        setTimeout(syncSpotifyIconState, 80);
+        setTimeout(syncSpotifyIconState, 450);
       }, { passive: false });
     }
 
-    // place it exactly where you draw the red X: right of Online, centered vertically
-    const r = onlineNode.getBoundingClientRect();
-    const size = 22;
-    const gap = 10;
-
-    const top = Math.round(r.top + (r.height - size) / 2);
-    const left = Math.round(r.right + gap);
-
-    btn.style.top = `${top}px`;
-    btn.style.left = `${left}px`;
-
-    syncSpotifyIconStateAndPosition();
+    // initial place + state
+    syncSpotifyIconState();
+    positionSpotifyBtnNearOnline(onlineNode, true);
   }
 
-  function syncSpotifyIconStateAndPosition() {
+  function syncSpotifyIconState() {
     const btn = document.getElementById("lmSpotifyOnlineBtn");
     if (!btn) return;
+    btn.setAttribute("data-logged", getToken() ? "1" : "0");
+  }
 
-    const logged = !!getToken();
-    btn.setAttribute("data-logged", logged ? "1" : "0");
-
-    // keep position accurate (Online may move slightly with renders)
-    const onlineNode = findOnlineTextNode();
-    if (!onlineNode) return;
+  function positionSpotifyBtnNearOnline(onlineNode, force = false) {
+    const btn = document.getElementById("lmSpotifyOnlineBtn");
+    if (!btn || !onlineNode) return;
 
     const r = onlineNode.getBoundingClientRect();
-    const size = 22;
-    const gap = 10;
+    const baseTop = Math.round(r.top + (r.height - SPOTIFY_BTN_SIZE) / 2);
+    const baseLeft = Math.round(r.right + SPOTIFY_GAP_RIGHT_OF_ONLINE);
 
-    const top = Math.round(r.top + (r.height - size) / 2);
-    const left = Math.round(r.right + gap);
+    const top = baseTop + SPOTIFY_OFFSET_Y;
+    const left = baseLeft + SPOTIFY_OFFSET_X;
+
+    if (!force && lastBtnPos.top != null && lastBtnPos.left != null) {
+      const dt = Math.abs(top - lastBtnPos.top);
+      const dl = Math.abs(left - lastBtnPos.left);
+      if (dt < MOVE_THRESHOLD && dl < MOVE_THRESHOLD) return; // prevent jitter
+    }
 
     btn.style.top = `${top}px`;
     btn.style.left = `${left}px`;
+    lastBtnPos = { top, left };
   }
-// ---------------- Header / Orb: HARD block playback, but NOT the original controls ----------------
+// ---------------- Header / Orb: HARD block playback ----------------
   function findHeaderTitleNode() {
     const nodes = Array.from(document.querySelectorAll("h1,h2,div,span")).slice(0, 3500);
     for (const n of nodes) {
@@ -286,7 +282,6 @@
 
     for (const n of candidates) {
       if (n === titleNode) continue;
-
       const r = n.getBoundingClientRect?.();
       if (!r) continue;
 
@@ -312,7 +307,6 @@
         best = n;
       }
     }
-
     return best;
   }
 
@@ -332,10 +326,7 @@
       "UI.openStats","UI.showStats","UI.toggleStats",
       "ListeningMirror.openStats","ListeningMirror.showStats","ListeningMirror.toggleStats",
     ];
-    for (const p of nsTries) {
-      const r = safeCall(p);
-      if (r.ok) return true;
-    }
+    for (const p of nsTries) { const r = safeCall(p); if (r.ok) return true; }
     return false;
   }
 
@@ -386,7 +377,7 @@
 
     const inHeader = (target) => {
       if (!target || !LM_HEADER_EL) return false;
-      return LM_HEADER_EL.confirm ? LM_HEADER_EL.contains(target) : LM_HEADER_EL.contains(target);
+      return LM_HEADER_EL.contains(target);
     };
 
     const inAllowedControls = (target) => {
@@ -398,10 +389,10 @@
     const killDownOrClick = (e) => {
       if (!inHeader(e.target)) return;
 
-      // allow original Spotify controls + FIXED spotify icon (data-sp-controls)
+      // allow original controls + fixed spotify icon
       if (inAllowedControls(e.target)) return;
 
-      // orb: show index, never play
+      // orb: show index/stats, never play
       if (LM_ORB_EL && (e.target === LM_ORB_EL || (e.target.closest && e.target.closest("[data-lm-orb='1']")))) {
         try { e.preventDefault(); } catch {}
         try { e.stopImmediatePropagation(); } catch {}
@@ -461,7 +452,7 @@
 
     LM_CONTROLS_EL = markOriginalHeaderControls(LM_HEADER_EL);
   }
-// ---------------- List click-to-play + scroll-safe binding (same as before) ----------------
+// ---------------- Click-to-play (IO-based, no crash) ----------------
   function isSessionCoversArea(node) {
     const root = node?.closest?.("section, article, div") || null;
     const txt = ((root?.innerText || node?.innerText || "")).toUpperCase();
@@ -558,7 +549,7 @@
   }
 
   function isTopTabActive() {
-    const tabs = Array.from(document.querySelectorAll("button,div,span,a")).slice(0, 800);
+    const tabs = Array.from(document.querySelectorAll("button,div,span,a")).slice(0, 900);
     for (const n of tabs) {
       const tx = (n.textContent || "").trim().toLowerCase();
       if (tx !== "top") continue;
@@ -619,42 +610,8 @@
     return "";
   }
 
-  function rectIsSquareish(r) {
-    if (!r) return false;
-    const w = r.width, h = r.height;
-    if (w < 24 || h < 24) return false;
-    if (w > 170 || h > 170) return false;
-    const ratio = w / h;
-    return ratio > 0.72 && ratio < 1.38;
-  }
-
-  function getArtworkClickable(row) {
-    if (isSessionCoversArea(row) || isExplicitNoPlay(row)) return null;
-
-    const img = row.querySelector?.("img");
-    if (img && !isExplicitNoPlay(img)) return img;
-
-    const kids = Array.from(row.querySelectorAll?.("div, span, a") || []).slice(0, 80);
-    for (const n of kids) {
-      if (isSessionCoversArea(n) || isExplicitNoPlay(n)) continue;
-      const rr = n.getBoundingClientRect?.();
-      if (!rectIsSquareish(rr)) continue;
-      return n;
-    }
-    return null;
-  }
-
-  function guessRows() {
-    const li = Array.from(document.querySelectorAll("li,[role='listitem']")).slice(0, 600);
-    if (li.length) return li;
-
-    return Array.from(document.querySelectorAll("div, article, section"))
-      .slice(0, 800)
-      .filter((n) => (n.textContent || "").trim().length > 6);
-  }
-
   function getTopMode() {
-    const nodes = Array.from(document.querySelectorAll("button, [role='tab'], div, span, a")).slice(0, 1200);
+    const nodes = Array.from(document.querySelectorAll("button, [role='tab'], div, span, a")).slice(0, 1400);
     let foundCluster = false;
 
     for (const n of nodes) {
@@ -682,86 +639,87 @@
     return true;
   }
 
-  function nearViewport(el, pad = 900) {
-    const r = el.getBoundingClientRect?.();
-    if (!r) return false;
-    return (r.bottom >= -pad) && (r.top <= (window.innerHeight + pad));
-  }
+  // --- IO binding ---
+  const boundRows = new WeakSet();
+  let io = null;
 
   async function bindRow(row) {
-    if (!row || row.dataset.spRowBound === "1") return;
+    if (!row || boundRows.has(row)) return;
+    boundRows.add(row);
 
-    row.dataset.spRowBound = "1";
     row.classList.add("spRowPlayable");
 
+    // CAPTURE so it works even if child elements swallow bubbling (fix for "no artwork" rows)
     row.addEventListener("click", async (e) => {
       if (e.target && e.target.closest && e.target.closest("[data-sp-controls='1']")) return;
       if (isSessionCoversArea(e.target) || isSessionCoversArea(row)) return;
       if (isExplicitNoPlay(e.target) || isExplicitNoPlay(row)) return;
 
       const tag = (e.target?.tagName || "").toLowerCase();
-      if (tag === "button" || tag === "a" || tag === "input") return;
+      if (tag === "a" || tag === "input") return;
 
       e.preventDefault(); e.stopPropagation();
+
       const uri = await resolveUriForRow(row);
       if (uri) await playUri(uri);
-    }, { passive: false });
-
-    const art = getArtworkClickable(row);
-    if (art && art.dataset.spBound !== "1") {
-      art.dataset.spBound = "1";
-      art.classList.add("spArtworkPlayable");
-
-      art.addEventListener("click", async (e) => {
-        if (e.target && e.target.closest && e.target.closest("[data-sp-controls='1']")) return;
-        if (isSessionCoversArea(e.target) || isSessionCoversArea(row)) return;
-        if (isExplicitNoPlay(e.target) || isExplicitNoPlay(row)) return;
-
-        e.preventDefault(); e.stopPropagation();
-        const uri = await resolveUriForRow(row);
-        if (uri) await playUri(uri);
-      }, { passive: false });
-    }
+    }, { passive: false, capture: true });
   }
 
-  function attachPlayBindingsLight() {
-    if (!getToken()) return;
-
-    const topMode = getTopMode();
-    const rows = guessRows();
-
-    for (const row of rows) {
-      if (!nearViewport(row)) continue;
-      if (!allowedToBindRow(topMode, row)) continue;
-      bindRow(row);
-    }
+  function startIntersectionObserver() {
+    if (io) return;
+    io = new IntersectionObserver((entries) => {
+      const topMode = getTopMode();
+      for (const ent of entries) {
+        if (!ent.isIntersecting) continue;
+        const row = ent.target;
+        if (!allowedToBindRow(topMode, row)) continue;
+        bindRow(row);
+      }
+    }, { root: null, rootMargin: "900px 0px 900px 0px", threshold: 0.01 });
   }
 
-  // ---------------- scheduler: debounce scroll + mutation ----------------
+  function observeRowsLight() {
+    startIntersectionObserver();
+
+    const candidates =
+      Array.from(document.querySelectorAll("li,[role='listitem']")).slice(0, 900);
+
+    if (candidates.length) {
+      for (const r of candidates) io.observe(r);
+      return;
+    }
+
+    // fallback (light): observe only medium-size blocks (avoid whole DOM)
+    const blocks = Array.from(document.querySelectorAll("article, section, div"))
+      .slice(0, 900)
+      .filter(n => (n.textContent || "").trim().length > 10);
+
+    for (const b of blocks) io.observe(b);
+  }
+
+  // ---------------- scheduler (NO scroll heavy work) ----------------
   let scheduled = false;
-  let lastRun = 0;
-
-  function scheduleAttach() {
+  function scheduleLightTick() {
     if (scheduled) return;
     scheduled = true;
 
     const run = () => {
       scheduled = false;
-      const now = Date.now();
-      if (now - lastRun < 120) return;
-      lastRun = now;
-
       try { ensureCss(); } catch {}
       try { refreshHeaderRefs(); } catch {}
       try { ensureSpotifyIconNextToOnline(); } catch {}
-      try { attachPlayBindingsLight(); } catch {}
-      try { syncSpotifyIconStateAndPosition(); } catch {}
+      try { observeRowsLight(); } catch {}
+      try { syncSpotifyIconState(); } catch {}
+
+      // jitter-safe re-position (only if moved enough)
+      const onlineNode = findOnlineTextNode();
+      if (onlineNode) positionSpotifyBtnNearOnline(onlineNode, false);
     };
 
     if (typeof window.requestIdleCallback === "function") {
-      window.requestIdleCallback(run, { timeout: 200 });
+      window.requestIdleCallback(run, { timeout: 250 });
     } else {
-      setTimeout(run, 80);
+      setTimeout(run, 120);
     }
   }
 
@@ -770,14 +728,24 @@
     refreshHeaderRefs();
     installWindowCaptureBlocker();
     ensureSpotifyIconNextToOnline();
+    observeRowsLight();
+    syncSpotifyIconState();
 
-    const mo = new MutationObserver(() => scheduleAttach());
+    const mo = new MutationObserver(() => scheduleLightTick());
     mo.observe(document.documentElement, { subtree: true, childList: true });
 
-    window.addEventListener("scroll", () => scheduleAttach(), { passive: true });
-    window.addEventListener("resize", () => scheduleAttach(), { passive: true });
+    // IMPORTANT: no heavy scroll handler. We only do a light tick rarely.
+    window.addEventListener("scroll", () => scheduleLightTick(), { passive: true });
+    window.addEventListener("resize", () => scheduleLightTick(), { passive: true });
 
-    scheduleAttach();
+    // periodic safety (keeps icon state correct without jitter)
+    setInterval(() => {
+      try { syncSpotifyIconState(); } catch {}
+      const onlineNode = findOnlineTextNode();
+      if (onlineNode) positionSpotifyBtnNearOnline(onlineNode, false);
+    }, 1200);
+
+    scheduleLightTick();
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);

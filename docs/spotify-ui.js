@@ -1,9 +1,9 @@
 /* spotify-ui.js (FULL REPLACE)
-   Fixes:
-   - Title no longer clipped (REMOVED negative top lifting of text)
-   - Dock never disappears (even when nothing is playing)
-   - Recent resolver parses "Artist • Album" properly -> no more wrong "Haegeum" result
-   - Disable artwork click for Top->Artist (keep only Recent + Top Track/Album)
+   Changes requested:
+   - Dock (spotify + prev/play/next) moved OUT of Now-card, positioned to the RIGHT of the header "Listening Mirror"
+   - Items without artwork can still play (fallback: make row clickable where allowed)
+   - Fix "first Recent/Top plays Haegeum..." by strict resolve guard + better text cleaning (timestamps/LIVE/etc)
+   - Disable artwork click on Top->Artist (keep only Recent + Top Track/Album)
 */
 
 (function () {
@@ -64,10 +64,6 @@
     setTimeout(() => node.classList.remove("spPulse"), 220);
   }
 
-  // Remember last good placement (so dock never vanishes)
-  let lastNowRect = null;
-  let lastTabsRect = null;
-
   // ---------------- CSS ----------------
   function ensureCss() {
     if (document.getElementById("spotifyUiCss")) return;
@@ -80,7 +76,6 @@
   align-items: center;
   gap: 9px;
   pointer-events: auto;
-  transform: translate3d(0,0,0) translate(-50%,-100%);
 }
 #spDock.hidden{ display:none !important; }
 
@@ -108,7 +103,7 @@
 #spIndicator.linked{ opacity:.95; filter:none; }
 #spIndicator svg{ width:16px; height:16px; display:block; }
 
-/* 20% smaller buttons */
+/* buttons (20% smaller) */
 #spDock .spBtn{
   border: 0;
   width: 28px; height: 28px;
@@ -123,7 +118,6 @@
 }
 #spDock .spBtn:active{ transform: translateY(1px); background: rgba(255,255,255,.08); }
 #spDock .spBtn:disabled{ opacity:.32; }
-
 #spDock svg.icon{ width:14px; height:14px; display:block; }
 
 #spDock .spPulse{
@@ -131,13 +125,7 @@
   box-shadow: 0 18px 70px rgba(0,0,0,.28);
 }
 
-/* Reserve safe space inside Now card so text never hides behind dock */
-.spNowCardReserved{
-  position: relative !important;
-  padding-bottom: 78px !important; /* more room => never overlap */
-}
-
-/* Clickable artwork */
+/* Clickable artwork / fallback clickable row */
 .spArtworkPlayable{
   cursor: pointer !important;
   outline: 1px solid rgba(49,208,124,.0);
@@ -147,6 +135,13 @@
 .spArtworkPlayable:active{
   transform: translateY(1px);
   outline-color: rgba(49,208,124,.35);
+}
+.spRowPlayable{
+  cursor: pointer !important;
+  transition: transform .12s ease;
+}
+.spRowPlayable:active{
+  transform: translateY(1px);
 }
     `.trim();
 
@@ -354,94 +349,67 @@
       if (!r.ok) console.warn("[Spotify UI] Prev failed:", r.reason);
     }, { passive: false });
   }
-// ---------------- Tabs + Mode detection ----------------
-  function findTabsContainer() {
-    const nodes = Array.from(document.querySelectorAll("*")).slice(0, 2500);
+// ---------------- Header anchor (Listening Mirror) ----------------
+  function findHeaderTitleNode() {
+    // Prefer a node whose text is exactly "Listening Mirror"
+    const nodes = Array.from(document.querySelectorAll("h1,h2,div,span")).slice(0, 2000);
     for (const n of nodes) {
-      const t = (n.innerText || "").replace(/\s+/g, " ").trim();
-      if (!t) continue;
-      const lt = t.toLowerCase();
-      if (lt.includes("now") && lt.includes("recent") && lt.includes("top")) {
+      const t = (n.textContent || "").trim();
+      if (t === "Listening Mirror") {
         const r = n.getBoundingClientRect?.();
-        if (!r || r.width < 220 || r.height > 140) continue;
-        if (r.bottom < 0 || r.top > window.innerHeight) continue;
-        lastTabsRect = r;
-        return n;
+        if (r && r.width > 120 && r.height > 18 && r.bottom > 0 && r.top < window.innerHeight) return n;
+      }
+    }
+    // Fallback: contains "Listening Mirror"
+    for (const n of nodes) {
+      const t = (n.textContent || "").trim();
+      if (t.includes("Listening Mirror")) {
+        const r = n.getBoundingClientRect?.();
+        if (r && r.width > 120 && r.height > 18 && r.bottom > 0 && r.top < window.innerHeight) return n;
       }
     }
     return null;
   }
 
-  function isGoodCardRect(rect) {
-    if (!rect) return false;
-    return rect.width > 260 && rect.height > 140 && rect.top >= 0 && rect.left >= 0;
-  }
+  // Place dock to the RIGHT of the title; if not enough space, clamp inside viewport and keep it on the same row.
+  function positionDock() {
+    ensureDock();
+    const dock = document.getElementById("spDock");
 
-  function findNowCardByLive() {
-    const liveNodes = Array.from(document.querySelectorAll("*"))
-      .filter((n) => (n?.textContent || "").trim().toLowerCase() === "live")
-      .slice(0, 60);
+    const titleNode = findHeaderTitleNode();
+    if (titleNode) {
+      const r = titleNode.getBoundingClientRect();
+      const dockW = dock.offsetWidth || 140;
 
-    for (const ln of liveNodes) {
-      const lr = ln.getBoundingClientRect?.();
-      if (!lr || lr.width < 10 || lr.height < 10) continue;
-      if (lr.bottom < 0 || lr.top > window.innerHeight) continue;
+      const pad = 10;
+      let xLeft = r.right + pad;                 // dock left start
+      let x = xLeft;                             // we position by left/top directly
 
-      let cur = ln;
-      for (let i = 0; i < 12 && cur; i++) {
-        const r = cur.getBoundingClientRect?.();
-        if (r && isGoodCardRect(r)) {
-          const txt = (cur.innerText || "").split("\n").map(s => s.trim()).filter(Boolean);
-          if (txt.length >= 2) return cur;
-        }
-        cur = cur.parentElement;
-      }
+      // If overflow right, clamp to viewport right
+      const maxLeft = window.innerWidth - dockW - 10;
+      if (x > maxLeft) x = Math.max(10, maxLeft);
+
+      // Vertically align with title line
+      const y = r.top + (r.height / 2) - (dock.offsetHeight ? dock.offsetHeight / 2 : 18);
+
+      dock.style.left = `${Math.round(x)}px`;
+      dock.style.top = `${Math.round(Math.max(6, y))}px`;
+      dock.style.transform = "none";
+
+      setDockHidden(false);
+      return;
     }
-    return null;
+
+    // Fallback: keep it top-right as premium safe default
+    const dockW = dock.offsetWidth || 140;
+    dock.style.left = `${Math.max(10, window.innerWidth - dockW - 10)}px`;
+    dock.style.top = `10px`;
+    dock.style.transform = "none";
+    setDockHidden(false);
   }
 
-  function findNowCardByTabs() {
-    const tabs = findTabsContainer();
-    const tabsRect = tabs?.getBoundingClientRect?.() || lastTabsRect;
-    if (!tabsRect) return null;
-
-    const candidates = Array.from(document.querySelectorAll("div, section, article"))
-      .filter((n) => {
-        const r = n.getBoundingClientRect?.();
-        if (!r || !isGoodCardRect(r)) return false;
-        if (r.top < tabsRect.bottom - 5) return false;
-        if (r.top > tabsRect.bottom + 280) return false;
-
-        const hasImg = !!n.querySelector("img");
-        const hasBg = Array.from(n.querySelectorAll("div, span")).some((x) => {
-          const st = window.getComputedStyle(x);
-          const bg = st?.backgroundImage || "";
-          return bg && bg !== "none" && bg.includes("url(");
-        });
-
-        return hasImg || hasBg;
-      });
-
-    candidates.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
-    return candidates[0] || null;
-  }
-
-  function findNowCardElement() {
-    return findNowCardByLive() || findNowCardByTabs() || null;
-  }
-
-  function applyNowPremiumLayout(nowCard) {
-    if (!nowCard) return;
-    if (nowCard.dataset.spPremium === "1") return;
-
-    // ONLY reserve space (no negative lifting => no clipping)
-    nowCard.classList.add("spNowCardReserved");
-    nowCard.dataset.spPremium = "1";
-  }
-
-  // Detect Top mode: track / artist / album
+  // ---------------- Tabs + Mode detection ----------------
   function getTopMode() {
-    // Find a container that includes Track Artist Album
     const nodes = Array.from(document.querySelectorAll("*")).slice(0, 2500);
     for (const n of nodes) {
       const t = (n.innerText || "").replace(/\s+/g, " ").trim();
@@ -449,7 +417,6 @@
       const lt = t.toLowerCase();
       if (!(lt.includes("track") && lt.includes("artist") && lt.includes("album"))) continue;
 
-      // Try to find "active" among its descendants
       const opts = Array.from(n.querySelectorAll("button, div, span, a")).filter(x => {
         const tx = (x.textContent || "").trim().toLowerCase();
         return tx === "track" || tx === "artist" || tx === "album";
@@ -466,9 +433,8 @@
         }
       }
 
-      // Fallback heuristic: pick the one with higher opacity / stronger bg
-      let best = null;
-      let bestScore = -1;
+      // heuristic
+      let best = null, bestScore = -1;
       for (const o of opts) {
         const cs = window.getComputedStyle(o);
         const op = parseFloat(cs.opacity || "1");
@@ -481,55 +447,6 @@
       if (tx === "track" || tx === "artist" || tx === "album") return tx;
     }
     return null;
-  }
-
-  // Place dock either on Now card or fallback under tabs (NEVER HIDE)
-  function positionDock() {
-    ensureDock();
-    const dock = document.getElementById("spDock");
-
-    const nowCard = findNowCardElement();
-    if (nowCard) {
-      applyNowPremiumLayout(nowCard);
-
-      const r = nowCard.getBoundingClientRect();
-      if (r && r.width && r.height) lastNowRect = r;
-
-      // Slightly LOWER than before (and with bigger reserved space already)
-      const bottomInset = 16; // closer to bottom
-      const x = r.left + r.width / 2;
-      const y = r.bottom - bottomInset;
-
-      dock.style.left = `${x}px`;
-      dock.style.top = `${y}px`;
-      dock.style.transform = "translate(-50%, -100%)";
-      setDockHidden(false);
-      return;
-    }
-
-    const tabs = findTabsContainer();
-    const tr = tabs?.getBoundingClientRect?.() || lastTabsRect;
-    if (tr) {
-      const x = tr.left + tr.width / 2;
-      const y = tr.bottom + 58;
-      dock.style.left = `${x}px`;
-      dock.style.top = `${y}px`;
-      dock.style.transform = "translate(-50%, -50%)";
-      setDockHidden(false);
-      return;
-    }
-
-    if (lastNowRect) {
-      const x = lastNowRect.left + lastNowRect.width / 2;
-      const y = lastNowRect.bottom - 16;
-      dock.style.left = `${x}px`;
-      dock.style.top = `${y}px`;
-      dock.style.transform = "translate(-50%, -100%)";
-      setDockHidden(false);
-      return;
-    }
-
-    setDockHidden(false);
   }
 // ---------------- Resolve + play from lists ----------------
   function extractSpotifyUriFromNode(node) {
@@ -555,12 +472,23 @@
   }
 
   function normalizeArtistLine(line) {
-    // Recent looks like "Kno • Death Is Silent" => artist is "Kno"
     const s = (line || "").trim();
     if (!s) return "";
+    // Recent often: "Kno • Death Is Silent" => keep only artist
     const parts = s.split("•").map(x => x.trim()).filter(Boolean);
-    if (parts.length >= 1) return parts[0];
-    return s;
+    return parts.length ? parts[0] : s;
+  }
+
+  function cleanLine(s) {
+    let x = (s || "").replace(/\s+/g, " ").trim();
+    if (!x) return "";
+    // remove common junk
+    x = x.replace(/^LIVE$/i, "").trim();
+    x = x.replace(/^\d+\.\s+/, "").trim();
+    // remove timestamps like "12 Feb 2026, 23:04" or "12 Feb 2026" etc
+    x = x.replace(/\b\d{1,2}\s+[A-Za-z]{3}\s+\d{4}(,\s*\d{2}:\d{2})?\b/gi, "").trim();
+    x = x.replace(/\b\d{2}:\d{2}\b/g, "").trim();
+    return x;
   }
 
   function guessArtistTrackFromRow(row) {
@@ -569,26 +497,50 @@
     const t1 = (ds.track || ds.name || ds.lastfmTrack || "").trim();
     if (a1 && t1) return { artist: a1, track: t1 };
 
-    const text = (row?.innerText || "").split("\n").map((s) => s.trim()).filter(Boolean);
+    const text = (row?.innerText || "")
+      .split("\n")
+      .map(cleanLine)
+      .filter(Boolean)
+      .filter(x => x.toLowerCase() !== "online"); // just in case
+
     if (!text.length) return { artist: "", track: "" };
 
-    const line0 = (text[0] || "").replace(/^\s*\d+\.\s+/, "").trim();
-    const line1raw = (text[1] || "").replace(/^\s*\d+\.\s+/, "").trim();
-    const line1 = normalizeArtistLine(line1raw);
+    // Typical row:
+    // 1) "17. Graveyard"
+    // 2) "Kno • Death Is Silent"
+    // (maybe also date lines, removed above)
+    const line0 = cleanLine(text[0] || "");
+    const line1raw = cleanLine(text[1] || "");
 
-    return { track: line0, artist: line1 };
+    const track = line0;
+    const artist = normalizeArtistLine(line1raw);
+
+    return { track, artist };
   }
 
-  // Keep this simple: if it looks like Artist-only row (no clear track line) => treat as Artist mode row
   function looksLikeArtistOnlyRow(row) {
-    const text = (row?.innerText || "").split("\n").map(s => s.trim()).filter(Boolean);
+    const text = (row?.innerText || "").split("\n").map(cleanLine).filter(Boolean);
     if (!text.length) return true;
-    // If first line is a name and second line is a number (plays) or missing => likely artist list
-    const l0 = (text[0] || "").replace(/^\s*\d+\.\s+/, "").trim();
+    // If only one meaningful line => likely artist
+    if (text.length === 1) return true;
+    // If second line is numeric count => artist list
     const l1 = (text[1] || "").trim();
     const l1IsCount = !!l1 && /^[\d,.\s]+$/.test(l1);
-    if (l0 && (!l1 || l1IsCount)) return true;
-    return false;
+    return l1IsCount;
+  }
+
+  // STRICT guard: only resolve if we have BOTH track + artist and they look real.
+  function canResolve(artist, track) {
+    const a = (artist || "").trim();
+    const t = (track || "").trim();
+    if (!a || !t) return false;
+
+    // avoid garbage / too short (this is what was triggering "Haegeum" fallback)
+    if (a.length < 2 || t.length < 2) return false;
+    if (/^(unknown|various|va)$/i.test(a)) return false;
+    if (/^\d+$/.test(t)) return false;
+
+    return true;
   }
 
   async function resolveUriForRow(row) {
@@ -597,12 +549,9 @@
 
     const { artist, track } = guessArtistTrackFromRow(row);
 
-    // Guard: must have a real track title
-    if (!track || track.length < 2) return "";
+    if (!canResolve(artist, track)) return "";
 
-    // For Recent: artist may still be missing sometimes; allow resolve by track only if long enough
-    const q = [artist, track].filter(Boolean).join(" ").trim();
-    if (!q || q.length < 3) return "";
+    const q = `${artist} ${track}`.trim();
 
     try {
       const r = await fetch(`${API_BASE}/resolve?q=${encodeURIComponent(q)}`, { method: "GET" });
@@ -618,10 +567,10 @@
   function rectIsSquareish(r) {
     if (!r) return false;
     const w = r.width, h = r.height;
-    if (w < 36 || h < 36) return false;
-    if (w > 140 || h > 140) return false;
+    if (w < 28 || h < 28) return false;
+    if (w > 160 || h > 160) return false;
     const ratio = w / h;
-    return ratio > 0.78 && ratio < 1.28;
+    return ratio > 0.72 && ratio < 1.38;
   }
 
   function getArtworkClickable(row) {
@@ -652,34 +601,57 @@
       .filter((n) => (n.textContent || "").trim().length > 6);
   }
 
-  function attachArtworkPlay() {
+  function allowedToBindRow(topMode, row) {
+    // Disable all binds on Top->Artist
+    if (topMode === "artist") return false;
+    // If it’s clearly artist-only row, don’t bind
+    if (looksLikeArtistOnlyRow(row)) return false;
+    return true;
+  }
+
+  function attachPlayBindings() {
     if (!getToken()) return;
 
     const topMode = getTopMode(); // 'track' | 'artist' | 'album' | null
     const rows = guessRows();
 
     for (const row of rows) {
+      if (!allowedToBindRow(topMode, row)) continue;
+
+      // Prefer artwork click; if no artwork found -> fallback to row click
       const art = getArtworkClickable(row);
-      if (!art) continue;
 
-      if (art.dataset.spBound === "1") continue;
-      art.dataset.spBound = "1";
-      art.classList.add("spArtworkPlayable");
+      if (art && art.dataset.spBound !== "1") {
+        art.dataset.spBound = "1";
+        art.classList.add("spArtworkPlayable");
 
-      art.addEventListener("click", async (e) => {
-        if (e.target && e.target.closest && e.target.closest("#spDock")) return;
+        art.addEventListener("click", async (e) => {
+          if (e.target && e.target.closest && e.target.closest("#spDock")) return;
+          e.preventDefault(); e.stopPropagation();
+          pulse(art);
 
-        // IMPORTANT RULE: Disable artwork click for Top->Artist
-        // Also, if row looks like artist-only row, do nothing.
-        if ((topMode === "artist") || looksLikeArtistOnlyRow(row)) return;
+          const uri = await resolveUriForRow(row);
+          if (uri) return playUri(uri);
+        }, { passive: false });
+      }
 
-        e.preventDefault();
-        e.stopPropagation();
-        pulse(art);
+      if (!art && row.dataset.spRowBound !== "1") {
+        row.dataset.spRowBound = "1";
+        row.classList.add("spRowPlayable");
 
-        const uri = await resolveUriForRow(row);
-        if (uri) return playUri(uri);
-      }, { passive: false });
+        row.addEventListener("click", async (e) => {
+          if (e.target && e.target.closest && e.target.closest("#spDock")) return;
+          // If user clicked on some control inside the row, do nothing
+          const tag = (e.target?.tagName || "").toLowerCase();
+          if (tag === "button" || tag === "a" || tag === "input") return;
+
+          e.preventDefault(); e.stopPropagation();
+          pulse(row);
+
+          const uri = await resolveUriForRow(row);
+          if (uri) return playUri(uri);
+        }, { passive: false });
+      }
     }
   }
 
@@ -690,7 +662,7 @@
 
     async function tick() {
       ensureDock();
-      positionDock();                 // <= never hide, always fallback
+      positionDock(); // header-right, always
 
       const linked = !!getToken();
       if (linked !== lastLinked) {
@@ -708,7 +680,7 @@
           setToggleIcon(isPlaying);
           lastPlaying = isPlaying;
         }
-        attachArtworkPlay();
+        attachPlayBindings();
       }
 
       requestAnimationFrame(tick);
@@ -723,7 +695,7 @@
     const mo = new MutationObserver(() => {
       ensureDock();
       positionDock();
-      attachArtworkPlay();
+      attachPlayBindings();
     });
     mo.observe(document.documentElement, { subtree: true, childList: true });
 

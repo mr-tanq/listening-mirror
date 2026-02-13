@@ -1,27 +1,36 @@
-/* spotify-ui.js — FULL REPLACE (PART 1/3)
-   Fix: controls missing -> inject dock if not found
-   Also keeps Orb fix + clickable artwork placeholder
+/* spotify-ui.js — FULL REPLACE (PART 1/2)
+   - Dock player controls into tabs bar (right of "Top"), -15% size
+   - Keep controls visible even when nothing playing
+   - Prevent Orb from triggering playback ("Mirror" bug)
+   - Make artwork-slot clickable even when no artwork
 */
+
 (function () {
   "use strict";
 
+  // ---------- CONFIG ----------
   const CFG = {
+    // We try a few candidates because your DOM evolved
     tabsBarSelectors: [
       '[data-lm="tabsbar"]',
       ".tabsBar",
       ".tabs",
       ".segmentedTabs",
       ".navTabs",
-      ".segmented",
-      ".segmented-control",
+    ],
+    topTabSelectors: [
+      '[data-tab="top"]',
+      '[data-lm-tab="top"]',
+      ".tabTop",
+      'button:has-text("Top")', // harmless if unsupported
     ],
     playerDockSelectors: [
       '[data-lm="playerDock"]',
       ".playerDock",
       ".playerControlsDock",
       ".playerControls",
-      ".spotifyControls",
     ],
+    // Orb / glyph selectors (the round thing left of Listening Mirror)
     orbSelectors: [
       '[data-lm="orb"]',
       ".orb",
@@ -29,14 +38,15 @@
       ".brandOrb",
       ".appOrb",
     ],
+    // List item row selectors (Recent / Top lists)
     listRowSelectors: [
       '[data-lm="row"]',
       ".row",
       ".listRow",
       ".trackRow",
       ".topRow",
-      ".itemRow",
     ],
+    // Clickable artwork container inside a row
     artworkSlotSelectors: [
       '[data-lm="artwork"]',
       ".art",
@@ -45,11 +55,13 @@
       ".thumb",
       ".imgWrap",
       ".media",
-      ".artSlot",
     ],
+    // A row may carry a URI on dataset, or have a nested link/button
     uriDatasetKeys: ["uri", "spotifyUri", "trackUri", "contextUri"],
   };
 
+  // ---------- HELPERS ----------
+  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const $1 = (sel, root = document) => root.querySelector(sel);
 
   function firstExistingSelector(selectors, root = document) {
@@ -57,7 +69,9 @@
       try {
         const el = $1(s, root);
         if (el) return el;
-      } catch {}
+      } catch {
+        // ignore unsupported selectors like :has-text
+      }
     }
     return null;
   }
@@ -65,16 +79,29 @@
   function ensureStylesOnce() {
     if (document.getElementById("lm-dock-styles")) return;
     const css = `
-/* --- Listening Mirror: Docked controls in tabs row --- */
+/* --- Listening Mirror: Docked player in tabs --- */
 .lmTabsDockWrap{
-  display:flex; align-items:center; justify-content:space-between;
-  gap:12px; width:100%;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  width:100%;
 }
-.lmTabsLeft{ display:flex; align-items:center; min-width:0; }
-.lmTabsRight{ display:flex; align-items:center; justify-content:flex-end; flex:0 0 auto; }
-
+.lmTabsLeft{
+  display:flex;
+  align-items:center;
+  min-width:0;
+}
+.lmTabsRight{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  flex:0 0 auto;
+}
 .lmDockPill{
-  display:flex; align-items:center; gap:10px;
+  display:flex;
+  align-items:center;
+  gap:10px;
   padding:8px 10px;
   border-radius:999px;
   backdrop-filter: blur(10px);
@@ -85,34 +112,37 @@
   transform: scale(0.85); /* -15% */
   transform-origin: right center;
 }
-
-.lmDockPill .lmDock{
-  display:flex; align-items:center; gap:10px;
+.lmDockPill button,
+.lmDockPill a{
+  border:0;
+  background: transparent;
+  padding:0;
+  margin:0;
+  line-height:0;
 }
-
 .lmDockPill .lmBtn{
-  width:38px; height:38px;
+  width:38px;
+  height:38px;
   border-radius:999px;
-  display:grid; place-items:center;
+  display:grid;
+  place-items:center;
   background: rgba(0,0,0,0.18);
   border: 1px solid rgba(255,255,255,0.08);
-  padding:0; margin:0;
 }
-.lmDockPill .lmBtn:active{ transform: translateY(1px); }
-.lmDockPill .lmBtn svg{ width:18px; height:18px; }
-
-.lmDockDim{ opacity:0.55; filter: grayscale(1); }
-
-/* placeholder artwork slot */
-.lmGeneratedArtSlot{
-  width:56px; height:56px;
-  border-radius:18px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.08);
-  display:grid; place-items:center;
-  flex:0 0 auto;
+.lmDockPill .lmBtn:active{
+  transform: translateY(1px);
 }
-.lmGeneratedArtSlot svg{ width:18px; height:18px; }
+.lmDockPill .lmBtn svg{
+  width:18px;
+  height:18px;
+}
+.lmDockHidden{
+  display:flex !important; /* never fully disappears */
+  opacity:0.45;
+}
+.lmDockHidden .lmBtn{
+  pointer-events:auto; /* still clickable for login/resume */
+}
     `.trim();
 
     const style = document.createElement("style");
@@ -126,132 +156,38 @@
     e.stopPropagation();
   }
 
-  // ---------- SPOTIFY PLAYBACK BRIDGE (keeps your backend untouched) ----------
+  // ---------- SPOTIFY PLAYBACK BRIDGE ----------
+  // We try to call whatever you already have.
   function callSpotify(action, payload) {
+    // Preferred: window.LMSpotify
     const s = window.LMSpotify || window.SpotifyBridge || window.spotifyBridge || null;
 
     try {
       if (s && typeof s[action] === "function") return s[action](payload);
     } catch {}
 
+    // Fallbacks: common names
     try {
       if (action === "toggle" && typeof window.spotifyToggle === "function") return window.spotifyToggle();
       if (action === "playUri" && typeof window.spotifyPlayUri === "function") return window.spotifyPlayUri(payload);
       if (action === "login" && typeof window.spotifyLogin === "function") return window.spotifyLogin();
       if (action === "logout" && typeof window.spotifyLogout === "function") return window.spotifyLogout();
-      if (action === "prev" && typeof window.spotifyPrev === "function") return window.spotifyPrev();
-      if (action === "next" && typeof window.spotifyNext === "function") return window.spotifyNext();
     } catch {}
 
+    // If nothing exists, do nothing (but don’t crash UI)
     return null;
   }
-/* spotify-ui.js — FULL REPLACE (PART 2/3)
-   Inject dock if missing + dock into tabs + Orb fix
-*/
-  function svgIcon(name) {
-    // simple inline icons (premium minimal)
-    if (name === "spotify") return `
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="rgba(255,255,255,0.9)"
-      d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm4.57 14.36a.8.8 0 0 1-1.1.26c-3.02-1.85-6.82-2.27-11.3-1.25a.8.8 0 0 1-.36-1.56c4.9-1.12 9.12-.64 12.5 1.43.38.23.5.72.26 1.12zm1.05-2.48a.95.95 0 0 1-1.3.31c-3.46-2.13-8.73-2.75-12.82-1.5a.95.95 0 1 1-.56-1.81c4.67-1.43 10.47-.74 14.44 1.7.45.28.6.87.24 1.3zm.1-2.58C14.6 9.5 8.56 9.32 5.15 10.35a1.1 1.1 0 1 1-.63-2.1c3.91-1.18 10.63-.95 14.74 1.44a1.1 1.1 0 0 1-1.1 1.9z"/></svg>
-    `;
-    if (name === "prev") return `
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="rgba(255,255,255,0.9)"
-      d="M6 6h2v12H6V6zm3.5 6 10-6v12l-10-6z"/></svg>`;
-    if (name === "next") return `
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="rgba(255,255,255,0.9)"
-      d="M16 6h2v12h-2V6zM6 6l10 6-10 6V6z"/></svg>`;
-    if (name === "play") return `
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="rgba(255,255,255,0.9)"
-      d="M8 5v14l11-7z"/></svg>`;
-    if (name === "pause") return `
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="rgba(255,255,255,0.9)"
-      d="M7 6h4v12H7V6zm6 0h4v12h-4V6z"/></svg>`;
-    if (name === "note") return `
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="rgba(255,255,255,0.45)"
-      d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg>`;
-    return "";
-  }
 
-  function buildInjectedDock() {
-    const dock = document.createElement("div");
-    dock.className = "lmDock";
-    dock.setAttribute("data-lm", "playerDock");
-
-    const btnSpotify = document.createElement("button");
-    btnSpotify.className = "lmBtn";
-    btnSpotify.type = "button";
-    btnSpotify.setAttribute("aria-label", "Spotify login/logout");
-    btnSpotify.innerHTML = svgIcon("spotify");
-
-    const btnPrev = document.createElement("button");
-    btnPrev.className = "lmBtn";
-    btnPrev.type = "button";
-    btnPrev.setAttribute("aria-label", "Previous");
-    btnPrev.innerHTML = svgIcon("prev");
-
-    const btnToggle = document.createElement("button");
-    btnToggle.className = "lmBtn";
-    btnToggle.type = "button";
-    btnToggle.setAttribute("aria-label", "Play/Pause");
-    btnToggle.innerHTML = svgIcon("play");
-
-    const btnNext = document.createElement("button");
-    btnNext.className = "lmBtn";
-    btnNext.type = "button";
-    btnNext.setAttribute("aria-label", "Next");
-    btnNext.innerHTML = svgIcon("next");
-
-    btnSpotify.addEventListener("click", (e) => {
-      safeStop(e);
-      // If you already know "linked" state, your bridge will handle it.
-      // Otherwise: login is safe default.
-      const s = window.LMSpotify || window.SpotifyBridge || window.spotifyBridge || null;
-      const linked = !!(s && (s.linked === true || s.isConnected === true || s.isLinked?.()));
-      callSpotify(linked ? "logout" : "login");
-    });
-
-    btnPrev.addEventListener("click", (e) => { safeStop(e); callSpotify("prev"); });
-    btnNext.addEventListener("click", (e) => { safeStop(e); callSpotify("next"); });
-
-    btnToggle.addEventListener("click", (e) => {
-      safeStop(e);
-      callSpotify("toggle");
-    });
-
-    dock.appendChild(btnSpotify);
-    dock.appendChild(btnPrev);
-    dock.appendChild(btnToggle);
-    dock.appendChild(btnNext);
-
-    return dock;
-  }
-
-  function ensureDockExists() {
-    // If an old dock exists, use it. Otherwise inject one.
-    let dock = firstExistingSelector(CFG.playerDockSelectors);
-    if (dock) {
-      // normalize: remove any text nodes "Play" etc if present
-      dock.querySelectorAll("button, a").forEach((el) => {
-        Array.from(el.childNodes).forEach((n) => {
-          if (n.nodeType === Node.TEXT_NODE && n.textContent.trim()) n.textContent = "";
-        });
-      });
-      return dock;
-    }
-
-    dock = buildInjectedDock();
-    // Put it temporarily in body; it will be docked into tabs immediately
-    document.body.appendChild(dock);
-    return dock;
-  }
-
-  function dockIntoTabs() {
+  // ---------- DOCK: move controls into tabs ----------
+  function dockPlayerIntoTabs() {
     ensureStylesOnce();
 
     const tabsBar = firstExistingSelector(CFG.tabsBarSelectors);
-    if (!tabsBar) return false;
+    const dock = firstExistingSelector(CFG.playerDockSelectors);
 
-    // Create wrap once
+    if (!tabsBar || !dock) return false;
+
+    // Build wrap structure once
     let wrap = tabsBar.querySelector(".lmTabsDockWrap");
     if (!wrap) {
       wrap = document.createElement("div");
@@ -262,15 +198,19 @@
       const right = document.createElement("div");
       right.className = "lmTabsRight";
 
+      // Move existing tabs content into left
       while (tabsBar.firstChild) left.appendChild(tabsBar.firstChild);
+
       wrap.appendChild(left);
       wrap.appendChild(right);
+
       tabsBar.appendChild(wrap);
     }
 
     const right = tabsBar.querySelector(".lmTabsRight");
     if (!right) return false;
 
+    // Put dock inside a pill container
     let pill = right.querySelector(".lmDockPill");
     if (!pill) {
       pill = document.createElement("div");
@@ -278,43 +218,62 @@
       right.appendChild(pill);
     }
 
-    const dock = ensureDockExists();
-    // If you had an old absolute overlay styles, neutralize
+    // Move dock into pill (keep the dock node itself)
+    pill.appendChild(dock);
+
+    // Make sure dock is not absolute-positioned somewhere weird
     dock.style.position = "static";
     dock.style.inset = "auto";
     dock.style.margin = "0";
+    dock.style.transform = "none";
+
+    // If your dock had its own pill/overlay background, neutralize lightly
     dock.style.background = "transparent";
+    dock.style.backdropFilter = "none";
+    dock.style.webkitBackdropFilter = "none";
     dock.style.border = "0";
     dock.style.boxShadow = "none";
     dock.style.padding = "0";
 
-    pill.appendChild(dock);
     return true;
   }
 
+  // ---------- ORB FIX: prevent orb clicks from triggering playback ----------
   function fixOrbClick() {
     const orb = firstExistingSelector(CFG.orbSelectors);
     if (!orb) return;
 
-    // Stop any parent click that triggers playback
-    orb.addEventListener("click", (e) => {
-      safeStop(e);
-      if (typeof window.openStats === "function") window.openStats();
-    }, { capture: true });
+    // If orb is inside something clickable, kill click in capture phase.
+    orb.addEventListener(
+      "click",
+      (e) => {
+        // Allow hover/focus UI, but stop any parent handler that triggers playback.
+        safeStop(e);
+        // Here you can open stats instead (if you have a function)
+        if (typeof window.openStats === "function") window.openStats();
+      },
+      { capture: true }
+    );
   }
-/* spotify-ui.js — FULL REPLACE (PART 3/3)
-   Artwork click-to-play + placeholder for no-artwork + keep dock stable
-*/
+
+  // ---------- LIST CLICK: play when clicking artwork slot even if no artwork ----------
   function getRowUri(row) {
     if (!row) return "";
     for (const k of CFG.uriDatasetKeys) {
       const v = row.dataset ? row.dataset[k] : "";
       if (v) return v;
     }
+
+    // Look for nested elements carrying uri
     const any = row.querySelector("[data-uri], [data-spotify-uri], [data-track-uri]");
-    if (any) return any.dataset.uri || any.dataset.spotifyUri || any.dataset.trackUri || "";
-    const a = row.querySelector('a[href^="spotify:"], a[href*="open.spotify.com"]');
+    if (any) {
+      return any.dataset.uri || any.dataset.spotifyUri || any.dataset.trackUri || "";
+    }
+
+    // Look for links
+    const a = row.querySelector('a[href*="open.spotify.com"], a[href^="spotify:"]');
     if (a) return a.getAttribute("href") || "";
+
     return "";
   }
 
@@ -325,64 +284,237 @@
     return true;
   }
 
-  function ensurePlaceholderArtworkSlots() {
-    const rowSel = CFG.listRowSelectors.join(",");
-    const rows = document.querySelectorAll(rowSel);
-
-    rows.forEach((row) => {
-      const hasArt = row.querySelector(CFG.artworkSlotSelectors.join(","));
-      if (hasArt) return;
-
-      const ph = document.createElement("div");
-      ph.className = "lmGeneratedArtSlot";
-      ph.setAttribute("data-lm", "artwork");
-      ph.innerHTML = svgIcon("note");
-      row.insertBefore(ph, row.firstChild);
-    });
-  }
-
-  function enableArtworkClickPlay() {
+  function enableArtworkSlotClicks() {
+    // Event delegation: click on artwork slot => play
     document.addEventListener("click", (e) => {
-      const t = e.target;
+      const target = e.target;
 
-      // ignore clicks inside dock pill
-      if (t.closest(".lmDockPill")) return;
+      // Ignore clicks on the dock itself
+      if (target.closest(".lmDockPill")) return;
 
-      // orb click handled separately
-      if (t.closest(CFG.orbSelectors.join(","))) return;
+      // If it’s an orb click, let orb handler stop it
+      if (target.closest(CFG.orbSelectors.join(","))) return;
 
-      const row = t.closest(CFG.listRowSelectors.join(","));
+      // Find a row
+      const row = target.closest(CFG.listRowSelectors.join(","));
       if (!row) return;
 
-      const art = t.closest(CFG.artworkSlotSelectors.join(","));
+      // Only when clicking artwork slot (including placeholder)
+      const art = target.closest(CFG.artworkSlotSelectors.join(","));
       if (!art) return;
 
+      // Prevent navigation/other handlers
       safeStop(e);
+
+      // Play
       playFromRow(row);
     }, true);
   }
 
-  function keepDockStable() {
-    // Re-dock if UI re-renders and moves/hides things
-    const mo = new MutationObserver(() => {
-      dockIntoTabs();
-      fixOrbClick();
-      ensurePlaceholderArtworkSlots();
+  // ---------- KEEP DOCK VISIBLE even when "nothing playing" ----------
+  function keepDockVisible() {
+    const dock = firstExistingSelector(CFG.playerDockSelectors);
+    if (!dock) return;
+
+    // Many UIs hide controls by removing node or setting display:none.
+    // We force a visible state and apply a "dim" class instead.
+    const observer = new MutationObserver(() => {
+      const d = firstExistingSelector(CFG.playerDockSelectors);
+      if (!d) return;
+
+      // If app tried to hide it:
+      const computed = window.getComputedStyle(d);
+      if (computed.display === "none" || computed.visibility === "hidden" || computed.opacity === "0") {
+        d.style.display = "block";
+        d.style.visibility = "visible";
+        d.style.opacity = "1";
+      }
+
+      // If there is no active track, you can dim it by setting a data attr elsewhere.
+      // We just keep it consistent; you can toggle lmDockHidden yourself.
     });
-    mo.observe(document.body, { childList: true, subtree: true, attributes: true });
+
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["style", "class", "hidden", "data-state"],
+    });
   }
 
+  // ---------- BOOT ----------
   function boot() {
-    dockIntoTabs();
+    dockPlayerIntoTabs();
     fixOrbClick();
-    ensurePlaceholderArtworkSlots();
-    enableArtworkClickPlay();
-    keepDockStable();
+    enableArtworkSlotClicks();
+    keepDockVisible();
+
+    // Re-dock after SPA route changes / re-renders
+    const mo = new MutationObserver(() => {
+      dockPlayerIntoTabs();
+      fixOrbClick();
+    });
+    mo.observe(document.body, { childList: true, subtree: true });
   }
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", boot);
   } else {
     boot();
+  }
+
+})();
+/* spotify-ui.js — FULL REPLACE (PART 2/2)
+   - Button sizing/spacing polish
+   - Ensures dock doesn't "jump" into other tabs when you scroll
+   - Optional: dim dock when logged out (spotify icon grey)
+*/
+
+(function () {
+  "use strict";
+
+  // Small SVG helpers (if your UI already renders icons, this won't interfere)
+  function setSpotifyButtonState(btn, linked) {
+    if (!btn) return;
+    btn.style.opacity = linked ? "1" : "0.55";
+    btn.style.filter = linked ? "none" : "grayscale(1)";
+  }
+
+  function findDockRoot() {
+    // The dock has been moved inside .lmDockPill
+    return document.querySelector(".lmDockPill");
+  }
+
+  function polishDockButtons() {
+    const pill = findDockRoot();
+    if (!pill) return;
+
+    // Make sure inner dock layout is horizontal
+    const dock = pill.querySelector('[data-lm="playerDock"], .playerDock, .playerControlsDock, .playerControls');
+    if (!dock) return;
+
+    dock.style.display = "flex";
+    dock.style.alignItems = "center";
+    dock.style.gap = "10px";
+
+    // If buttons are there, give them the .lmBtn class for consistent size
+    const clickable = dock.querySelectorAll("button, a");
+    clickable.forEach((el) => {
+      // If it already has a shape class, leave it; else add lmBtn
+      if (!el.classList.contains("lmBtn")) el.classList.add("lmBtn");
+      // Remove any text labels (you wanted icons only)
+      // Keep aria-label though for accessibility
+      Array.from(el.childNodes).forEach((n) => {
+        if (n.nodeType === Node.TEXT_NODE && n.textContent.trim()) n.textContent = "";
+      });
+    });
+
+    // Detect spotify button (first one often)
+    const spotifyBtn =
+      dock.querySelector('[data-lm="spotifyBtn"]') ||
+      dock.querySelector(".spotifyBtn") ||
+      clickable[0] ||
+      null;
+
+    // Linked state: ask bridge if available
+    let linked = false;
+    try {
+      const s = window.LMSpotify || window.SpotifyBridge || window.spotifyBridge || null;
+      linked = !!(s && (s.isLinked?.() || s.linked === true || s.isConnected === true));
+    } catch {}
+
+    setSpotifyButtonState(spotifyBtn, linked);
+  }
+
+  function preventDockFromAppearingInOtherTabs() {
+    // The bug you showed: when you scroll / change tab, dock shows up weirdly.
+    // This usually happens because the old container still duplicates it or re-renders a second dock.
+    // We enforce: only ONE dock exists, and it must live inside .lmDockPill.
+    const ensureSingle = () => {
+      const allDocks = Array.from(
+        document.querySelectorAll('[data-lm="playerDock"], .playerDock, .playerControlsDock, .playerControls')
+      );
+
+      if (allDocks.length <= 1) return;
+
+      const pill = findDockRoot();
+      if (!pill) return;
+
+      // Keep the one that is inside pill; remove/hide others
+      allDocks.forEach((d) => {
+        const inside = pill.contains(d);
+        if (!inside) {
+          // Don’t delete (could break re-render logic). Just hide extra instances.
+          d.style.display = "none";
+          d.setAttribute("data-lm-hidden-duplicate", "1");
+        }
+      });
+    };
+
+    ensureSingle();
+
+    const mo = new MutationObserver(() => {
+      ensureSingle();
+      polishDockButtons();
+    });
+
+    mo.observe(document.body, { childList: true, subtree: true, attributes: true });
+  }
+
+  function ensurePlaceholderArtworkIsClickable() {
+    // Some rows have no artwork and your UI may not render an artwork slot at all.
+    // We create a consistent "artwork slot" so the Part1 click handler always finds it.
+    const rowSelectors = ['[data-lm="row"]', ".row", ".listRow", ".trackRow", ".topRow"].join(",");
+    const rows = document.querySelectorAll(rowSelectors);
+
+    rows.forEach((row) => {
+      // If row already has a known artwork container, ok
+      const hasArt =
+        row.querySelector('[data-lm="artwork"], .art, .artwork, .cover, .thumb, .imgWrap, .media');
+
+      if (hasArt) return;
+
+      // Try to find where artwork normally sits (left side)
+      // If the row is flex, insert a placeholder at the start.
+      const ph = document.createElement("div");
+      ph.className = "artwork thumb lmGeneratedArtSlot";
+      ph.setAttribute("data-lm", "artwork");
+      ph.style.width = "56px";
+      ph.style.height = "56px";
+      ph.style.borderRadius = "18px";
+      ph.style.background = "rgba(255,255,255,0.06)";
+      ph.style.border = "1px solid rgba(255,255,255,0.08)";
+      ph.style.display = "grid";
+      ph.style.placeItems = "center";
+      ph.style.flex = "0 0 auto";
+
+      // a tiny note icon
+      ph.innerHTML = `
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path fill="rgba(255,255,255,0.45)" d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/>
+        </svg>
+      `.trim();
+
+      row.insertBefore(ph, row.firstChild);
+    });
+  }
+
+  function boot2() {
+    polishDockButtons();
+    preventDockFromAppearingInOtherTabs();
+    ensurePlaceholderArtworkIsClickable();
+
+    // Re-run lightly as UI updates
+    const mo = new MutationObserver(() => {
+      polishDockButtons();
+      ensurePlaceholderArtworkIsClickable();
+    });
+    mo.observe(document.body, { childList: true, subtree: true });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot2);
+  } else {
+    boot2();
   }
 })();

@@ -87,7 +87,7 @@
 #lmSpotifyBtn{
   position:absolute !important;
   top:50% !important;
-  transform: translate(375px, calc(-50% + 55px)) !important;
+  transform: translate(175px, calc(-50% + 55px)) !important;
   left:0 !important;
 }
 

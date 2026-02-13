@@ -1,24 +1,15 @@
 /* spotify-ui.js — FULL REPLACE (PART 1/2)
-   - Move player controls BELOW MIRROR panel (NOT in tabs)
-   - Keep controls visible even when nothing playing
+   - Create our OWN always-visible Player Dock under MIRROR (never disappears)
+   - Do NOT rely on existing dock node (which keeps vanishing)
    - Prevent Orb from triggering playback ("Mirror" bug)
-   - Make artwork-slot clickable even when no artwork
+   - Play by clicking artwork in Recent/Top (including placeholder artwork)
 */
 
 (function () {
   "use strict";
 
-  // ---------- CONFIG ----------
   const CFG = {
-    // Player dock selectors (existing node created elsewhere in your app)
-    playerDockSelectors: [
-      '[data-lm="playerDock"]',
-      ".playerDock",
-      ".playerControlsDock",
-      ".playerControls",
-    ],
-
-    // Orb / glyph selectors (round thing left of Listening Mirror)
+    // Orb selectors
     orbSelectors: [
       '[data-lm="orb"]',
       ".orb",
@@ -27,8 +18,7 @@
       ".appOrb",
     ],
 
-    // Mirror panel selectors (we want to mount dock BELOW this)
-    // We'll detect by presence of "SESSION COVERS" text OR MIRROR label container.
+    // Mirror panel hint selectors (fallbacks)
     mirrorPanelHintSelectors: [
       '[data-lm="mirrorPanel"]',
       ".mirrorPanel",
@@ -36,7 +26,7 @@
       ".sessionCoversCard",
     ],
 
-    // List item row selectors (Recent / Top lists)
+    // List rows + artwork slots
     listRowSelectors: [
       '[data-lm="row"]',
       ".row",
@@ -44,8 +34,6 @@
       ".trackRow",
       ".topRow",
     ],
-
-    // Clickable artwork container inside a row
     artworkSlotSelectors: [
       '[data-lm="artwork"]',
       ".art",
@@ -56,12 +44,9 @@
       ".media",
       ".lmGeneratedArtSlot",
     ],
-
-    // A row may carry a URI on dataset, or have a nested link/button
     uriDatasetKeys: ["uri", "spotifyUri", "trackUri", "contextUri"],
   };
 
-  // ---------- HELPERS ----------
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const $1 = (sel, root = document) => root.querySelector(sel);
 
@@ -70,25 +55,23 @@
       try {
         const el = $1(s, root);
         if (el) return el;
-      } catch {
-        // ignore unsupported selectors
-      }
+      } catch {}
     }
     return null;
   }
 
   function ensureStylesOnce() {
-    if (document.getElementById("lm-dock-styles")) return;
+    if (document.getElementById("lm-fixeddock-styles")) return;
 
     const css = `
-/* --- Listening Mirror: Dock BELOW MIRROR panel --- */
-.lmMirrorDockWrap{
+/* --- Fixed dock under MIRROR --- */
+.lmFixedDockWrap{
   width:100%;
   display:flex;
   justify-content:flex-start;
   padding:12px 0 0 0;
 }
-.lmDockPill{
+.lmFixedDockPill{
   display:flex;
   align-items:center;
   gap:10px;
@@ -102,15 +85,7 @@
   transform: scale(0.85); /* -15% */
   transform-origin: left center;
 }
-.lmDockPill button,
-.lmDockPill a{
-  border:0;
-  background: transparent;
-  padding:0;
-  margin:0;
-  line-height:0;
-}
-.lmDockPill .lmBtn{
+.lmFixedDockBtn{
   width:38px;
   height:38px;
   border-radius:999px;
@@ -118,25 +93,19 @@
   place-items:center;
   background: rgba(0,0,0,0.18);
   border: 1px solid rgba(255,255,255,0.08);
+  padding:0;
+  margin:0;
+  cursor:pointer;
 }
-.lmDockPill .lmBtn:active{
-  transform: translateY(1px);
-}
-.lmDockPill .lmBtn svg{
-  width:18px;
-  height:18px;
-}
-.lmDockHidden{
-  display:flex !important; /* never fully disappears */
-  opacity:0.45;
-}
-.lmDockHidden .lmBtn{
-  pointer-events:auto; /* still clickable */
-}
+.lmFixedDockBtn:active{ transform: translateY(1px); }
+.lmFixedDockBtn svg{ width:18px; height:18px; }
+
+.lmFixedDockDim{ opacity:0.55; filter: grayscale(1); }
+.lmFixedDockAlways{ display:flex !important; visibility:visible !important; opacity:1 !important; }
     `.trim();
 
     const style = document.createElement("style");
-    style.id = "lm-dock-styles";
+    style.id = "lm-fixeddock-styles";
     style.textContent = css;
     document.head.appendChild(style);
   }
@@ -146,7 +115,7 @@
     e.stopPropagation();
   }
 
-  // ---------- SPOTIFY PLAYBACK BRIDGE ----------
+  // ---------- SPOTIFY BRIDGE ----------
   function callSpotify(action, payload) {
     const s = window.LMSpotify || window.SpotifyBridge || window.spotifyBridge || null;
 
@@ -158,7 +127,6 @@
       if (action === "toggle" && typeof window.spotifyToggle === "function") return window.spotifyToggle();
       if (action === "playUri" && typeof window.spotifyPlayUri === "function") return window.spotifyPlayUri(payload);
       if (action === "login" && typeof window.spotifyLogin === "function") return window.spotifyLogin();
-      if (action === "logout" && typeof window.spotifyLogout === "function") return window.spotifyLogout();
       if (action === "prev" && typeof window.spotifyPrev === "function") return window.spotifyPrev();
       if (action === "next" && typeof window.spotifyNext === "function") return window.spotifyNext();
     } catch {}
@@ -166,88 +134,157 @@
     return null;
   }
 
-  // ---------- FIND MIRROR PANEL (robust) ----------
+  function isLinked() {
+    try {
+      const s = window.LMSpotify || window.SpotifyBridge || window.spotifyBridge || null;
+      if (!s) return false;
+      if (typeof s.isLinked === "function") return !!s.isLinked();
+      if (typeof s.isConnected === "function") return !!s.isConnected();
+      if ("linked" in s) return !!s.linked;
+      if ("isConnected" in s) return !!s.isConnected;
+    } catch {}
+    return false;
+  }
+
+  function isPlaying() {
+    try {
+      const s = window.LMSpotify || window.SpotifyBridge || window.spotifyBridge || null;
+      if (!s) return false;
+      if (typeof s.getState === "function") {
+        const st = s.getState();
+        if (st && typeof st.is_playing === "boolean") return st.is_playing;
+        if (st && typeof st.isPlaying === "boolean") return st.isPlaying;
+      }
+      if ("isPlaying" in s) return !!s.isPlaying;
+    } catch {}
+    return false;
+  }
+
+  // ---------- FIND MIRROR PANEL ROBUST ----------
   function findMirrorPanel() {
-    // 1) direct selectors if exist
+    // 1) direct selector if exists
     const direct = firstExistingSelector(CFG.mirrorPanelHintSelectors);
     if (direct) return direct;
 
-    // 2) by text: find element containing "SESSION COVERS"
+    // 2) by text "SESSION COVERS"
     const nodes = $$("div,section,article");
     for (const el of nodes) {
       const t = (el.textContent || "").toUpperCase();
       if (t.includes("SESSION COVERS")) {
-        // climb a bit to get the full panel container
+        // climb to a reasonable card container
         let cur = el;
-        for (let i = 0; i < 6 && cur; i++) {
+        for (let i = 0; i < 8 && cur; i++) {
           const r = cur.getBoundingClientRect();
-          if (r.width > 250 && r.height > 70) return cur;
+          if (r.width > 260 && r.height > 80) return cur;
           cur = cur.parentElement;
         }
         return el;
       }
     }
-
-    // 3) fallback by "MIRROR" label
-    for (const el of nodes) {
-      const t = (el.textContent || "").toUpperCase();
-      if (t.includes("MIRROR") && t.includes("SESSION")) {
-        return el;
-      }
-    }
-
     return null;
   }
 
-  // ---------- DOCK: move controls BELOW MIRROR ----------
-  function dockPlayerBelowMirror() {
+  // ---------- CREATE OUR FIXED DOCK ----------
+  function svgSpotify() {
+    return `
+<svg viewBox="0 0 24 24" aria-hidden="true">
+  <path fill="rgba(255,255,255,0.9)" d="M12 2a10 10 0 1 0 .001 20.001A10 10 0 0 0 12 2Zm4.59 14.52a.75.75 0 0 1-1.03.25c-2.82-1.72-6.36-2.11-10.53-1.16a.75.75 0 1 1-.33-1.46c4.57-1.04 8.5-.6 11.64 1.32a.75.75 0 0 1 .25 1.05Zm1.03-2.5a.9.9 0 0 1-1.23.3c-3.23-1.99-8.15-2.56-11.96-1.4a.9.9 0 1 1-.53-1.72c4.35-1.33 9.76-.68 13.47 1.61a.9.9 0 0 1 .25 1.21Zm.09-2.63c-3.87-2.3-10.25-2.51-13.95-1.39a1.05 1.05 0 1 1-.61-2.01c4.26-1.29 11.35-1.04 15.83 1.62a1.05 1.05 0 1 1-1.27 1.78Z"/>
+</svg>`.trim();
+  }
+
+  function svgPrev() {
+    return `
+<svg viewBox="0 0 24 24" aria-hidden="true">
+  <path fill="rgba(255,255,255,0.9)" d="M6 6h2v12H6V6zm3.5 6 10 6V6l-10 6z"/>
+</svg>`.trim();
+  }
+
+  function svgNext() {
+    return `
+<svg viewBox="0 0 24 24" aria-hidden="true">
+  <path fill="rgba(255,255,255,0.9)" d="M16 6h2v12h-2V6zM4.5 18l10-6-10-6v12z"/>
+</svg>`.trim();
+  }
+
+  function svgPlay() {
+    return `
+<svg viewBox="0 0 24 24" aria-hidden="true">
+  <path fill="rgba(255,255,255,0.9)" d="M8 5v14l11-7L8 5z"/>
+</svg>`.trim();
+  }
+
+  function svgPause() {
+    return `
+<svg viewBox="0 0 24 24" aria-hidden="true">
+  <path fill="rgba(255,255,255,0.9)" d="M6 5h4v14H6V5zm8 0h4v14h-4V5z"/>
+</svg>`.trim();
+  }
+
+  function renderFixedDock() {
     ensureStylesOnce();
 
-    const dock = firstExistingSelector(CFG.playerDockSelectors);
-    if (!dock) return false;
-
     const mirrorPanel = findMirrorPanel();
-    if (!mirrorPanel) return false;
+    if (!mirrorPanel || !mirrorPanel.parentNode) return false;
 
-    // Create mount wrap once (below mirror panel)
-    let wrap = mirrorPanel.parentElement
-      ? mirrorPanel.parentElement.querySelector(".lmMirrorDockWrap")
-      : null;
-
+    // Create wrap AFTER the mirror card container (not inside it)
+    // We anchor to the mirrorPanel itself; wrap becomes sibling after it.
+    let wrap = mirrorPanel.parentNode.querySelector(".lmFixedDockWrap");
     if (!wrap) {
       wrap = document.createElement("div");
-      wrap.className = "lmMirrorDockWrap";
-
-      // insert wrap RIGHT AFTER mirrorPanel
-      if (mirrorPanel.parentNode) {
-        mirrorPanel.parentNode.insertBefore(wrap, mirrorPanel.nextSibling);
-      } else {
-        document.body.appendChild(wrap);
-      }
+      wrap.className = "lmFixedDockWrap";
+      mirrorPanel.parentNode.insertBefore(wrap, mirrorPanel.nextSibling);
     }
 
-    // Pill container
-    let pill = wrap.querySelector(".lmDockPill");
+    let pill = wrap.querySelector(".lmFixedDockPill");
     if (!pill) {
       pill = document.createElement("div");
-      pill.className = "lmDockPill";
+      pill.className = "lmFixedDockPill lmFixedDockAlways";
       wrap.appendChild(pill);
     }
 
-    // Move dock into pill
-    pill.appendChild(dock);
+    // Build buttons once
+    if (!pill.querySelector('[data-lmfd="spotify"]')) {
+      pill.innerHTML = `
+        <button class="lmFixedDockBtn" data-lmfd="spotify" aria-label="Spotify">
+          ${svgSpotify()}
+        </button>
+        <button class="lmFixedDockBtn" data-lmfd="prev" aria-label="Previous">
+          ${svgPrev()}
+        </button>
+        <button class="lmFixedDockBtn" data-lmfd="toggle" aria-label="Play/Pause">
+          ${svgPlay()}
+        </button>
+        <button class="lmFixedDockBtn" data-lmfd="next" aria-label="Next">
+          ${svgNext()}
+        </button>
+      `.trim();
 
-    // Neutralize dock's own absolute/overlay styles (so it doesn't vanish)
-    dock.style.position = "static";
-    dock.style.inset = "auto";
-    dock.style.margin = "0";
-    dock.style.transform = "none";
-    dock.style.background = "transparent";
-    dock.style.backdropFilter = "none";
-    dock.style.webkitBackdropFilter = "none";
-    dock.style.border = "0";
-    dock.style.boxShadow = "none";
-    dock.style.padding = "0";
+      pill.addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-lmfd]");
+        if (!btn) return;
+        safeStop(e);
+
+        const key = btn.getAttribute("data-lmfd");
+        if (key === "spotify") {
+          // If not linked -> login; else do nothing (or could open spotify)
+          callSpotify("login");
+          return;
+        }
+        if (key === "prev") return callSpotify("prev");
+        if (key === "next") return callSpotify("next");
+        if (key === "toggle") return callSpotify("toggle");
+      }, true);
+    }
+
+    // Update visuals (play/pause + linked dim)
+    const toggleBtn = pill.querySelector('[data-lmfd="toggle"]');
+    if (toggleBtn) toggleBtn.innerHTML = isPlaying() ? svgPause() : svgPlay();
+
+    const spotifyBtn = pill.querySelector('[data-lmfd="spotify"]');
+    if (spotifyBtn) {
+      if (isLinked()) spotifyBtn.classList.remove("lmFixedDockDim");
+      else spotifyBtn.classList.add("lmFixedDockDim");
+    }
 
     return true;
   }
@@ -267,7 +304,7 @@
     );
   }
 
-  // ---------- LIST CLICK: play when clicking artwork slot ----------
+  // ---------- CLICK ARTWORK TO PLAY ----------
   function getRowUri(row) {
     if (!row) return "";
     for (const k of CFG.uriDatasetKeys) {
@@ -297,10 +334,10 @@
       (e) => {
         const target = e.target;
 
-        // Ignore clicks on the dock pill itself
-        if (target.closest(".lmDockPill")) return;
+        // Ignore dock clicks
+        if (target.closest(".lmFixedDockPill")) return;
 
-        // If it’s an orb click, let orb handler stop it
+        // orb handled separately
         if (target.closest(CFG.orbSelectors.join(","))) return;
 
         const row = target.closest(CFG.listRowSelectors.join(","));
@@ -316,38 +353,17 @@
     );
   }
 
-  // ---------- KEEP DOCK VISIBLE ----------
-  function keepDockVisible() {
-    const observer = new MutationObserver(() => {
-      const d = firstExistingSelector(CFG.playerDockSelectors);
-      if (!d) return;
-
-      const cs = window.getComputedStyle(d);
-      if (cs.display === "none" || cs.visibility === "hidden" || cs.opacity === "0") {
-        d.style.display = "flex";
-        d.style.visibility = "visible";
-        d.style.opacity = "1";
-      }
-    });
-
-    observer.observe(document.documentElement, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ["style", "class", "hidden", "data-state"],
-    });
-  }
-
   // ---------- BOOT ----------
   function boot() {
-    dockPlayerBelowMirror();
     fixOrbClick();
     enableArtworkSlotClicks();
-    keepDockVisible();
 
-    // Re-dock after SPA route changes / re-renders
+    // Render dock now + keep re-rendering on UI changes
+    renderFixedDock();
+    setInterval(renderFixedDock, 1500); // lightweight keep-alive (prevents "vanish" after refresh)
+
     const mo = new MutationObserver(() => {
-      dockPlayerBelowMirror();
+      renderFixedDock();
       fixOrbClick();
     });
     mo.observe(document.body, { childList: true, subtree: true });
@@ -360,91 +376,25 @@
   }
 })();
 /* spotify-ui.js — FULL REPLACE (PART 2/2)
-   - Button sizing/spacing polish
-   - Prevent duplicate docks appearing elsewhere
-   - Ensure placeholder artwork exists so clicks work even without artwork
+   - Ensure placeholder artwork exists so tracks without artwork still play via artwork click
+   - Hide any legacy/duplicate player docks to avoid weird ghost UI
 */
 
 (function () {
   "use strict";
 
-  function setSpotifyButtonState(btn, linked) {
-    if (!btn) return;
-    btn.style.opacity = linked ? "1" : "0.55";
-    btn.style.filter = linked ? "none" : "grayscale(1)";
-  }
+  function hideLegacyDocks() {
+    // If your old UI still creates a dock, we hide it so only the fixed dock is used.
+    const legacy = Array.from(
+      document.querySelectorAll('[data-lm="playerDock"], .playerDock, .playerControlsDock, .playerControls')
+    );
 
-  function findDockRoot() {
-    // We moved dock inside .lmDockPill below mirror panel
-    return document.querySelector(".lmDockPill");
-  }
-
-  function polishDockButtons() {
-    const pill = findDockRoot();
-    if (!pill) return;
-
-    const dock =
-      pill.querySelector('[data-lm="playerDock"]') ||
-      pill.querySelector(".playerDock") ||
-      pill.querySelector(".playerControlsDock") ||
-      pill.querySelector(".playerControls");
-
-    if (!dock) return;
-
-    dock.style.display = "flex";
-    dock.style.alignItems = "center";
-    dock.style.gap = "10px";
-
-    const clickable = dock.querySelectorAll("button, a");
-    clickable.forEach((el) => {
-      if (!el.classList.contains("lmBtn")) el.classList.add("lmBtn");
-      Array.from(el.childNodes).forEach((n) => {
-        if (n.nodeType === Node.TEXT_NODE && n.textContent.trim()) n.textContent = "";
-      });
+    legacy.forEach((d) => {
+      // Do not hide inside our fixed dock (we don’t use it anyway), but safe:
+      if (d.closest(".lmFixedDockPill")) return;
+      d.style.display = "none";
+      d.setAttribute("data-lm-hidden-legacy", "1");
     });
-
-    const spotifyBtn =
-      dock.querySelector('[data-lm="spotifyBtn"]') ||
-      dock.querySelector(".spotifyBtn") ||
-      clickable[0] ||
-      null;
-
-    let linked = false;
-    try {
-      const s = window.LMSpotify || window.SpotifyBridge || window.spotifyBridge || null;
-      linked = !!(s && (s.isLinked?.() || s.linked === true || s.isConnected === true));
-    } catch {}
-
-    setSpotifyButtonState(spotifyBtn, linked);
-  }
-
-  function preventDuplicateDocks() {
-    const ensureSingle = () => {
-      const allDocks = Array.from(
-        document.querySelectorAll('[data-lm="playerDock"], .playerDock, .playerControlsDock, .playerControls')
-      );
-
-      if (allDocks.length <= 1) return;
-
-      const pill = findDockRoot();
-      if (!pill) return;
-
-      allDocks.forEach((d) => {
-        const inside = pill.contains(d);
-        if (!inside) {
-          d.style.display = "none";
-          d.setAttribute("data-lm-hidden-duplicate", "1");
-        }
-      });
-    };
-
-    ensureSingle();
-
-    const mo = new MutationObserver(() => {
-      ensureSingle();
-      polishDockButtons();
-    });
-    mo.observe(document.body, { childList: true, subtree: true, attributes: true });
   }
 
   function ensurePlaceholderArtworkIsClickable() {
@@ -480,12 +430,11 @@
   }
 
   function boot2() {
-    polishDockButtons();
-    preventDuplicateDocks();
+    hideLegacyDocks();
     ensurePlaceholderArtworkIsClickable();
 
     const mo = new MutationObserver(() => {
-      polishDockButtons();
+      hideLegacyDocks();
       ensurePlaceholderArtworkIsClickable();
     });
     mo.observe(document.body, { childList: true, subtree: true });

@@ -1,4 +1,4 @@
-/* spotify-ui.js (FULL REPLACE) — PART 1/4
+/* spotify-ui.js (FULL REPLACE) — PART 1/2
    Only changes requested:
    - Spotify icon +10px right
    - Glyph left of "Listening Mirror" toggles play/pause
@@ -82,12 +82,16 @@
 #lmSpotifyBtn.lmOff{ opacity:.35; filter: grayscale(1); }
 #lmSpotifyBtn.lmOn{ opacity:.95; filter:none; }
 
-/* Placement: -5px up, +35px right from the "Online" label area (was +25px) */
+/* Placement:
+   You asked: +10px right.
+   So we move X from 290px -> 300px (adds +10px right).
+   Y stays as-is.
+*/
 .lmOnlineRow{ position:relative !important; }
 #lmSpotifyBtn{
   position:absolute !important;
   top:50% !important;
-  transform: translate(290px, calc(-50% + 62px)) !important;
+  transform: translate(300px, calc(-50% + 62px)) !important;
   left:0 !important;
 }
 
@@ -169,7 +173,6 @@
     const ok = await apiTogglePlayPause();
     return !!ok;
   }
-/* spotify-ui.js (FULL REPLACE) — PART 2/4 */
 
   // ---------------- Header / Glyph / Spotify icon ----------------
 
@@ -229,7 +232,7 @@
     return null;
   }
 
-  // NEW: pick the glyph that is immediately left of the title (guaranteed)
+  // pick the glyph that is immediately left of the title
   function findGlyphLeftOfTitle(titleNode) {
     if (!titleNode) return null;
 
@@ -245,7 +248,6 @@
     if (!container) return null;
 
     const candidates = Array.from(container.children || []);
-    // If titleNode itself isn't a direct child, fallback to query within container
     const pool = candidates.length ? candidates : $$("div,span,button,a", container).slice(0, 80);
 
     let best = null;
@@ -257,7 +259,6 @@
       const r = n.getBoundingClientRect?.();
       if (!r) continue;
 
-      // small, roundish element near left of title
       const small = r.width >= 10 && r.width <= 60 && r.height >= 10 && r.height <= 60;
       if (!small) continue;
 
@@ -390,14 +391,13 @@
     LM_HEADER = pickCompactHeaderContainer(LM_TITLE);
     if (!LM_HEADER) return;
 
-    // CHANGE: force the glyph left of title to be the orb for play/pause
+    // glyph left of title => play/pause
     LM_ORB = findGlyphLeftOfTitle(LM_TITLE) || null;
     bindOrbAsPlayPause();
 
     ensureSpotifyIconNearOnline(LM_HEADER);
     markTabsClickable();
   }
-/* spotify-ui.js (FULL REPLACE) — PART 3/4 */
 
   // ---------------- Click-to-play (delegated) ----------------
 
@@ -539,6 +539,7 @@
 
     return row;
   }
+/* spotify-ui.js (FULL REPLACE) — PART 2/2 */
 
   async function handleDocumentClick(e) {
     if (!getToken()) return;
@@ -564,7 +565,6 @@
     const uri = await resolveUriForRow(row);
     if (uri) await playUri(uri);
   }
-/* spotify-ui.js (FULL REPLACE) — PART 4/4 */
 
   // ---------------- Boot / observers (no heavy loops) ----------------
 

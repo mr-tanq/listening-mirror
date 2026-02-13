@@ -1,9 +1,8 @@
 /* spotify-ui.js (FULL REPLACE)
-   Changes requested:
-   - Dock (spotify + prev/play/next) moved OUT of Now-card, positioned to the RIGHT of the header "Listening Mirror"
-   - Items without artwork can still play (fallback: make row clickable where allowed)
-   - Fix "first Recent/Top plays Haegeum..." by strict resolve guard + better text cleaning (timestamps/LIVE/etc)
-   - Disable artwork click on Top->Artist (keep only Recent + Top Track/Album)
+   Fixes:
+   1) Dock moved further RIGHT of "Listening Mirror" header (premium spacing).
+   2) Fix Top first-item bug playing "Agust D - Haegeum" (strict parsing + sanity checks + hard-block).
+   3) Prevent orb/Session Covers (MIRROR/LISTENING) area from being treated as playable artwork/row.
 */
 
 (function () {
@@ -103,7 +102,7 @@
 #spIndicator.linked{ opacity:.95; filter:none; }
 #spIndicator svg{ width:16px; height:16px; display:block; }
 
-/* buttons (20% smaller) */
+/* buttons */
 #spDock .spBtn{
   border: 0;
   width: 28px; height: 28px;
@@ -351,8 +350,7 @@
   }
 // ---------------- Header anchor (Listening Mirror) ----------------
   function findHeaderTitleNode() {
-    // Prefer a node whose text is exactly "Listening Mirror"
-    const nodes = Array.from(document.querySelectorAll("h1,h2,div,span")).slice(0, 2000);
+    const nodes = Array.from(document.querySelectorAll("h1,h2,div,span")).slice(0, 2500);
     for (const n of nodes) {
       const t = (n.textContent || "").trim();
       if (t === "Listening Mirror") {
@@ -360,7 +358,6 @@
         if (r && r.width > 120 && r.height > 18 && r.bottom > 0 && r.top < window.innerHeight) return n;
       }
     }
-    // Fallback: contains "Listening Mirror"
     for (const n of nodes) {
       const t = (n.textContent || "").trim();
       if (t.includes("Listening Mirror")) {
@@ -371,7 +368,7 @@
     return null;
   }
 
-  // Place dock to the RIGHT of the title; if not enough space, clamp inside viewport and keep it on the same row.
+  // (1) Dock further RIGHT: bigger gap + slight push even if there is room.
   function positionDock() {
     ensureDock();
     const dock = document.getElementById("spDock");
@@ -381,15 +378,14 @@
       const r = titleNode.getBoundingClientRect();
       const dockW = dock.offsetWidth || 140;
 
-      const pad = 10;
-      let xLeft = r.right + pad;                 // dock left start
-      let x = xLeft;                             // we position by left/top directly
+      const pad = 18;          // base gap from title
+      const extraRight = 26;   // requested: more to the RIGHT (premium spacing)
 
-      // If overflow right, clamp to viewport right
+      let x = r.right + pad + extraRight;
+
       const maxLeft = window.innerWidth - dockW - 10;
       if (x > maxLeft) x = Math.max(10, maxLeft);
 
-      // Vertically align with title line
       const y = r.top + (r.height / 2) - (dock.offsetHeight ? dock.offsetHeight / 2 : 18);
 
       dock.style.left = `${Math.round(x)}px`;
@@ -400,7 +396,6 @@
       return;
     }
 
-    // Fallback: keep it top-right as premium safe default
     const dockW = dock.offsetWidth || 140;
     dock.style.left = `${Math.max(10, window.innerWidth - dockW - 10)}px`;
     dock.style.top = `10px`;
@@ -433,7 +428,6 @@
         }
       }
 
-      // heuristic
       let best = null, bestScore = -1;
       for (const o of opts) {
         const cs = window.getComputedStyle(o);
@@ -447,6 +441,17 @@
       if (tx === "track" || tx === "artist" || tx === "album") return tx;
     }
     return null;
+  }
+
+  // (3) Exclude "Session Covers / Mirror / Listening" area from being bound as playable.
+  function isSessionCoversArea(node) {
+    const root = node?.closest?.("section, article, div") || null;
+    const txt = ((root?.innerText || node?.innerText || "")).toUpperCase();
+    if (!txt) return false;
+    if (txt.includes("SESSION COVERS")) return true;
+    // the panel line that contains MIRROR and LISTENING pills
+    if (txt.includes("MIRROR") && txt.includes("LISTENING")) return true;
+    return false;
   }
 // ---------------- Resolve + play from lists ----------------
   function extractSpotifyUriFromNode(node) {
@@ -474,7 +479,6 @@
   function normalizeArtistLine(line) {
     const s = (line || "").trim();
     if (!s) return "";
-    // Recent often: "Kno • Death Is Silent" => keep only artist
     const parts = s.split("•").map(x => x.trim()).filter(Boolean);
     return parts.length ? parts[0] : s;
   }
@@ -482,63 +486,67 @@
   function cleanLine(s) {
     let x = (s || "").replace(/\s+/g, " ").trim();
     if (!x) return "";
-    // remove common junk
     x = x.replace(/^LIVE$/i, "").trim();
     x = x.replace(/^\d+\.\s+/, "").trim();
-    // remove timestamps like "12 Feb 2026, 23:04" or "12 Feb 2026" etc
     x = x.replace(/\b\d{1,2}\s+[A-Za-z]{3}\s+\d{4}(,\s*\d{2}:\d{2})?\b/gi, "").trim();
     x = x.replace(/\b\d{2}:\d{2}\b/g, "").trim();
+    // remove pure counts like "3" or "12"
+    if (/^\d+$/.test(x)) return "";
     return x;
   }
 
+  // Better: pick first two meaningful lines as track/artist, ignoring junk.
   function guessArtistTrackFromRow(row) {
     const ds = row?.dataset || {};
     const a1 = (ds.artist || ds.lastfmArtist || "").trim();
     const t1 = (ds.track || ds.name || ds.lastfmTrack || "").trim();
     if (a1 && t1) return { artist: a1, track: t1 };
 
-    const text = (row?.innerText || "")
+    const lines = (row?.innerText || "")
       .split("\n")
       .map(cleanLine)
-      .filter(Boolean)
-      .filter(x => x.toLowerCase() !== "online"); // just in case
+      .filter(Boolean);
 
-    if (!text.length) return { artist: "", track: "" };
+    // Filter out obvious UI words
+    const filtered = lines.filter(l => {
+      const u = l.toUpperCase();
+      if (u === "ONLINE") return false;
+      if (u === "NOW" || u === "RECENT" || u === "TOP") return false;
+      if (u === "TRACK" || u === "ARTIST" || u === "ALBUM") return false;
+      if (u === "TODAY" || u === "WEEK" || u === "YEAR") return false;
+      if (u.includes("SESSION COVERS")) return false;
+      return true;
+    });
 
-    // Typical row:
-    // 1) "17. Graveyard"
-    // 2) "Kno • Death Is Silent"
-    // (maybe also date lines, removed above)
-    const line0 = cleanLine(text[0] || "");
-    const line1raw = cleanLine(text[1] || "");
-
-    const track = line0;
-    const artist = normalizeArtistLine(line1raw);
-
+    const track = cleanLine(filtered[0] || "");
+    const artist = normalizeArtistLine(cleanLine(filtered[1] || ""));
     return { track, artist };
   }
 
   function looksLikeArtistOnlyRow(row) {
     const text = (row?.innerText || "").split("\n").map(cleanLine).filter(Boolean);
     if (!text.length) return true;
-    // If only one meaningful line => likely artist
     if (text.length === 1) return true;
-    // If second line is numeric count => artist list
     const l1 = (text[1] || "").trim();
     const l1IsCount = !!l1 && /^[\d,.\s]+$/.test(l1);
     return l1IsCount;
   }
 
-  // STRICT guard: only resolve if we have BOTH track + artist and they look real.
-  function canResolve(artist, track) {
+  // Strict sanity: track+artist must exist, and must appear in row text.
+  function canResolve(row, artist, track) {
     const a = (artist || "").trim();
     const t = (track || "").trim();
     if (!a || !t) return false;
-
-    // avoid garbage / too short (this is what was triggering "Haegeum" fallback)
     if (a.length < 2 || t.length < 2) return false;
-    if (/^(unknown|various|va)$/i.test(a)) return false;
-    if (/^\d+$/.test(t)) return false;
+
+    // Hard block the known wrong fallback
+    if (a.toLowerCase() === "agust d" && t.toLowerCase() === "haegeum") return false;
+
+    const rowTxt = ((row?.innerText || "")).toLowerCase();
+    const aOk = rowTxt.includes(a.toLowerCase());
+    const tOk = rowTxt.includes(t.toLowerCase());
+    // If parsing went wrong (common for 1st item), refuse to resolve to avoid backend default.
+    if (!aOk || !tOk) return false;
 
     return true;
   }
@@ -549,7 +557,7 @@
 
     const { artist, track } = guessArtistTrackFromRow(row);
 
-    if (!canResolve(artist, track)) return "";
+    if (!canResolve(row, artist, track)) return "";
 
     const q = `${artist} ${track}`.trim();
 
@@ -574,19 +582,23 @@
   }
 
   function getArtworkClickable(row) {
+    // DO NOT bind anything inside session covers/orb area
+    if (isSessionCoversArea(row)) return null;
+
     const img = row.querySelector?.("img");
     if (img) return img;
 
     const bgCandidates = Array.from(row.querySelectorAll?.("div, span, a") || []);
     for (const n of bgCandidates) {
+      if (isSessionCoversArea(n)) continue;
       const st = window.getComputedStyle(n);
       const bg = st?.backgroundImage || "";
       if (bg && bg !== "none" && bg.includes("url(")) return n;
     }
 
-    // Placeholder square (no artwork)
     const kids = Array.from(row.querySelectorAll?.("div, span") || []);
     for (const n of kids) {
+      if (isSessionCoversArea(n)) continue;
       const r = n.getBoundingClientRect?.();
       if (!rectIsSquareish(r)) continue;
       return n;
@@ -602,9 +614,8 @@
   }
 
   function allowedToBindRow(topMode, row) {
-    // Disable all binds on Top->Artist
+    if (isSessionCoversArea(row)) return false;            // (3) orb/session covers excluded
     if (topMode === "artist") return false;
-    // If it’s clearly artist-only row, don’t bind
     if (looksLikeArtistOnlyRow(row)) return false;
     return true;
   }
@@ -612,13 +623,12 @@
   function attachPlayBindings() {
     if (!getToken()) return;
 
-    const topMode = getTopMode(); // 'track' | 'artist' | 'album' | null
+    const topMode = getTopMode();
     const rows = guessRows();
 
     for (const row of rows) {
       if (!allowedToBindRow(topMode, row)) continue;
 
-      // Prefer artwork click; if no artwork found -> fallback to row click
       const art = getArtworkClickable(row);
 
       if (art && art.dataset.spBound !== "1") {
@@ -641,7 +651,6 @@
 
         row.addEventListener("click", async (e) => {
           if (e.target && e.target.closest && e.target.closest("#spDock")) return;
-          // If user clicked on some control inside the row, do nothing
           const tag = (e.target?.tagName || "").toLowerCase();
           if (tag === "button" || tag === "a" || tag === "input") return;
 
@@ -662,7 +671,7 @@
 
     async function tick() {
       ensureDock();
-      positionDock(); // header-right, always
+      positionDock();
 
       const linked = !!getToken();
       if (linked !== lastLinked) {

@@ -1,7 +1,8 @@
 /* spotify-ui.js (FULL REPLACE) — PART 1/2
-   Only changes requested (and minimal):
-   - Glyph left of "Listening Mirror" toggles play/pause (FIXED via fallback detection + pointerdown)
-   - Spotify icon positioning stays as-is (your current translate is untouched)
+   Only changes added (exactly what I said):
+   - Add Android-safe fallback tap-zone left of the title to toggle play/pause
+   - Keep your Spotify icon transform untouched
+   - Keep everything else untouched
 */
 
 (function () {
@@ -228,7 +229,6 @@
     return null;
   }
 
-  // pick the glyph that is immediately left of the title (primary)
   function findGlyphLeftOfTitle(titleNode) {
     if (!titleNode) return null;
 
@@ -282,7 +282,6 @@
     return best;
   }
 
-  // ✅ NEW: fallback detector (roundish small element near title, inside header)
   function findOrbNearTitleFallback(titleNode, headerEl) {
     if (!titleNode || !headerEl) return null;
 
@@ -313,7 +312,6 @@
       const midY = (r.top + r.bottom) / 2;
       if (Math.abs(midY - titleMidY) > 46) continue;
 
-      // Must be left of title (or slightly overlapping left edge)
       if (r.right > titleRect.left + 24) continue;
 
       const dx = Math.abs(titleRect.left - r.right);
@@ -407,6 +405,7 @@
   let LM_TITLE = null;
   let LM_HEADER = null;
   let LM_ORB = null;
+  let LM_TAP_FALLBACK_BOUND = false;
 
   function bindOrbAsPlayPause() {
     if (!LM_ORB) return;
@@ -422,7 +421,6 @@
       await togglePlayPause();
     };
 
-    // ✅ bind to both pointerdown + click (fixes “does nothing” cases)
     LM_ORB.addEventListener("pointerdown", handler, { passive: false });
     LM_ORB.addEventListener("click", handler, { passive: false });
   }
@@ -438,7 +436,6 @@
     LM_HEADER = pickCompactHeaderContainer(LM_TITLE);
     if (!LM_HEADER) return;
 
-    // ✅ FIX: primary glyph-left detector, fallback to header scan
     LM_ORB =
       findGlyphLeftOfTitle(LM_TITLE) ||
       findOrbNearTitleFallback(LM_TITLE, LM_HEADER) ||
@@ -624,6 +621,47 @@
   function boot() {
     ensureCss();
     refreshHeader();
+
+    // ✅ Android-safe fallback tap-zone (left of title) to toggle play/pause
+    if (!LM_TAP_FALLBACK_BOUND) {
+      LM_TAP_FALLBACK_BOUND = true;
+
+      window.addEventListener("pointerdown", async (e) => {
+        try {
+          if (!getToken()) return;
+          if (!LM_TITLE || !LM_HEADER) return;
+
+          // only inside header area
+          if (!LM_HEADER.contains(e.target)) return;
+
+          // never trigger if tapping spotify icon or tabs
+          if (e.target && e.target.closest && e.target.closest("#lmSpotifyBtn")) return;
+          if (e.target && e.target.closest && e.target.closest("[data-lm-tab='1']")) return;
+
+          const tr = LM_TITLE.getBoundingClientRect?.();
+          if (!tr) return;
+
+          const x = e.clientX;
+          const y = e.clientY;
+
+          // tap zone: rectangle just LEFT of the title (where the glyph is)
+          const zoneLeft = tr.left - 90;  // a bit generous for Android
+          const zoneRight = tr.left + 12; // slightly into title
+          const zoneTop = tr.top - 24;
+          const zoneBottom = tr.bottom + 24;
+
+          const inside =
+            x >= zoneLeft && x <= zoneRight &&
+            y >= zoneTop && y <= zoneBottom;
+
+          if (!inside) return;
+
+          e.preventDefault();
+          e.stopPropagation();
+          await togglePlayPause();
+        } catch {}
+      }, { capture: true, passive: false });
+    }
 
     if (!clickBound) {
       clickBound = true;

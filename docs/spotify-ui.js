@@ -1,9 +1,9 @@
 /* spotify-ui.js (FULL REPLACE)
-   GUARANTEES:
-   - DOES NOT resize/move/hide the ORIGINAL header Spotify controls
-   - Blocks header/orb/title area playback bug ("Mirror bug")
-   - Allows clicks on ORIGINAL header controls (login/prev/play/next)
-   - Fixes click-to-play on rows that have NO artwork (placeholder icon)
+   Goal:
+   - KEEP the ORIGINAL header Spotify controls (the circled ones) for login + prev/play/next
+   - HARD block playback triggered by header/orb/title area ("Mirror bug")
+   - BUT allow clicks on the ORIGINAL Spotify controls (so login works and click-to-play persists)
+   - Keep click-to-play on list rows (Recent/Top)
 */
 
 (function () {
@@ -43,43 +43,24 @@
     }
   }
 
-  // IMPORTANT: minimal CSS ONLY for row cursor (NO header styling at all)
   function ensureCss() {
     if (document.getElementById("spotifyUiCss")) return;
     const css = `
-.spArtworkPlayable{ cursor: pointer !important; }
+/* only for row clickability */
+.spArtworkPlayable{ cursor: pointer !important; border-radius: 12px; }
 .spRowPlayable{ cursor: pointer !important; }
+
+/* marker for "original spotify header controls" */
+[data-sp-controls='1'], [data-sp-controls='1'] *{
+  pointer-events: auto !important;
+}
     `.trim();
     const st = document.createElement("style");
     st.id = "spotifyUiCss";
     st.textContent = css;
     document.head.appendChild(st);
   }
-
-  function callIndexOrStats() {
-    const tries = [
-      "openStats","showStats","toggleStats",
-      "openIndex","showIndex","toggleIndex",
-      "openOrbIndex","showOrbIndex","toggleOrbIndex",
-      "openOrbStats","showOrbStats","toggleOrbStats",
-    ];
-    for (const fn of tries) {
-      if (typeof window[fn] === "function") {
-        try { window[fn](); return true; } catch {}
-      }
-    }
-    const nsTries = [
-      "UI.openStats","UI.showStats","UI.toggleStats",
-      "ListeningMirror.openStats","ListeningMirror.showStats","ListeningMirror.toggleStats",
-    ];
-    for (const p of nsTries) {
-      const r = safeCall(p);
-      if (r.ok) return true;
-    }
-    return false;
-  }
-
-  // ---------------- Spotify API (play) ----------------
+// ---------------- Spotify Web API (fallback) ----------------
   async function spotifyApi(endpoint, method = "GET", body = null) {
     const token = getToken();
     if (!token) return { ok: false, status: 401 };
@@ -105,10 +86,8 @@
   async function playUri(uri) {
     let r = safeCall("SpotifyPlayer.playUri", uri);
     if (r.ok) return true;
-
     r = safeCall("SpotifyPlayer.play", { uri });
     if (r.ok) return true;
-
     r = safeCall("SpotifyPlayer.play", uri);
     if (r.ok) return true;
 
@@ -118,22 +97,30 @@
     console.warn("[Spotify UI] Cannot play URI:", uri);
     return false;
   }
-// ---------------- Header/orb refs ----------------
+
+  // ---------------- Header / Orb: HARD block playback, but NOT the original controls ----------------
   function findHeaderTitleNode() {
-    const nodes = Array.from(document.querySelectorAll("h1,h2,div,span")).slice(0, 4000);
+    const nodes = Array.from(document.querySelectorAll("h1,h2,div,span")).slice(0, 3500);
     for (const n of nodes) {
       const t = (n.textContent || "").trim();
-      if (t === "Listening Mirror") return n;
+      if (t === "Listening Mirror") {
+        const r = n.getBoundingClientRect?.();
+        if (r && r.width > 120 && r.height > 18 && r.bottom > 0 && r.top < window.innerHeight) return n;
+      }
     }
     for (const n of nodes) {
       const t = (n.textContent || "").trim();
-      if (t.includes("Listening Mirror")) return n;
+      if (t.includes("Listening Mirror")) {
+        const r = n.getBoundingClientRect?.();
+        if (r && r.width > 120 && r.height > 18 && r.bottom > 0 && r.top < window.innerHeight) return n;
+      }
     }
     return null;
   }
 
   function findOrbNearTitle(titleNode) {
     if (!titleNode) return null;
+
     const container =
       titleNode.closest("header") ||
       titleNode.closest("section") ||
@@ -143,10 +130,8 @@
 
     if (!container) return null;
 
-    const titleRect = titleNode.getBoundingClientRect?.();
-    if (!titleRect) return null;
-
-    const candidates = Array.from(container.querySelectorAll("div,span,button,a")).slice(0, 180);
+    const titleRect = titleNode.getBoundingClientRect();
+    const candidates = Array.from(container.querySelectorAll("div,span,button,a")).slice(0, 160);
 
     let best = null;
     let bestScore = Infinity;
@@ -160,15 +145,15 @@
       const small = r.width >= 10 && r.width <= 56 && r.height >= 10 && r.height <= 56;
       if (!small) continue;
 
+      const midY = (r.top + r.bottom) / 2;
+      const titleMidY = (titleRect.top + titleRect.bottom) / 2;
+      const closeY = Math.abs(midY - titleMidY) < 28;
+
       const cs = window.getComputedStyle(n);
       const br = parseFloat(cs.borderRadius || "0");
       const roundish = br > 12 || cs.borderRadius === "999px";
-      if (!roundish) continue;
 
-      const midY = (r.top + r.bottom) / 2;
-      const titleMidY = (titleRect.top + titleRect.bottom) / 2;
-      const closeY = Math.abs(midY - titleMidY) < 32;
-      if (!closeY) continue;
+      if (!closeY || !roundish) continue;
 
       const dx = Math.abs(titleRect.left - r.right);
       const dy = Math.abs(titleMidY - midY);
@@ -182,73 +167,116 @@
 
     return best;
   }
+function callIndexOrStats() {
+    const tries = [
+      "openStats","showStats","toggleStats",
+      "openIndex","showIndex","toggleIndex",
+      "openOrbIndex","showOrbIndex","toggleOrbIndex",
+      "openOrbStats","showOrbStats","toggleOrbStats",
+    ];
+    for (const fn of tries) {
+      if (typeof window[fn] === "function") {
+        try { window[fn](); return true; } catch {}
+      }
+    }
+    const nsTries = [
+      "UI.openStats","UI.showStats","UI.toggleStats",
+      "ListeningMirror.openStats","ListeningMirror.showStats","ListeningMirror.toggleStats",
+    ];
+    for (const p of nsTries) {
+      const r = safeCall(p);
+      if (r.ok) return true;
+    }
+    return false;
+  }
 
-  // Detect ORIGINAL header controls robustly (no styling, only mark to allow clicks)
+  // IMPORTANT: detect the ORIGINAL Spotify header controls (your circled bar)
+  // We mark its container with data-sp-controls="1" so the blocker ignores it.
   function markOriginalHeaderControls(headerEl) {
     if (!headerEl) return null;
 
-    // 1) Best: aria-label buttons (prev/play/next etc.)
-    const ariaBtns = Array.from(headerEl.querySelectorAll("button,[role='button'],a")).filter((n) => {
-      const a = (n.getAttribute("aria-label") || "").toLowerCase();
-      if (!a) return false;
-      return (
-        a.includes("previous") ||
-        a.includes("next") ||
-        a.includes("play") ||
-        a.includes("pause") ||
-        a.includes("spotify")
-      );
-    });
-
-    if (ariaBtns.length >= 2) {
-      // mark the smallest common ancestor container
-      let container = ariaBtns[0].parentElement;
-      for (const b of ariaBtns) {
-        while (container && !container.contains(b)) container = container.parentElement;
-      }
-      const cand = container?.closest("div,nav,header,section") || container;
-      if (cand) {
-        cand.setAttribute("data-sp-controls", "1");
-        return cand;
-      }
-    }
-
-    // 2) Fallback: cluster of 3+ round buttons
-    const nodes = Array.from(headerEl.querySelectorAll("button,a,div,span")).slice(0, 600);
-    const round = nodes.filter((n) => {
-      const r = n.getBoundingClientRect?.();
-      if (!r) return false;
-      if (r.width < 22 || r.width > 60) return false;
-      if (r.height < 22 || r.height > 60) return false;
-      const cs = window.getComputedStyle(n);
-      const br = parseFloat(cs.borderRadius || "0");
-      return br > 12 || cs.borderRadius === "999px";
-    });
-
-    for (const b of round) {
-      const p = b.closest("div,nav,header,section");
-      if (!p) continue;
-      const inside = Array.from(p.querySelectorAll("button,a,div,span")).filter((x) => {
-        const r = x.getBoundingClientRect?.();
+    // Look for a compact cluster of 3-4 round buttons (prev/play/next + spotify icon)
+    const buttons = Array.from(headerEl.querySelectorAll("button, a, div, span"))
+      .filter(n => {
+        const r = n.getBoundingClientRect?.();
         if (!r) return false;
-        if (r.width < 22 || r.width > 60) return false;
-        if (r.height < 22 || r.height > 60) return false;
-        const cs = window.getComputedStyle(x);
+        if (r.width < 22 || r.width > 54) return false;
+        if (r.height < 22 || r.height > 54) return false;
+        const cs = window.getComputedStyle(n);
         const br = parseFloat(cs.borderRadius || "0");
         return br > 12 || cs.borderRadius === "999px";
       });
+
+    // pick a likely container: nearest ancestor that contains multiple such buttons
+    for (const b of buttons) {
+      const p = b.closest("div, nav, header, section");
+      if (!p) continue;
+      const inside = Array.from(p.querySelectorAll("button, a, div, span"))
+        .filter(x => {
+          const r = x.getBoundingClientRect?.();
+          if (!r) return false;
+          if (r.width < 22 || r.width > 54) return false;
+          if (r.height < 22 || r.height > 54) return false;
+          const cs = window.getComputedStyle(x);
+          const br = parseFloat(cs.borderRadius || "0");
+          return br > 12 || cs.borderRadius === "999px";
+        });
+
       if (inside.length >= 3) {
         p.setAttribute("data-sp-controls", "1");
         return p;
       }
     }
-
     return null;
   }
 
   let LM_HEADER_EL = null;
   let LM_ORB_EL = null;
   let LM_CONTROLS_EL = null;
+
+  let blockerInstalled = false;
+  function installWindowCaptureBlocker() {
+    if (blockerInstalled) return;
+    blockerInstalled = true;
+
+    const inHeader = (target) => {
+      if (!target || !LM_HEADER_EL) return false;
+      return LM_HEADER_EL.contains(target);
+    };
+
+    const inAllowedControls = (target) => {
+      if (!target) return false;
+      // if it's inside the original controls bar, NEVER block it
+      if (target.closest && target.closest("[data-sp-controls='1']")) return true;
+      return false;
+    };
+
+    const killDownOrClick = (e) => {
+      if (!inHeader(e.target)) return;
+
+      // allow the original Spotify controls (login + prev/play/next)
+      if (inAllowedControls(e.target)) return;
+
+      // orb: show index, never play
+      if (LM_ORB_EL && (e.target === LM_ORB_EL || (e.target.closest && e.target.closest("[data-lm-orb='1']")))) {
+        try { e.preventDefault(); } catch {}
+        try { e.stopImmediatePropagation(); } catch {}
+        try { e.stopPropagation(); } catch {}
+        callIndexOrStats();
+        return;
+      }
+
+      // rest of header: block playback triggers
+      try { e.preventDefault(); } catch {}
+      try { e.stopImmediatePropagation(); } catch {}
+      try { e.stopPropagation(); } catch {}
+    };
+
+    window.addEventListener("pointerdown", killDownOrClick, { capture: true, passive: false });
+    window.addEventListener("mousedown",   killDownOrClick, { capture: true, passive: false });
+    window.addEventListener("touchstart",  killDownOrClick, { capture: true, passive: false });
+    window.addEventListener("click",       killDownOrClick, { capture: true, passive: false });
+  }
 
   function bindOrbHoverForIndex() {
     if (!LM_ORB_EL) return;
@@ -259,14 +287,14 @@
 
     LM_ORB_EL.addEventListener("mouseenter", () => { callIndexOrStats(); }, { passive: true });
     LM_ORB_EL.addEventListener("pointerenter", () => { callIndexOrStats(); }, { passive: true });
+
     LM_ORB_EL.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
       callIndexOrStats();
     }, { passive: false });
   }
-
-  function refreshHeaderRefs() {
+function refreshHeaderRefs() {
     const titleNode = findHeaderTitleNode();
     if (!titleNode) {
       LM_HEADER_EL = null;
@@ -286,49 +314,8 @@
     LM_ORB_EL = findOrbNearTitle(titleNode);
     if (LM_ORB_EL) bindOrbHoverForIndex();
 
+    // mark allowed original controls so blocker won't kill them
     LM_CONTROLS_EL = markOriginalHeaderControls(LM_HEADER_EL);
-  }
-// HARD blocker: blocks header playback bug but NEVER blocks original controls
-  let blockerInstalled = false;
-  function installWindowCaptureBlocker() {
-    if (blockerInstalled) return;
-    blockerInstalled = true;
-
-    const inHeader = (target) => {
-      if (!target || !LM_HEADER_EL) return false;
-      return LM_HEADER_EL.contains(target);
-    };
-
-    const inAllowedControls = (target) => {
-      if (!target) return false;
-      return !!(target.closest && target.closest("[data-sp-controls='1']"));
-    };
-
-    const kill = (e) => {
-      if (!inHeader(e.target)) return;
-
-      // allow original control bar always
-      if (inAllowedControls(e.target)) return;
-
-      // orb -> show index
-      if (LM_ORB_EL && (e.target === LM_ORB_EL || (e.target.closest && e.target.closest("[data-lm-orb='1']")))) {
-        try { e.preventDefault(); } catch {}
-        try { e.stopImmediatePropagation(); } catch {}
-        try { e.stopPropagation(); } catch {}
-        callIndexOrStats();
-        return;
-      }
-
-      // everything else in header: block
-      try { e.preventDefault(); } catch {}
-      try { e.stopImmediatePropagation(); } catch {}
-      try { e.stopPropagation(); } catch {}
-    };
-
-    window.addEventListener("pointerdown", kill, { capture: true, passive: false });
-    window.addEventListener("mousedown",   kill, { capture: true, passive: false });
-    window.addEventListener("touchstart",  kill, { capture: true, passive: false });
-    window.addEventListener("click",       kill, { capture: true, passive: false });
   }
 
   // ---------------- List click-to-play ----------------
@@ -410,7 +397,8 @@
     const artist = normalizeArtistLine(cleanLine(filtered[1] || ""));
     return { track, artist };
   }
-function looksLikeArtistOnlyRow(row) {
+
+  function looksLikeArtistOnlyRow(row) {
     const text = (row?.innerText || "").split("\n").map(cleanLine).filter(Boolean);
     if (!text.length) return true;
     if (text.length === 1) return true;
@@ -420,7 +408,7 @@ function looksLikeArtistOnlyRow(row) {
   }
 
   function isTopTabActive() {
-    const tabs = Array.from(document.querySelectorAll("button,div,span,a")).slice(0, 2500);
+    const tabs = Array.from(document.querySelectorAll("button,div,span,a")).slice(0, 2000);
     for (const n of tabs) {
       const tx = (n.textContent || "").trim().toLowerCase();
       if (tx !== "top") continue;
@@ -490,14 +478,13 @@ function looksLikeArtistOnlyRow(row) {
     return ratio > 0.72 && ratio < 1.38;
   }
 
-  // KEY: includes button because "no artwork" placeholder is often a <button>
   function getArtworkClickable(row) {
     if (isSessionCoversArea(row) || isExplicitNoPlay(row)) return null;
 
     const img = row.querySelector?.("img");
     if (img && !isExplicitNoPlay(img)) return img;
 
-    const kids = Array.from(row.querySelectorAll?.("div, span, a, button") || []);
+    const kids = Array.from(row.querySelectorAll?.("div, span, a") || []);
     for (const n of kids) {
       if (isSessionCoversArea(n) || isExplicitNoPlay(n)) continue;
       const rr = n.getBoundingClientRect?.();
@@ -562,7 +549,10 @@ function looksLikeArtistOnlyRow(row) {
         art.classList.add("spArtworkPlayable");
 
         art.addEventListener("click", async (e) => {
+          // don't interfere with header controls
+          if (e.target && e.target.closest && e.target.closest("[data-sp-controls='1']")) return;
           if (isExplicitNoPlay(e.target) || isSessionCoversArea(e.target)) return;
+
           e.preventDefault(); e.stopPropagation();
           const uri = await resolveUriForRow(row);
           if (uri) await playUri(uri);
@@ -574,13 +564,12 @@ function looksLikeArtistOnlyRow(row) {
         row.classList.add("spRowPlayable");
 
         row.addEventListener("click", async (e) => {
+          // don't interfere with header controls
+          if (e.target && e.target.closest && e.target.closest("[data-sp-controls='1']")) return;
           if (isExplicitNoPlay(e.target) || isSessionCoversArea(e.target)) return;
 
-          // FIX: do NOT ignore button/a clicks if they are the artwork placeholder area
           const tag = (e.target?.tagName || "").toLowerCase();
-          const artArea = getArtworkClickable(row);
-          const insideArt = !!(artArea && (artArea === e.target || (artArea.contains && artArea.contains(e.target))));
-          if ((tag === "button" || tag === "a" || tag === "input") && !insideArt) return;
+          if (tag === "button" || tag === "a" || tag === "input") return;
 
           e.preventDefault(); e.stopPropagation();
           const uri = await resolveUriForRow(row);
@@ -590,21 +579,19 @@ function looksLikeArtistOnlyRow(row) {
     }
   }
 
-  // ---------------- boot/loops ----------------
+  // ---------------- loops ----------------
   let bindTimer = null;
 
   function startLoops() {
     if (bindTimer) clearInterval(bindTimer);
     bindTimer = setInterval(() => {
       try {
-        ensureCss();
         refreshHeaderRefs();
         attachPlayBindings();
       } catch {}
     }, 900);
 
     try {
-      ensureCss();
       refreshHeaderRefs();
       attachPlayBindings();
     } catch {}

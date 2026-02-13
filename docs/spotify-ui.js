@@ -5,6 +5,7 @@
    - BUT allow clicks on the ORIGINAL Spotify controls (so login works and click-to-play persists)
    - Keep click-to-play on list rows (Recent/Top)
    - FIX: rows with NO artwork should still click-to-play (placeholder icon)
+   - FIX: header controls must ALWAYS be visible, smaller, slightly higher + spotify icon alignment
 */
 
 (function () {
@@ -47,13 +48,58 @@
   function ensureCss() {
     if (document.getElementById("spotifyUiCss")) return;
     const css = `
-/* only for row clickability */
+/* row clickability */
 .spArtworkPlayable{ cursor: pointer !important; border-radius: 12px; }
 .spRowPlayable{ cursor: pointer !important; }
 
-/* marker for "original spotify header controls" */
+/* allow original header controls */
 [data-sp-controls='1'], [data-sp-controls='1'] *{
   pointer-events: auto !important;
+}
+
+/* --- HARD VISIBILITY + LAYOUT FIX FOR HEADER CONTROLS --- */
+[data-sp-controls='1']{
+  display: flex !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  z-index: 9999 !important;
+  position: relative !important;
+
+  /* make them a bit smaller and move slightly up */
+  transform: translateY(-10px) !important;
+  gap: 10px !important;
+}
+
+/* make the individual round buttons smaller */
+[data-sp-controls='1'] button,
+[data-sp-controls='1'] a,
+[data-sp-controls='1'] [role="button"]{
+  width: 42px !important;
+  height: 42px !important;
+  min-width: 42px !important;
+  min-height: 42px !important;
+  border-radius: 999px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+/* spotify icon looks weird sometimes: force svg sizing + centering */
+[data-sp-controls='1'] svg{
+  width: 18px !important;
+  height: 18px !important;
+  display: block !important;
+}
+[data-sp-controls='1'] svg *{
+  vector-effect: non-scaling-stroke;
+}
+
+/* in case the bar has a pill background element, keep it visible */
+[data-sp-controls='1']{
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
 }
     `.trim();
     const st = document.createElement("style");
@@ -192,12 +238,10 @@
     return false;
   }
 
-  // IMPORTANT: detect the ORIGINAL Spotify header controls (your circled bar)
-  // We mark its container with data-sp-controls="1" so the blocker ignores it.
+  // detect the ORIGINAL Spotify header controls, mark container
   function markOriginalHeaderControls(headerEl) {
     if (!headerEl) return null;
 
-    // Look for a compact cluster of 3-4 round buttons (prev/play/next + spotify icon)
     const buttons = Array.from(headerEl.querySelectorAll("button, a, div, span"))
       .filter(n => {
         const r = n.getBoundingClientRect?.();
@@ -209,7 +253,6 @@
         return br > 12 || cs.borderRadius === "999px";
       });
 
-    // pick a likely container: nearest ancestor that contains multiple such buttons
     for (const b of buttons) {
       const p = b.closest("div, nav, header, section");
       if (!p) continue;
@@ -231,6 +274,47 @@
     }
     return null;
   }
+
+  // apply inline “failsafe” so even if app CSS hides them, they stay visible
+  function applyControlsVisualFix(controlsEl) {
+    if (!controlsEl) return;
+    if (controlsEl.dataset && controlsEl.dataset.spFixApplied === "1") return;
+    controlsEl.dataset.spFixApplied = "1";
+
+    try {
+      controlsEl.style.display = "flex";
+      controlsEl.style.visibility = "visible";
+      controlsEl.style.opacity = "1";
+      controlsEl.style.position = "relative";
+      controlsEl.style.zIndex = "9999";
+      controlsEl.style.transform = "translateY(-10px)";
+      controlsEl.style.gap = "10px";
+    } catch {}
+
+    // try to normalize the inner buttons/icons
+    try {
+      const btns = Array.from(controlsEl.querySelectorAll("button,a,[role='button']"));
+      for (const b of btns) {
+        b.style.width = "42px";
+        b.style.height = "42px";
+        b.style.minWidth = "42px";
+        b.style.minHeight = "42px";
+        b.style.borderRadius = "999px";
+        b.style.display = "inline-flex";
+        b.style.alignItems = "center";
+        b.style.justifyContent = "center";
+        b.style.visibility = "visible";
+        b.style.opacity = "1";
+
+        const svg = b.querySelector("svg");
+        if (svg) {
+          svg.style.width = "18px";
+          svg.style.height = "18px";
+          svg.style.display = "block";
+        }
+      }
+    } catch {}
+  }
 let LM_HEADER_EL = null;
   let LM_ORB_EL = null;
   let LM_CONTROLS_EL = null;
@@ -247,7 +331,6 @@ let LM_HEADER_EL = null;
 
     const inAllowedControls = (target) => {
       if (!target) return false;
-      // if it's inside the original controls bar, NEVER block it
       if (target.closest && target.closest("[data-sp-controls='1']")) return true;
       return false;
     };
@@ -255,10 +338,8 @@ let LM_HEADER_EL = null;
     const killDownOrClick = (e) => {
       if (!inHeader(e.target)) return;
 
-      // allow the original Spotify controls (login + prev/play/next)
       if (inAllowedControls(e.target)) return;
 
-      // orb: show index, never play
       if (LM_ORB_EL && (e.target === LM_ORB_EL || (e.target.closest && e.target.closest("[data-lm-orb='1']")))) {
         try { e.preventDefault(); } catch {}
         try { e.stopImmediatePropagation(); } catch {}
@@ -267,7 +348,6 @@ let LM_HEADER_EL = null;
         return;
       }
 
-      // rest of header: block playback triggers
       try { e.preventDefault(); } catch {}
       try { e.stopImmediatePropagation(); } catch {}
       try { e.stopPropagation(); } catch {}
@@ -316,8 +396,9 @@ let LM_HEADER_EL = null;
     LM_ORB_EL = findOrbNearTitle(titleNode);
     if (LM_ORB_EL) bindOrbHoverForIndex();
 
-    // mark allowed original controls so blocker won't kill them
+    // mark + apply visible/size/position fix
     LM_CONTROLS_EL = markOriginalHeaderControls(LM_HEADER_EL);
+    if (LM_CONTROLS_EL) applyControlsVisualFix(LM_CONTROLS_EL);
   }
 
   // ---------------- List click-to-play ----------------
@@ -479,13 +560,13 @@ function looksLikeArtistOnlyRow(row) {
     return ratio > 0.72 && ratio < 1.38;
   }
 
-  // ✅ FIX #1: include "button" because placeholders are often buttons
   function getArtworkClickable(row) {
     if (isSessionCoversArea(row) || isExplicitNoPlay(row)) return null;
 
     const img = row.querySelector?.("img");
     if (img && !isExplicitNoPlay(img)) return img;
 
+    // include button for placeholders
     const kids = Array.from(row.querySelectorAll?.("div, span, a, button") || []);
     for (const n of kids) {
       if (isSessionCoversArea(n) || isExplicitNoPlay(n)) continue;
@@ -551,7 +632,6 @@ function looksLikeArtistOnlyRow(row) {
         art.classList.add("spArtworkPlayable");
 
         art.addEventListener("click", async (e) => {
-          // don't interfere with header controls
           if (e.target && e.target.closest && e.target.closest("[data-sp-controls='1']")) return;
           if (isExplicitNoPlay(e.target) || isSessionCoversArea(e.target)) return;
 
@@ -566,15 +646,12 @@ function looksLikeArtistOnlyRow(row) {
         row.classList.add("spRowPlayable");
 
         row.addEventListener("click", async (e) => {
-          // don't interfere with header controls
           if (e.target && e.target.closest && e.target.closest("[data-sp-controls='1']")) return;
           if (isExplicitNoPlay(e.target) || isSessionCoversArea(e.target)) return;
 
-          // ✅ FIX #2: allow click when the target is a button INSIDE the artwork placeholder
           const tag = (e.target?.tagName || "").toLowerCase();
           const artArea = getArtworkClickable(row);
           const insideArt = !!(artArea && (artArea === e.target || (artArea.contains && artArea.contains(e.target))));
-
           if ((tag === "button" || tag === "a" || tag === "input") && !insideArt) return;
 
           e.preventDefault(); e.stopPropagation();

@@ -1,784 +1,520 @@
-/* spotify-ui.js (FULL REPLACE)
-   Fixes:
-   A) Dock "locked": shows ONLY when "Listening Mirror" header is visible (no floating while scrolling).
-   B) Orb no longer playable (hard exclude + stopPropagation).
-   C) Tracks with no artwork can play (placeholder + row fallback + safe resolve relaxation without reintroducing default bug).
+/* spotify-ui.js — FULL REPLACE (PART 1/2)
+   - Dock player controls into tabs bar (right of "Top"), -15% size
+   - Keep controls visible even when nothing playing
+   - Prevent Orb from triggering playback ("Mirror" bug)
+   - Make artwork-slot clickable even when no artwork
 */
 
 (function () {
   "use strict";
 
-  const API_BASE = (window.LISTENING_MIRROR_API || "https://i.errtanq9.workers.dev").replace(/\/+$/, "");
+  // ---------- CONFIG ----------
+  const CFG = {
+    // We try a few candidates because your DOM evolved
+    tabsBarSelectors: [
+      '[data-lm="tabsbar"]',
+      ".tabsBar",
+      ".tabs",
+      ".segmentedTabs",
+      ".navTabs",
+    ],
+    topTabSelectors: [
+      '[data-tab="top"]',
+      '[data-lm-tab="top"]',
+      ".tabTop",
+      'button:has-text("Top")', // harmless if unsupported
+    ],
+    playerDockSelectors: [
+      '[data-lm="playerDock"]',
+      ".playerDock",
+      ".playerControlsDock",
+      ".playerControls",
+    ],
+    // Orb / glyph selectors (the round thing left of Listening Mirror)
+    orbSelectors: [
+      '[data-lm="orb"]',
+      ".orb",
+      ".statusOrb",
+      ".brandOrb",
+      ".appOrb",
+    ],
+    // List item row selectors (Recent / Top lists)
+    listRowSelectors: [
+      '[data-lm="row"]',
+      ".row",
+      ".listRow",
+      ".trackRow",
+      ".topRow",
+    ],
+    // Clickable artwork container inside a row
+    artworkSlotSelectors: [
+      '[data-lm="artwork"]',
+      ".art",
+      ".artwork",
+      ".cover",
+      ".thumb",
+      ".imgWrap",
+      ".media",
+    ],
+    // A row may carry a URI on dataset, or have a nested link/button
+    uriDatasetKeys: ["uri", "spotifyUri", "trackUri", "contextUri"],
+  };
 
-  // ---------------- DOM helpers ----------------
-  function el(tag, props = {}, children = []) {
-    const n = document.createElement(tag);
-    for (const [k, v] of Object.entries(props)) {
-      if (k === "class") n.className = v;
-      else if (k === "style") n.setAttribute("style", v);
-      else if (k.startsWith("on") && typeof v === "function") n.addEventListener(k.slice(2), v, { passive: false });
-      else if (v === true) n.setAttribute(k, "");
-      else if (v !== false && v != null) n.setAttribute(k, String(v));
-    }
-    for (const c of children) n.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
-    return n;
-  }
+  // ---------- HELPERS ----------
+  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+  const $1 = (sel, root = document) => root.querySelector(sel);
 
-  function safeCall(path, ...args) {
-    try {
-      const parts = path.split(".");
-      let cur = window;
-      for (const p of parts) {
-        if (!cur || !(p in cur)) return { ok: false, reason: `missing ${path}` };
-        cur = cur[p];
+  function firstExistingSelector(selectors, root = document) {
+    for (const s of selectors) {
+      try {
+        const el = $1(s, root);
+        if (el) return el;
+      } catch {
+        // ignore unsupported selectors like :has-text
       }
-      if (typeof cur !== "function") return { ok: false, reason: `not a function ${path}` };
-      return { ok: true, value: cur(...args) };
-    } catch (e) {
-      return { ok: false, reason: String(e) };
     }
+    return null;
   }
 
-  function getToken() {
-    if (window.SpotifyAuth && typeof window.SpotifyAuth.getAccessToken === "function") {
-      return window.SpotifyAuth.getAccessToken();
-    }
-    try {
-      return (
-        localStorage.getItem("spotify_access_token") ||
-        localStorage.getItem("SPOTIFY_ACCESS_TOKEN") ||
-        sessionStorage.getItem("spotify_access_token") ||
-        null
-      );
-    } catch {
-      return null;
-    }
-  }
-
-  function pulse(node) {
-    if (!node) return;
-    node.classList.remove("spPulse");
-    void node.offsetWidth;
-    node.classList.add("spPulse");
-    setTimeout(() => node.classList.remove("spPulse"), 220);
-  }
-
-  // ---------------- CSS ----------------
-  function ensureCss() {
-    if (document.getElementById("spotifyUiCss")) return;
-
+  function ensureStylesOnce() {
+    if (document.getElementById("lm-dock-styles")) return;
     const css = `
-#spDock{
-  position: fixed;
-  z-index: 9999;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  pointer-events: auto;
+/* --- Listening Mirror: Docked player in tabs --- */
+.lmTabsDockWrap{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  width:100%;
 }
-#spDock.hidden{ display:none !important; }
-
-#spDock::before{
-  content:"";
-  position:absolute;
-  inset:-10px -12px -10px -12px;
-  border-radius: 999px;
-  background: rgba(10,12,14,.40);
+.lmTabsLeft{
+  display:flex;
+  align-items:center;
+  min-width:0;
+}
+.lmTabsRight{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  flex:0 0 auto;
+}
+.lmDockPill{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:8px 10px;
+  border-radius:999px;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  outline: 1px solid rgba(255,255,255,.09);
-  box-shadow: 0 18px 60px rgba(0,0,0,.38);
-  z-index:-1;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+  transform: scale(0.85); /* -15% */
+  transform-origin: right center;
 }
-
-#spDock, #spDock *{ pointer-events: auto !important; -webkit-user-select:none; user-select:none; }
-
-#spIndicator{
-  width: 16px; height: 16px;
-  display: grid; place-items: center;
-  opacity: .35; filter: grayscale(1);
-  cursor: pointer;
+.lmDockPill button,
+.lmDockPill a{
+  border:0;
+  background: transparent;
+  padding:0;
+  margin:0;
+  line-height:0;
 }
-#spIndicator.linked{ opacity:.95; filter:none; }
-#spIndicator svg{ width:16px; height:16px; display:block; }
-
-/* buttons */
-#spDock .spBtn{
-  border: 0;
-  width: 28px; height: 28px;
-  border-radius: 999px;
-  display: grid; place-items: center;
-  background: rgba(255,255,255,.06);
-  outline: 1px solid rgba(255,255,255,.10);
-  box-shadow: 0 14px 45px rgba(0,0,0,.22);
-  color: rgba(255,255,255,.92);
-  padding: 0;
-  transition: transform .12s ease, background .12s ease, outline-color .12s ease;
+.lmDockPill .lmBtn{
+  width:38px;
+  height:38px;
+  border-radius:999px;
+  display:grid;
+  place-items:center;
+  background: rgba(0,0,0,0.18);
+  border: 1px solid rgba(255,255,255,0.08);
 }
-#spDock .spBtn:active{ transform: translateY(1px); background: rgba(255,255,255,.08); }
-#spDock .spBtn:disabled{ opacity:.32; }
-#spDock svg.icon{ width:14px; height:14px; display:block; }
-
-#spDock .spPulse{
-  outline-color: rgba(49,208,124,.55);
-  box-shadow: 0 18px 70px rgba(0,0,0,.28);
-}
-
-/* Clickable artwork / fallback clickable row */
-.spArtworkPlayable{
-  cursor: pointer !important;
-  outline: 1px solid rgba(49,208,124,.0);
-  border-radius: 12px;
-  transition: outline-color .12s ease, transform .12s ease;
-}
-.spArtworkPlayable:active{
+.lmDockPill .lmBtn:active{
   transform: translateY(1px);
-  outline-color: rgba(49,208,124,.35);
 }
-.spRowPlayable{
-  cursor: pointer !important;
-  transition: transform .12s ease;
+.lmDockPill .lmBtn svg{
+  width:18px;
+  height:18px;
 }
-.spRowPlayable:active{
-  transform: translateY(1px);
+.lmDockHidden{
+  display:flex !important; /* never fully disappears */
+  opacity:0.45;
+}
+.lmDockHidden .lmBtn{
+  pointer-events:auto; /* still clickable for login/resume */
 }
     `.trim();
 
     const style = document.createElement("style");
-    style.id = "spotifyUiCss";
+    style.id = "lm-dock-styles";
     style.textContent = css;
     document.head.appendChild(style);
   }
 
-  // ---------------- Icons ----------------
-  function iconSvg(name) {
-    if (name === "prev") return `<svg class="icon" viewBox="0 0 24 24"><path fill="currentColor" d="M6 6h2v12H6V6zm3.5 6L18 6v12l-8.5-6z"/></svg>`;
-    if (name === "play") return `<svg class="icon" viewBox="0 0 24 24"><path fill="currentColor" d="M8 5v14l11-7L8 5z"/></svg>`;
-    if (name === "pause") return `<svg class="icon" viewBox="0 0 24 24"><path fill="currentColor" d="M6 5h4v14H6V5zm8 0h4v14h-4V5z"/></svg>`;
-    if (name === "next") return `<svg class="icon" viewBox="0 0 24 24"><path fill="currentColor" d="M16 6h2v12h-2V6zM6 18V6l8.5 6L6 18z"/></svg>`;
+  function safeStop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  // ---------- SPOTIFY PLAYBACK BRIDGE ----------
+  // We try to call whatever you already have.
+  function callSpotify(action, payload) {
+    // Preferred: window.LMSpotify
+    const s = window.LMSpotify || window.SpotifyBridge || window.spotifyBridge || null;
+
+    try {
+      if (s && typeof s[action] === "function") return s[action](payload);
+    } catch {}
+
+    // Fallbacks: common names
+    try {
+      if (action === "toggle" && typeof window.spotifyToggle === "function") return window.spotifyToggle();
+      if (action === "playUri" && typeof window.spotifyPlayUri === "function") return window.spotifyPlayUri(payload);
+      if (action === "login" && typeof window.spotifyLogin === "function") return window.spotifyLogin();
+      if (action === "logout" && typeof window.spotifyLogout === "function") return window.spotifyLogout();
+    } catch {}
+
+    // If nothing exists, do nothing (but don’t crash UI)
+    return null;
+  }
+
+  // ---------- DOCK: move controls into tabs ----------
+  function dockPlayerIntoTabs() {
+    ensureStylesOnce();
+
+    const tabsBar = firstExistingSelector(CFG.tabsBarSelectors);
+    const dock = firstExistingSelector(CFG.playerDockSelectors);
+
+    if (!tabsBar || !dock) return false;
+
+    // Build wrap structure once
+    let wrap = tabsBar.querySelector(".lmTabsDockWrap");
+    if (!wrap) {
+      wrap = document.createElement("div");
+      wrap.className = "lmTabsDockWrap";
+
+      const left = document.createElement("div");
+      left.className = "lmTabsLeft";
+      const right = document.createElement("div");
+      right.className = "lmTabsRight";
+
+      // Move existing tabs content into left
+      while (tabsBar.firstChild) left.appendChild(tabsBar.firstChild);
+
+      wrap.appendChild(left);
+      wrap.appendChild(right);
+
+      tabsBar.appendChild(wrap);
+    }
+
+    const right = tabsBar.querySelector(".lmTabsRight");
+    if (!right) return false;
+
+    // Put dock inside a pill container
+    let pill = right.querySelector(".lmDockPill");
+    if (!pill) {
+      pill = document.createElement("div");
+      pill.className = "lmDockPill";
+      right.appendChild(pill);
+    }
+
+    // Move dock into pill (keep the dock node itself)
+    pill.appendChild(dock);
+
+    // Make sure dock is not absolute-positioned somewhere weird
+    dock.style.position = "static";
+    dock.style.inset = "auto";
+    dock.style.margin = "0";
+    dock.style.transform = "none";
+
+    // If your dock had its own pill/overlay background, neutralize lightly
+    dock.style.background = "transparent";
+    dock.style.backdropFilter = "none";
+    dock.style.webkitBackdropFilter = "none";
+    dock.style.border = "0";
+    dock.style.boxShadow = "none";
+    dock.style.padding = "0";
+
+    return true;
+  }
+
+  // ---------- ORB FIX: prevent orb clicks from triggering playback ----------
+  function fixOrbClick() {
+    const orb = firstExistingSelector(CFG.orbSelectors);
+    if (!orb) return;
+
+    // If orb is inside something clickable, kill click in capture phase.
+    orb.addEventListener(
+      "click",
+      (e) => {
+        // Allow hover/focus UI, but stop any parent handler that triggers playback.
+        safeStop(e);
+        // Here you can open stats instead (if you have a function)
+        if (typeof window.openStats === "function") window.openStats();
+      },
+      { capture: true }
+    );
+  }
+
+  // ---------- LIST CLICK: play when clicking artwork slot even if no artwork ----------
+  function getRowUri(row) {
+    if (!row) return "";
+    for (const k of CFG.uriDatasetKeys) {
+      const v = row.dataset ? row.dataset[k] : "";
+      if (v) return v;
+    }
+
+    // Look for nested elements carrying uri
+    const any = row.querySelector("[data-uri], [data-spotify-uri], [data-track-uri]");
+    if (any) {
+      return any.dataset.uri || any.dataset.spotifyUri || any.dataset.trackUri || "";
+    }
+
+    // Look for links
+    const a = row.querySelector('a[href*="open.spotify.com"], a[href^="spotify:"]');
+    if (a) return a.getAttribute("href") || "";
+
     return "";
   }
 
-  function spotifyLogoSvg() {
-    return `
-      <svg viewBox="0 0 168 168" aria-hidden="true">
-        <path fill="currentColor" d="M84 0C37.6 0 0 37.6 0 84s37.6 84 84 84 84-37.6 84-84S130.4 0 84 0zm38.6 121.3c-1.5 2.4-4.6 3.2-7 1.7-19.2-11.7-43.4-14.3-72-7.8-2.8.6-5.6-1.1-6.2-3.9-.6-2.8 1.1-5.6 3.9-6.2 31.5-7.2 58.5-4.2 80.3 9.1 2.4 1.5 3.2 4.6 1.7 7.1zm9.9-22c-1.9 3-5.8 4-8.8 2.1-22-13.5-55.6-17.4-81.8-9.5-3.4 1-7-0.9-8-4.3-1-3.4.9-7 4.3-8 30-9.1 67.3-4.7 92.8 11.1 3 1.9 4 5.9 2.1 8.6zm.8-23c-26.3-15.6-69.7-17.1-94.8-9.5-4 .1-7.4-2.6-8.5-6.4-1.1-3.8 1.2-7.8 5-8.9 29.1-8.8 77.5-7.1 108.1 11.1 3.5 2.1 4.7 6.7 2.6 10.2-2.1 3.5-6.7 4.7-10.2 2.6z"/>
-      </svg>
-    `;
-  }
-// ---------------- Spotify Web API (stable pause/play) ----------------
-  async function spotifyApi(endpoint, method = "GET", body = null) {
-    const token = getToken();
-    if (!token) return { ok: false, status: 401 };
-    try {
-      const r = await fetch(`https://api.spotify.com/v1${endpoint}`, {
-        method,
-        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-        body: body ? JSON.stringify(body) : null
-      });
-      return { ok: r.ok, status: r.status };
-    } catch {
-      return { ok: false, status: 0 };
-    }
+  function playFromRow(row) {
+    const uri = getRowUri(row);
+    if (!uri) return false;
+    callSpotify("playUri", uri);
+    return true;
   }
 
-  async function apiPause() { return (await spotifyApi("/me/player/pause", "PUT")).ok; }
-  async function apiPlay()  { return (await spotifyApi("/me/player/play", "PUT")).ok; }
+  function enableArtworkSlotClicks() {
+    // Event delegation: click on artwork slot => play
+    document.addEventListener("click", (e) => {
+      const target = e.target;
 
-  async function playUri(uri) {
-    let r = safeCall("SpotifyPlayer.playUri", uri);
-    if (r.ok) return;
-    r = safeCall("SpotifyPlayer.play", { uri });
-    if (r.ok) return;
-    r = safeCall("SpotifyPlayer.play", uri);
-    if (r.ok) return;
-    console.warn("[Spotify UI] Cannot play URI:", uri);
+      // Ignore clicks on the dock itself
+      if (target.closest(".lmDockPill")) return;
+
+      // If it’s an orb click, let orb handler stop it
+      if (target.closest(CFG.orbSelectors.join(","))) return;
+
+      // Find a row
+      const row = target.closest(CFG.listRowSelectors.join(","));
+      if (!row) return;
+
+      // Only when clicking artwork slot (including placeholder)
+      const art = target.closest(CFG.artworkSlotSelectors.join(","));
+      if (!art) return;
+
+      // Prevent navigation/other handlers
+      safeStop(e);
+
+      // Play
+      playFromRow(row);
+    }, true);
   }
 
-  async function getPlaybackState() {
-    let r = safeCall("SpotifyPlayer.getState");
-    if (r.ok) return await Promise.resolve(r.value);
-
-    r = safeCall("SpotifyPlayer.getPlaybackState");
-    if (r.ok) return await Promise.resolve(r.value);
-
-    const token = getToken();
-    if (!token) return null;
-    try {
-      const rr = await fetch("https://api.spotify.com/v1/me/player", {
-        headers: { "Authorization": `Bearer ${token}` }
-      });
-      if (!rr.ok) return null;
-      const j = await rr.json();
-      return { isPlaying: !!j?.is_playing, paused: typeof j?.is_playing === "boolean" ? !j.is_playing : undefined };
-    } catch {
-      return null;
-    }
-  }
-
-  async function pauseSafe() {
-    const ok = await apiPause();
-    if (ok) return;
-    const r = safeCall("SpotifyPlayer.pause");
-    if (!r.ok) console.warn("[Spotify UI] Pause fallback failed:", r.reason);
-  }
-
-  async function resumeSafe() {
-    const ok = await apiPlay();
-    if (ok) return;
-    let r = safeCall("SpotifyPlayer.play");
-    if (r.ok) return;
-    r = safeCall("SpotifyPlayer.resume");
-    if (r.ok) return;
-    console.warn("[Spotify UI] Resume failed.");
-  }
-
-  function doLoginOrLogout() {
-    const token = getToken();
-    if (!token) {
-      const r = safeCall("SpotifyAuth.login");
-      if (!r.ok) console.warn("[Spotify UI] SpotifyAuth.login missing:", r.reason);
-      return;
-    }
-    let r = safeCall("SpotifyAuth.logout");
-    if (r.ok) return;
-    try {
-      localStorage.removeItem("spotify_access_token");
-      localStorage.removeItem("spotify_refresh_token");
-      localStorage.removeItem("SPOTIFY_ACCESS_TOKEN");
-      localStorage.removeItem("SPOTIFY_REFRESH_TOKEN");
-      sessionStorage.removeItem("spotify_access_token");
-      sessionStorage.removeItem("spotify_refresh_token");
-    } catch {}
-  }
-
-  // ---------------- Dock ----------------
-  function ensureDock() {
-    ensureCss();
-
-    let dock = document.getElementById("spDock");
-    if (dock) return dock;
-
-    const indicator = el("div", { id: "spIndicator", title: "Spotify (login/logout)" });
-    indicator.innerHTML = spotifyLogoSvg();
-
-    const btnPrev = el("button", { class: "spBtn", id: "spPrev", type: "button", "aria-label": "Previous" });
-    const btnToggle = el("button", { class: "spBtn", id: "spToggle", type: "button", "aria-label": "Play/Pause" });
-    const btnNext = el("button", { class: "spBtn", id: "spNext", type: "button", "aria-label": "Next" });
-
-    btnPrev.innerHTML = iconSvg("prev");
-    btnToggle.innerHTML = iconSvg("play");
-    btnNext.innerHTML = iconSvg("next");
-
-    dock = el("div", { id: "spDock" }, [indicator, btnPrev, btnToggle, btnNext]);
-    document.body.appendChild(dock);
-
-    bindDockHandlers();
-    return dock;
-  }
-
-  function setDockHidden(hidden) {
-    const dock = document.getElementById("spDock");
+  // ---------- KEEP DOCK VISIBLE even when "nothing playing" ----------
+  function keepDockVisible() {
+    const dock = firstExistingSelector(CFG.playerDockSelectors);
     if (!dock) return;
-    dock.classList.toggle("hidden", !!hidden);
-  }
 
-  function setEnabled(enabled) {
-    for (const id of ["spPrev", "spToggle", "spNext"]) {
-      const b = document.getElementById(id);
-      if (b) b.disabled = !enabled;
-    }
-  }
+    // Many UIs hide controls by removing node or setting display:none.
+    // We force a visible state and apply a "dim" class instead.
+    const observer = new MutationObserver(() => {
+      const d = firstExistingSelector(CFG.playerDockSelectors);
+      if (!d) return;
 
-  function setIndicatorLinked(linked) {
-    const ind = document.getElementById("spIndicator");
-    if (!ind) return;
-    ind.classList.toggle("linked", !!linked);
-  }
-
-  function setToggleIcon(isPlaying) {
-    const t = document.getElementById("spToggle");
-    if (!t) return;
-    t.innerHTML = isPlaying ? iconSvg("pause") : iconSvg("play");
-  }
-
-  function inferIsPlaying(state) {
-    if (!state) return null;
-    if (state.isPlaying === true) return true;
-    if (state.playing === true) return true;
-    if (typeof state.paused === "boolean") return !state.paused;
-    return null;
-  }
-
-  function bindDockHandlers() {
-    const $ = (id) => document.getElementById(id);
-
-    $("spIndicator")?.addEventListener("click", (e) => {
-      e.preventDefault(); e.stopPropagation();
-      doLoginOrLogout();
-    }, { passive: false });
-
-    $("spToggle")?.addEventListener("click", async (e) => {
-      e.preventDefault(); e.stopPropagation();
-      pulse($("spToggle"));
-
-      const st = await getPlaybackState();
-      const isPlaying = inferIsPlaying(st);
-
-      if (isPlaying === true) {
-        setToggleIcon(false);
-        await pauseSafe();
-      } else {
-        setToggleIcon(true);
-        await resumeSafe();
+      // If app tried to hide it:
+      const computed = window.getComputedStyle(d);
+      if (computed.display === "none" || computed.visibility === "hidden" || computed.opacity === "0") {
+        d.style.display = "block";
+        d.style.visibility = "visible";
+        d.style.opacity = "1";
       }
-    }, { passive: false });
 
-    $("spNext")?.addEventListener("click", (e) => {
-      e.preventDefault(); e.stopPropagation();
-      pulse($("spNext"));
-      const r = safeCall("SpotifyPlayer.next");
-      if (!r.ok) console.warn("[Spotify UI] Next failed:", r.reason);
-    }, { passive: false });
-
-    $("spPrev")?.addEventListener("click", (e) => {
-      e.preventDefault(); e.stopPropagation();
-      pulse($("spPrev"));
-      const r = safeCall("SpotifyPlayer.prev");
-      if (!r.ok) console.warn("[Spotify UI] Prev failed:", r.reason);
-    }, { passive: false });
-  }
-// ---------------- Header anchor + Orb hard-exclude ----------------
-  function findHeaderTitleNode() {
-    const nodes = Array.from(document.querySelectorAll("h1,h2,div,span")).slice(0, 3500);
-    for (const n of nodes) {
-      const t = (n.textContent || "").trim();
-      if (t === "Listening Mirror") {
-        const r = n.getBoundingClientRect?.();
-        if (r && r.width > 120 && r.height > 18 && r.bottom > 0 && r.top < window.innerHeight) return n;
-      }
-    }
-    for (const n of nodes) {
-      const t = (n.textContent || "").trim();
-      if (t.includes("Listening Mirror")) {
-        const r = n.getBoundingClientRect?.();
-        if (r && r.width > 120 && r.height > 18 && r.bottom > 0 && r.top < window.innerHeight) return n;
-      }
-    }
-    return null;
-  }
-
-  // Find the orb near title and mark it "no play" + stopPropagation.
-  function markHeaderOrbNoPlay(titleNode) {
-    if (!titleNode) return;
-
-    const container = titleNode.closest("header, section, article, div") || titleNode.parentElement;
-    if (!container) return;
-
-    // Look for a small circular element near the title (usually the orb glyph).
-    const candidates = Array.from(container.querySelectorAll("div,span,button,a")).slice(0, 80);
-    const titleRect = titleNode.getBoundingClientRect();
-
-    for (const n of candidates) {
-      if (n === titleNode) continue;
-      if (n.dataset && n.dataset.spNoPlay === "1") continue;
-
-      const r = n.getBoundingClientRect?.();
-      if (!r) continue;
-
-      // Must be close to the left of the title and small
-      const closeY = Math.abs((r.top + r.bottom) / 2 - (titleRect.top + titleRect.bottom) / 2) < 24;
-      const leftOfTitle = r.right <= titleRect.left + 10;
-      const small = r.width >= 10 && r.width <= 46 && r.height >= 10 && r.height <= 46;
-
-      if (!closeY || !leftOfTitle || !small) continue;
-
-      const cs = window.getComputedStyle(n);
-      const br = parseFloat(cs.borderRadius || "0");
-      const roundish = br > 12 || cs.borderRadius === "999px";
-
-      if (!roundish) continue;
-
-      // Mark and block bubbling so it can never trigger play listeners.
-      n.dataset.spNoPlay = "1";
-      n.classList.remove("spArtworkPlayable", "spRowPlayable");
-      n.addEventListener("click", (e) => { e.stopPropagation(); }, { passive: true });
-      n.addEventListener("pointerdown", (e) => { e.stopPropagation(); }, { passive: true });
-      break;
-    }
-  }
-
-  function setDockPositionNearTitle(titleNode) {
-    ensureDock();
-    const dock = document.getElementById("spDock");
-
-    const r = titleNode.getBoundingClientRect();
-    const dockW = dock.offsetWidth || 140;
-
-    const pad = 18;
-    const extraRight = 26; // premium right offset
-
-    let x = r.right + pad + extraRight;
-    const maxLeft = window.innerWidth - dockW - 10;
-    if (x > maxLeft) x = Math.max(10, maxLeft);
-
-    const y = r.top + (r.height / 2) - (dock.offsetHeight ? dock.offsetHeight / 2 : 18);
-
-    dock.style.left = `${Math.round(x)}px`;
-    dock.style.top = `${Math.round(Math.max(6, y))}px`;
-    dock.style.transform = "none";
-  }
-
-  // (A) LOCK behavior: only show dock when header is visible; otherwise hide (no floating in Recent/Top scroll).
-  function positionDock() {
-    ensureDock();
-    const titleNode = findHeaderTitleNode();
-
-    if (!titleNode) {
-      setDockHidden(true);
-      return;
-    }
-
-    markHeaderOrbNoPlay(titleNode);
-    setDockPositionNearTitle(titleNode);
-    setDockHidden(false);
-  }
-
-  // ---------------- Tabs + Mode detection ----------------
-  function getTopMode() {
-    const nodes = Array.from(document.querySelectorAll("*")).slice(0, 3500);
-    for (const n of nodes) {
-      const t = (n.innerText || "").replace(/\s+/g, " ").trim();
-      if (!t) continue;
-      const lt = t.toLowerCase();
-      if (!(lt.includes("track") && lt.includes("artist") && lt.includes("album"))) continue;
-
-      const opts = Array.from(n.querySelectorAll("button, div, span, a")).filter(x => {
-        const tx = (x.textContent || "").trim().toLowerCase();
-        return tx === "track" || tx === "artist" || tx === "album";
-      });
-
-      for (const o of opts) {
-        const tx = (o.textContent || "").trim().toLowerCase();
-        const ariaSel = o.getAttribute("aria-selected");
-        const ariaPress = o.getAttribute("aria-pressed");
-        const cls = (o.className || "").toString().toLowerCase();
-
-        if (ariaSel === "true" || ariaPress === "true" || cls.includes("active") || cls.includes("selected")) {
-          return tx;
-        }
-      }
-    }
-    return null;
-  }
-
-  function isSessionCoversArea(node) {
-    const root = node?.closest?.("section, article, div") || null;
-    const txt = ((root?.innerText || node?.innerText || "")).toUpperCase();
-    if (!txt) return false;
-    if (txt.includes("SESSION COVERS")) return true;
-    if (txt.includes("MIRROR") && txt.includes("LISTENING")) return true;
-    return false;
-  }
-
-  function isExplicitNoPlay(node) {
-    return !!(node?.dataset?.spNoPlay === "1" || node?.closest?.("[data-sp-no-play='1']"));
-  }
-// ---------------- Resolve + play from lists ----------------
-  function extractSpotifyUriFromNode(node) {
-    const ds = node?.dataset || {};
-    const cand = ds.spotifyUri || ds.uri || ds.spotifyTrackUri || ds.spotifyId || null;
-
-    if (cand) {
-      if (cand.startsWith("spotify:")) return cand;
-      if (/^[A-Za-z0-9]{22}$/.test(cand)) return `spotify:track:${cand}`;
-    }
-
-    const a =
-      node?.querySelector?.("a[href*='open.spotify.com/track/'], a[href^='spotify:track:']") ||
-      node?.closest?.("a[href*='open.spotify.com/track/'], a[href^='spotify:track:']");
-    const href = a?.getAttribute?.("href") || "";
-    if (href.includes("open.spotify.com/track/")) {
-      const m = href.match(/track\/([A-Za-z0-9]{22})/);
-      if (m?.[1]) return `spotify:track:${m[1]}`;
-    }
-    if (href.startsWith("spotify:")) return href;
-
-    return null;
-  }
-
-  function normalizeArtistLine(line) {
-    const s = (line || "").trim();
-    if (!s) return "";
-    const parts = s.split("•").map(x => x.trim()).filter(Boolean);
-    return parts.length ? parts[0] : s;
-  }
-
-  function cleanLine(s) {
-    let x = (s || "").replace(/\s+/g, " ").trim();
-    if (!x) return "";
-    x = x.replace(/^LIVE$/i, "").trim();
-    x = x.replace(/^\d+\.\s+/, "").trim();
-    x = x.replace(/\b\d{1,2}\s+[A-Za-z]{3}\s+\d{4}(,\s*\d{2}:\d{2})?\b/gi, "").trim();
-    x = x.replace(/\b\d{2}:\d{2}\b/g, "").trim();
-    if (/^\d+$/.test(x)) return "";
-    return x;
-  }
-
-  function guessArtistTrackFromRow(row) {
-    const ds = row?.dataset || {};
-    const a1 = (ds.artist || ds.lastfmArtist || "").trim();
-    const t1 = (ds.track || ds.name || ds.lastfmTrack || "").trim();
-    if (a1 && t1) return { artist: a1, track: t1 };
-
-    const lines = (row?.innerText || "")
-      .split("\n")
-      .map(cleanLine)
-      .filter(Boolean);
-
-    const filtered = lines.filter(l => {
-      const u = l.toUpperCase();
-      if (u === "ONLINE") return false;
-      if (u === "NOW" || u === "RECENT" || u === "TOP") return false;
-      if (u === "TRACK" || u === "ARTIST" || u === "ALBUM") return false;
-      if (u === "TODAY" || u === "WEEK" || u === "YEAR") return false;
-      if (u.includes("SESSION COVERS")) return false;
-      return true;
+      // If there is no active track, you can dim it by setting a data attr elsewhere.
+      // We just keep it consistent; you can toggle lmDockHidden yourself.
     });
 
-    const track = cleanLine(filtered[0] || "");
-    const artist = normalizeArtistLine(cleanLine(filtered[1] || ""));
-    return { track, artist };
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["style", "class", "hidden", "data-state"],
+    });
   }
 
-  function looksLikeArtistOnlyRow(row) {
-    const text = (row?.innerText || "").split("\n").map(cleanLine).filter(Boolean);
-    if (!text.length) return true;
-    if (text.length === 1) return true;
-    const l1 = (text[1] || "").trim();
-    const l1IsCount = !!l1 && /^[\d,.\s]+$/.test(l1);
-    return l1IsCount;
+  // ---------- BOOT ----------
+  function boot() {
+    dockPlayerIntoTabs();
+    fixOrbClick();
+    enableArtworkSlotClicks();
+    keepDockVisible();
+
+    // Re-dock after SPA route changes / re-renders
+    const mo = new MutationObserver(() => {
+      dockPlayerIntoTabs();
+      fixOrbClick();
+    });
+    mo.observe(document.body, { childList: true, subtree: true });
   }
 
-  // Strict guard (kept) ONLY for Top lists first item risk.
-  function strictOk(row, artist, track) {
-    const a = (artist || "").trim();
-    const t = (track || "").trim();
-    if (!a || !t) return false;
-    if (a.length < 2 || t.length < 2) return false;
-
-    // hard block known wrong fallback
-    if (a.toLowerCase() === "agust d" && t.toLowerCase() === "haegeum") return false;
-
-    const rowTxt = ((row?.innerText || "")).toLowerCase();
-    if (!rowTxt.includes(a.toLowerCase())) return false;
-    if (!rowTxt.includes(t.toLowerCase())) return false;
-    return true;
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot);
+  } else {
+    boot();
   }
 
-  // Relaxed guard for "no artwork" rows: allow resolve even if text truncates,
-  // but still blocks empty/garbage and the known fallback.
-  function relaxedOk(artist, track) {
-    const a = (artist || "").trim();
-    const t = (track || "").trim();
-    if (!a || !t) return false;
-    if (a.length < 2 || t.length < 2) return false;
-    if (a.toLowerCase() === "agust d" && t.toLowerCase() === "haegeum") return false;
-    if (t.endsWith("…") || a.endsWith("…")) return false;
-    return true;
+})();
+/* spotify-ui.js — FULL REPLACE (PART 2/2)
+   - Button sizing/spacing polish
+   - Ensures dock doesn't "jump" into other tabs when you scroll
+   - Optional: dim dock when logged out (spotify icon grey)
+*/
+
+(function () {
+  "use strict";
+
+  // Small SVG helpers (if your UI already renders icons, this won't interfere)
+  function setSpotifyButtonState(btn, linked) {
+    if (!btn) return;
+    btn.style.opacity = linked ? "1" : "0.55";
+    btn.style.filter = linked ? "none" : "grayscale(1)";
   }
 
-  function isTopTabActive() {
-    const tabs = Array.from(document.querySelectorAll("button,div,span,a")).slice(0, 2000);
-    for (const n of tabs) {
-      const tx = (n.textContent || "").trim().toLowerCase();
-      if (tx !== "top") continue;
-      const ariaSel = n.getAttribute("aria-selected");
-      const ariaPress = n.getAttribute("aria-pressed");
-      const cls = (n.className || "").toString().toLowerCase();
-      if (ariaSel === "true" || ariaPress === "true" || cls.includes("active") || cls.includes("selected")) return true;
-    }
-    return false;
+  function findDockRoot() {
+    // The dock has been moved inside .lmDockPill
+    return document.querySelector(".lmDockPill");
   }
 
-  function isLikelyFirstRowInTop(row) {
-    if (!isTopTabActive()) return false;
-    // if it is very high on screen and inside the first list chunk -> high risk case
-    const r = row.getBoundingClientRect?.();
-    if (!r) return false;
-    return r.top >= 0 && r.top < 320;
-  }
+  function polishDockButtons() {
+    const pill = findDockRoot();
+    if (!pill) return;
 
-  async function resolveUriForRow(row) {
-    const u0 = extractSpotifyUriFromNode(row);
-    if (u0) return u0;
+    // Make sure inner dock layout is horizontal
+    const dock = pill.querySelector('[data-lm="playerDock"], .playerDock, .playerControlsDock, .playerControls');
+    if (!dock) return;
 
-    const { artist, track } = guessArtistTrackFromRow(row);
+    dock.style.display = "flex";
+    dock.style.alignItems = "center";
+    dock.style.gap = "10px";
 
-    const strict = isLikelyFirstRowInTop(row);
-    const ok = strict ? strictOk(row, artist, track) : relaxedOk(artist, track);
-    if (!ok) return "";
+    // If buttons are there, give them the .lmBtn class for consistent size
+    const clickable = dock.querySelectorAll("button, a");
+    clickable.forEach((el) => {
+      // If it already has a shape class, leave it; else add lmBtn
+      if (!el.classList.contains("lmBtn")) el.classList.add("lmBtn");
+      // Remove any text labels (you wanted icons only)
+      // Keep aria-label though for accessibility
+      Array.from(el.childNodes).forEach((n) => {
+        if (n.nodeType === Node.TEXT_NODE && n.textContent.trim()) n.textContent = "";
+      });
+    });
 
-    const q = `${artist} ${track}`.trim();
+    // Detect spotify button (first one often)
+    const spotifyBtn =
+      dock.querySelector('[data-lm="spotifyBtn"]') ||
+      dock.querySelector(".spotifyBtn") ||
+      clickable[0] ||
+      null;
 
+    // Linked state: ask bridge if available
+    let linked = false;
     try {
-      const r = await fetch(`${API_BASE}/resolve?q=${encodeURIComponent(q)}`, { method: "GET" });
-      if (!r.ok) return "";
-      const j = await r.json();
-      const id = j?.best?.id;
-      if (id && /^[A-Za-z0-9]{22}$/.test(id)) return `spotify:track:${id}`;
+      const s = window.LMSpotify || window.SpotifyBridge || window.spotifyBridge || null;
+      linked = !!(s && (s.isLinked?.() || s.linked === true || s.isConnected === true));
     } catch {}
 
-    return "";
+    setSpotifyButtonState(spotifyBtn, linked);
   }
 
-  function rectIsSquareish(r) {
-    if (!r) return false;
-    const w = r.width, h = r.height;
-    if (w < 24 || h < 24) return false;
-    if (w > 170 || h > 170) return false;
-    const ratio = w / h;
-    return ratio > 0.72 && ratio < 1.38;
-  }
+  function preventDockFromAppearingInOtherTabs() {
+    // The bug you showed: when you scroll / change tab, dock shows up weirdly.
+    // This usually happens because the old container still duplicates it or re-renders a second dock.
+    // We enforce: only ONE dock exists, and it must live inside .lmDockPill.
+    const ensureSingle = () => {
+      const allDocks = Array.from(
+        document.querySelectorAll('[data-lm="playerDock"], .playerDock, .playerControlsDock, .playerControls')
+      );
 
-  // Artwork picker: includes placeholder tiles (music note blocks), BUT excludes orb/session covers.
-  function getArtworkClickable(row) {
-    if (isSessionCoversArea(row) || isExplicitNoPlay(row)) return null;
+      if (allDocks.length <= 1) return;
 
-    const img = row.querySelector?.("img");
-    if (img && !isExplicitNoPlay(img)) return img;
+      const pill = findDockRoot();
+      if (!pill) return;
 
-    const bgCandidates = Array.from(row.querySelectorAll?.("div, span, a") || []);
-    for (const n of bgCandidates) {
-      if (isSessionCoversArea(n) || isExplicitNoPlay(n)) continue;
-      const st = window.getComputedStyle(n);
-      const bg = st?.backgroundImage || "";
-      if (bg && bg !== "none" && bg.includes("url(")) return n;
-    }
-
-    // Placeholder tile: square-ish block (even if it’s just a note icon)
-    const kids = Array.from(row.querySelectorAll?.("div, span") || []);
-    for (const n of kids) {
-      if (isSessionCoversArea(n) || isExplicitNoPlay(n)) continue;
-      const r = n.getBoundingClientRect?.();
-      if (!rectIsSquareish(r)) continue;
-      return n;
-    }
-    return null;
-  }
-
-  function guessRows() {
-    const li = Array.from(document.querySelectorAll("li"));
-    if (li.length) return li;
-    return Array.from(document.querySelectorAll("div, article, section"))
-      .filter((n) => (n.textContent || "").trim().length > 6);
-  }
-
-  function allowedToBindRow(topMode, row) {
-    if (isSessionCoversArea(row)) return false;
-    if (isExplicitNoPlay(row)) return false;
-    if (topMode === "artist") return false;
-    if (looksLikeArtistOnlyRow(row)) return false;
-    return true;
-  }
-
-  function attachPlayBindings() {
-    if (!getToken()) return;
-
-    const topMode = getTopMode();
-    const rows = guessRows();
-
-    for (const row of rows) {
-      if (!allowedToBindRow(topMode, row)) continue;
-
-      const art = getArtworkClickable(row);
-
-      // Bind artwork click (including placeholder tiles)
-      if (art && art.dataset.spBound !== "1") {
-        art.dataset.spBound = "1";
-        art.classList.add("spArtworkPlayable");
-
-        art.addEventListener("click", async (e) => {
-          if (e.target && e.target.closest && e.target.closest("#spDock")) return;
-          if (isExplicitNoPlay(e.target) || isSessionCoversArea(e.target)) return;
-
-          e.preventDefault(); e.stopPropagation();
-          pulse(art);
-
-          const uri = await resolveUriForRow(row);
-          if (uri) return playUri(uri);
-        }, { passive: false });
-      }
-
-      // Always also bind row click as fallback (helps no-artwork cases where tile is weird)
-      if (row.dataset.spRowBound !== "1") {
-        row.dataset.spRowBound = "1";
-        row.classList.add("spRowPlayable");
-
-        row.addEventListener("click", async (e) => {
-          if (e.target && e.target.closest && e.target.closest("#spDock")) return;
-          if (isExplicitNoPlay(e.target) || isSessionCoversArea(e.target)) return;
-
-          const tag = (e.target?.tagName || "").toLowerCase();
-          if (tag === "button" || tag === "a" || tag === "input") return;
-
-          e.preventDefault(); e.stopPropagation();
-          pulse(row);
-
-          const uri = await resolveUriForRow(row);
-          if (uri) return playUri(uri);
-        }, { passive: false });
-      }
-    }
-  }
-
-  // ---------------- State loop ----------------
-  async function observeLoop() {
-    let lastLinked = null;
-    let lastPlaying = null;
-
-    async function tick() {
-      ensureDock();
-      positionDock(); // now hides dock while scrolling away from header
-
-      const linked = !!getToken();
-      if (linked !== lastLinked) {
-        setIndicatorLinked(linked);
-        setEnabled(linked);
-        lastLinked = linked;
-      }
-
-      if (!linked) {
-        setToggleIcon(false);
-      } else {
-        const st = await getPlaybackState();
-        const isPlaying = inferIsPlaying(st);
-        if (typeof isPlaying === "boolean" && isPlaying !== lastPlaying) {
-          setToggleIcon(isPlaying);
-          lastPlaying = isPlaying;
+      // Keep the one that is inside pill; remove/hide others
+      allDocks.forEach((d) => {
+        const inside = pill.contains(d);
+        if (!inside) {
+          // Don’t delete (could break re-render logic). Just hide extra instances.
+          d.style.display = "none";
+          d.setAttribute("data-lm-hidden-duplicate", "1");
         }
-        attachPlayBindings();
-      }
+      });
+    };
 
-      requestAnimationFrame(tick);
-    }
-
-    requestAnimationFrame(tick);
-  }
-
-  function boot() {
-    ensureDock();
+    ensureSingle();
 
     const mo = new MutationObserver(() => {
-      ensureDock();
-      positionDock();
-      attachPlayBindings();
+      ensureSingle();
+      polishDockButtons();
     });
-    mo.observe(document.documentElement, { subtree: true, childList: true });
 
-    observeLoop();
+    mo.observe(document.body, { childList: true, subtree: true, attributes: true });
   }
 
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
-  else boot();
+  function ensurePlaceholderArtworkIsClickable() {
+    // Some rows have no artwork and your UI may not render an artwork slot at all.
+    // We create a consistent "artwork slot" so the Part1 click handler always finds it.
+    const rowSelectors = ['[data-lm="row"]', ".row", ".listRow", ".trackRow", ".topRow"].join(",");
+    const rows = document.querySelectorAll(rowSelectors);
+
+    rows.forEach((row) => {
+      // If row already has a known artwork container, ok
+      const hasArt =
+        row.querySelector('[data-lm="artwork"], .art, .artwork, .cover, .thumb, .imgWrap, .media');
+
+      if (hasArt) return;
+
+      // Try to find where artwork normally sits (left side)
+      // If the row is flex, insert a placeholder at the start.
+      const ph = document.createElement("div");
+      ph.className = "artwork thumb lmGeneratedArtSlot";
+      ph.setAttribute("data-lm", "artwork");
+      ph.style.width = "56px";
+      ph.style.height = "56px";
+      ph.style.borderRadius = "18px";
+      ph.style.background = "rgba(255,255,255,0.06)";
+      ph.style.border = "1px solid rgba(255,255,255,0.08)";
+      ph.style.display = "grid";
+      ph.style.placeItems = "center";
+      ph.style.flex = "0 0 auto";
+
+      // a tiny note icon
+      ph.innerHTML = `
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path fill="rgba(255,255,255,0.45)" d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/>
+        </svg>
+      `.trim();
+
+      row.insertBefore(ph, row.firstChild);
+    });
+  }
+
+  function boot2() {
+    polishDockButtons();
+    preventDockFromAppearingInOtherTabs();
+    ensurePlaceholderArtworkIsClickable();
+
+    // Re-run lightly as UI updates
+    const mo = new MutationObserver(() => {
+      polishDockButtons();
+      ensurePlaceholderArtworkIsClickable();
+    });
+    mo.observe(document.body, { childList: true, subtree: true });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot2);
+  } else {
+    boot2();
+  }
 })();

@@ -1,7 +1,9 @@
-/* spotify-ui.js (FULL REPLACE) — HARD FIX: glyph/header click triggers "Mirror" playback
-   - Adds WINDOW CAPTURE blocker with stopImmediatePropagation()
-   - Blocks any click/pointerdown in Listening Mirror header area (except #spDock)
-   - Optionally calls openStats()
+/* spotify-ui.js (FULL REPLACE)
+   Fixes:
+   A) Dock locked near "Listening Mirror" title (no floating in scroll)
+   B) HARD: Header/Glyph/Orb can NEVER trigger playback ("Mirror" bug)
+   C) BUT: Orb index/stats MUST still appear (hover + click -> show index)
+   D) Tracks with no artwork can play (placeholder + row fallback + safe resolve)
 */
 
 (function () {
@@ -101,7 +103,6 @@
 #spIndicator.linked{ opacity:.95; filter:none; }
 #spIndicator svg{ width:16px; height:16px; display:block; }
 
-/* buttons */
 #spDock .spBtn{
   border: 0;
   width: 28px; height: 28px;
@@ -123,7 +124,6 @@
   box-shadow: 0 18px 70px rgba(0,0,0,.28);
 }
 
-/* Clickable artwork / fallback clickable row */
 .spArtworkPlayable{ cursor: pointer !important; border-radius: 12px; }
 .spRowPlayable{ cursor: pointer !important; }
     `.trim();
@@ -150,7 +150,7 @@
       </svg>
     `;
   }
-// ---------------- Spotify Web API (stable pause/play + playUri fallback) ----------------
+// ---------------- Spotify Web API ----------------
   async function spotifyApi(endpoint, method = "GET", body = null) {
     const token = getToken();
     if (!token) return { ok: false, status: 401 };
@@ -173,8 +173,7 @@
     if (!uri || typeof uri !== "string") return false;
     const m = uri.match(/^spotify:track:([A-Za-z0-9]{22})$/);
     if (!m) return false;
-    const res = await spotifyApi("/me/player/play", "PUT", { uris: [uri] });
-    return !!res.ok;
+    return !!(await spotifyApi("/me/player/play", "PUT", { uris: [uri] })).ok;
   }
 
   async function playUri(uri) {
@@ -349,7 +348,7 @@
       if (!r.ok) console.warn("[Spotify UI] Prev failed:", r.reason);
     }, { passive: false });
   }
-// ---------------- Header anchor + HARD GLOBAL CAPTURE BLOCKER ----------------
+// ---------------- Header / Orb: HARD block playback but KEEP index ----------------
   function findHeaderTitleNode() {
     const nodes = Array.from(document.querySelectorAll("h1,h2,div,span")).slice(0, 3500);
     for (const n of nodes) {
@@ -369,43 +368,156 @@
     return null;
   }
 
-  // Current header container reference (updated by positionDock)
   let LM_HEADER_EL = null;
+  let LM_ORB_EL = null;
 
-  // Install ONCE: Window-capture blocker runs BEFORE any document/body capture delegation
+  function callIndexOrStats() {
+    // Try a few likely names (no crash)
+    const tries = [
+      "openStats",
+      "showStats",
+      "toggleStats",
+      "openIndex",
+      "showIndex",
+      "toggleIndex",
+      "openOrbIndex",
+      "showOrbIndex",
+      "toggleOrbIndex",
+      "openOrbStats",
+      "showOrbStats",
+      "toggleOrbStats",
+    ];
+    for (const fn of tries) {
+      if (typeof window[fn] === "function") {
+        try { window[fn](); return true; } catch {}
+      }
+    }
+    // Also try namespaced
+    const nsTries = [
+      "UI.openStats",
+      "UI.showStats",
+      "UI.toggleStats",
+      "ListeningMirror.openStats",
+      "ListeningMirror.showStats",
+      "ListeningMirror.toggleStats",
+    ];
+    for (const p of nsTries) {
+      const r = safeCall(p);
+      if (r.ok) return true;
+    }
+    return false;
+  }
+
+  function findOrbNearTitle(titleNode) {
+    if (!titleNode) return null;
+
+    const container =
+      titleNode.closest("header") ||
+      titleNode.closest("section") ||
+      titleNode.closest("article") ||
+      titleNode.closest("div") ||
+      titleNode.parentElement;
+
+    if (!container) return null;
+
+    const titleRect = titleNode.getBoundingClientRect();
+    const candidates = Array.from(container.querySelectorAll("div,span,button,a")).slice(0, 120);
+
+    let best = null;
+    let bestScore = Infinity;
+
+    for (const n of candidates) {
+      if (n === titleNode) continue;
+      if (n.closest && n.closest("#spDock")) continue;
+
+      const r = n.getBoundingClientRect?.();
+      if (!r) continue;
+
+      const small = r.width >= 10 && r.width <= 56 && r.height >= 10 && r.height <= 56;
+      if (!small) continue;
+
+      const midY = (r.top + r.bottom) / 2;
+      const titleMidY = (titleRect.top + titleRect.bottom) / 2;
+      const closeY = Math.abs(midY - titleMidY) < 28;
+
+      // usually left of title
+      const leftish = r.right <= titleRect.left + 20;
+
+      const cs = window.getComputedStyle(n);
+      const br = parseFloat(cs.borderRadius || "0");
+      const roundish = br > 12 || cs.borderRadius === "999px";
+
+      if (!closeY || !roundish) continue;
+
+      // score by distance to title
+      const dx = Math.abs(titleRect.left - r.right);
+      const dy = Math.abs(titleMidY - midY);
+      const score = dx + dy * 2 + (leftish ? 0 : 60);
+
+      if (score < bestScore) {
+        bestScore = score;
+        best = n;
+      }
+    }
+
+    return best;
+  }
+
+  // Install once: BLOCK playback-causing events in header, but KEEP hover behavior
   let blockerInstalled = false;
   function installWindowCaptureBlocker() {
     if (blockerInstalled) return;
     blockerInstalled = true;
 
-    const shouldBlock = (e) => {
-      // allow dock clicks always
-      if (e.target && e.target.closest && e.target.closest("#spDock")) return false;
-      if (!LM_HEADER_EL) return false;
-      if (!e.target) return false;
-      // if click is inside Listening Mirror header container -> block
-      return LM_HEADER_EL.contains(e.target);
+    const inHeader = (target) => {
+      if (!target || !LM_HEADER_EL) return false;
+      if (target.closest && target.closest("#spDock")) return false;
+      return LM_HEADER_EL.contains(target);
     };
 
-    const kill = (e) => {
-      if (!shouldBlock(e)) return;
+    // We ONLY block "down/click" (which triggers playback).
+    // We DO NOT block mousemove/hover, so tooltip/index can appear.
+    const killDownOrClick = (e) => {
+      if (!inHeader(e.target)) return;
 
-      // This is the key: stops other handlers even in same phase
+      // If it’s the orb specifically: do NOT play; instead show index
+      if (LM_ORB_EL && (e.target === LM_ORB_EL || (e.target.closest && e.target.closest("[data-lm-orb='1']")))) {
+        try { e.preventDefault(); } catch {}
+        try { e.stopImmediatePropagation(); } catch {}
+        try { e.stopPropagation(); } catch {}
+        callIndexOrStats();
+        return;
+      }
+
+      // For the rest of the header area: just block playback
       try { e.preventDefault(); } catch {}
       try { e.stopImmediatePropagation(); } catch {}
       try { e.stopPropagation(); } catch {}
-
-      // Open stats/index if available
-      if (typeof window.openStats === "function") {
-        try { window.openStats(); } catch {}
-      }
     };
 
-    // Cover touch + mouse + pointer + click
-    window.addEventListener("pointerdown", kill, { capture: true, passive: false });
-    window.addEventListener("mousedown",   kill, { capture: true, passive: false });
-    window.addEventListener("touchstart",  kill, { capture: true, passive: false });
-    window.addEventListener("click",       kill, { capture: true, passive: false });
+    window.addEventListener("pointerdown", killDownOrClick, { capture: true, passive: false });
+    window.addEventListener("mousedown",   killDownOrClick, { capture: true, passive: false });
+    window.addEventListener("touchstart",  killDownOrClick, { capture: true, passive: false });
+    window.addEventListener("click",       killDownOrClick, { capture: true, passive: false });
+  }
+
+  function bindOrbHoverForIndex() {
+    if (!LM_ORB_EL) return;
+    if (LM_ORB_EL.dataset && LM_ORB_EL.dataset.spOrbHoverBound === "1") return;
+
+    LM_ORB_EL.dataset.spOrbHoverBound = "1";
+    LM_ORB_EL.setAttribute("data-lm-orb", "1");
+
+    // Hover should show index (even if app had a tooltip)
+    LM_ORB_EL.addEventListener("mouseenter", () => { callIndexOrStats(); }, { passive: true });
+    LM_ORB_EL.addEventListener("pointerenter", () => { callIndexOrStats(); }, { passive: true });
+
+    // Click should ALSO show index (and never play)
+    LM_ORB_EL.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      callIndexOrStats();
+    }, { passive: false });
   }
 
   function setDockPositionNearTitle(titleNode) {
@@ -436,11 +548,11 @@
     const titleNode = findHeaderTitleNode();
     if (!titleNode) {
       LM_HEADER_EL = null;
+      LM_ORB_EL = null;
       setDockHidden(true);
       return;
     }
 
-    // Define header container tightly around the Listening Mirror header area
     LM_HEADER_EL =
       titleNode.closest("header") ||
       titleNode.closest("section") ||
@@ -449,14 +561,17 @@
       titleNode.parentElement ||
       null;
 
-    // mark as no-play zone (helps our own logic too)
     if (LM_HEADER_EL) LM_HEADER_EL.setAttribute("data-sp-no-play", "1");
+
+    // Find orb and bind hover -> index
+    LM_ORB_EL = findOrbNearTitle(titleNode);
+    if (LM_ORB_EL) bindOrbHoverForIndex();
 
     setDockPositionNearTitle(titleNode);
     setDockHidden(false);
   }
 
-  // ---------------- Click-to-play bindings (same logic as before) ----------------
+  // ---------------- List click-to-play ----------------
   function isSessionCoversArea(node) {
     const root = node?.closest?.("section, article, div") || null;
     const txt = ((root?.innerText || node?.innerText || "")).toUpperCase();

@@ -1,11 +1,13 @@
-/* spotify-ui.js (FULL REPLACE)
-   Goal:
-   - KEEP the ORIGINAL header Spotify controls (the circled ones) for login + prev/play/next
-   - HARD block playback triggered by header/orb/title area ("Mirror bug")
-   - BUT allow clicks on the ORIGINAL Spotify controls (so login works and click-to-play persists)
-   - Keep click-to-play on list rows (Recent/Top)
-   - FIX: rows with NO artwork should still click-to-play (placeholder icon)
-   - FIX: header controls must ALWAYS be visible, smaller, slightly higher + spotify icon alignment
+/* spotify-ui.js (FULL REPLACE) — PART 1/4
+   Changes in this version (based on your "1"):
+   - The LEFT glyph next to "Listening Mirror" becomes ⏯️ (Play/Pause toggle)
+   - Prev/Next (⏪ ⏩) are hidden (only if we can safely detect them)
+   - Spotify icon stays for login/logout (we do NOT break it)
+   - Mirror header/orb/title area cannot trigger playback ("Mirror bug") EXCEPT:
+       ✅ the ⏯️ glyph
+       ✅ the Spotify login/logout control
+   - Click-to-play on rows stays
+   - Fix: rows with NO artwork now play (we ignore "♪" placeholder lines so artist/track parsing works)
 */
 
 (function () {
@@ -47,65 +49,58 @@
 
   function ensureCss() {
     if (document.getElementById("spotifyUiCss")) return;
+
     const css = `
 /* row clickability */
 .spArtworkPlayable{ cursor: pointer !important; border-radius: 12px; }
 .spRowPlayable{ cursor: pointer !important; }
 
-/* allow original header controls */
+/* marker for "original spotify header controls" (login/logout lives here) */
 [data-sp-controls='1'], [data-sp-controls='1'] *{
   pointer-events: auto !important;
 }
 
-/* --- HARD VISIBILITY + LAYOUT FIX FOR HEADER CONTROLS --- */
-[data-sp-controls='1']{
-  display: flex !important;
-  visibility: visible !important;
-  opacity: 1 !important;
-  z-index: 9999 !important;
+/* the new ⏯️ glyph (left of Listening Mirror) */
+[data-lm-glyph='1']{
   position: relative !important;
-
-  /* make them a bit smaller and move slightly up */
-  transform: translateY(-10px) !important;
-  gap: 10px !important;
+  cursor: pointer !important;
 }
-
-/* make the individual round buttons smaller */
-[data-sp-controls='1'] button,
-[data-sp-controls='1'] a,
-[data-sp-controls='1'] [role="button"]{
-  width: 42px !important;
-  height: 42px !important;
-  min-width: 42px !important;
-  min-height: 42px !important;
-  border-radius: 999px !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  visibility: visible !important;
-  opacity: 1 !important;
-}
-
-/* spotify icon looks weird sometimes: force svg sizing + centering */
-[data-sp-controls='1'] svg{
-  width: 18px !important;
-  height: 18px !important;
-  display: block !important;
-}
-[data-sp-controls='1'] svg *{
-  vector-effect: non-scaling-stroke;
-}
-
-/* in case the bar has a pill background element, keep it visible */
-[data-sp-controls='1']{
-  backdrop-filter: blur(8px) !important;
-  -webkit-backdrop-filter: blur(8px) !important;
+[data-lm-glyph='1'] .lmGlyphIcon{
+  position:absolute;
+  inset:0;
+  display:grid;
+  place-items:center;
+  font-size: 16px;
+  line-height: 1;
+  pointer-events:none;
+  opacity: .92;
+  transform: translateY(-.5px);
 }
     `.trim();
+
     const st = document.createElement("style");
     st.id = "spotifyUiCss";
     st.textContent = css;
     document.head.appendChild(st);
+  }
+
+  function doLoginOrLogout() {
+    const token = getToken();
+    if (!token) {
+      const r = safeCall("SpotifyAuth.login");
+      if (!r.ok) console.warn("[Spotify UI] SpotifyAuth.login missing:", r.reason);
+      return;
+    }
+    let r = safeCall("SpotifyAuth.logout");
+    if (r.ok) return;
+    try {
+      localStorage.removeItem("spotify_access_token");
+      localStorage.removeItem("spotify_refresh_token");
+      localStorage.removeItem("SPOTIFY_ACCESS_TOKEN");
+      localStorage.removeItem("SPOTIFY_REFRESH_TOKEN");
+      sessionStorage.removeItem("spotify_access_token");
+      sessionStorage.removeItem("spotify_refresh_token");
+    } catch {}
   }
 
   // ---------------- Spotify Web API (fallback) ----------------
@@ -123,6 +118,9 @@
       return { ok: false, status: 0 };
     }
   }
+
+  async function apiPause() { return (await spotifyApi("/me/player/pause", "PUT")).ok; }
+  async function apiPlay()  { return (await spotifyApi("/me/player/play", "PUT")).ok; }
 
   async function apiPlayUri(uri) {
     if (!uri || typeof uri !== "string") return false;
@@ -145,7 +143,54 @@
     console.warn("[Spotify UI] Cannot play URI:", uri);
     return false;
   }
-// ---------------- Header / Orb: HARD block playback, but NOT the original controls ----------------
+
+  async function getPlaybackState() {
+    let r = safeCall("SpotifyPlayer.getState");
+    if (r.ok) return await Promise.resolve(r.value);
+
+    r = safeCall("SpotifyPlayer.getPlaybackState");
+    if (r.ok) return await Promise.resolve(r.value);
+
+    const token = getToken();
+    if (!token) return null;
+    try {
+      const rr = await fetch("https://api.spotify.com/v1/me/player", {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      if (!rr.ok) return null;
+      const j = await rr.json();
+      return { isPlaying: !!j?.is_playing, paused: typeof j?.is_playing === "boolean" ? !j.is_playing : undefined };
+    } catch {
+      return null;
+    }
+  }
+
+  function inferIsPlaying(state) {
+    if (!state) return null;
+    if (state.isPlaying === true) return true;
+    if (state.playing === true) return true;
+    if (typeof state.paused === "boolean") return !state.paused;
+    return null;
+  }
+
+  async function pauseSafe() {
+    const ok = await apiPause();
+    if (ok) return true;
+    const r = safeCall("SpotifyPlayer.pause");
+    return !!r.ok;
+  }
+
+  async function resumeSafe() {
+    const ok = await apiPlay();
+    if (ok) return true;
+    let r = safeCall("SpotifyPlayer.play");
+    if (r.ok) return true;
+    r = safeCall("SpotifyPlayer.resume");
+    return !!r.ok;
+  }
+/* spotify-ui.js (FULL REPLACE) — PART 2/4 */
+
+  // ---------------- Header detection ----------------
   function findHeaderTitleNode() {
     const nodes = Array.from(document.querySelectorAll("h1,h2,div,span")).slice(0, 3500);
     for (const n of nodes) {
@@ -165,7 +210,7 @@
     return null;
   }
 
-  function findOrbNearTitle(titleNode) {
+  function findGlyphLeftOfTitle(titleNode) {
     if (!titleNode) return null;
 
     const container =
@@ -178,27 +223,32 @@
     if (!container) return null;
 
     const titleRect = titleNode.getBoundingClientRect();
-    const candidates = Array.from(container.querySelectorAll("div,span,button,a")).slice(0, 160);
+    const candidates = Array.from(container.querySelectorAll("div,span,button,a")).slice(0, 200);
 
     let best = null;
     let bestScore = Infinity;
 
     for (const n of candidates) {
       if (n === titleNode) continue;
+      if (n.closest && n.closest("[data-sp-controls='1']")) continue;
 
       const r = n.getBoundingClientRect?.();
       if (!r) continue;
 
-      const small = r.width >= 10 && r.width <= 56 && r.height >= 10 && r.height <= 56;
+      const small = r.width >= 12 && r.width <= 60 && r.height >= 12 && r.height <= 60;
       if (!small) continue;
+
+      // must be left-ish of title
+      const leftish = r.right <= titleRect.left + 18;
+      if (!leftish) continue;
 
       const midY = (r.top + r.bottom) / 2;
       const titleMidY = (titleRect.top + titleRect.bottom) / 2;
-      const closeY = Math.abs(midY - titleMidY) < 28;
+      const closeY = Math.abs(midY - titleMidY) < 30;
 
       const cs = window.getComputedStyle(n);
       const br = parseFloat(cs.borderRadius || "0");
-      const roundish = br > 12 || cs.borderRadius === "999px";
+      const roundish = br > 10 || cs.borderRadius === "999px";
 
       if (!closeY || !roundish) continue;
 
@@ -215,30 +265,9 @@
     return best;
   }
 
-  function callIndexOrStats() {
-    const tries = [
-      "openStats","showStats","toggleStats",
-      "openIndex","showIndex","toggleIndex",
-      "openOrbIndex","showOrbIndex","toggleOrbIndex",
-      "openOrbStats","showOrbStats","toggleOrbStats",
-    ];
-    for (const fn of tries) {
-      if (typeof window[fn] === "function") {
-        try { window[fn](); return true; } catch {}
-      }
-    }
-    const nsTries = [
-      "UI.openStats","UI.showStats","UI.toggleStats",
-      "ListeningMirror.openStats","ListeningMirror.showStats","ListeningMirror.toggleStats",
-    ];
-    for (const p of nsTries) {
-      const r = safeCall(p);
-      if (r.ok) return true;
-    }
-    return false;
-  }
-
-  // detect the ORIGINAL Spotify header controls, mark container
+  // IMPORTANT: detect the ORIGINAL Spotify header controls cluster so we can:
+  // - allow login/logout click
+  // - hide prev/next safely
   function markOriginalHeaderControls(headerEl) {
     if (!headerEl) return null;
 
@@ -246,8 +275,8 @@
       .filter(n => {
         const r = n.getBoundingClientRect?.();
         if (!r) return false;
-        if (r.width < 22 || r.width > 54) return false;
-        if (r.height < 22 || r.height > 54) return false;
+        if (r.width < 22 || r.width > 64) return false;
+        if (r.height < 22 || r.height > 64) return false;
         const cs = window.getComputedStyle(n);
         const br = parseFloat(cs.borderRadius || "0");
         return br > 12 || cs.borderRadius === "999px";
@@ -256,12 +285,13 @@
     for (const b of buttons) {
       const p = b.closest("div, nav, header, section");
       if (!p) continue;
+
       const inside = Array.from(p.querySelectorAll("button, a, div, span"))
         .filter(x => {
           const r = x.getBoundingClientRect?.();
           if (!r) return false;
-          if (r.width < 22 || r.width > 54) return false;
-          if (r.height < 22 || r.height > 54) return false;
+          if (r.width < 22 || r.width > 64) return false;
+          if (r.height < 22 || r.height > 64) return false;
           const cs = window.getComputedStyle(x);
           const br = parseFloat(cs.borderRadius || "0");
           return br > 12 || cs.borderRadius === "999px";
@@ -275,48 +305,101 @@
     return null;
   }
 
-  // apply inline “failsafe” so even if app CSS hides them, they stay visible
-  function applyControlsVisualFix(controlsEl) {
-    if (!controlsEl) return;
-    if (controlsEl.dataset && controlsEl.dataset.spFixApplied === "1") return;
-    controlsEl.dataset.spFixApplied = "1";
+  function likelySpotifyIconNode(node) {
+    if (!node) return false;
+    const t = (node.getAttribute?.("title") || node.getAttribute?.("aria-label") || "").toLowerCase();
+    if (t.includes("spotify")) return true;
 
-    try {
-      controlsEl.style.display = "flex";
-      controlsEl.style.visibility = "visible";
-      controlsEl.style.opacity = "1";
-      controlsEl.style.position = "relative";
-      controlsEl.style.zIndex = "9999";
-      controlsEl.style.transform = "translateY(-10px)";
-      controlsEl.style.gap = "10px";
-    } catch {}
+    const html = (node.innerHTML || "").toLowerCase();
+    // spotify logo SVG often has viewBox 0 0 168 168 or "spotify" in class/id
+    if (html.includes("0 0 168 168")) return true;
+    if (html.includes("spotify")) return true;
 
-    // try to normalize the inner buttons/icons
-    try {
-      const btns = Array.from(controlsEl.querySelectorAll("button,a,[role='button']"));
-      for (const b of btns) {
-        b.style.width = "42px";
-        b.style.height = "42px";
-        b.style.minWidth = "42px";
-        b.style.minHeight = "42px";
-        b.style.borderRadius = "999px";
-        b.style.display = "inline-flex";
-        b.style.alignItems = "center";
-        b.style.justifyContent = "center";
-        b.style.visibility = "visible";
-        b.style.opacity = "1";
-
-        const svg = b.querySelector("svg");
-        if (svg) {
-          svg.style.width = "18px";
-          svg.style.height = "18px";
-          svg.style.display = "block";
-        }
-      }
-    } catch {}
+    return false;
   }
-let LM_HEADER_EL = null;
-  let LM_ORB_EL = null;
+
+  function hidePrevNextButKeepSpotify(controlsEl) {
+    if (!controlsEl) return;
+
+    // Find round-ish items inside the controls
+    const items = Array.from(controlsEl.querySelectorAll("button,a,div,span")).filter(n => {
+      const r = n.getBoundingClientRect?.();
+      if (!r) return false;
+      if (r.width < 22 || r.width > 64) return false;
+      if (r.height < 22 || r.height > 64) return false;
+      const cs = window.getComputedStyle(n);
+      const br = parseFloat(cs.borderRadius || "0");
+      return br > 12 || cs.borderRadius === "999px";
+    });
+
+    // Choose the spotify node to keep (best effort). If we can't identify it, DO NOTHING (safety).
+    let keep = null;
+    for (const it of items) {
+      if (likelySpotifyIconNode(it)) { keep = it; break; }
+      const parentBtn = it.closest?.("button,a");
+      if (parentBtn && likelySpotifyIconNode(parentBtn)) { keep = parentBtn; break; }
+    }
+    if (!keep) return; // safety: never hide if we are not sure
+
+    // Hide everything else (prev/next/play buttons)
+    for (const it of items) {
+      const root = it.closest?.("button,a") || it;
+      if (root === keep) continue;
+      // don't hide ancestors of keep
+      if (root.contains && root.contains(keep)) continue;
+      // hide
+      root.style.display = "none";
+    }
+
+    // Make sure spotify icon still toggles login/logout
+    if (keep.dataset && keep.dataset.spLoginBound === "1") return;
+    if (keep.dataset) keep.dataset.spLoginBound = "1";
+    keep.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      doLoginOrLogout();
+    }, { passive: false });
+  }
+
+  // ---------------- ⏯️ glyph binding ----------------
+  function installGlyphPlayPause(glyphEl) {
+    if (!glyphEl) return;
+    if (glyphEl.dataset && glyphEl.dataset.lmGlyphBound === "1") return;
+
+    glyphEl.setAttribute("data-lm-glyph", "1");
+    if (glyphEl.dataset) glyphEl.dataset.lmGlyphBound = "1";
+
+    // overlay icon (do not remove existing DOM)
+    if (!glyphEl.querySelector(".lmGlyphIcon")) {
+      glyphEl.style.position = "relative";
+      const s = document.createElement("span");
+      s.className = "lmGlyphIcon";
+      s.textContent = "⏯️";
+      glyphEl.appendChild(s);
+    }
+
+    glyphEl.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (!getToken()) { doLoginOrLogout(); return; }
+
+      const st = await getPlaybackState();
+      const isPlaying = inferIsPlaying(st);
+
+      if (isPlaying === true) {
+        await pauseSafe();
+      } else {
+        await resumeSafe();
+      }
+    }, { passive: false });
+  }
+/* spotify-ui.js (FULL REPLACE) — PART 3/4
+   Header blocker + list click-to-play (with NO-artwork fix)
+*/
+
+  let LM_HEADER_EL = null;
+  let LM_GLYPH_EL = null;
   let LM_CONTROLS_EL = null;
 
   let blockerInstalled = false;
@@ -331,23 +414,20 @@ let LM_HEADER_EL = null;
 
     const inAllowedControls = (target) => {
       if (!target) return false;
+      // allow spotify login/logout cluster
       if (target.closest && target.closest("[data-sp-controls='1']")) return true;
+      // allow the ⏯️ glyph
+      if (target.closest && target.closest("[data-lm-glyph='1']")) return true;
       return false;
     };
 
     const killDownOrClick = (e) => {
       if (!inHeader(e.target)) return;
 
+      // allow only whitelist clicks
       if (inAllowedControls(e.target)) return;
 
-      if (LM_ORB_EL && (e.target === LM_ORB_EL || (e.target.closest && e.target.closest("[data-lm-orb='1']")))) {
-        try { e.preventDefault(); } catch {}
-        try { e.stopImmediatePropagation(); } catch {}
-        try { e.stopPropagation(); } catch {}
-        callIndexOrStats();
-        return;
-      }
-
+      // rest of header: block any playback triggers
       try { e.preventDefault(); } catch {}
       try { e.stopImmediatePropagation(); } catch {}
       try { e.stopPropagation(); } catch {}
@@ -359,28 +439,11 @@ let LM_HEADER_EL = null;
     window.addEventListener("click",       killDownOrClick, { capture: true, passive: false });
   }
 
-  function bindOrbHoverForIndex() {
-    if (!LM_ORB_EL) return;
-    if (LM_ORB_EL.dataset && LM_ORB_EL.dataset.spOrbHoverBound === "1") return;
-
-    LM_ORB_EL.dataset.spOrbHoverBound = "1";
-    LM_ORB_EL.setAttribute("data-lm-orb", "1");
-
-    LM_ORB_EL.addEventListener("mouseenter", () => { callIndexOrStats(); }, { passive: true });
-    LM_ORB_EL.addEventListener("pointerenter", () => { callIndexOrStats(); }, { passive: true });
-
-    LM_ORB_EL.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      callIndexOrStats();
-    }, { passive: false });
-  }
-
   function refreshHeaderRefs() {
     const titleNode = findHeaderTitleNode();
     if (!titleNode) {
       LM_HEADER_EL = null;
-      LM_ORB_EL = null;
+      LM_GLYPH_EL = null;
       LM_CONTROLS_EL = null;
       return;
     }
@@ -393,12 +456,13 @@ let LM_HEADER_EL = null;
       titleNode.parentElement ||
       null;
 
-    LM_ORB_EL = findOrbNearTitle(titleNode);
-    if (LM_ORB_EL) bindOrbHoverForIndex();
+    // glyph: left of title => ⏯️
+    LM_GLYPH_EL = findGlyphLeftOfTitle(titleNode);
+    if (LM_GLYPH_EL) installGlyphPlayPause(LM_GLYPH_EL);
 
-    // mark + apply visible/size/position fix
+    // controls: keep spotify login/logout, hide prev/next/play
     LM_CONTROLS_EL = markOriginalHeaderControls(LM_HEADER_EL);
-    if (LM_CONTROLS_EL) applyControlsVisualFix(LM_CONTROLS_EL);
+    if (LM_CONTROLS_EL) hidePrevNextButKeepSpotify(LM_CONTROLS_EL);
   }
 
   // ---------------- List click-to-play ----------------
@@ -444,14 +508,27 @@ let LM_HEADER_EL = null;
     return parts.length ? parts[0] : s;
   }
 
+  function isOnlyMusicNote(s) {
+    const t = (s || "").trim();
+    if (!t) return false;
+    // common placeholder glyphs for "no artwork"
+    return /^[♪♫🎵🎶]+$/.test(t);
+  }
+
   function cleanLine(s) {
     let x = (s || "").replace(/\s+/g, " ").trim();
     if (!x) return "";
+    if (isOnlyMusicNote(x)) return "";
+
+    // strip any lingering note chars
+    x = x.replace(/[♪♫🎵🎶]/g, "").trim();
+
     x = x.replace(/^LIVE$/i, "").trim();
     x = x.replace(/^\d+\.\s+/, "").trim();
     x = x.replace(/\b\d{1,2}\s+[A-Za-z]{3}\s+\d{4}(,\s*\d{2}:\d{2})?\b/gi, "").trim();
     x = x.replace(/\b\d{2}:\d{2}\b/g, "").trim();
     if (/^\d+$/.test(x)) return "";
+    if (isOnlyMusicNote(x)) return "";
     return x;
   }
 
@@ -464,7 +541,8 @@ let LM_HEADER_EL = null;
     const lines = (row?.innerText || "")
       .split("\n")
       .map(cleanLine)
-      .filter(Boolean);
+      .filter(Boolean)
+      .filter(l => !isOnlyMusicNote(l));
 
     const filtered = lines.filter(l => {
       const u = l.toUpperCase();
@@ -476,11 +554,13 @@ let LM_HEADER_EL = null;
       return true;
     });
 
+    // pick first meaningful track line (skip notes/placeholders)
     const track = cleanLine(filtered[0] || "");
     const artist = normalizeArtistLine(cleanLine(filtered[1] || ""));
     return { track, artist };
   }
-function looksLikeArtistOnlyRow(row) {
+
+  function looksLikeArtistOnlyRow(row) {
     const text = (row?.innerText || "").split("\n").map(cleanLine).filter(Boolean);
     if (!text.length) return true;
     if (text.length === 1) return true;
@@ -550,6 +630,7 @@ function looksLikeArtistOnlyRow(row) {
 
     return "";
   }
+/* spotify-ui.js (FULL REPLACE) — PART 4/4 */
 
   function rectIsSquareish(r) {
     if (!r) return false;
@@ -566,8 +647,8 @@ function looksLikeArtistOnlyRow(row) {
     const img = row.querySelector?.("img");
     if (img && !isExplicitNoPlay(img)) return img;
 
-    // include button for placeholders
-    const kids = Array.from(row.querySelectorAll?.("div, span, a, button") || []);
+    // fallback: square-ish element (includes placeholders)
+    const kids = Array.from(row.querySelectorAll?.("div, span, a") || []);
     for (const n of kids) {
       if (isSessionCoversArea(n) || isExplicitNoPlay(n)) continue;
       const rr = n.getBoundingClientRect?.();
@@ -632,7 +713,8 @@ function looksLikeArtistOnlyRow(row) {
         art.classList.add("spArtworkPlayable");
 
         art.addEventListener("click", async (e) => {
-          if (e.target && e.target.closest && e.target.closest("[data-sp-controls='1']")) return;
+          // don't interfere with header controls/glyph
+          if (e.target && e.target.closest && (e.target.closest("[data-sp-controls='1']") || e.target.closest("[data-lm-glyph='1']"))) return;
           if (isExplicitNoPlay(e.target) || isSessionCoversArea(e.target)) return;
 
           e.preventDefault(); e.stopPropagation();
@@ -646,13 +728,12 @@ function looksLikeArtistOnlyRow(row) {
         row.classList.add("spRowPlayable");
 
         row.addEventListener("click", async (e) => {
-          if (e.target && e.target.closest && e.target.closest("[data-sp-controls='1']")) return;
+          // don't interfere with header controls/glyph
+          if (e.target && e.target.closest && (e.target.closest("[data-sp-controls='1']") || e.target.closest("[data-lm-glyph='1']"))) return;
           if (isExplicitNoPlay(e.target) || isSessionCoversArea(e.target)) return;
 
           const tag = (e.target?.tagName || "").toLowerCase();
-          const artArea = getArtworkClickable(row);
-          const insideArt = !!(artArea && (artArea === e.target || (artArea.contains && artArea.contains(e.target))));
-          if ((tag === "button" || tag === "a" || tag === "input") && !insideArt) return;
+          if (tag === "button" || tag === "a" || tag === "input") return;
 
           e.preventDefault(); e.stopPropagation();
           const uri = await resolveUriForRow(row);

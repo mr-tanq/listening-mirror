@@ -1,21 +1,23 @@
-/* spotify-ui.js — FULL REPLACE (SAFE)
+/* spotify-ui.js — FULL REPLACE (WORKING BRIDGE)
    - Fixed player dock TOP-RIGHT (always visible)
+   - Spotify icon = login (if not linked) / connect (if linked & connect exists)
+   - Play/Pause/Prev/Next call your existing globals:
+       window.SpotifyPlayer.* and window.SpotifyAuth.*
+   - Artwork click plays ONLY in #topList / #recentList (and works even if no artwork image)
    - Orb click never triggers playback ("Mirror" bug)
-   - Play by clicking artwork ONLY inside #topList / #recentList
-   - No hiding of other UI, no aggressive observers
 */
 
 (function () {
   "use strict";
 
-  // ---- selectors that are stable in YOUR app.js ----
+  // ---- stable in YOUR app.js ----
   const LIST_CONTAINERS = ["#topList", "#recentList"];
   const ORB_SELECTORS = ['[data-lm="orb"]', ".orb", ".statusOrb", ".brandOrb", ".appOrb"];
 
-  // For rows & artwork (your UI uses .row and .thumb)
   const ROW_SELECTORS = [".row", '[data-lm="row"]', ".listRow", ".trackRow", ".topRow"];
   const ART_SELECTORS = [".thumb", ".art", ".artwork", ".cover", '[data-lm="artwork"]'];
 
+  // dataset keys we might have on rows
   const URI_DATA_KEYS = ["uri", "spotifyUri", "trackUri", "contextUri"];
 
   const $1 = (sel, root = document) => root.querySelector(sel);
@@ -23,6 +25,13 @@
   function safeStop(e) {
     e.preventDefault();
     e.stopPropagation();
+  }
+
+  function log(...a) {
+    console.log("[spotify-ui]", ...a);
+  }
+  function warn(...a) {
+    console.warn("[spotify-ui]", ...a);
   }
 
   // ---------- STYLES ----------
@@ -80,55 +89,6 @@
     document.head.appendChild(style);
   }
 
-  // ---------- SPOTIFY BRIDGE ----------
-  function bridge() {
-    return window.LMSpotify || window.SpotifyBridge || window.spotifyBridge || null;
-  }
-
-  function callSpotify(action, payload) {
-    const s = bridge();
-    try {
-      if (s && typeof s[action] === "function") return s[action](payload);
-    } catch {}
-
-    // fallback globals (if you ever used these)
-    try {
-      if (action === "toggle" && typeof window.spotifyToggle === "function") return window.spotifyToggle();
-      if (action === "playUri" && typeof window.spotifyPlayUri === "function") return window.spotifyPlayUri(payload);
-      if (action === "login" && typeof window.spotifyLogin === "function") return window.spotifyLogin();
-      if (action === "prev" && typeof window.spotifyPrev === "function") return window.spotifyPrev();
-      if (action === "next" && typeof window.spotifyNext === "function") return window.spotifyNext();
-    } catch {}
-
-    return null;
-  }
-
-  function isLinked() {
-    const s = bridge();
-    try {
-      if (!s) return false;
-      if (typeof s.isLinked === "function") return !!s.isLinked();
-      if (typeof s.isConnected === "function") return !!s.isConnected();
-      if ("linked" in s) return !!s.linked;
-      if ("isConnected" in s) return !!s.isConnected;
-    } catch {}
-    return false;
-  }
-
-  function isPlaying() {
-    const s = bridge();
-    try {
-      if (!s) return false;
-      if (typeof s.getState === "function") {
-        const st = s.getState();
-        if (st && typeof st.is_playing === "boolean") return st.is_playing;
-        if (st && typeof st.isPlaying === "boolean") return st.isPlaying;
-      }
-      if ("isPlaying" in s) return !!s.isPlaying;
-    } catch {}
-    return false;
-  }
-
   // ---------- ICONS ----------
   const svg = {
     spotify() {
@@ -150,6 +110,97 @@
       return `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="rgba(255,255,255,0.92)" d="M6 5h4v14H6V5zm8 0h4v14h-4V5z"/></svg>`;
     },
   };
+
+  // ---------- YOUR EXISTING GLOBALS (MOST IMPORTANT) ----------
+  function auth() {
+    return window.SpotifyAuth || null;
+  }
+  function player() {
+    return window.SpotifyPlayer || null;
+  }
+
+  function isLinked() {
+    try {
+      const a = auth();
+      if (a && typeof a.getAccessToken === "function") return !!a.getAccessToken();
+      // fallback: token in LS set by spotify-auth.js
+      const t = localStorage.getItem("lm_spotify_access_token");
+      return !!t;
+    } catch {
+      return false;
+    }
+  }
+
+  // We can’t 100% know playing state unless your player exposes it
+  function isPlaying() {
+    try {
+      const p = player();
+      if (!p) return false;
+      if (typeof p.getState === "function") {
+        const st = p.getState();
+        if (st && typeof st.isPlaying === "boolean") return st.isPlaying;
+        if (st && typeof st.is_playing === "boolean") return st.is_playing;
+      }
+      if (typeof p.isPlaying === "function") return !!p.isPlaying();
+      if (typeof p.isPlaying === "boolean") return !!p.isPlaying;
+    } catch {}
+    return false;
+  }
+
+  // Robust call helper (tries multiple method names)
+  function callPlayer(methodNames, ...args) {
+    const p = player();
+    if (!p) {
+      warn("SpotifyPlayer missing on window");
+      return { ok: false, reason: "SpotifyPlayer missing" };
+    }
+
+    for (const m of methodNames) {
+      try {
+        if (typeof p[m] === "function") {
+          log("Calling SpotifyPlayer." + m, args);
+          const r = p[m](...args);
+          return { ok: true, used: m, value: r };
+        }
+      } catch (e) {
+        warn("SpotifyPlayer." + m + " error:", e);
+        return { ok: false, reason: String(e?.message || e) };
+      }
+    }
+    warn("No method found on SpotifyPlayer:", methodNames);
+    return { ok: false, reason: "No method found: " + methodNames.join(", ") };
+  }
+
+  function loginOrConnect() {
+    const linked = isLinked();
+    if (!linked) {
+      const a = auth();
+      if (a && typeof a.login === "function") {
+        log("SpotifyAuth.login()");
+        a.login();
+        return;
+      }
+      warn("SpotifyAuth.login missing");
+      return;
+    }
+
+    // If already linked, try to connect device (if your player supports it)
+    callPlayer(["connect", "ensureDevice", "init"]);
+  }
+
+  function togglePlayPause() {
+    // Prefer explicit methods if exist
+    const playing = isPlaying();
+    if (playing) {
+      const r = callPlayer(["pause"]);
+      if (!r.ok) callPlayer(["toggle", "playPause"]);
+      return;
+    } else {
+      const r = callPlayer(["resume", "play"]);
+      if (!r.ok) callPlayer(["toggle", "playPause"]);
+      return;
+    }
+  }
 
   // ---------- FIXED DOCK ----------
   function renderDock() {
@@ -185,15 +236,16 @@
           safeStop(e);
 
           const key = btn.getAttribute("data-lmtr");
-          if (key === "spotify") return callSpotify("login");
-          if (key === "prev") return callSpotify("prev");
-          if (key === "next") return callSpotify("next");
-          if (key === "toggle") return callSpotify("toggle");
+          if (key === "spotify") return loginOrConnect();
+          if (key === "prev") return callPlayer(["prev", "previous"]);
+          if (key === "next") return callPlayer(["next"]);
+          if (key === "toggle") return togglePlayPause();
         },
         true
       );
     }
 
+    // Update icons/state
     const toggle = pill.querySelector('[data-lmtr="toggle"]');
     if (toggle) toggle.innerHTML = isPlaying() ? svg.pause() : svg.play();
 
@@ -209,11 +261,12 @@
     const orb = firstExistingSelector(ORB_SELECTORS);
     if (!orb) return;
 
+    // Capture phase so NOTHING above/below can hijack it
     orb.addEventListener(
       "click",
       (e) => {
         safeStop(e);
-        if (typeof window.openStats === "function") window.openStats();
+        // do nothing else (no playback)
       },
       { capture: true }
     );
@@ -232,14 +285,18 @@
   // ---------- PLAY BY CLICKING ARTWORK (TOP/RECENT ONLY) ----------
   function getRowUri(row) {
     if (!row) return "";
+
+    // 1) dataset on row
     for (const k of URI_DATA_KEYS) {
       const v = row.dataset ? row.dataset[k] : "";
       if (v) return v;
     }
 
+    // 2) any dataset child
     const any = row.querySelector("[data-uri], [data-spotify-uri], [data-track-uri]");
     if (any) return any.dataset.uri || any.dataset.spotifyUri || any.dataset.trackUri || "";
 
+    // 3) spotify link
     const a = row.querySelector('a[href^="spotify:"], a[href*="open.spotify.com"]');
     if (a) return a.getAttribute("href") || "";
 
@@ -250,7 +307,43 @@
     return LIST_CONTAINERS.some((sel) => !!node.closest(sel));
   }
 
+  function ensureArtSlotExists(row) {
+    // If no artwork element exists, create a placeholder slot so clicks still work
+    const hasArt = row.querySelector(ART_SELECTORS.join(","));
+    if (hasArt) return;
+
+    const ph = document.createElement("div");
+    ph.className = "thumb lmGeneratedArtSlot";
+    ph.setAttribute("data-lm", "artwork");
+    ph.style.width = "56px";
+    ph.style.height = "56px";
+    ph.style.borderRadius = "18px";
+    ph.style.background = "rgba(255,255,255,0.06)";
+    ph.style.border = "1px solid rgba(255,255,255,0.08)";
+    ph.style.display = "grid";
+    ph.style.placeItems = "center";
+    ph.style.flex = "0 0 auto";
+    ph.innerHTML = `<div style="opacity:.45;font-size:18px;line-height:1">♪</div>`;
+    row.insertBefore(ph, row.firstChild);
+  }
+
   function enableArtworkClicks() {
+    // Ensure placeholder art slot exists for rows that have no image
+const seed = () => {
+      for (const containerSel of LIST_CONTAINERS) {
+        const c = document.querySelector(containerSel);
+        if (!c) continue;
+        const rows = c.querySelectorAll(ROW_SELECTORS.join(","));
+        rows.forEach(ensureArtSlotExists);
+      }
+    };
+    seed();
+
+    // Re-seed when lists re-render
+    const mo = new MutationObserver(seed);
+    mo.observe(document.body, { childList: true, subtree: true });
+
+    // Delegate clicks
     document.addEventListener(
       "click",
       (e) => {
@@ -259,23 +352,31 @@
         // ignore dock clicks
         if (t.closest(".lmFixedTRPill")) return;
 
-        // orb is blocked elsewhere
+        // orb blocked elsewhere
         if (ORB_SELECTORS.some((s) => t.closest(s))) return;
 
         const row = t.closest(ROW_SELECTORS.join(","));
         if (!row) return;
 
-        // Only Top/Recent lists (not artists list / other panels)
         if (!isInsideAllowedList(row)) return;
 
         const art = t.closest(ART_SELECTORS.join(","));
         if (!art) return;
 
         const uri = getRowUri(row);
-        if (!uri) return;
+        if (!uri) {
+          warn("No URI found for clicked row (need dataset uri or link).");
+          return;
+        }
 
         safeStop(e);
-        callSpotify("playUri", uri);
+
+        // Try playUri first, then generic play with uri
+        const r = callPlayer(["playUri", "playURI", "play_track_uri", "playTrackUri"], uri);
+        if (!r.ok) {
+          // fallback: maybe your player expects { uri } object
+          callPlayer(["playUri", "play"], { uri });
+        }
       },
       true
     );
@@ -283,18 +384,15 @@
 
   // ---------- BOOT ----------
   function boot() {
+    log("boot");
+
     fixOrb();
     enableArtworkClicks();
 
     renderDock();
-    // light refresh (no heavy observers)
-    setInterval(renderDock, 1200);
 
-    // if DOM changes, re-apply orb fix (safe)
-    const mo = new MutationObserver(() => {
-      fixOrb();
-    });
-    mo.observe(document.body, { childList: true, subtree: true });
+    // light refresh (no heavy hide)
+    setInterval(renderDock, 1200);
   }
 
   if (document.readyState === "loading") {

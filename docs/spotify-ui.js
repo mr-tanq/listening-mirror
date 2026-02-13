@@ -1,8 +1,8 @@
 /* spotify-ui.js (FULL REPLACE)
    Fixes:
-   1) Dock moved further RIGHT of "Listening Mirror" header (premium spacing).
-   2) Fix Top first-item bug playing "Agust D - Haegeum" (strict parsing + sanity checks + hard-block).
-   3) Prevent orb/Session Covers (MIRROR/LISTENING) area from being treated as playable artwork/row.
+   A) Dock "locked": shows ONLY when "Listening Mirror" header is visible (no floating while scrolling).
+   B) Orb no longer playable (hard exclude + stopPropagation).
+   C) Tracks with no artwork can play (placeholder + row fallback + safe resolve relaxation without reintroducing default bug).
 */
 
 (function () {
@@ -348,9 +348,9 @@
       if (!r.ok) console.warn("[Spotify UI] Prev failed:", r.reason);
     }, { passive: false });
   }
-// ---------------- Header anchor (Listening Mirror) ----------------
+// ---------------- Header anchor + Orb hard-exclude ----------------
   function findHeaderTitleNode() {
-    const nodes = Array.from(document.querySelectorAll("h1,h2,div,span")).slice(0, 2500);
+    const nodes = Array.from(document.querySelectorAll("h1,h2,div,span")).slice(0, 3500);
     for (const n of nodes) {
       const t = (n.textContent || "").trim();
       if (t === "Listening Mirror") {
@@ -368,44 +368,85 @@
     return null;
   }
 
-  // (1) Dock further RIGHT: bigger gap + slight push even if there is room.
-  function positionDock() {
+  // Find the orb near title and mark it "no play" + stopPropagation.
+  function markHeaderOrbNoPlay(titleNode) {
+    if (!titleNode) return;
+
+    const container = titleNode.closest("header, section, article, div") || titleNode.parentElement;
+    if (!container) return;
+
+    // Look for a small circular element near the title (usually the orb glyph).
+    const candidates = Array.from(container.querySelectorAll("div,span,button,a")).slice(0, 80);
+    const titleRect = titleNode.getBoundingClientRect();
+
+    for (const n of candidates) {
+      if (n === titleNode) continue;
+      if (n.dataset && n.dataset.spNoPlay === "1") continue;
+
+      const r = n.getBoundingClientRect?.();
+      if (!r) continue;
+
+      // Must be close to the left of the title and small
+      const closeY = Math.abs((r.top + r.bottom) / 2 - (titleRect.top + titleRect.bottom) / 2) < 24;
+      const leftOfTitle = r.right <= titleRect.left + 10;
+      const small = r.width >= 10 && r.width <= 46 && r.height >= 10 && r.height <= 46;
+
+      if (!closeY || !leftOfTitle || !small) continue;
+
+      const cs = window.getComputedStyle(n);
+      const br = parseFloat(cs.borderRadius || "0");
+      const roundish = br > 12 || cs.borderRadius === "999px";
+
+      if (!roundish) continue;
+
+      // Mark and block bubbling so it can never trigger play listeners.
+      n.dataset.spNoPlay = "1";
+      n.classList.remove("spArtworkPlayable", "spRowPlayable");
+      n.addEventListener("click", (e) => { e.stopPropagation(); }, { passive: true });
+      n.addEventListener("pointerdown", (e) => { e.stopPropagation(); }, { passive: true });
+      break;
+    }
+  }
+
+  function setDockPositionNearTitle(titleNode) {
     ensureDock();
     const dock = document.getElementById("spDock");
 
+    const r = titleNode.getBoundingClientRect();
+    const dockW = dock.offsetWidth || 140;
+
+    const pad = 18;
+    const extraRight = 26; // premium right offset
+
+    let x = r.right + pad + extraRight;
+    const maxLeft = window.innerWidth - dockW - 10;
+    if (x > maxLeft) x = Math.max(10, maxLeft);
+
+    const y = r.top + (r.height / 2) - (dock.offsetHeight ? dock.offsetHeight / 2 : 18);
+
+    dock.style.left = `${Math.round(x)}px`;
+    dock.style.top = `${Math.round(Math.max(6, y))}px`;
+    dock.style.transform = "none";
+  }
+
+  // (A) LOCK behavior: only show dock when header is visible; otherwise hide (no floating in Recent/Top scroll).
+  function positionDock() {
+    ensureDock();
     const titleNode = findHeaderTitleNode();
-    if (titleNode) {
-      const r = titleNode.getBoundingClientRect();
-      const dockW = dock.offsetWidth || 140;
 
-      const pad = 18;          // base gap from title
-      const extraRight = 26;   // requested: more to the RIGHT (premium spacing)
-
-      let x = r.right + pad + extraRight;
-
-      const maxLeft = window.innerWidth - dockW - 10;
-      if (x > maxLeft) x = Math.max(10, maxLeft);
-
-      const y = r.top + (r.height / 2) - (dock.offsetHeight ? dock.offsetHeight / 2 : 18);
-
-      dock.style.left = `${Math.round(x)}px`;
-      dock.style.top = `${Math.round(Math.max(6, y))}px`;
-      dock.style.transform = "none";
-
-      setDockHidden(false);
+    if (!titleNode) {
+      setDockHidden(true);
       return;
     }
 
-    const dockW = dock.offsetWidth || 140;
-    dock.style.left = `${Math.max(10, window.innerWidth - dockW - 10)}px`;
-    dock.style.top = `10px`;
-    dock.style.transform = "none";
+    markHeaderOrbNoPlay(titleNode);
+    setDockPositionNearTitle(titleNode);
     setDockHidden(false);
   }
 
   // ---------------- Tabs + Mode detection ----------------
   function getTopMode() {
-    const nodes = Array.from(document.querySelectorAll("*")).slice(0, 2500);
+    const nodes = Array.from(document.querySelectorAll("*")).slice(0, 3500);
     for (const n of nodes) {
       const t = (n.innerText || "").replace(/\s+/g, " ").trim();
       if (!t) continue;
@@ -427,31 +468,21 @@
           return tx;
         }
       }
-
-      let best = null, bestScore = -1;
-      for (const o of opts) {
-        const cs = window.getComputedStyle(o);
-        const op = parseFloat(cs.opacity || "1");
-        const bg = cs.backgroundColor || "rgba(0,0,0,0)";
-        const hasBg = !bg.endsWith(", 0)") && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent";
-        const score = (op * 10) + (hasBg ? 5 : 0);
-        if (score > bestScore) { bestScore = score; best = o; }
-      }
-      const tx = (best?.textContent || "").trim().toLowerCase();
-      if (tx === "track" || tx === "artist" || tx === "album") return tx;
     }
     return null;
   }
 
-  // (3) Exclude "Session Covers / Mirror / Listening" area from being bound as playable.
   function isSessionCoversArea(node) {
     const root = node?.closest?.("section, article, div") || null;
     const txt = ((root?.innerText || node?.innerText || "")).toUpperCase();
     if (!txt) return false;
     if (txt.includes("SESSION COVERS")) return true;
-    // the panel line that contains MIRROR and LISTENING pills
     if (txt.includes("MIRROR") && txt.includes("LISTENING")) return true;
     return false;
+  }
+
+  function isExplicitNoPlay(node) {
+    return !!(node?.dataset?.spNoPlay === "1" || node?.closest?.("[data-sp-no-play='1']"));
   }
 // ---------------- Resolve + play from lists ----------------
   function extractSpotifyUriFromNode(node) {
@@ -490,12 +521,10 @@
     x = x.replace(/^\d+\.\s+/, "").trim();
     x = x.replace(/\b\d{1,2}\s+[A-Za-z]{3}\s+\d{4}(,\s*\d{2}:\d{2})?\b/gi, "").trim();
     x = x.replace(/\b\d{2}:\d{2}\b/g, "").trim();
-    // remove pure counts like "3" or "12"
     if (/^\d+$/.test(x)) return "";
     return x;
   }
 
-  // Better: pick first two meaningful lines as track/artist, ignoring junk.
   function guessArtistTrackFromRow(row) {
     const ds = row?.dataset || {};
     const a1 = (ds.artist || ds.lastfmArtist || "").trim();
@@ -507,7 +536,6 @@
       .map(cleanLine)
       .filter(Boolean);
 
-    // Filter out obvious UI words
     const filtered = lines.filter(l => {
       const u = l.toUpperCase();
       if (u === "ONLINE") return false;
@@ -532,23 +560,53 @@
     return l1IsCount;
   }
 
-  // Strict sanity: track+artist must exist, and must appear in row text.
-  function canResolve(row, artist, track) {
+  // Strict guard (kept) ONLY for Top lists first item risk.
+  function strictOk(row, artist, track) {
     const a = (artist || "").trim();
     const t = (track || "").trim();
     if (!a || !t) return false;
     if (a.length < 2 || t.length < 2) return false;
 
-    // Hard block the known wrong fallback
+    // hard block known wrong fallback
     if (a.toLowerCase() === "agust d" && t.toLowerCase() === "haegeum") return false;
 
     const rowTxt = ((row?.innerText || "")).toLowerCase();
-    const aOk = rowTxt.includes(a.toLowerCase());
-    const tOk = rowTxt.includes(t.toLowerCase());
-    // If parsing went wrong (common for 1st item), refuse to resolve to avoid backend default.
-    if (!aOk || !tOk) return false;
-
+    if (!rowTxt.includes(a.toLowerCase())) return false;
+    if (!rowTxt.includes(t.toLowerCase())) return false;
     return true;
+  }
+
+  // Relaxed guard for "no artwork" rows: allow resolve even if text truncates,
+  // but still blocks empty/garbage and the known fallback.
+  function relaxedOk(artist, track) {
+    const a = (artist || "").trim();
+    const t = (track || "").trim();
+    if (!a || !t) return false;
+    if (a.length < 2 || t.length < 2) return false;
+    if (a.toLowerCase() === "agust d" && t.toLowerCase() === "haegeum") return false;
+    if (t.endsWith("…") || a.endsWith("…")) return false;
+    return true;
+  }
+
+  function isTopTabActive() {
+    const tabs = Array.from(document.querySelectorAll("button,div,span,a")).slice(0, 2000);
+    for (const n of tabs) {
+      const tx = (n.textContent || "").trim().toLowerCase();
+      if (tx !== "top") continue;
+      const ariaSel = n.getAttribute("aria-selected");
+      const ariaPress = n.getAttribute("aria-pressed");
+      const cls = (n.className || "").toString().toLowerCase();
+      if (ariaSel === "true" || ariaPress === "true" || cls.includes("active") || cls.includes("selected")) return true;
+    }
+    return false;
+  }
+
+  function isLikelyFirstRowInTop(row) {
+    if (!isTopTabActive()) return false;
+    // if it is very high on screen and inside the first list chunk -> high risk case
+    const r = row.getBoundingClientRect?.();
+    if (!r) return false;
+    return r.top >= 0 && r.top < 320;
   }
 
   async function resolveUriForRow(row) {
@@ -557,7 +615,9 @@
 
     const { artist, track } = guessArtistTrackFromRow(row);
 
-    if (!canResolve(row, artist, track)) return "";
+    const strict = isLikelyFirstRowInTop(row);
+    const ok = strict ? strictOk(row, artist, track) : relaxedOk(artist, track);
+    if (!ok) return "";
 
     const q = `${artist} ${track}`.trim();
 
@@ -575,30 +635,31 @@
   function rectIsSquareish(r) {
     if (!r) return false;
     const w = r.width, h = r.height;
-    if (w < 28 || h < 28) return false;
-    if (w > 160 || h > 160) return false;
+    if (w < 24 || h < 24) return false;
+    if (w > 170 || h > 170) return false;
     const ratio = w / h;
     return ratio > 0.72 && ratio < 1.38;
   }
 
+  // Artwork picker: includes placeholder tiles (music note blocks), BUT excludes orb/session covers.
   function getArtworkClickable(row) {
-    // DO NOT bind anything inside session covers/orb area
-    if (isSessionCoversArea(row)) return null;
+    if (isSessionCoversArea(row) || isExplicitNoPlay(row)) return null;
 
     const img = row.querySelector?.("img");
-    if (img) return img;
+    if (img && !isExplicitNoPlay(img)) return img;
 
     const bgCandidates = Array.from(row.querySelectorAll?.("div, span, a") || []);
     for (const n of bgCandidates) {
-      if (isSessionCoversArea(n)) continue;
+      if (isSessionCoversArea(n) || isExplicitNoPlay(n)) continue;
       const st = window.getComputedStyle(n);
       const bg = st?.backgroundImage || "";
       if (bg && bg !== "none" && bg.includes("url(")) return n;
     }
 
+    // Placeholder tile: square-ish block (even if it’s just a note icon)
     const kids = Array.from(row.querySelectorAll?.("div, span") || []);
     for (const n of kids) {
-      if (isSessionCoversArea(n)) continue;
+      if (isSessionCoversArea(n) || isExplicitNoPlay(n)) continue;
       const r = n.getBoundingClientRect?.();
       if (!rectIsSquareish(r)) continue;
       return n;
@@ -614,7 +675,8 @@
   }
 
   function allowedToBindRow(topMode, row) {
-    if (isSessionCoversArea(row)) return false;            // (3) orb/session covers excluded
+    if (isSessionCoversArea(row)) return false;
+    if (isExplicitNoPlay(row)) return false;
     if (topMode === "artist") return false;
     if (looksLikeArtistOnlyRow(row)) return false;
     return true;
@@ -631,12 +693,15 @@
 
       const art = getArtworkClickable(row);
 
+      // Bind artwork click (including placeholder tiles)
       if (art && art.dataset.spBound !== "1") {
         art.dataset.spBound = "1";
         art.classList.add("spArtworkPlayable");
 
         art.addEventListener("click", async (e) => {
           if (e.target && e.target.closest && e.target.closest("#spDock")) return;
+          if (isExplicitNoPlay(e.target) || isSessionCoversArea(e.target)) return;
+
           e.preventDefault(); e.stopPropagation();
           pulse(art);
 
@@ -645,12 +710,15 @@
         }, { passive: false });
       }
 
-      if (!art && row.dataset.spRowBound !== "1") {
+      // Always also bind row click as fallback (helps no-artwork cases where tile is weird)
+      if (row.dataset.spRowBound !== "1") {
         row.dataset.spRowBound = "1";
         row.classList.add("spRowPlayable");
 
         row.addEventListener("click", async (e) => {
           if (e.target && e.target.closest && e.target.closest("#spDock")) return;
+          if (isExplicitNoPlay(e.target) || isSessionCoversArea(e.target)) return;
+
           const tag = (e.target?.tagName || "").toLowerCase();
           if (tag === "button" || tag === "a" || tag === "input") return;
 
@@ -671,7 +739,7 @@
 
     async function tick() {
       ensureDock();
-      positionDock();
+      positionDock(); // now hides dock while scrolling away from header
 
       const linked = !!getToken();
       if (linked !== lastLinked) {

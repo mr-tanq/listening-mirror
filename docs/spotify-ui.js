@@ -1,9 +1,12 @@
-/* spotify-ui.js (FULL REPLACE)
+/* spotify-ui.js (FULL REPLACE - performance fix)
    Fixes:
-   A) Dock locked near "Listening Mirror" title (no floating in scroll)
-   B) HARD: Header/Glyph/Orb can NEVER trigger playback ("Mirror" bug)
-   C) BUT: Orb index/stats MUST still appear (hover + click -> show index)
-   D) Tracks with no artwork can play (placeholder + row fallback + safe resolve)
+   - Removes heavy DOM scanning + per-row binding loops that cause scroll jank/freezes on mobile
+   - Uses event delegation for Recent/Top lists (1 listener each)
+   - Keeps:
+     A) Dock fixed near "Listening Mirror" title
+     B) HARD: Header/Glyph/Orb can NEVER trigger playback
+     C) Orb still opens index/stats (hover/click)
+     D) Tracks with no artwork can still play (row fallback + safe resolve)
 */
 
 (function () {
@@ -124,8 +127,10 @@
   box-shadow: 0 18px 70px rgba(0,0,0,.28);
 }
 
-.spArtworkPlayable{ cursor: pointer !important; border-radius: 12px; }
-.spRowPlayable{ cursor: pointer !important; }
+/* Optional: show clickability without binding a million handlers */
+#recentList .row, #topList .row{ cursor: pointer; }
+#recentList .row button, #topList .row button,
+#recentList .row a, #topList .row a { cursor: default; }
     `.trim();
 
     const style = document.createElement("style");
@@ -150,7 +155,8 @@
       </svg>
     `;
   }
-// ---------------- Spotify Web API ----------------
+
+  // ---------------- Spotify Web API ----------------
   async function spotifyApi(endpoint, method = "GET", body = null) {
     const token = getToken();
     if (!token) return { ok: false, status: 401 };
@@ -175,8 +181,7 @@
     if (!m) return false;
     return !!(await spotifyApi("/me/player/play", "PUT", { uris: [uri] })).ok;
   }
-
-  async function playUri(uri) {
+async function playUri(uri) {
     let r = safeCall("SpotifyPlayer.playUri", uri);
     if (r.ok) return true;
     r = safeCall("SpotifyPlayer.play", { uri });
@@ -350,20 +355,14 @@
   }
 // ---------------- Header / Orb: HARD block playback but KEEP index ----------------
   function findHeaderTitleNode() {
-    const nodes = Array.from(document.querySelectorAll("h1,h2,div,span")).slice(0, 3500);
+    const nodes = Array.from(document.querySelectorAll("h1,h2,div,span")).slice(0, 1200);
     for (const n of nodes) {
       const t = (n.textContent || "").trim();
-      if (t === "Listening Mirror") {
-        const r = n.getBoundingClientRect?.();
-        if (r && r.width > 120 && r.height > 18 && r.bottom > 0 && r.top < window.innerHeight) return n;
-      }
+      if (t === "Listening Mirror") return n;
     }
     for (const n of nodes) {
       const t = (n.textContent || "").trim();
-      if (t.includes("Listening Mirror")) {
-        const r = n.getBoundingClientRect?.();
-        if (r && r.width > 120 && r.height > 18 && r.bottom > 0 && r.top < window.innerHeight) return n;
-      }
+      if (t.includes("Listening Mirror")) return n;
     }
     return null;
   }
@@ -372,34 +371,20 @@
   let LM_ORB_EL = null;
 
   function callIndexOrStats() {
-    // Try a few likely names (no crash)
     const tries = [
-      "openStats",
-      "showStats",
-      "toggleStats",
-      "openIndex",
-      "showIndex",
-      "toggleIndex",
-      "openOrbIndex",
-      "showOrbIndex",
-      "toggleOrbIndex",
-      "openOrbStats",
-      "showOrbStats",
-      "toggleOrbStats",
+      "openStats","showStats","toggleStats",
+      "openIndex","showIndex","toggleIndex",
+      "openOrbIndex","showOrbIndex","toggleOrbIndex",
+      "openOrbStats","showOrbStats","toggleOrbStats",
     ];
     for (const fn of tries) {
       if (typeof window[fn] === "function") {
         try { window[fn](); return true; } catch {}
       }
     }
-    // Also try namespaced
     const nsTries = [
-      "UI.openStats",
-      "UI.showStats",
-      "UI.toggleStats",
-      "ListeningMirror.openStats",
-      "ListeningMirror.showStats",
-      "ListeningMirror.toggleStats",
+      "UI.openStats","UI.showStats","UI.toggleStats",
+      "ListeningMirror.openStats","ListeningMirror.showStats","ListeningMirror.toggleStats",
     ];
     for (const p of nsTries) {
       const r = safeCall(p);
@@ -421,7 +406,7 @@
     if (!container) return null;
 
     const titleRect = titleNode.getBoundingClientRect();
-    const candidates = Array.from(container.querySelectorAll("div,span,button,a")).slice(0, 120);
+    const candidates = Array.from(container.querySelectorAll("div,span,button,a")).slice(0, 140);
 
     let best = null;
     let bestScore = Infinity;
@@ -440,19 +425,14 @@
       const titleMidY = (titleRect.top + titleRect.bottom) / 2;
       const closeY = Math.abs(midY - titleMidY) < 28;
 
-      // usually left of title
-      const leftish = r.right <= titleRect.left + 20;
-
       const cs = window.getComputedStyle(n);
       const br = parseFloat(cs.borderRadius || "0");
       const roundish = br > 12 || cs.borderRadius === "999px";
-
       if (!closeY || !roundish) continue;
 
-      // score by distance to title
       const dx = Math.abs(titleRect.left - r.right);
       const dy = Math.abs(titleMidY - midY);
-      const score = dx + dy * 2 + (leftish ? 0 : 60);
+      const score = dx + dy * 2;
 
       if (score < bestScore) {
         bestScore = score;
@@ -463,7 +443,6 @@
     return best;
   }
 
-  // Install once: BLOCK playback-causing events in header, but KEEP hover behavior
   let blockerInstalled = false;
   function installWindowCaptureBlocker() {
     if (blockerInstalled) return;
@@ -475,12 +454,10 @@
       return LM_HEADER_EL.contains(target);
     };
 
-    // We ONLY block "down/click" (which triggers playback).
-    // We DO NOT block mousemove/hover, so tooltip/index can appear.
     const killDownOrClick = (e) => {
       if (!inHeader(e.target)) return;
 
-      // If it’s the orb specifically: do NOT play; instead show index
+      // Orb: do NOT play; show index/stats
       if (LM_ORB_EL && (e.target === LM_ORB_EL || (e.target.closest && e.target.closest("[data-lm-orb='1']")))) {
         try { e.preventDefault(); } catch {}
         try { e.stopImmediatePropagation(); } catch {}
@@ -489,7 +466,7 @@
         return;
       }
 
-      // For the rest of the header area: just block playback
+      // Rest of header: block playback-triggering events
       try { e.preventDefault(); } catch {}
       try { e.stopImmediatePropagation(); } catch {}
       try { e.stopPropagation(); } catch {}
@@ -508,11 +485,9 @@
     LM_ORB_EL.dataset.spOrbHoverBound = "1";
     LM_ORB_EL.setAttribute("data-lm-orb", "1");
 
-    // Hover should show index (even if app had a tooltip)
     LM_ORB_EL.addEventListener("mouseenter", () => { callIndexOrStats(); }, { passive: true });
     LM_ORB_EL.addEventListener("pointerenter", () => { callIndexOrStats(); }, { passive: true });
 
-    // Click should ALSO show index (and never play)
     LM_ORB_EL.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -563,7 +538,6 @@
 
     if (LM_HEADER_EL) LM_HEADER_EL.setAttribute("data-sp-no-play", "1");
 
-    // Find orb and bind hover -> index
     LM_ORB_EL = findOrbNearTitle(titleNode);
     if (LM_ORB_EL) bindOrbHoverForIndex();
 
@@ -571,16 +545,7 @@
     setDockHidden(false);
   }
 
-  // ---------------- List click-to-play ----------------
-  function isSessionCoversArea(node) {
-    const root = node?.closest?.("section, article, div") || null;
-    const txt = ((root?.innerText || node?.innerText || "")).toUpperCase();
-    if (!txt) return false;
-    if (txt.includes("SESSION COVERS")) return true;
-    if (txt.includes("MIRROR") && txt.includes("LISTENING")) return true;
-    return false;
-  }
-
+  // ---------------- Resolve + delegated click-to-play (FAST) ----------------
   function isExplicitNoPlay(node) {
     return !!(node?.closest?.("[data-sp-no-play='1']"));
   }
@@ -651,42 +616,11 @@
     return { track, artist };
   }
 
-  function looksLikeArtistOnlyRow(row) {
-    const text = (row?.innerText || "").split("\n").map(cleanLine).filter(Boolean);
-    if (!text.length) return true;
-    if (text.length === 1) return true;
-    const l1 = (text[1] || "").trim();
-    const l1IsCount = !!l1 && /^[\d,.\s]+$/.test(l1);
-    return l1IsCount;
-  }
-
-  function isTopTabActive() {
-    const tabs = Array.from(document.querySelectorAll("button,div,span,a")).slice(0, 2000);
-    for (const n of tabs) {
-      const tx = (n.textContent || "").trim().toLowerCase();
-      if (tx !== "top") continue;
-      const ariaSel = n.getAttribute("aria-selected");
-      const ariaPress = n.getAttribute("aria-pressed");
-      const cls = (n.className || "").toString().toLowerCase();
-      if (ariaSel === "true" || ariaPress === "true" || cls.includes("active") || cls.includes("selected")) return true;
-    }
-    return false;
-  }
-
-  function isLikelyFirstRowInTop(row) {
-    if (!isTopTabActive()) return false;
-    const r = row.getBoundingClientRect?.();
-    if (!r) return false;
-    return r.top >= 0 && r.top < 320;
-  }
-
   function strictOk(row, artist, track) {
     const a = (artist || "").trim();
     const t = (track || "").trim();
     if (!a || !t) return false;
     if (a.length < 2 || t.length < 2) return false;
-    if (a.toLowerCase() === "agust d" && t.toLowerCase() === "haegeum") return false;
-
     const rowTxt = ((row?.innerText || "")).toLowerCase();
     if (!rowTxt.includes(a.toLowerCase())) return false;
     if (!rowTxt.includes(t.toLowerCase())) return false;
@@ -698,9 +632,20 @@
     const t = (track || "").trim();
     if (!a || !t) return false;
     if (a.length < 2 || t.length < 2) return false;
-    if (a.toLowerCase() === "agust d" && t.toLowerCase() === "haegeum") return false;
     if (t.endsWith("…") || a.endsWith("…")) return false;
     return true;
+  }
+
+  function isTopTabActive() {
+    const btn = document.querySelector(".tabBtn[data-tab='top'][aria-selected='true']");
+    return !!btn;
+  }
+
+  function isLikelyFirstRowInTop(row) {
+    if (!isTopTabActive()) return false;
+    const r = row.getBoundingClientRect?.();
+    if (!r) return false;
+    return r.top >= 0 && r.top < 320;
   }
 
   async function resolveUriForRow(row) {
@@ -725,137 +670,65 @@
     return "";
   }
 
-  function rectIsSquareish(r) {
-    if (!r) return false;
-    const w = r.width, h = r.height;
-    if (w < 24 || h < 24) return false;
-    if (w > 170 || h > 170) return false;
-    const ratio = w / h;
-    return ratio > 0.72 && ratio < 1.38;
-  }
-
-  function getArtworkClickable(row) {
-    if (isSessionCoversArea(row) || isExplicitNoPlay(row)) return null;
-
-    const img = row.querySelector?.("img");
-    if (img && !isExplicitNoPlay(img)) return img;
-
-    const bgCandidates = Array.from(row.querySelectorAll?.("div, span, a") || []);
-    for (const n of bgCandidates) {
-      if (isSessionCoversArea(n) || isExplicitNoPlay(n)) continue;
-      const st = window.getComputedStyle(n);
-      const bg = st?.backgroundImage || "";
-      if (bg && bg !== "none" && bg.includes("url(")) return n;
-    }
-
-    const kids = Array.from(row.querySelectorAll?.("div, span") || []);
-    for (const n of kids) {
-      if (isSessionCoversArea(n) || isExplicitNoPlay(n)) continue;
-      const rr = n.getBoundingClientRect?.();
-      if (!rectIsSquareish(rr)) continue;
-      return n;
-    }
-    return null;
-  }
-
-  function guessRows() {
-    const li = Array.from(document.querySelectorAll("li"));
-    if (li.length) return li;
-    return Array.from(document.querySelectorAll("div, article, section"))
-      .filter((n) => (n.textContent || "").trim().length > 6);
-  }
-
-  function allowedToBindRow(topMode, row) {
-    if (isSessionCoversArea(row)) return false;
-    if (isExplicitNoPlay(row)) return false;
-    if (topMode === "artist") return false;
-    if (looksLikeArtistOnlyRow(row)) return false;
-    return true;
-  }
-
   function getTopMode() {
-    const nodes = Array.from(document.querySelectorAll("*")).slice(0, 3500);
-    for (const n of nodes) {
-      const t = (n.innerText || "").replace(/\s+/g, " ").trim();
-      if (!t) continue;
-      const lt = t.toLowerCase();
-      if (!(lt.includes("track") && lt.includes("artist") && lt.includes("album"))) continue;
-
-      const opts = Array.from(n.querySelectorAll("button, div, span, a")).filter(x => {
-        const tx = (x.textContent || "").trim().toLowerCase();
-        return tx === "track" || tx === "artist" || tx === "album";
-      });
-
-      for (const o of opts) {
-        const tx = (o.textContent || "").trim().toLowerCase();
-        const ariaSel = o.getAttribute("aria-selected");
-        const ariaPress = o.getAttribute("aria-pressed");
-        const cls = (o.className || "").toString().toLowerCase();
-        if (ariaSel === "true" || ariaPress === "true" || cls.includes("active") || cls.includes("selected")) return tx;
-      }
-    }
-    return null;
+    const sel = document.querySelector("[data-top-type][aria-selected='true']");
+    const t = (sel?.getAttribute?.("data-top-type") || "").trim().toLowerCase();
+    return t || null;
   }
 
-  function attachPlayBindings() {
-    if (!getToken()) return;
-
-    const topMode = getTopMode();
-    const rows = guessRows();
-
-    for (const row of rows) {
-      if (!allowedToBindRow(topMode, row)) continue;
-
-      const art = getArtworkClickable(row);
-
-      if (art && art.dataset.spBound !== "1") {
-        art.dataset.spBound = "1";
-        art.classList.add("spArtworkPlayable");
-
-        art.addEventListener("click", async (e) => {
-          if (e.target && e.target.closest && e.target.closest("#spDock")) return;
-          if (isExplicitNoPlay(e.target) || isSessionCoversArea(e.target)) return;
-
-          e.preventDefault(); e.stopPropagation();
-          pulse(art);
-
-          const uri = await resolveUriForRow(row);
-          if (uri) await playUri(uri);
-        }, { passive: false });
-      }
-
-      if (row.dataset.spRowBound !== "1") {
-        row.dataset.spRowBound = "1";
-        row.classList.add("spRowPlayable");
-
-        row.addEventListener("click", async (e) => {
-          if (e.target && e.target.closest && e.target.closest("#spDock")) return;
-          if (isExplicitNoPlay(e.target) || isSessionCoversArea(e.target)) return;
-
-          const tag = (e.target?.tagName || "").toLowerCase();
-          if (tag === "button" || tag === "a" || tag === "input") return;
-
-          e.preventDefault(); e.stopPropagation();
-          pulse(row);
-
-          const uri = await resolveUriForRow(row);
-          if (uri) await playUri(uri);
-        }, { passive: false });
-      }
-    }
+  function looksLikeArtistOnlyRow(row) {
+    const text = (row?.innerText || "").split("\n").map(cleanLine).filter(Boolean);
+    if (!text.length) return true;
+    if (text.length === 1) return true;
+    const l1 = (text[1] || "").trim();
+    const l1IsCount = !!l1 && /^[\d,.\s]+$/.test(l1);
+    return l1IsCount;
   }
 
-  // ---------------- Throttled loops ----------------
+  function shouldIgnoreClickTarget(t) {
+    const tag = (t?.tagName || "").toLowerCase();
+    if (tag === "button" || tag === "a" || tag === "input" || tag === "textarea" || tag === "select") return true;
+    if (t?.closest?.("#spDock")) return true;
+    return false;
+  }
+
+  function installDelegatedListHandler(listEl, which) {
+    if (!listEl || listEl.dataset.spDelegated === "1") return;
+    listEl.dataset.spDelegated = "1";
+
+    listEl.addEventListener("click", async (e) => {
+      if (!getToken()) return;
+      if (isExplicitNoPlay(e.target)) return;
+      if (shouldIgnoreClickTarget(e.target)) return;
+
+      // our UI rows in your app use ".row"
+      const row = e.target?.closest?.(".row");
+      if (!row) return;
+
+      // Top->Artist mode should not play
+      if (which === "top") {
+        const mode = getTopMode();
+        if (mode === "artist") return;
+        if (looksLikeArtistOnlyRow(row)) return;
+      }
+
+      e.preventDefault();
+      e.stopPropagation();
+      pulse(row);
+
+      const uri = await resolveUriForRow(row);
+      if (uri) await playUri(uri);
+    }, { passive: false });
+  }
+
+  // ---------------- Polling (light) ----------------
   let lastLinked = null;
   let lastPlaying = null;
-  let pollTimer = null;
-  let bindTimer = null;
 
   async function pollPlaybackOnce() {
     ensureDock();
-    positionDock();
-
     const linked = !!getToken();
+
     if (linked !== lastLinked) {
       setIndicatorLinked(linked);
       setEnabled(linked);
@@ -876,32 +749,46 @@
     }
   }
 
-  function startLoops() {
-    stopLoops();
-    pollTimer = setInterval(() => { pollPlaybackOnce().catch(() => {}); }, 1200);
-    bindTimer = setInterval(() => { try { attachPlayBindings(); } catch {} }, 700);
-    pollPlaybackOnce().catch(() => {});
-    try { attachPlayBindings(); } catch {}
-  }
-
-  function stopLoops() {
-    if (pollTimer) clearInterval(pollTimer);
-    if (bindTimer) clearInterval(bindTimer);
-    pollTimer = null;
-    bindTimer = null;
-  }
+  // ---------------- Boot ----------------
+  let pollTimer = null;
 
   function boot() {
     ensureDock();
+    positionDock();
 
+    // Only 1 light poll loop
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(() => { pollPlaybackOnce().catch(() => {}); }, 1500);
+    pollPlaybackOnce().catch(() => {});
+
+    // Delegated handlers (NO loops, NO scanning)
+    installDelegatedListHandler(document.getElementById("recentList"), "recent");
+    installDelegatedListHandler(document.getElementById("topList"), "top");
+
+    // Reposition dock on resize + on scroll (throttled via rAF)
+    let raf = 0;
+    const schedulePos = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        try { positionDock(); } catch {}
+      });
+    };
+    window.addEventListener("resize", schedulePos, { passive: true });
+    window.addEventListener("scroll", schedulePos, { passive: true });
+
+    // MutationObserver: DO NOT do heavy work; only re-run tiny stuff (dock position + make sure delegation exists)
+    let moRaf = 0;
     const mo = new MutationObserver(() => {
-      ensureDock();
-      positionDock();
-      try { attachPlayBindings(); } catch {}
+      if (moRaf) return;
+      moRaf = requestAnimationFrame(() => {
+        moRaf = 0;
+        try { positionDock(); } catch {}
+        installDelegatedListHandler(document.getElementById("recentList"), "recent");
+        installDelegatedListHandler(document.getElementById("topList"), "top");
+      });
     });
     mo.observe(document.documentElement, { subtree: true, childList: true });
-
-    startLoops();
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);

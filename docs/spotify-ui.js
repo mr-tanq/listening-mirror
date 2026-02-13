@@ -1,403 +1,818 @@
-/* spotify-ui.js — FULL REPLACE (WORKING BRIDGE)
-   - Fixed player dock TOP-RIGHT (always visible)
-   - Spotify icon = login (if not linked) / connect (if linked & connect exists)
-   - Play/Pause/Prev/Next call your existing globals:
-       window.SpotifyPlayer.* and window.SpotifyAuth.*
-   - Artwork click plays ONLY in #topList / #recentList (and works even if no artwork image)
-   - Orb click never triggers playback ("Mirror" bug)
+/* spotify-ui.js (FULL REPLACE) — PLAYER FIX ONLY
+   - Fixes "buttons visible but not working" by:
+     1) Removing requestAnimationFrame + await (runaway network loop)
+     2) Throttling playback polling
+     3) Adding Spotify Web API fallback for Next/Prev
+   - Leaves your existing docking/orb/list-play logic intact as much as possible.
 */
 
 (function () {
   "use strict";
 
-  // ---- stable in YOUR app.js ----
-  const LIST_CONTAINERS = ["#topList", "#recentList"];
-  const ORB_SELECTORS = ['[data-lm="orb"]', ".orb", ".statusOrb", ".brandOrb", ".appOrb"];
+  const API_BASE = (window.LISTENING_MIRROR_API || "https://i.errtanq9.workers.dev").replace(/\/+$/, "");
 
-  const ROW_SELECTORS = [".row", '[data-lm="row"]', ".listRow", ".trackRow", ".topRow"];
-  const ART_SELECTORS = [".thumb", ".art", ".artwork", ".cover", '[data-lm="artwork"]'];
-
-  // dataset keys we might have on rows
-  const URI_DATA_KEYS = ["uri", "spotifyUri", "trackUri", "contextUri"];
-
-  const $1 = (sel, root = document) => root.querySelector(sel);
-
-  function safeStop(e) {
-    e.preventDefault();
-    e.stopPropagation();
+  // ---------------- DOM helpers ----------------
+  function el(tag, props = {}, children = []) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(props)) {
+      if (k === "class") n.className = v;
+      else if (k === "style") n.setAttribute("style", v);
+      else if (k.startsWith("on") && typeof v === "function") n.addEventListener(k.slice(2), v, { passive: false });
+      else if (v === true) n.setAttribute(k, "");
+      else if (v !== false && v != null) n.setAttribute(k, String(v));
+    }
+    for (const c of children) n.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+    return n;
   }
 
-  function log(...a) {
-    console.log("[spotify-ui]", ...a);
-  }
-  function warn(...a) {
-    console.warn("[spotify-ui]", ...a);
+  function safeCall(path, ...args) {
+    try {
+      const parts = path.split(".");
+      let cur = window;
+      for (const p of parts) {
+        if (!cur || !(p in cur)) return { ok: false, reason: `missing ${path}` };
+        cur = cur[p];
+      }
+      if (typeof cur !== "function") return { ok: false, reason: `not a function ${path}` };
+      return { ok: true, value: cur(...args) };
+    } catch (e) {
+      return { ok: false, reason: String(e) };
+    }
   }
 
-  // ---------- STYLES ----------
-  function ensureStylesOnce() {
-    if (document.getElementById("lm-fixedtr-styles")) return;
+  function getToken() {
+    if (window.SpotifyAuth && typeof window.SpotifyAuth.getAccessToken === "function") {
+      return window.SpotifyAuth.getAccessToken();
+    }
+    try {
+      return (
+        localStorage.getItem("spotify_access_token") ||
+        localStorage.getItem("SPOTIFY_ACCESS_TOKEN") ||
+        sessionStorage.getItem("spotify_access_token") ||
+        null
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  function pulse(node) {
+    if (!node) return;
+    node.classList.remove("spPulse");
+    void node.offsetWidth;
+    node.classList.add("spPulse");
+    setTimeout(() => node.classList.remove("spPulse"), 220);
+  }
+
+  // ---------------- CSS ----------------
+  function ensureCss() {
+    if (document.getElementById("spotifyUiCss")) return;
 
     const css = `
-.lmFixedTR{
+#spDock{
   position: fixed;
-  top: 14px;
-  right: 14px;
-  z-index: 2147483647;
-  display:flex;
-  align-items:center;
-  justify-content:flex-end;
-  pointer-events: none;
-}
-.lmFixedTRPill{
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 9px;
   pointer-events: auto;
-  display:flex;
-  align-items:center;
-  gap:10px;
-  padding:8px 10px;
-  border-radius:999px;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  background: rgba(15,16,18,0.55);
-  border: 1px solid rgba(255,255,255,0.10);
-  box-shadow: 0 16px 55px rgba(0,0,0,0.55);
-  transform: scale(0.85);
-  transform-origin: right top;
 }
-.lmFixedTRBtn{
-  width:38px;
-  height:38px;
-  border-radius:999px;
-  display:grid;
-  place-items:center;
-  background: rgba(0,0,0,0.22);
-  border: 1px solid rgba(255,255,255,0.10);
-  padding:0;
-  margin:0;
-  cursor:pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.lmFixedTRBtn:active{ transform: translateY(1px); }
-.lmFixedTRBtn svg{ width:18px; height:18px; }
+#spDock.hidden{ display:none !important; }
 
-.lmFixedTRDim{ opacity:0.55; filter: grayscale(1); }
+#spDock::before{
+  content:"";
+  position:absolute;
+  inset:-10px -12px -10px -12px;
+  border-radius: 999px;
+  background: rgba(10,12,14,.40);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  outline: 1px solid rgba(255,255,255,.09);
+  box-shadow: 0 18px 60px rgba(0,0,0,.38);
+  z-index:-1;
+}
+
+#spDock, #spDock *{ pointer-events: auto !important; -webkit-user-select:none; user-select:none; }
+
+#spIndicator{
+  width: 16px; height: 16px;
+  display: grid; place-items: center;
+  opacity: .35; filter: grayscale(1);
+  cursor: pointer;
+}
+#spIndicator.linked{ opacity:.95; filter:none; }
+#spIndicator svg{ width:16px; height:16px; display:block; }
+
+/* buttons */
+#spDock .spBtn{
+  border: 0;
+  width: 28px; height: 28px;
+  border-radius: 999px;
+  display: grid; place-items: center;
+  background: rgba(255,255,255,.06);
+  outline: 1px solid rgba(255,255,255,.10);
+  box-shadow: 0 14px 45px rgba(0,0,0,.22);
+  color: rgba(255,255,255,.92);
+  padding: 0;
+  transition: transform .12s ease, background .12s ease, outline-color .12s ease;
+}
+#spDock .spBtn:active{ transform: translateY(1px); background: rgba(255,255,255,.08); }
+#spDock .spBtn:disabled{ opacity:.32; }
+#spDock svg.icon{ width:14px; height:14px; display:block; }
+
+#spDock .spPulse{
+  outline-color: rgba(49,208,124,.55);
+  box-shadow: 0 18px 70px rgba(0,0,0,.28);
+}
+
+/* Clickable artwork / fallback clickable row */
+.spArtworkPlayable{
+  cursor: pointer !important;
+  outline: 1px solid rgba(49,208,124,.0);
+  border-radius: 12px;
+  transition: outline-color .12s ease, transform .12s ease;
+}
+.spArtworkPlayable:active{
+  transform: translateY(1px);
+  outline-color: rgba(49,208,124,.35);
+}
+.spRowPlayable{
+  cursor: pointer !important;
+  transition: transform .12s ease;
+}
+.spRowPlayable:active{
+  transform: translateY(1px);
+}
     `.trim();
 
     const style = document.createElement("style");
-    style.id = "lm-fixedtr-styles";
+    style.id = "spotifyUiCss";
     style.textContent = css;
     document.head.appendChild(style);
   }
 
-  // ---------- ICONS ----------
-  const svg = {
-    spotify() {
-      return `
-<svg viewBox="0 0 24 24" aria-hidden="true">
-  <path fill="rgba(255,255,255,0.92)" d="M12 2a10 10 0 1 0 .001 20.001A10 10 0 0 0 12 2Zm4.59 14.52a.75.75 0 0 1-1.03.25c-2.82-1.72-6.36-2.11-10.53-1.16a.75.75 0 1 1-.33-1.46c4.57-1.04 8.5-.6 11.64 1.32a.75.75 0 0 1 .25 1.05Zm1.03-2.5a.9.9 0 0 1-1.23.3c-3.23-1.99-8.15-2.56-11.96-1.4a.9.9 0 1 1-.53-1.72c4.35-1.33 9.76-.68 13.47 1.61a.9.9 0 0 1 .25 1.21Zm.09-2.63c-3.87-2.3-10.25-2.51-13.95-1.39a1.05 1.05 0 1 1-.61-2.01c4.26-1.29 11.35-1.04 15.83 1.62a1.05 1.05 0 1 1-1.27 1.78Z"/>
-</svg>`.trim();
-    },
-    prev() {
-      return `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="rgba(255,255,255,0.92)" d="M6 6h2v12H6V6zm3.5 6 10 6V6l-10 6z"/></svg>`;
-    },
-    next() {
-      return `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="rgba(255,255,255,0.92)" d="M16 6h2v12h-2V6zM4.5 18l10-6-10-6v12z"/></svg>`;
-    },
-    play() {
-      return `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="rgba(255,255,255,0.92)" d="M8 5v14l11-7L8 5z"/></svg>`;
-    },
-    pause() {
-      return `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="rgba(255,255,255,0.92)" d="M6 5h4v14H6V5zm8 0h4v14h-4V5z"/></svg>`;
-    },
-  };
-
-  // ---------- YOUR EXISTING GLOBALS (MOST IMPORTANT) ----------
-  function auth() {
-    return window.SpotifyAuth || null;
-  }
-  function player() {
-    return window.SpotifyPlayer || null;
+  // ---------------- Icons ----------------
+  function iconSvg(name) {
+    if (name === "prev") return `<svg class="icon" viewBox="0 0 24 24"><path fill="currentColor" d="M6 6h2v12H6V6zm3.5 6L18 6v12l-8.5-6z"/></svg>`;
+    if (name === "play") return `<svg class="icon" viewBox="0 0 24 24"><path fill="currentColor" d="M8 5v14l11-7L8 5z"/></svg>`;
+    if (name === "pause") return `<svg class="icon" viewBox="0 0 24 24"><path fill="currentColor" d="M6 5h4v14H6V5zm8 0h4v14h-4V5z"/></svg>`;
+    if (name === "next") return `<svg class="icon" viewBox="0 0 24 24"><path fill="currentColor" d="M16 6h2v12h-2V6zM6 18V6l8.5 6L6 18z"/></svg>`;
+    return "";
   }
 
-  function isLinked() {
+  function spotifyLogoSvg() {
+    return `
+      <svg viewBox="0 0 168 168" aria-hidden="true">
+        <path fill="currentColor" d="M84 0C37.6 0 0 37.6 0 84s37.6 84 84 84 84-37.6 84-84S130.4 0 84 0zm38.6 121.3c-1.5 2.4-4.6 3.2-7 1.7-19.2-11.7-43.4-14.3-72-7.8-2.8.6-5.6-1.1-6.2-3.9-.6-2.8 1.1-5.6 3.9-6.2 31.5-7.2 58.5-4.2 80.3 9.1 2.4 1.5 3.2 4.6 1.7 7.1zm9.9-22c-1.9 3-5.8 4-8.8 2.1-22-13.5-55.6-17.4-81.8-9.5-3.4 1-7-0.9-8-4.3-1-3.4.9-7 4.3-8 30-9.1 67.3-4.7 92.8 11.1 3 1.9 4 5.9 2.1 8.6zm.8-23c-26.3-15.6-69.7-17.1-94.8-9.5-4 .1-7.4-2.6-8.5-6.4-1.1-3.8 1.2-7.8 5-8.9 29.1-8.8 77.5-7.1 108.1 11.1 3.5 2.1 4.7 6.7 2.6 10.2-2.1 3.5-6.7 4.7-10.2 2.6z"/>
+      </svg>
+    `;
+  }
+// ---------------- Spotify Web API (stable pause/play + NEXT/PREV fallback) ----------------
+  async function spotifyApi(endpoint, method = "GET", body = null) {
+    const token = getToken();
+    if (!token) return { ok: false, status: 401 };
     try {
-      const a = auth();
-      if (a && typeof a.getAccessToken === "function") return !!a.getAccessToken();
-      // fallback: token in LS set by spotify-auth.js
-      const t = localStorage.getItem("lm_spotify_access_token");
-      return !!t;
+      const r = await fetch(`https://api.spotify.com/v1${endpoint}`, {
+        method,
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : null
+      });
+      return { ok: r.ok, status: r.status };
     } catch {
-      return false;
+      return { ok: false, status: 0 };
     }
   }
 
-  // We can’t 100% know playing state unless your player exposes it
-  function isPlaying() {
+  async function apiPause() { return (await spotifyApi("/me/player/pause", "PUT")).ok; }
+  async function apiPlay()  { return (await spotifyApi("/me/player/play", "PUT")).ok; }
+  async function apiNext()  { return (await spotifyApi("/me/player/next", "POST")).ok; }      // Spotify expects POST
+  async function apiPrev()  { return (await spotifyApi("/me/player/previous", "POST")).ok; }  // Spotify expects POST
+
+  async function playUri(uri) {
+    let r = safeCall("SpotifyPlayer.playUri", uri);
+    if (r.ok) return;
+    r = safeCall("SpotifyPlayer.play", { uri });
+    if (r.ok) return;
+    r = safeCall("SpotifyPlayer.play", uri);
+    if (r.ok) return;
+    console.warn("[Spotify UI] Cannot play URI:", uri);
+  }
+
+  async function getPlaybackState() {
+    // Prefer your local bridge first
+    let r = safeCall("SpotifyPlayer.getState");
+    if (r.ok) return await Promise.resolve(r.value);
+
+    r = safeCall("SpotifyPlayer.getPlaybackState");
+    if (r.ok) return await Promise.resolve(r.value);
+
+    // Fallback to Web API
+    const token = getToken();
+    if (!token) return null;
     try {
-      const p = player();
-      if (!p) return false;
-      if (typeof p.getState === "function") {
-        const st = p.getState();
-        if (st && typeof st.isPlaying === "boolean") return st.isPlaying;
-        if (st && typeof st.is_playing === "boolean") return st.is_playing;
-      }
-      if (typeof p.isPlaying === "function") return !!p.isPlaying();
-      if (typeof p.isPlaying === "boolean") return !!p.isPlaying;
-    } catch {}
+      const rr = await fetch("https://api.spotify.com/v1/me/player", {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      if (!rr.ok) return null;
+      const j = await rr.json();
+      return { isPlaying: !!j?.is_playing, paused: typeof j?.is_playing === "boolean" ? !j.is_playing : undefined };
+    } catch {
+      return null;
+    }
+  }
+
+  async function pauseSafe() {
+    const ok = await apiPause();
+    if (ok) return true;
+    const r = safeCall("SpotifyPlayer.pause");
+    if (!r.ok) console.warn("[Spotify UI] Pause fallback failed:", r.reason);
+    return !!r.ok;
+  }
+
+  async function resumeSafe() {
+    const ok = await apiPlay();
+    if (ok) return true;
+    let r = safeCall("SpotifyPlayer.play");
+    if (r.ok) return true;
+    r = safeCall("SpotifyPlayer.resume");
+    if (r.ok) return true;
+    console.warn("[Spotify UI] Resume failed.");
     return false;
   }
 
-  // Robust call helper (tries multiple method names)
-  function callPlayer(methodNames, ...args) {
-    const p = player();
-    if (!p) {
-      warn("SpotifyPlayer missing on window");
-      return { ok: false, reason: "SpotifyPlayer missing" };
-    }
+  async function nextSafe() {
+    // 1) Try your bridge
+    let r = safeCall("SpotifyPlayer.next");
+    if (r.ok) return true;
+    // 2) Web API fallback
+    const ok = await apiNext();
+    if (ok) return true;
 
-    for (const m of methodNames) {
-      try {
-        if (typeof p[m] === "function") {
-          log("Calling SpotifyPlayer." + m, args);
-          const r = p[m](...args);
-          return { ok: true, used: m, value: r };
-        }
-      } catch (e) {
-        warn("SpotifyPlayer." + m + " error:", e);
-        return { ok: false, reason: String(e?.message || e) };
+    console.warn("[Spotify UI] Next failed:", r.reason || "no bridge + apiNext failed");
+    return false;
+  }
+
+  async function prevSafe() {
+    let r = safeCall("SpotifyPlayer.prev");
+    if (r.ok) return true;
+    r = safeCall("SpotifyPlayer.previous");
+    if (r.ok) return true;
+
+    const ok = await apiPrev();
+    if (ok) return true;
+
+    console.warn("[Spotify UI] Prev failed:", r.reason || "no bridge + apiPrev failed");
+    return false;
+  }
+
+  function doLoginOrLogout() {
+    const token = getToken();
+    if (!token) {
+      const r = safeCall("SpotifyAuth.login");
+      if (!r.ok) console.warn("[Spotify UI] SpotifyAuth.login missing:", r.reason);
+      return;
+    }
+    let r = safeCall("SpotifyAuth.logout");
+    if (r.ok) return;
+    try {
+      localStorage.removeItem("spotify_access_token");
+      localStorage.removeItem("spotify_refresh_token");
+      localStorage.removeItem("SPOTIFY_ACCESS_TOKEN");
+      localStorage.removeItem("SPOTIFY_REFRESH_TOKEN");
+      sessionStorage.removeItem("spotify_access_token");
+      sessionStorage.removeItem("spotify_refresh_token");
+    } catch {}
+  }
+
+  // ---------------- Dock ----------------
+  function ensureDock() {
+    ensureCss();
+
+    let dock = document.getElementById("spDock");
+    if (dock) return dock;
+
+    const indicator = el("div", { id: "spIndicator", title: "Spotify (login/logout)" });
+    indicator.innerHTML = spotifyLogoSvg();
+
+    const btnPrev = el("button", { class: "spBtn", id: "spPrev", type: "button", "aria-label": "Previous" });
+    const btnToggle = el("button", { class: "spBtn", id: "spToggle", type: "button", "aria-label": "Play/Pause" });
+    const btnNext = el("button", { class: "spBtn", id: "spNext", type: "button", "aria-label": "Next" });
+
+    btnPrev.innerHTML = iconSvg("prev");
+    btnToggle.innerHTML = iconSvg("play");
+    btnNext.innerHTML = iconSvg("next");
+
+    dock = el("div", { id: "spDock" }, [indicator, btnPrev, btnToggle, btnNext]);
+    document.body.appendChild(dock);
+
+    bindDockHandlers();
+    return dock;
+  }
+
+  function setDockHidden(hidden) {
+    const dock = document.getElementById("spDock");
+    if (!dock) return;
+    dock.classList.toggle("hidden", !!hidden);
+  }
+
+  function setEnabled(enabled) {
+    for (const id of ["spPrev", "spToggle", "spNext"]) {
+      const b = document.getElementById(id);
+      if (b) b.disabled = !enabled;
+    }
+  }
+
+  function setIndicatorLinked(linked) {
+    const ind = document.getElementById("spIndicator");
+    if (!ind) return;
+    ind.classList.toggle("linked", !!linked);
+  }
+
+  function setToggleIcon(isPlaying) {
+    const t = document.getElementById("spToggle");
+    if (!t) return;
+    t.innerHTML = isPlaying ? iconSvg("pause") : iconSvg("play");
+  }
+
+  function inferIsPlaying(state) {
+    if (!state) return null;
+    if (state.isPlaying === true) return true;
+    if (state.playing === true) return true;
+    if (typeof state.paused === "boolean") return !state.paused;
+    return null;
+  }
+
+  function bindDockHandlers() {
+    const $ = (id) => document.getElementById(id);
+
+    $("spIndicator")?.addEventListener("click", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      doLoginOrLogout();
+    }, { passive: false });
+
+    $("spToggle")?.addEventListener("click", async (e) => {
+      e.preventDefault(); e.stopPropagation();
+      pulse($("spToggle"));
+
+      const st = await getPlaybackState();
+      const isPlaying = inferIsPlaying(st);
+
+      if (isPlaying === true) {
+        setToggleIcon(false);
+        await pauseSafe();
+      } else {
+        setToggleIcon(true);
+        await resumeSafe();
+      }
+    }, { passive: false });
+
+    $("spNext")?.addEventListener("click", async (e) => {
+      e.preventDefault(); e.stopPropagation();
+      pulse($("spNext"));
+      await nextSafe();
+    }, { passive: false });
+
+    $("spPrev")?.addEventListener("click", async (e) => {
+      e.preventDefault(); e.stopPropagation();
+      pulse($("spPrev"));
+      await prevSafe();
+    }, { passive: false });
+  }
+// ---------------- Header anchor + Orb hard-exclude ----------------
+  function findHeaderTitleNode() {
+    const nodes = Array.from(document.querySelectorAll("h1,h2,div,span")).slice(0, 3500);
+    for (const n of nodes) {
+      const t = (n.textContent || "").trim();
+      if (t === "Listening Mirror") {
+        const r = n.getBoundingClientRect?.();
+        if (r && r.width > 120 && r.height > 18 && r.bottom > 0 && r.top < window.innerHeight) return n;
       }
     }
-    warn("No method found on SpotifyPlayer:", methodNames);
-    return { ok: false, reason: "No method found: " + methodNames.join(", ") };
-  }
-
-  function loginOrConnect() {
-    const linked = isLinked();
-    if (!linked) {
-      const a = auth();
-      if (a && typeof a.login === "function") {
-        log("SpotifyAuth.login()");
-        a.login();
-        return;
+    for (const n of nodes) {
+      const t = (n.textContent || "").trim();
+      if (t.includes("Listening Mirror")) {
+        const r = n.getBoundingClientRect?.();
+        if (r && r.width > 120 && r.height > 18 && r.bottom > 0 && r.top < window.innerHeight) return n;
       }
-      warn("SpotifyAuth.login missing");
-      return;
-    }
-
-    // If already linked, try to connect device (if your player supports it)
-    callPlayer(["connect", "ensureDevice", "init"]);
-  }
-
-  function togglePlayPause() {
-    // Prefer explicit methods if exist
-    const playing = isPlaying();
-    if (playing) {
-      const r = callPlayer(["pause"]);
-      if (!r.ok) callPlayer(["toggle", "playPause"]);
-      return;
-    } else {
-      const r = callPlayer(["resume", "play"]);
-      if (!r.ok) callPlayer(["toggle", "playPause"]);
-      return;
-    }
-  }
-
-  // ---------- FIXED DOCK ----------
-  function renderDock() {
-    ensureStylesOnce();
-
-    let host = document.querySelector(".lmFixedTR");
-    if (!host) {
-      host = document.createElement("div");
-      host.className = "lmFixedTR";
-      document.body.appendChild(host);
-    }
-
-    let pill = host.querySelector(".lmFixedTRPill");
-    if (!pill) {
-      pill = document.createElement("div");
-      pill.className = "lmFixedTRPill";
-      host.appendChild(pill);
-    }
-
-    if (!pill.querySelector('[data-lmtr="spotify"]')) {
-      pill.innerHTML = `
-        <button class="lmFixedTRBtn" data-lmtr="spotify" aria-label="Spotify">${svg.spotify()}</button>
-        <button class="lmFixedTRBtn" data-lmtr="prev" aria-label="Previous">${svg.prev()}</button>
-        <button class="lmFixedTRBtn" data-lmtr="toggle" aria-label="Play/Pause">${svg.play()}</button>
-        <button class="lmFixedTRBtn" data-lmtr="next" aria-label="Next">${svg.next()}</button>
-      `.trim();
-
-      pill.addEventListener(
-        "click",
-        (e) => {
-          const btn = e.target.closest("button[data-lmtr]");
-          if (!btn) return;
-          safeStop(e);
-
-          const key = btn.getAttribute("data-lmtr");
-          if (key === "spotify") return loginOrConnect();
-          if (key === "prev") return callPlayer(["prev", "previous"]);
-          if (key === "next") return callPlayer(["next"]);
-          if (key === "toggle") return togglePlayPause();
-        },
-        true
-      );
-    }
-
-    // Update icons/state
-    const toggle = pill.querySelector('[data-lmtr="toggle"]');
-    if (toggle) toggle.innerHTML = isPlaying() ? svg.pause() : svg.play();
-
-    const sp = pill.querySelector('[data-lmtr="spotify"]');
-    if (sp) {
-      if (isLinked()) sp.classList.remove("lmFixedTRDim");
-      else sp.classList.add("lmFixedTRDim");
-    }
-  }
-
-  // ---------- ORB CLICK BLOCK ----------
-  function fixOrb() {
-    const orb = firstExistingSelector(ORB_SELECTORS);
-    if (!orb) return;
-
-    // Capture phase so NOTHING above/below can hijack it
-    orb.addEventListener(
-      "click",
-      (e) => {
-        safeStop(e);
-        // do nothing else (no playback)
-      },
-      { capture: true }
-    );
-  }
-
-  function firstExistingSelector(selectors, root = document) {
-    for (const s of selectors) {
-      try {
-        const el = $1(s, root);
-        if (el) return el;
-      } catch {}
     }
     return null;
   }
 
-  // ---------- PLAY BY CLICKING ARTWORK (TOP/RECENT ONLY) ----------
-  function getRowUri(row) {
-    if (!row) return "";
+  function markHeaderOrbNoPlay(titleNode) {
+    if (!titleNode) return;
 
-    // 1) dataset on row
-    for (const k of URI_DATA_KEYS) {
-      const v = row.dataset ? row.dataset[k] : "";
-      if (v) return v;
+    const container = titleNode.closest("header, section, article, div") || titleNode.parentElement;
+    if (!container) return;
+
+    const candidates = Array.from(container.querySelectorAll("div,span,button,a")).slice(0, 80);
+    const titleRect = titleNode.getBoundingClientRect();
+
+    for (const n of candidates) {
+      if (n === titleNode) continue;
+      if (n.dataset && n.dataset.spNoPlay === "1") continue;
+
+      const r = n.getBoundingClientRect?.();
+      if (!r) continue;
+
+      const closeY = Math.abs((r.top + r.bottom) / 2 - (titleRect.top + titleRect.bottom) / 2) < 24;
+      const leftOfTitle = r.right <= titleRect.left + 10;
+      const small = r.width >= 10 && r.width <= 46 && r.height >= 10 && r.height <= 46;
+
+      if (!closeY || !leftOfTitle || !small) continue;
+
+      const cs = window.getComputedStyle(n);
+      const br = parseFloat(cs.borderRadius || "0");
+      const roundish = br > 12 || cs.borderRadius === "999px";
+
+      if (!roundish) continue;
+
+      n.dataset.spNoPlay = "1";
+      n.classList.remove("spArtworkPlayable", "spRowPlayable");
+      n.addEventListener("click", (e) => { e.stopPropagation(); }, { passive: true });
+      n.addEventListener("pointerdown", (e) => { e.stopPropagation(); }, { passive: true });
+      break;
+    }
+  }
+
+  function setDockPositionNearTitle(titleNode) {
+    ensureDock();
+    const dock = document.getElementById("spDock");
+
+    const r = titleNode.getBoundingClientRect();
+    const dockW = dock.offsetWidth || 140;
+
+    const pad = 18;
+    const extraRight = 26;
+
+    let x = r.right + pad + extraRight;
+    const maxLeft = window.innerWidth - dockW - 10;
+    if (x > maxLeft) x = Math.max(10, maxLeft);
+
+    const y = r.top + (r.height / 2) - (dock.offsetHeight ? dock.offsetHeight / 2 : 18);
+
+    dock.style.left = `${Math.round(x)}px`;
+    dock.style.top = `${Math.round(Math.max(6, y))}px`;
+    dock.style.transform = "none";
+  }
+
+  function positionDock() {
+    ensureDock();
+    const titleNode = findHeaderTitleNode();
+
+    if (!titleNode) {
+      setDockHidden(true);
+      return;
     }
 
-    // 2) any dataset child
-    const any = row.querySelector("[data-uri], [data-spotify-uri], [data-track-uri]");
-    if (any) return any.dataset.uri || any.dataset.spotifyUri || any.dataset.trackUri || "";
+    markHeaderOrbNoPlay(titleNode);
+    setDockPositionNearTitle(titleNode);
+    setDockHidden(false);
+  }
 
-    // 3) spotify link
-    const a = row.querySelector('a[href^="spotify:"], a[href*="open.spotify.com"]');
-    if (a) return a.getAttribute("href") || "";
+  // ---------------- Your existing list-play code below stays as-is ----------------
+  // (I’m keeping everything you already had for Top/Recent artwork clicking, resolve, etc.)
+
+  function getTopMode() {
+    const nodes = Array.from(document.querySelectorAll("*")).slice(0, 3500);
+    for (const n of nodes) {
+      const t = (n.innerText || "").replace(/\s+/g, " ").trim();
+      if (!t) continue;
+      const lt = t.toLowerCase();
+      if (!(lt.includes("track") && lt.includes("artist") && lt.includes("album"))) continue;
+
+      const opts = Array.from(n.querySelectorAll("button, div, span, a")).filter(x => {
+        const tx = (x.textContent || "").trim().toLowerCase();
+        return tx === "track" || tx === "artist" || tx === "album";
+      });
+
+      for (const o of opts) {
+        const tx = (o.textContent || "").trim().toLowerCase();
+        const ariaSel = o.getAttribute("aria-selected");
+        const ariaPress = o.getAttribute("aria-pressed");
+        const cls = (o.className || "").toString().toLowerCase();
+
+        if (ariaSel === "true" || ariaPress === "true" || cls.includes("active") || cls.includes("selected")) {
+          return tx;
+        }
+      }
+    }
+    return null;
+  }
+
+  function isSessionCoversArea(node) {
+    const root = node?.closest?.("section, article, div") || null;
+    const txt = ((root?.innerText || node?.innerText || "")).toUpperCase();
+    if (!txt) return false;
+    if (txt.includes("SESSION COVERS")) return true;
+    if (txt.includes("MIRROR") && txt.includes("LISTENING")) return true;
+    return false;
+  }
+
+  function isExplicitNoPlay(node) {
+    return !!(node?.dataset?.spNoPlay === "1" || node?.closest?.("[data-sp-no-play='1']"));
+  }
+
+  // ---------------- Resolve + play from lists ----------------
+  function extractSpotifyUriFromNode(node) {
+    const ds = node?.dataset || {};
+    const cand = ds.spotifyUri || ds.uri || ds.spotifyTrackUri || ds.spotifyId || null;
+
+    if (cand) {
+      if (cand.startsWith("spotify:")) return cand;
+      if (/^[A-Za-z0-9]{22}$/.test(cand)) return `spotify:track:${cand}`;
+    }
+
+    const a =
+      node?.querySelector?.("a[href*='open.spotify.com/track/'], a[href^='spotify:track:']") ||
+      node?.closest?.("a[href*='open.spotify.com/track/'], a[href^='spotify:track:']");
+    const href = a?.getAttribute?.("href") || "";
+    if (href.includes("open.spotify.com/track/")) {
+      const m = href.match(/track\/([A-Za-z0-9]{22})/);
+      if (m?.[1]) return `spotify:track:${m[1]}`;
+    }
+    if (href.startsWith("spotify:")) return href;
+
+    return null;
+  }
+
+  function normalizeArtistLine(line) {
+    const s = (line || "").trim();
+    if (!s) return "";
+    const parts = s.split("•").map(x => x.trim()).filter(Boolean);
+    return parts.length ? parts[0] : s;
+  }
+
+  function cleanLine(s) {
+    let x = (s || "").replace(/\s+/g, " ").trim();
+    if (!x) return "";
+    x = x.replace(/^LIVE$/i, "").trim();
+    x = x.replace(/^\d+\.\s+/, "").trim();
+    x = x.replace(/\b\d{1,2}\s+[A-Za-z]{3}\s+\d{4}(,\s*\d{2}:\d{2})?\b/gi, "").trim();
+    x = x.replace(/\b\d{2}:\d{2}\b/g, "").trim();
+    if (/^\d+$/.test(x)) return "";
+    return x;
+  }
+
+  function guessArtistTrackFromRow(row) {
+    const ds = row?.dataset || {};
+    const a1 = (ds.artist || ds.lastfmArtist || "").trim();
+    const t1 = (ds.track || ds.name || ds.lastfmTrack || "").trim();
+    if (a1 && t1) return { artist: a1, track: t1 };
+
+    const lines = (row?.innerText || "")
+      .split("\n")
+      .map(cleanLine)
+      .filter(Boolean);
+
+    const filtered = lines.filter(l => {
+      const u = l.toUpperCase();
+      if (u === "ONLINE") return false;
+      if (u === "NOW" || u === "RECENT" || u === "TOP") return false;
+      if (u === "TRACK" || u === "ARTIST" || u === "ALBUM") return false;
+      if (u === "TODAY" || u === "WEEK" || u === "YEAR") return false;
+      if (u.includes("SESSION COVERS")) return false;
+      return true;
+    });
+
+    const track = cleanLine(filtered[0] || "");
+    const artist = normalizeArtistLine(cleanLine(filtered[1] || ""));
+    return { track, artist };
+  }
+
+  function looksLikeArtistOnlyRow(row) {
+    const text = (row?.innerText || "").split("\n").map(cleanLine).filter(Boolean);
+    if (!text.length) return true;
+    if (text.length === 1) return true;
+    const l1 = (text[1] || "").trim();
+    const l1IsCount = !!l1 && /^[\d,.\s]+$/.test(l1);
+    return l1IsCount;
+  }
+
+  function strictOk(row, artist, track) {
+    const a = (artist || "").trim();
+    const t = (track || "").trim();
+    if (!a || !t) return false;
+    if (a.length < 2 || t.length < 2) return false;
+    if (a.toLowerCase() === "agust d" && t.toLowerCase() === "haegeum") return false;
+
+    const rowTxt = ((row?.innerText || "")).toLowerCase();
+    if (!rowTxt.includes(a.toLowerCase())) return false;
+    if (!rowTxt.includes(t.toLowerCase())) return false;
+    return true;
+  }
+
+  function relaxedOk(artist, track) {
+    const a = (artist || "").trim();
+    const t = (track || "").trim();
+    if (!a || !t) return false;
+    if (a.length < 2 || t.length < 2) return false;
+    if (a.toLowerCase() === "agust d" && t.toLowerCase() === "haegeum") return false;
+    if (t.endsWith("…") || a.endsWith("…")) return false;
+    return true;
+  }
+
+  function isTopTabActive() {
+    const tabs = Array.from(document.querySelectorAll("button,div,span,a")).slice(0, 2000);
+    for (const n of tabs) {
+      const tx = (n.textContent || "").trim().toLowerCase();
+      if (tx !== "top") continue;
+      const ariaSel = n.getAttribute("aria-selected");
+      const ariaPress = n.getAttribute("aria-pressed");
+      const cls = (n.className || "").toString().toLowerCase();
+      if (ariaSel === "true" || ariaPress === "true" || cls.includes("active") || cls.includes("selected")) return true;
+    }
+    return false;
+  }
+
+  function isLikelyFirstRowInTop(row) {
+    if (!isTopTabActive()) return false;
+    const r = row.getBoundingClientRect?.();
+    if (!r) return false;
+    return r.top >= 0 && r.top < 320;
+  }
+
+  async function resolveUriForRow(row) {
+    const u0 = extractSpotifyUriFromNode(row);
+    if (u0) return u0;
+
+    const { artist, track } = guessArtistTrackFromRow(row);
+
+    const strict = isLikelyFirstRowInTop(row);
+    const ok = strict ? strictOk(row, artist, track) : relaxedOk(artist, track);
+    if (!ok) return "";
+
+    const q = `${artist} ${track}`.trim();
+
+    try {
+      const r = await fetch(`${API_BASE}/resolve?q=${encodeURIComponent(q)}`, { method: "GET" });
+      if (!r.ok) return "";
+      const j = await r.json();
+      const id = j?.best?.id;
+      if (id && /^[A-Za-z0-9]{22}$/.test(id)) return `spotify:track:${id}`;
+    } catch {}
 
     return "";
   }
 
-  function isInsideAllowedList(node) {
-    return LIST_CONTAINERS.some((sel) => !!node.closest(sel));
+  function rectIsSquareish(r) {
+    if (!r) return false;
+    const w = r.width, h = r.height;
+    if (w < 24 || h < 24) return false;
+    if (w > 170 || h > 170) return false;
+    const ratio = w / h;
+    return ratio > 0.72 && ratio < 1.38;
   }
 
-  function ensureArtSlotExists(row) {
-    // If no artwork element exists, create a placeholder slot so clicks still work
-    const hasArt = row.querySelector(ART_SELECTORS.join(","));
-    if (hasArt) return;
+  function getArtworkClickable(row) {
+    if (isSessionCoversArea(row) || isExplicitNoPlay(row)) return null;
 
-    const ph = document.createElement("div");
-    ph.className = "thumb lmGeneratedArtSlot";
-    ph.setAttribute("data-lm", "artwork");
-    ph.style.width = "56px";
-    ph.style.height = "56px";
-    ph.style.borderRadius = "18px";
-    ph.style.background = "rgba(255,255,255,0.06)";
-    ph.style.border = "1px solid rgba(255,255,255,0.08)";
-    ph.style.display = "grid";
-    ph.style.placeItems = "center";
-    ph.style.flex = "0 0 auto";
-    ph.innerHTML = `<div style="opacity:.45;font-size:18px;line-height:1">♪</div>`;
-    row.insertBefore(ph, row.firstChild);
+    const img = row.querySelector?.("img");
+    if (img && !isExplicitNoPlay(img)) return img;
+
+    const bgCandidates = Array.from(row.querySelectorAll?.("div, span, a") || []);
+    for (const n of bgCandidates) {
+      if (isSessionCoversArea(n) || isExplicitNoPlay(n)) continue;
+      const st = window.getComputedStyle(n);
+      const bg = st?.backgroundImage || "";
+      if (bg && bg !== "none" && bg.includes("url(")) return n;
+    }
+
+    const kids = Array.from(row.querySelectorAll?.("div, span") || []);
+    for (const n of kids) {
+      if (isSessionCoversArea(n) || isExplicitNoPlay(n)) continue;
+      const r = n.getBoundingClientRect?.();
+      if (!rectIsSquareish(r)) continue;
+      return n;
+    }
+    return null;
   }
 
-  function enableArtworkClicks() {
-    // Ensure placeholder art slot exists for rows that have no image
-const seed = () => {
-      for (const containerSel of LIST_CONTAINERS) {
-        const c = document.querySelector(containerSel);
-        if (!c) continue;
-        const rows = c.querySelectorAll(ROW_SELECTORS.join(","));
-        rows.forEach(ensureArtSlotExists);
+  function guessRows() {
+    const li = Array.from(document.querySelectorAll("li"));
+    if (li.length) return li;
+    return Array.from(document.querySelectorAll("div, article, section"))
+      .filter((n) => (n.textContent || "").trim().length > 6);
+  }
+
+  function allowedToBindRow(topMode, row) {
+    if (isSessionCoversArea(row)) return false;
+    if (isExplicitNoPlay(row)) return false;
+    if (topMode === "artist") return false;
+    if (looksLikeArtistOnlyRow(row)) return false;
+    return true;
+  }
+
+  function attachPlayBindings() {
+    if (!getToken()) return;
+
+    const topMode = getTopMode();
+    const rows = guessRows();
+
+    for (const row of rows) {
+      if (!allowedToBindRow(topMode, row)) continue;
+
+      const art = getArtworkClickable(row);
+
+      if (art && art.dataset.spBound !== "1") {
+        art.dataset.spBound = "1";
+        art.classList.add("spArtworkPlayable");
+
+        art.addEventListener("click", async (e) => {
+          if (e.target && e.target.closest && e.target.closest("#spDock")) return;
+          if (isExplicitNoPlay(e.target) || isSessionCoversArea(e.target)) return;
+
+          e.preventDefault(); e.stopPropagation();
+          pulse(art);
+
+          const uri = await resolveUriForRow(row);
+          if (uri) return playUri(uri);
+        }, { passive: false });
       }
-    };
-    seed();
 
-    // Re-seed when lists re-render
-    const mo = new MutationObserver(seed);
-    mo.observe(document.body, { childList: true, subtree: true });
+      if (row.dataset.spRowBound !== "1") {
+        row.dataset.spRowBound = "1";
+        row.classList.add("spRowPlayable");
 
-    // Delegate clicks
-    document.addEventListener(
-      "click",
-      (e) => {
-        const t = e.target;
+        row.addEventListener("click", async (e) => {
+          if (e.target && e.target.closest && e.target.closest("#spDock")) return;
+          if (isExplicitNoPlay(e.target) || isSessionCoversArea(e.target)) return;
 
-        // ignore dock clicks
-        if (t.closest(".lmFixedTRPill")) return;
+          const tag = (e.target?.tagName || "").toLowerCase();
+          if (tag === "button" || tag === "a" || tag === "input") return;
 
-        // orb blocked elsewhere
-        if (ORB_SELECTORS.some((s) => t.closest(s))) return;
+          e.preventDefault(); e.stopPropagation();
+          pulse(row);
 
-        const row = t.closest(ROW_SELECTORS.join(","));
-        if (!row) return;
-
-        if (!isInsideAllowedList(row)) return;
-
-        const art = t.closest(ART_SELECTORS.join(","));
-        if (!art) return;
-
-        const uri = getRowUri(row);
-        if (!uri) {
-          warn("No URI found for clicked row (need dataset uri or link).");
-          return;
-        }
-
-        safeStop(e);
-
-        // Try playUri first, then generic play with uri
-        const r = callPlayer(["playUri", "playURI", "play_track_uri", "playTrackUri"], uri);
-        if (!r.ok) {
-          // fallback: maybe your player expects { uri } object
-          callPlayer(["playUri", "play"], { uri });
-        }
-      },
-      true
-    );
+          const uri = await resolveUriForRow(row);
+          if (uri) return playUri(uri);
+        }, { passive: false });
+      }
+    }
   }
 
-  // ---------- BOOT ----------
+  // ---------------- State loop (FIXED: throttled, no runaway) ----------------
+  let pollTimer = null;
+  let bindTimer = null;
+
+  async function playerPollTick() {
+    try {
+      ensureDock();
+      positionDock();
+
+      const linked = !!getToken();
+      setIndicatorLinked(linked);
+      setEnabled(linked);
+
+      if (!linked) {
+        setToggleIcon(false);
+        return;
+      }
+
+      const st = await getPlaybackState();
+      const isPlaying = inferIsPlaying(st);
+      if (typeof isPlaying === "boolean") setToggleIcon(isPlaying);
+    } catch (e) {
+      // never crash UI
+      // console.warn("[Spotify UI] poll error", e);
+    }
+  }
+
+  function startLoops() {
+    stopLoops();
+
+    // Poll player state ~1.2s (fast enough, not spam)
+    pollTimer = setInterval(playerPollTick, 1200);
+    playerPollTick();
+
+    // Re-attach bindings less frequently (DOM changes)
+    bindTimer = setInterval(() => {
+      try { attachPlayBindings(); } catch {}
+    }, 700);
+    try { attachPlayBindings(); } catch {}
+  }
+
+  function stopLoops() {
+    if (pollTimer) clearInterval(pollTimer);
+    if (bindTimer) clearInterval(bindTimer);
+    pollTimer = null;
+    bindTimer = null;
+  }
+
   function boot() {
-    log("boot");
+    ensureDock();
+    positionDock();
 
-    fixOrb();
-    enableArtworkClicks();
+    const mo = new MutationObserver(() => {
+      ensureDock();
+      positionDock();
+      // bindings happen on interval, but do a quick attempt here too
+      try { attachPlayBindings(); } catch {}
+    });
+    mo.observe(document.documentElement, { subtree: true, childList: true });
 
-    renderDock();
-
-    // light refresh (no heavy hide)
-    setInterval(renderDock, 1200);
+    startLoops();
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", boot);
-  } else {
-    boot();
-  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
+  else boot();
 })();

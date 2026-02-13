@@ -1,11 +1,8 @@
 /* spotify-ui.js (FULL REPLACE)
-   Goals:
-   - Keep UI stable (no more disappearing controls)
-   - Glyph left of "Listening Mirror" becomes Play/Pause (no visible ⏯️ overlay)
-   - Spotify login/logout icon appears next to "Online" (always visible):
-       logged out => grey, logged in => normal
-   - HARD block "Mirror bug" playback from header/orb/title area
-   - Keep click-to-play on list rows (Recent/Top), including rows with no artwork
+   Fixes:
+   - Spotify icon goes INLINE next to "Online" (same line, where you drew the red X)
+   - Glyph left of "Listening Mirror" is ONLY Play/Pause (never logout; login only if needed)
+   - Keeps header blocker + row click-to-play (incl. no-artwork rows)
 */
 
 (function () {
@@ -45,15 +42,15 @@
     }
   }
 
-  function doLoginOrLogout() {
-    const token = getToken();
-    if (!token) {
-      const r = safeCall("SpotifyAuth.login");
-      if (!r.ok) console.warn("[Spotify UI] SpotifyAuth.login missing:", r.reason);
-      return;
-    }
+  function loginOnly() {
+    const r = safeCall("SpotifyAuth.login");
+    if (!r.ok) console.warn("[Spotify UI] SpotifyAuth.login missing:", r.reason);
+  }
+
+  function logoutOnly() {
     let r = safeCall("SpotifyAuth.logout");
     if (r.ok) return;
+
     try {
       localStorage.removeItem("spotify_access_token");
       localStorage.removeItem("spotify_refresh_token");
@@ -80,17 +77,24 @@
 .spArtworkPlayable{ cursor: pointer !important; border-radius: 12px; }
 .spRowPlayable{ cursor: pointer !important; }
 
-/* marker for "allowed header controls" (we will use it for spotify icon near Online) */
+/* allow clicks for marked controls in header */
 [data-sp-controls='1'], [data-sp-controls='1'] *{ pointer-events:auto !important; }
 
-/* spotify login icon near Online */
+/* --- Online line: force INLINE icon next to text --- */
+[data-lm-onlinewrap="1"]{
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  white-space: nowrap !important;
+}
+
+/* spotify login icon next to Online */
 #spOnlineLogin{
   display:inline-flex;
   align-items:center;
   justify-content:center;
   width:18px;
   height:18px;
-  margin-left:8px;
   border-radius:999px;
   opacity:.45;
   cursor:pointer;
@@ -212,7 +216,7 @@
     return null;
   }
 
-  // "glyph" = small round element near the title on the left (your orb/glyph)
+  // glyph = small round element near title on the left
   function findGlyphNearTitle(titleNode) {
     if (!titleNode) return null;
 
@@ -244,7 +248,6 @@
       const titleMidY = (titleRect.top + titleRect.bottom) / 2;
       const closeY = Math.abs(midY - titleMidY) < 30;
 
-      // usually left of title
       const leftish = r.right <= titleRect.left + 26;
 
       const cs = window.getComputedStyle(n);
@@ -278,13 +281,11 @@
 
     if (!container) return null;
 
-    // Search within header area for a node that has text exactly "Online"
-    const nodes = Array.from(container.querySelectorAll("div,span,p,small")).slice(0, 400);
+    const nodes = Array.from(container.querySelectorAll("div,span,p,small")).slice(0, 500);
     for (const n of nodes) {
       const t = (n.textContent || "").trim().toLowerCase();
       if (t === "online") return n;
     }
-    // fallback: includes "online"
     for (const n of nodes) {
       const t = (n.textContent || "").trim().toLowerCase();
       if (t.includes("online")) return n;
@@ -292,67 +293,61 @@
     return null;
   }
 
-  function ensureSpotifyIconNextToOnline(onlineNode) {
+  // Put icon INLINE next to "Online" (inside same element)
+  function ensureSpotifyIconInlineInOnline(onlineNode) {
     if (!onlineNode) return;
 
-    // If already exists, just update linked state.
+    // mark wrapper so CSS forces inline-flex (same line)
+    onlineNode.setAttribute("data-lm-onlinewrap", "1");
+
     let icon = document.getElementById("spOnlineLogin");
     if (!icon) {
       icon = document.createElement("span");
       icon.id = "spOnlineLogin";
-      icon.setAttribute("data-sp-controls", "1"); // so header blocker never kills it
+      icon.setAttribute("data-sp-controls", "1"); // header blocker must allow it
       icon.title = "Spotify login/logout";
       icon.innerHTML = spotifyLogoSvg();
 
       icon.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        doLoginOrLogout();
-        // state will refresh on next loop
+        const linked = !!getToken();
+        if (linked) logoutOnly();
+        else loginOnly();
       }, { passive: false });
 
-      // Insert right after "Online"
-      onlineNode.insertAdjacentElement("afterend", icon);
+      // append INSIDE the Online node (guarantees same line)
+      onlineNode.appendChild(icon);
     }
 
-    const linked = !!getToken();
-    icon.classList.toggle("linked", linked);
+    icon.classList.toggle("linked", !!getToken());
   }
 
-  // ---------------- Glyph: play/pause (no visible overlay) ----------------
+  // ---------------- Glyph: play/pause ONLY (never logout) ----------------
   function bindGlyphAsPlayPause(glyphEl) {
     if (!glyphEl) return;
     if (glyphEl.dataset && glyphEl.dataset.spGlyphBound === "1") return;
 
     glyphEl.dataset.spGlyphBound = "1";
-    glyphEl.setAttribute("data-sp-controls", "1"); // do not block its click
-
-    // Keep it feeling tappable
+    glyphEl.setAttribute("data-sp-controls", "1"); // allow click through header blocker
     try { glyphEl.style.cursor = "pointer"; } catch {}
 
     glyphEl.addEventListener("click", async (e) => {
-      // toggle play/pause
       e.preventDefault();
       e.stopPropagation();
 
-      if (!getToken()) {
-        // not logged in -> open login
-        doLoginOrLogout();
-        return;
-      }
+      // If no token, ONLY login (never logout)
+      if (!getToken()) { loginOnly(); return; }
 
       const st = await getPlaybackState();
       const isPlaying = inferIsPlaying(st);
 
-      if (isPlaying === true) {
-        await pauseSafe();
-      } else {
-        await resumeSafe();
-      }
+      if (isPlaying === true) await pauseSafe();
+      else await resumeSafe();
     }, { passive: false });
   }
 
-  // ---------------- HARD block "Mirror bug" playback in header (except allowed) ----------------
+  // ---------------- HARD block Mirror header playback (except allowed) ----------------
   let LM_HEADER_EL = null;
   let LM_TITLE_EL = null;
   let LM_GLYPH_EL = null;
@@ -380,9 +375,8 @@
     LM_GLYPH_EL = findGlyphNearTitle(titleNode);
     LM_ONLINE_EL = findOnlineNodeNearTitle(titleNode);
 
-    // bind behaviors (safe, idempotent)
     bindGlyphAsPlayPause(LM_GLYPH_EL);
-    ensureSpotifyIconNextToOnline(LM_ONLINE_EL);
+    ensureSpotifyIconInlineInOnline(LM_ONLINE_EL);
   }
 
   let blockerInstalled = false;
@@ -397,18 +391,14 @@
 
     const inAllowedControls = (target) => {
       if (!target) return false;
-      // allow anything marked as controls (glyph + spotify icon near Online)
       if (target.closest && target.closest("[data-sp-controls='1']")) return true;
       return false;
     };
 
     const killDownOrClick = (e) => {
       if (!inHeader(e.target)) return;
-
-      // allow our allowed controls in header
       if (inAllowedControls(e.target)) return;
 
-      // block the rest (prevents mirror playback bug)
       try { e.preventDefault(); } catch {}
       try { e.stopImmediatePropagation(); } catch {}
       try { e.stopPropagation(); } catch {}
@@ -466,10 +456,10 @@
     let x = (s || "").replace(/\s+/g, " ").trim();
     if (!x) return "";
     x = x.replace(/^LIVE$/i, "").trim();
-    x = x.replace(/^\d+\.\s+/, "").trim();     // "2. "
+    x = x.replace(/^\d+\.\s+/, "").trim();
     x = x.replace(/\b\d{1,2}\s+[A-Za-z]{3}\s+\d{4}(,\s*\d{2}:\d{2})?\b/gi, "").trim();
     x = x.replace(/\b\d{2}:\d{2}\b/g, "").trim();
-    if (/^\d+$/.test(x)) return "";           // playcount-only line
+    if (/^\d+$/.test(x)) return "";
     return x;
   }
 
@@ -579,28 +569,23 @@
     return ratio > 0.70 && ratio < 1.45;
   }
 
-  // Improved: find a clickable "artwork box" even when it's a placeholder (no image)
   function getArtworkClickable(row) {
     if (isSessionCoversArea(row) || isExplicitNoPlay(row)) return null;
 
-    // 1) direct image (real artwork)
     const img = row.querySelector?.("img");
     if (img && !isExplicitNoPlay(img)) return img;
 
-    // 2) common placeholder: svg/icon inside a square wrapper
     const squares = Array.from(row.querySelectorAll?.("div, span, a") || []);
     for (const n of squares) {
       if (isSessionCoversArea(n) || isExplicitNoPlay(n)) continue;
       const rr = n.getBoundingClientRect?.();
       if (!rectIsSquareish(rr)) continue;
 
-      // must be near left of row (usually artwork column)
       const rowR = row.getBoundingClientRect?.();
       if (rowR && rr.left > rowR.left + 240) continue;
 
       return n;
     }
-
     return null;
   }
 
@@ -653,24 +638,20 @@ function attachPlayBindings() {
 
       const art = getArtworkClickable(row);
 
-      // Click on artwork/placeholder box
       if (art && art.dataset.spBound !== "1") {
         art.dataset.spBound = "1";
         art.classList.add("spArtworkPlayable");
 
         art.addEventListener("click", async (e) => {
-          // avoid header controls / glyph / online icon
           if (e.target && e.target.closest && e.target.closest("[data-sp-controls='1']")) return;
           if (isExplicitNoPlay(e.target) || isSessionCoversArea(e.target)) return;
 
           e.preventDefault(); e.stopPropagation();
-
           const uri = await resolveUriForRow(row);
           if (uri) await playUri(uri);
         }, { passive: false });
       }
 
-      // Click anywhere on row (fallback) — important for "no artwork" cases
       if (row.dataset.spRowBound !== "1") {
         row.dataset.spRowBound = "1";
         row.classList.add("spRowPlayable");
@@ -683,7 +664,6 @@ function attachPlayBindings() {
           if (tag === "button" || tag === "a" || tag === "input") return;
 
           e.preventDefault(); e.stopPropagation();
-
           const uri = await resolveUriForRow(row);
           if (uri) await playUri(uri);
         }, { passive: false });
@@ -700,7 +680,6 @@ function attachPlayBindings() {
       refreshHeaderRefs();
       attachPlayBindings();
 
-      // keep spotify icon state correct (grey vs normal)
       const icon = document.getElementById("spOnlineLogin");
       if (icon) icon.classList.toggle("linked", !!getToken());
     } catch {}

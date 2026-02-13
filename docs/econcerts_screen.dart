@@ -1,5 +1,5 @@
 // ============================
-// econcerts_screen.dart (PART 1/4)
+// econcerts_screen.dart
 // Full file (delete & paste)
 // ============================
 
@@ -30,7 +30,6 @@ class EConcertsScreen extends StatefulWidget {
 class _EConcertsScreenState extends State<EConcertsScreen> {
   EConcertsRefreshResult? _lastResult;
   bool _loading = false;
-
   bool _groupByCity = true;
 
   @override
@@ -45,7 +44,12 @@ class _EConcertsScreenState extends State<EConcertsScreen> {
 
     try {
       final profile = widget.getListeningProfile();
-      final result = widget.service.refresh(profile: profile);
+
+      // If your service has init() with SharedPreferences:
+      // make sure you've called it before showing this screen.
+      // (We keep it out of here to avoid repeated loads.)
+
+      final result = await widget.service.refresh(profile: profile);
       setState(() => _lastResult = result);
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -66,7 +70,9 @@ class _EConcertsScreenState extends State<EConcertsScreen> {
             onPressed: _loading ? null : _refresh,
             icon: _loading
                 ? const SizedBox(
-                    width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2),
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.refresh),
           ),
@@ -89,12 +95,9 @@ class _EConcertsScreenState extends State<EConcertsScreen> {
               isPlan: true,
               groupByCity: _groupByCity,
             ),
-
           const SizedBox(height: 14),
-
           _sectionHeader('Upcoming', subtitle: 'Suggested for you'),
-          if (suggested.isEmpty)
-            _emptyCard('No suggestions yet.', 'Try refresh.'),
+          if (suggested.isEmpty) _emptyCard('No suggestions yet.', 'Try refresh.'),
           if (suggested.isNotEmpty)
             ..._buildConcertList(
               concerts: suggested,
@@ -105,9 +108,6 @@ class _EConcertsScreenState extends State<EConcertsScreen> {
       ),
     );
   }
-// ============================
-// econcerts_screen.dart (PART 2/4)
-// ============================
 
   Widget _sectionHeader(String title, {String? subtitle}) {
     return Padding(
@@ -163,7 +163,9 @@ class _EConcertsScreenState extends State<EConcertsScreen> {
 
     final cities = byCity.keys.toList()..sort();
     return cities.map((city) {
-      final items = byCity[city]!..sort((a, b) => a.startDateTimeLocal.compareTo(b.startDateTimeLocal));
+      final items = byCity[city]!
+        ..sort((a, b) => a.startDateTimeLocal.compareTo(b.startDateTimeLocal));
+
       return Card(
         child: ExpansionTile(
           title: Text(city, style: const TextStyle(fontWeight: FontWeight.w700)),
@@ -188,7 +190,6 @@ class _EConcertsScreenState extends State<EConcertsScreen> {
   }
 
   String _dateLine(DateTime dt) {
-    // Simple EN format without intl package.
     final y = dt.year.toString().padLeft(4, '0');
     final m = dt.month.toString().padLeft(2, '0');
     final d = dt.day.toString().padLeft(2, '0');
@@ -196,9 +197,6 @@ class _EConcertsScreenState extends State<EConcertsScreen> {
     final mm = dt.minute.toString().padLeft(2, '0');
     return '$y-$m-$d • $hh:$mm';
   }
-// ============================
-// econcerts_screen.dart (PART 3/4)
-// ============================
 
   Widget _concertCard(Concert c, {required bool isPlan, bool isNested = false}) {
     final tier = (c.extra['tier'] ?? 'unknown').toString();
@@ -206,7 +204,7 @@ class _EConcertsScreenState extends State<EConcertsScreen> {
     final baseScore = (c.extra['baseScore'] ?? 0).toString();
 
     final planning = buildPlanningMessage(c.startDateTimeLocal); // English
-    final badge = availabilityText(c.availabilityBadge);         // English
+    final badge = availabilityText(c.availabilityBadge); // English
 
     final titleStyle = TextStyle(
       fontSize: 16,
@@ -224,10 +222,8 @@ class _EConcertsScreenState extends State<EConcertsScreen> {
         children: [
           Text(c.artistName, style: titleStyle),
           const SizedBox(height: 6),
-
           Text('${_dateLine(c.startDateTimeLocal)}  •  ${c.locationLabel}', style: subtitleStyle),
           const SizedBox(height: 10),
-
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -240,15 +236,13 @@ class _EConcertsScreenState extends State<EConcertsScreen> {
               _pill(badge),
             ],
           ),
-
           const SizedBox(height: 12),
-
           Row(
             children: [
               if (!isPlan) ...[
                 ElevatedButton.icon(
-                  onPressed: () {
-                    widget.service.addToPlan(c.id);
+                  onPressed: () async {
+                    await widget.service.addToPlan(c.id);
                     setState(() {});
                   },
                   icon: const Icon(Icons.add),
@@ -256,8 +250,8 @@ class _EConcertsScreenState extends State<EConcertsScreen> {
                 ),
                 const SizedBox(width: 10),
                 OutlinedButton.icon(
-                  onPressed: () {
-                    widget.service.dismiss(c.id);
+                  onPressed: () async {
+                    await widget.service.dismiss(c.id);
                     setState(() {});
                   },
                   icon: const Icon(Icons.close),
@@ -265,8 +259,8 @@ class _EConcertsScreenState extends State<EConcertsScreen> {
                 ),
               ] else ...[
                 OutlinedButton.icon(
-                  onPressed: () {
-                    widget.service.dismiss(c.id);
+                  onPressed: () async {
+                    await widget.service.dismiss(c.id);
                     setState(() {});
                   },
                   icon: const Icon(Icons.remove_circle_outline),
@@ -278,8 +272,6 @@ class _EConcertsScreenState extends State<EConcertsScreen> {
                 IconButton(
                   tooltip: 'Open link',
                   onPressed: () {
-                    // For now: just show the URL in a snackbar.
-                    // Later: use url_launcher.
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text(c.url!)),
                     );
@@ -302,8 +294,3 @@ class _EConcertsScreenState extends State<EConcertsScreen> {
     return Card(child: cardChild);
   }
 }
-// ============================
-// econcerts_screen.dart (PART 4/4)
-// ============================
-
-// End of file.

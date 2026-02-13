@@ -4,6 +4,7 @@
    - HARD block playback triggered by header/orb/title area ("Mirror bug")
    - BUT allow clicks on the ORIGINAL Spotify controls (so login works and click-to-play persists)
    - Keep click-to-play on list rows (Recent/Top)
+   - FIX: rows with NO artwork should still click-to-play (placeholder icon)
 */
 
 (function () {
@@ -60,7 +61,8 @@
     st.textContent = css;
     document.head.appendChild(st);
   }
-// ---------------- Spotify Web API (fallback) ----------------
+
+  // ---------------- Spotify Web API (fallback) ----------------
   async function spotifyApi(endpoint, method = "GET", body = null) {
     const token = getToken();
     if (!token) return { ok: false, status: 401 };
@@ -97,8 +99,7 @@
     console.warn("[Spotify UI] Cannot play URI:", uri);
     return false;
   }
-
-  // ---------------- Header / Orb: HARD block playback, but NOT the original controls ----------------
+// ---------------- Header / Orb: HARD block playback, but NOT the original controls ----------------
   function findHeaderTitleNode() {
     const nodes = Array.from(document.querySelectorAll("h1,h2,div,span")).slice(0, 3500);
     for (const n of nodes) {
@@ -167,7 +168,8 @@
 
     return best;
   }
-function callIndexOrStats() {
+
+  function callIndexOrStats() {
     const tries = [
       "openStats","showStats","toggleStats",
       "openIndex","showIndex","toggleIndex",
@@ -229,8 +231,7 @@ function callIndexOrStats() {
     }
     return null;
   }
-
-  let LM_HEADER_EL = null;
+let LM_HEADER_EL = null;
   let LM_ORB_EL = null;
   let LM_CONTROLS_EL = null;
 
@@ -294,7 +295,8 @@ function callIndexOrStats() {
       callIndexOrStats();
     }, { passive: false });
   }
-function refreshHeaderRefs() {
+
+  function refreshHeaderRefs() {
     const titleNode = findHeaderTitleNode();
     if (!titleNode) {
       LM_HEADER_EL = null;
@@ -397,8 +399,7 @@ function refreshHeaderRefs() {
     const artist = normalizeArtistLine(cleanLine(filtered[1] || ""));
     return { track, artist };
   }
-
-  function looksLikeArtistOnlyRow(row) {
+function looksLikeArtistOnlyRow(row) {
     const text = (row?.innerText || "").split("\n").map(cleanLine).filter(Boolean);
     if (!text.length) return true;
     if (text.length === 1) return true;
@@ -478,13 +479,14 @@ function refreshHeaderRefs() {
     return ratio > 0.72 && ratio < 1.38;
   }
 
+  // ✅ FIX #1: include "button" because placeholders are often buttons
   function getArtworkClickable(row) {
     if (isSessionCoversArea(row) || isExplicitNoPlay(row)) return null;
 
     const img = row.querySelector?.("img");
     if (img && !isExplicitNoPlay(img)) return img;
 
-    const kids = Array.from(row.querySelectorAll?.("div, span, a") || []);
+    const kids = Array.from(row.querySelectorAll?.("div, span, a, button") || []);
     for (const n of kids) {
       if (isSessionCoversArea(n) || isExplicitNoPlay(n)) continue;
       const rr = n.getBoundingClientRect?.();
@@ -568,8 +570,12 @@ function refreshHeaderRefs() {
           if (e.target && e.target.closest && e.target.closest("[data-sp-controls='1']")) return;
           if (isExplicitNoPlay(e.target) || isSessionCoversArea(e.target)) return;
 
+          // ✅ FIX #2: allow click when the target is a button INSIDE the artwork placeholder
           const tag = (e.target?.tagName || "").toLowerCase();
-          if (tag === "button" || tag === "a" || tag === "input") return;
+          const artArea = getArtworkClickable(row);
+          const insideArt = !!(artArea && (artArea === e.target || (artArea.contains && artArea.contains(e.target))));
+
+          if ((tag === "button" || tag === "a" || tag === "input") && !insideArt) return;
 
           e.preventDefault(); e.stopPropagation();
           const uri = await resolveUriForRow(row);

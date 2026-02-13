@@ -619,6 +619,7 @@
       overflow:hidden;
       outline: 1px solid rgba(255,255,255,.06);
     }
+    /* ✅ FIX: was ". .orbMiniBar > i" */
     .orbMiniBar > i{
       display:block;
       height:100%;
@@ -701,9 +702,138 @@
     .cvr:first-child{ margin-left: 0; }
     .cvr img{ width:100%; height:100%; object-fit:cover; display:block; }
 
+    /* ============================
+       ✅ eConcerts additions
+       ============================ */
+    .econcertsHead{
+      padding: 14px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      border-bottom: 1px solid rgba(255,255,255,.07);
+    }
+    .econcertsTitle{
+      font-size: 12px;
+      letter-spacing: .34px;
+      color: rgba(255,255,255,.62);
+      text-transform: uppercase;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      min-width: 0;
+    }
+    .eBtn{
+      border:0;
+      cursor:pointer;
+      padding: 9px 12px;
+      border-radius: 999px;
+      font-size: 12.5px;
+      letter-spacing:.2px;
+      background: rgba(255,255,255,.06);
+      outline: 1px solid rgba(255,255,255,.10);
+      color: rgba(255,255,255,.90);
+    }
+    .eBtn:active{ transform: translateY(1px); }
+    .eBtn.ghost{
+      background: transparent;
+      color: rgba(255,255,255,.78);
+    }
+    .econcertsGrid{
+      padding: 10px;
+      display:grid;
+      gap:10px;
+    }
+    .eCard{
+      border-radius: 16px;
+      outline: 1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.03);
+      padding: 12px 12px 12px 14px;
+      display:grid;
+      grid-template-columns: minmax(0,1fr) max-content;
+      gap:12px;
+      align-items:start;
+    }
+    .eMain{ min-width:0; }
+    .eArtist{
+      font-size: 14px;
+      font-weight: 760;
+      color: rgba(255,255,255,.94);
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .eMeta{
+      margin-top: 6px;
+      font-size: 12px;
+      color: rgba(255,255,255,.72);
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .eMeta2{
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--muted2);
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .ePills{
+      margin-top: 10px;
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+    }
+    .ePill{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.04);
+      outline: 1px solid rgba(255,255,255,.08);
+      color: rgba(255,255,255,.80);
+      font-size: 12px;
+      letter-spacing: .2px;
+      white-space:nowrap;
+    }
+    .eRight{
+      display:flex;
+      flex-direction:column;
+      align-items:flex-end;
+      gap:8px;
+      white-space:nowrap;
+    }
+    .eScore{
+      font-size: 12px;
+      font-weight: 800;
+      color: rgba(255,214,102,.92);
+    }
+    .eActions{
+      display:flex;
+      gap:8px;
+    }
+    .eBadge{
+      font-size: 12px;
+      font-weight: 750;
+      color: rgba(255,255,255,.85);
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.04);
+      outline: 1px solid rgba(255,255,255,.08);
+    }
+    .eEmpty{
+      padding: 14px;
+      color: rgba(255,255,255,.70);
+      font-size: 13px;
+    }
+
     @media (max-width: 520px){
       .line1{ font-size: 15px; }
       .orbPopup{ left: 0; }
+      .eCard{ grid-template-columns: 1fr; }
+      .eRight{ align-items:flex-start; }
     }
   </style>
 </head>
@@ -730,7 +860,9 @@
       <button class="tabBtn" data-tab="now" aria-selected="true" role="tab">Now</button>
       <button class="tabBtn" data-tab="recent" aria-selected="false" role="tab">Recent</button>
       <button class="tabBtn" data-tab="top" aria-selected="false" role="tab">Top</button>
-<button class="tabBtn" data-tab="concerts" aria-selected="false" role="tab">eConcerts</button>
+
+      <!-- ✅ NEW TAB -->
+      <button class="tabBtn" data-tab="econcerts" aria-selected="false" role="tab">eConcerts</button>
     </div>
 
     <section class="panel" data-panel="now">
@@ -861,13 +993,36 @@
         <div class="list" id="recentList" aria-live="polite"></div>
       </div>
     </section>
+
+    <!-- ✅ NEW PANEL -->
+    <section class="panel hidden" data-panel="econcerts">
+      <div class="card">
+        <div class="econcertsHead">
+          <div class="econcertsTitle">
+            <span class="dot on" aria-hidden="true"></span>
+            eConcerts
+          </div>
+
+          <div style="display:flex; gap:8px; align-items:center;">
+            <button class="eBtn ghost" id="econcertsToggleGroup" type="button" aria-pressed="true">Group by city</button>
+            <button class="eBtn" id="econcertsRefresh" type="button">Refresh</button>
+          </div>
+        </div>
+
+        <div class="econcertsGrid" id="econcertsList" aria-live="polite">
+          <div class="eEmpty">No events yet. Tap Refresh.</div>
+        </div>
+      </div>
+    </section>
   </div>
 
+  <script src="./spotify-auth.js?v=20260213a"></script>
+  <script src="./spotify-player.js?v=20260213a"></script>
+  <script src="./spotify-ui.js?v=20260213a"></script>
+  <script src="./app.js?v=20260213a"></script>
 
-<script src="./spotify-auth.js?v=20260213a"></script>
-<script src="./spotify-player.js?v=20260213a"></script>
-<script src="./spotify-ui.js?v=20260213a"></script>
-<script src="./app.js?v=20260213a"></script>
+  <!-- ✅ Optional: eConcerts logic hook (safe to remove if file not present yet) -->
+  <!-- <script src="./econcerts.js?v=20260213a"></script> -->
 
   <script>
     (function(){
@@ -925,4 +1080,3 @@
   </script>
 </body>
 </html>
-     

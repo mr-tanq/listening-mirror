@@ -1,9 +1,9 @@
 /* spotify-ui.js (FULL REPLACE)
    Fixes:
-   - Dock does NOT disappear on pause/refresh (Now card can be found even without LIVE)
-   - Fallback docking under Now/Recent/Top tabs if Now card not found
-   - Premium layout: reserve space inside Now card so text never hides behind dock
-   - Dock: slightly higher + 20% smaller kept
+   - Title no longer clipped (REMOVED negative top lifting of text)
+   - Dock never disappears (even when nothing is playing)
+   - Recent resolver parses "Artist • Album" properly -> no more wrong "Haegeum" result
+   - Disable artwork click for Top->Artist (keep only Recent + Top Track/Album)
 */
 
 (function () {
@@ -131,10 +131,10 @@
   box-shadow: 0 18px 70px rgba(0,0,0,.28);
 }
 
-/* Reserve space inside the Now card so text never hides behind dock */
+/* Reserve safe space inside Now card so text never hides behind dock */
 .spNowCardReserved{
   position: relative !important;
-  padding-bottom: 64px !important; /* space for dock */
+  padding-bottom: 78px !important; /* more room => never overlap */
 }
 
 /* Clickable artwork */
@@ -142,7 +142,7 @@
   cursor: pointer !important;
   outline: 1px solid rgba(49,208,124,.0);
   border-radius: 12px;
-  transition: outline-color .12s ease, transform .12s ease, filter .12s ease;
+  transition: outline-color .12s ease, transform .12s ease;
 }
 .spArtworkPlayable:active{
   transform: translateY(1px);
@@ -354,18 +354,16 @@
       if (!r.ok) console.warn("[Spotify UI] Prev failed:", r.reason);
     }, { passive: false });
   }
-// ---------------- Finding the tabs row (Now / Recent / Top) ----------------
+// ---------------- Tabs + Mode detection ----------------
   function findTabsContainer() {
-    const nodes = Array.from(document.querySelectorAll("*")).slice(0, 2000);
-
-    // Find an element that contains all three labels close-by
+    const nodes = Array.from(document.querySelectorAll("*")).slice(0, 2500);
     for (const n of nodes) {
       const t = (n.innerText || "").replace(/\s+/g, " ").trim();
       if (!t) continue;
       const lt = t.toLowerCase();
       if (lt.includes("now") && lt.includes("recent") && lt.includes("top")) {
         const r = n.getBoundingClientRect?.();
-        if (!r || r.width < 220 || r.height > 120) continue;
+        if (!r || r.width < 220 || r.height > 140) continue;
         if (r.bottom < 0 || r.top > window.innerHeight) continue;
         lastTabsRect = r;
         return n;
@@ -379,11 +377,10 @@
     return rect.width > 260 && rect.height > 140 && rect.top >= 0 && rect.left >= 0;
   }
 
-  // 1) Try LIVE badge method (when playing)
   function findNowCardByLive() {
     const liveNodes = Array.from(document.querySelectorAll("*"))
       .filter((n) => (n?.textContent || "").trim().toLowerCase() === "live")
-      .slice(0, 40);
+      .slice(0, 60);
 
     for (const ln of liveNodes) {
       const lr = ln.getBoundingClientRect?.();
@@ -403,7 +400,6 @@
     return null;
   }
 
-  // 2) Fallback: find the first big card BELOW the tabs (works when paused: no LIVE)
   function findNowCardByTabs() {
     const tabs = findTabsContainer();
     const tabsRect = tabs?.getBoundingClientRect?.() || lastTabsRect;
@@ -413,21 +409,19 @@
       .filter((n) => {
         const r = n.getBoundingClientRect?.();
         if (!r || !isGoodCardRect(r)) return false;
-        // must be below tabs
         if (r.top < tabsRect.bottom - 5) return false;
-        // near top part of page (Now area)
-        if (r.top > tabsRect.bottom + 260) return false;
-        // likely contains an image/artwork
+        if (r.top > tabsRect.bottom + 280) return false;
+
         const hasImg = !!n.querySelector("img");
         const hasBg = Array.from(n.querySelectorAll("div, span")).some((x) => {
           const st = window.getComputedStyle(x);
           const bg = st?.backgroundImage || "";
           return bg && bg !== "none" && bg.includes("url(");
         });
+
         return hasImg || hasBg;
       });
 
-    // pick the closest under tabs
     candidates.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
     return candidates[0] || null;
   }
@@ -436,49 +430,60 @@
     return findNowCardByLive() || findNowCardByTabs() || null;
   }
 
-  // Reserve space + slight lift for text (premium, no overlap)
   function applyNowPremiumLayout(nowCard) {
     if (!nowCard) return;
     if (nowCard.dataset.spPremium === "1") return;
 
+    // ONLY reserve space (no negative lifting => no clipping)
     nowCard.classList.add("spNowCardReserved");
-
-    // gentle text lift (NOT extreme) so title doesn't clip
-    const all = Array.from(nowCard.querySelectorAll("*"));
-    const lines = [];
-    for (const n of all) {
-      if (!n || n.closest("#spDock")) continue;
-      const t = (n.textContent || "").trim();
-      if (!t) continue;
-      const lt = t.toLowerCase();
-      if (lt === "live" || lt === "mirror" || lt === "listening") continue;
-
-      const cs = window.getComputedStyle(n);
-      if (!cs || cs.display === "none" || cs.visibility === "hidden") continue;
-      const fs = parseFloat(cs.fontSize || "0");
-      if (fs >= 12 && t.length <= 90) lines.push({ n, fs });
-    }
-    lines.sort((a, b) => b.fs - a.fs);
-
-    const picked = [];
-    for (const x of lines) {
-      if (picked.includes(x.n)) continue;
-      picked.push(x.n);
-      if (picked.length >= 3) break;
-    }
-
-    // small lift so it sits nicely above dock
-    picked.forEach((node, idx) => {
-      try {
-        node.style.position = "relative";
-        node.style.top = (idx === 0 ? "-10px" : idx === 1 ? "-8px" : "-6px");
-      } catch {}
-    });
-
     nowCard.dataset.spPremium = "1";
   }
 
-  // Place dock either on Now card or fallback under tabs
+  // Detect Top mode: track / artist / album
+  function getTopMode() {
+    // Find a container that includes Track Artist Album
+    const nodes = Array.from(document.querySelectorAll("*")).slice(0, 2500);
+    for (const n of nodes) {
+      const t = (n.innerText || "").replace(/\s+/g, " ").trim();
+      if (!t) continue;
+      const lt = t.toLowerCase();
+      if (!(lt.includes("track") && lt.includes("artist") && lt.includes("album"))) continue;
+
+      // Try to find "active" among its descendants
+      const opts = Array.from(n.querySelectorAll("button, div, span, a")).filter(x => {
+        const tx = (x.textContent || "").trim().toLowerCase();
+        return tx === "track" || tx === "artist" || tx === "album";
+      });
+
+      for (const o of opts) {
+        const tx = (o.textContent || "").trim().toLowerCase();
+        const ariaSel = o.getAttribute("aria-selected");
+        const ariaPress = o.getAttribute("aria-pressed");
+        const cls = (o.className || "").toString().toLowerCase();
+
+        if (ariaSel === "true" || ariaPress === "true" || cls.includes("active") || cls.includes("selected")) {
+          return tx;
+        }
+      }
+
+      // Fallback heuristic: pick the one with higher opacity / stronger bg
+      let best = null;
+      let bestScore = -1;
+      for (const o of opts) {
+        const cs = window.getComputedStyle(o);
+        const op = parseFloat(cs.opacity || "1");
+        const bg = cs.backgroundColor || "rgba(0,0,0,0)";
+        const hasBg = !bg.endsWith(", 0)") && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent";
+        const score = (op * 10) + (hasBg ? 5 : 0);
+        if (score > bestScore) { bestScore = score; best = o; }
+      }
+      const tx = (best?.textContent || "").trim().toLowerCase();
+      if (tx === "track" || tx === "artist" || tx === "album") return tx;
+    }
+    return null;
+  }
+
+  // Place dock either on Now card or fallback under tabs (NEVER HIDE)
   function positionDock() {
     ensureDock();
     const dock = document.getElementById("spDock");
@@ -490,8 +495,8 @@
       const r = nowCard.getBoundingClientRect();
       if (r && r.width && r.height) lastNowRect = r;
 
-      // Dock slightly higher than bottom, with breathing room
-      const bottomInset = 22; // higher = bigger number? (we use bottom - inset)
+      // Slightly LOWER than before (and with bigger reserved space already)
+      const bottomInset = 16; // closer to bottom
       const x = r.left + r.width / 2;
       const y = r.bottom - bottomInset;
 
@@ -502,13 +507,11 @@
       return;
     }
 
-    // If no nowCard (e.g. paused refresh), fallback under tabs so it never disappears
     const tabs = findTabsContainer();
     const tr = tabs?.getBoundingClientRect?.() || lastTabsRect;
-
     if (tr) {
       const x = tr.left + tr.width / 2;
-      const y = tr.bottom + 56; // premium spacing under tabs
+      const y = tr.bottom + 58;
       dock.style.left = `${x}px`;
       dock.style.top = `${y}px`;
       dock.style.transform = "translate(-50%, -50%)";
@@ -516,10 +519,9 @@
       return;
     }
 
-    // last resort: keep last known now rect
     if (lastNowRect) {
       const x = lastNowRect.left + lastNowRect.width / 2;
-      const y = lastNowRect.bottom - 22;
+      const y = lastNowRect.bottom - 16;
       dock.style.left = `${x}px`;
       dock.style.top = `${y}px`;
       dock.style.transform = "translate(-50%, -100%)";
@@ -527,9 +529,9 @@
       return;
     }
 
-    setDockHidden(false); // never hide; worst case it stays where it was
+    setDockHidden(false);
   }
-// ---------------- Resolve + play from lists (unchanged logic) ----------------
+// ---------------- Resolve + play from lists ----------------
   function extractSpotifyUriFromNode(node) {
     const ds = node?.dataset || {};
     const cand = ds.spotifyUri || ds.uri || ds.spotifyTrackUri || ds.spotifyId || null;
@@ -552,6 +554,15 @@
     return null;
   }
 
+  function normalizeArtistLine(line) {
+    // Recent looks like "Kno • Death Is Silent" => artist is "Kno"
+    const s = (line || "").trim();
+    if (!s) return "";
+    const parts = s.split("•").map(x => x.trim()).filter(Boolean);
+    if (parts.length >= 1) return parts[0];
+    return s;
+  }
+
   function guessArtistTrackFromRow(row) {
     const ds = row?.dataset || {};
     const a1 = (ds.artist || ds.lastfmArtist || "").trim();
@@ -562,16 +573,21 @@
     if (!text.length) return { artist: "", track: "" };
 
     const line0 = (text[0] || "").replace(/^\s*\d+\.\s+/, "").trim();
-    const line1 = (text[1] || "").replace(/^\s*\d+\.\s+/, "").trim();
+    const line1raw = (text[1] || "").replace(/^\s*\d+\.\s+/, "").trim();
+    const line1 = normalizeArtistLine(line1raw);
 
     return { track: line0, artist: line1 };
   }
 
-  function looksLikeTopArtistRow(row) {
+  // Keep this simple: if it looks like Artist-only row (no clear track line) => treat as Artist mode row
+  function looksLikeArtistOnlyRow(row) {
     const text = (row?.innerText || "").split("\n").map(s => s.trim()).filter(Boolean);
-    if (!text.length) return false;
-    const { artist, track } = guessArtistTrackFromRow(row);
-    if (!artist || !track) return true;
+    if (!text.length) return true;
+    // If first line is a name and second line is a number (plays) or missing => likely artist list
+    const l0 = (text[0] || "").replace(/^\s*\d+\.\s+/, "").trim();
+    const l1 = (text[1] || "").trim();
+    const l1IsCount = !!l1 && /^[\d,.\s]+$/.test(l1);
+    if (l0 && (!l1 || l1IsCount)) return true;
     return false;
   }
 
@@ -580,11 +596,17 @@
     if (u0) return u0;
 
     const { artist, track } = guessArtistTrackFromRow(row);
-    const q = [artist, track].filter(Boolean).join(" ");
-    if (!q) return "";
+
+    // Guard: must have a real track title
+    if (!track || track.length < 2) return "";
+
+    // For Recent: artist may still be missing sometimes; allow resolve by track only if long enough
+    const q = [artist, track].filter(Boolean).join(" ").trim();
+    if (!q || q.length < 3) return "";
 
     try {
       const r = await fetch(`${API_BASE}/resolve?q=${encodeURIComponent(q)}`, { method: "GET" });
+      if (!r.ok) return "";
       const j = await r.json();
       const id = j?.best?.id;
       if (id && /^[A-Za-z0-9]{22}$/.test(id)) return `spotify:track:${id}`;
@@ -597,9 +619,9 @@
     if (!r) return false;
     const w = r.width, h = r.height;
     if (w < 36 || h < 36) return false;
-    if (w > 130 || h > 130) return false;
+    if (w > 140 || h > 140) return false;
     const ratio = w / h;
-    return ratio > 0.82 && ratio < 1.22;
+    return ratio > 0.78 && ratio < 1.28;
   }
 
   function getArtworkClickable(row) {
@@ -613,13 +635,12 @@
       if (bg && bg !== "none" && bg.includes("url(")) return n;
     }
 
+    // Placeholder square (no artwork)
     const kids = Array.from(row.querySelectorAll?.("div, span") || []);
     for (const n of kids) {
       const r = n.getBoundingClientRect?.();
       if (!rectIsSquareish(r)) continue;
-      const hasSvg = !!n.querySelector?.("svg");
-      const t = (n.textContent || "").trim();
-      if (hasSvg || t.length === 0) return n;
+      return n;
     }
     return null;
   }
@@ -634,7 +655,9 @@
   function attachArtworkPlay() {
     if (!getToken()) return;
 
+    const topMode = getTopMode(); // 'track' | 'artist' | 'album' | null
     const rows = guessRows();
+
     for (const row of rows) {
       const art = getArtworkClickable(row);
       if (!art) continue;
@@ -646,11 +669,13 @@
       art.addEventListener("click", async (e) => {
         if (e.target && e.target.closest && e.target.closest("#spDock")) return;
 
+        // IMPORTANT RULE: Disable artwork click for Top->Artist
+        // Also, if row looks like artist-only row, do nothing.
+        if ((topMode === "artist") || looksLikeArtistOnlyRow(row)) return;
+
         e.preventDefault();
         e.stopPropagation();
         pulse(art);
-
-        if (looksLikeTopArtistRow(row)) return; // prevent artist mode mess
 
         const uri = await resolveUriForRow(row);
         if (uri) return playUri(uri);
@@ -665,7 +690,7 @@
 
     async function tick() {
       ensureDock();
-      positionDock();
+      positionDock();                 // <= never hide, always fallback
 
       const linked = !!getToken();
       if (linked !== lastLinked) {

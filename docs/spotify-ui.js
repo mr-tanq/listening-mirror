@@ -1,11 +1,12 @@
-/* spotify-ui.js (FULL REPLACE - performance fix v2)
+/* spotify-ui.js (FULL REPLACE - performance fix)
    Fixes:
-   - Delegated click-to-play works for .row AND li AND generic list items
+   - Removes heavy DOM scanning + per-row binding loops that cause scroll jank/freezes on mobile
+   - Uses event delegation for Recent/Top lists (1 listener each)
    - Keeps:
      A) Dock fixed near "Listening Mirror" title
      B) HARD: Header/Glyph/Orb can NEVER trigger playback
      C) Orb still opens index/stats (hover/click)
-     D) Tracks with no artwork can still play (safe resolve)
+     D) Tracks with no artwork can still play (row fallback + safe resolve)
 */
 
 (function () {
@@ -126,11 +127,10 @@
   box-shadow: 0 18px 70px rgba(0,0,0,.28);
 }
 
-/* make list items feel clickable */
-#recentList .row, #topList .row,
-#recentList li, #topList li { cursor: pointer; }
-#recentList button, #topList button,
-#recentList a, #topList a { cursor: default; }
+/* Optional: show clickability without binding a million handlers */
+#recentList .row, #topList .row{ cursor: pointer; }
+#recentList .row button, #topList .row button,
+#recentList .row a, #topList .row a { cursor: default; }
     `.trim();
 
     const style = document.createElement("style");
@@ -180,6 +180,178 @@
     const m = uri.match(/^spotify:track:([A-Za-z0-9]{22})$/);
     if (!m) return false;
     return !!(await spotifyApi("/me/player/play", "PUT", { uris: [uri] })).ok;
+  }
+async function playUri(uri) {
+    let r = safeCall("SpotifyPlayer.playUri", uri);
+    if (r.ok) return true;
+    r = safeCall("SpotifyPlayer.play", { uri });
+    if (r.ok) return true;
+    r = safeCall("SpotifyPlayer.play", uri);
+    if (r.ok) return true;
+
+    const ok = await apiPlayUri(uri);
+    if (ok) return true;
+
+    console.warn("[Spotify UI] Cannot play URI:", uri);
+    return false;
+  }
+
+  async function getPlaybackState() {
+    let r = safeCall("SpotifyPlayer.getState");
+    if (r.ok) return await Promise.resolve(r.value);
+
+    r = safeCall("SpotifyPlayer.getPlaybackState");
+    if (r.ok) return await Promise.resolve(r.value);
+
+    const token = getToken();
+    if (!token) return null;
+    try {
+      const rr = await fetch("https://api.spotify.com/v1/me/player", {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      if (!rr.ok) return null;
+      const j = await rr.json();
+      return { isPlaying: !!j?.is_playing, paused: typeof j?.is_playing === "boolean" ? !j.is_playing : undefined };
+    } catch {
+      return null;
+    }
+  }
+
+  async function pauseSafe() {
+    const ok = await apiPause();
+    if (ok) return true;
+    const r = safeCall("SpotifyPlayer.pause");
+    if (!r.ok) console.warn("[Spotify UI] Pause fallback failed:", r.reason);
+    return !!r.ok;
+  }
+
+  async function resumeSafe() {
+    const ok = await apiPlay();
+    if (ok) return true;
+    let r = safeCall("SpotifyPlayer.play");
+    if (r.ok) return true;
+    r = safeCall("SpotifyPlayer.resume");
+    if (r.ok) return true;
+    console.warn("[Spotify UI] Resume failed.");
+    return false;
+  }
+
+  function doLoginOrLogout() {
+    const token = getToken();
+    if (!token) {
+      const r = safeCall("SpotifyAuth.login");
+      if (!r.ok) console.warn("[Spotify UI] SpotifyAuth.login missing:", r.reason);
+      return;
+    }
+    let r = safeCall("SpotifyAuth.logout");
+    if (r.ok) return;
+    try {
+      localStorage.removeItem("spotify_access_token");
+      localStorage.removeItem("spotify_refresh_token");
+      localStorage.removeItem("SPOTIFY_ACCESS_TOKEN");
+      localStorage.removeItem("SPOTIFY_REFRESH_TOKEN");
+      sessionStorage.removeItem("spotify_access_token");
+      sessionStorage.removeItem("spotify_refresh_token");
+    } catch {}
+  }
+
+  // ---------------- Dock ----------------
+  function ensureDock() {
+    ensureCss();
+
+    let dock = document.getElementById("spDock");
+    if (dock) return dock;
+
+    const indicator = el("div", { id: "spIndicator", title: "Spotify (login/logout)" });
+    indicator.innerHTML = spotifyLogoSvg();
+
+    const btnPrev = el("button", { class: "spBtn", id: "spPrev", type: "button", "aria-label": "Previous" });
+    const btnToggle = el("button", { class: "spBtn", id: "spToggle", type: "button", "aria-label": "Play/Pause" });
+    const btnNext = el("button", { class: "spBtn", id: "spNext", type: "button", "aria-label": "Next" });
+
+    btnPrev.innerHTML = iconSvg("prev");
+    btnToggle.innerHTML = iconSvg("play");
+    btnNext.innerHTML = iconSvg("next");
+
+    dock = el("div", { id: "spDock" }, [indicator, btnPrev, btnToggle, btnNext]);
+    document.body.appendChild(dock);
+
+    bindDockHandlers();
+    return dock;
+  }
+
+  function setDockHidden(hidden) {
+    const dock = document.getElementById("spDock");
+    if (!dock) return;
+    dock.classList.toggle("hidden", !!hidden);
+  }
+
+  function setEnabled(enabled) {
+    for (const id of ["spPrev", "spToggle", "spNext"]) {
+      const b = document.getElementById(id);
+      if (b) b.disabled = !enabled;
+    }
+  }
+
+  function setIndicatorLinked(linked) {
+    const ind = document.getElementById("spIndicator");
+    if (!ind) return;
+    ind.classList.toggle("linked", !!linked);
+  }
+
+  function setToggleIcon(isPlaying) {
+    const t = document.getElementById("spToggle");
+    if (!t) return;
+    t.innerHTML = isPlaying ? iconSvg("pause") : iconSvg("play");
+  }
+
+  function inferIsPlaying(state) {
+    if (!state) return null;
+    if (state.isPlaying === true) return true;
+    if (state.playing === true) return true;
+    if (typeof state.paused === "boolean") return !state.paused;
+    return null;
+  }
+
+  function bindDockHandlers() {
+    const $ = (id) => document.getElementById(id);
+
+    $("spIndicator")?.addEventListener("click", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      doLoginOrLogout();
+    }, { passive: false });
+
+    $("spToggle")?.addEventListener("click", async (e) => {
+      e.preventDefault(); e.stopPropagation();
+      pulse($("spToggle"));
+
+      const st = await getPlaybackState();
+      const isPlaying = inferIsPlaying(st);
+
+      if (isPlaying === true) {
+        setToggleIcon(false);
+        const ok = await pauseSafe();
+        if (!ok) setToggleIcon(true);
+      } else {
+        setToggleIcon(true);
+        const ok = await resumeSafe();
+        if (!ok) setToggleIcon(false);
+      }
+    }, { passive: false });
+
+    $("spNext")?.addEventListener("click", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      pulse($("spNext"));
+      const r = safeCall("SpotifyPlayer.next");
+      if (!r.ok) console.warn("[Spotify UI] Next failed:", r.reason);
+    }, { passive: false });
+
+    $("spPrev")?.addEventListener("click", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      pulse($("spPrev"));
+      const r = safeCall("SpotifyPlayer.prev");
+      if (!r.ok) console.warn("[Spotify UI] Prev failed:", r.reason);
+    }, { passive: false });
   }
 // ---------------- Header / Orb: HARD block playback but KEEP index ----------------
   function findHeaderTitleNode() {
@@ -285,6 +457,7 @@
     const killDownOrClick = (e) => {
       if (!inHeader(e.target)) return;
 
+      // Orb: do NOT play; show index/stats
       if (LM_ORB_EL && (e.target === LM_ORB_EL || (e.target.closest && e.target.closest("[data-lm-orb='1']")))) {
         try { e.preventDefault(); } catch {}
         try { e.stopImmediatePropagation(); } catch {}
@@ -293,6 +466,7 @@
         return;
       }
 
+      // Rest of header: block playback-triggering events
       try { e.preventDefault(); } catch {}
       try { e.stopImmediatePropagation(); } catch {}
       try { e.stopPropagation(); } catch {}
@@ -378,11 +552,11 @@
 
   function extractSpotifyUriFromNode(node) {
     const ds = node?.dataset || {};
-    const cand = ds.spotifyUri || ds.uri || ds.spotifyTrackUri || ds.spotifyId || ds.spotifyID || null;
+    const cand = ds.spotifyUri || ds.uri || ds.spotifyTrackUri || ds.spotifyId || null;
 
     if (cand) {
-      if (String(cand).startsWith("spotify:")) return String(cand);
-      if (/^[A-Za-z0-9]{22}$/.test(String(cand))) return `spotify:track:${cand}`;
+      if (cand.startsWith("spotify:")) return cand;
+      if (/^[A-Za-z0-9]{22}$/.test(cand)) return `spotify:track:${cand}`;
     }
 
     const a =
@@ -518,28 +692,6 @@
     return false;
   }
 
-  function findPlayableItemFromTarget(target, listEl) {
-    if (!target || !listEl) return null;
-
-    // Prefer your app rows
-    let item = target.closest?.(".row");
-    if (item && listEl.contains(item)) return item;
-
-    // Many UIs use li for list entries
-    item = target.closest?.("li");
-    if (item && listEl.contains(item)) return item;
-
-    // Fallback: any direct child block in the list that contains enough text
-    const block = target.closest?.("div, article, section");
-    if (block && listEl.contains(block)) {
-      // avoid grabbing the whole list container
-      if (block === listEl) return null;
-      return block;
-    }
-
-    return null;
-  }
-
   function installDelegatedListHandler(listEl, which) {
     if (!listEl || listEl.dataset.spDelegated === "1") return;
     listEl.dataset.spDelegated = "1";
@@ -549,20 +701,22 @@
       if (isExplicitNoPlay(e.target)) return;
       if (shouldIgnoreClickTarget(e.target)) return;
 
-      const item = findPlayableItemFromTarget(e.target, listEl);
-      if (!item) return;
+      // our UI rows in your app use ".row"
+      const row = e.target?.closest?.(".row");
+      if (!row) return;
 
+      // Top->Artist mode should not play
       if (which === "top") {
         const mode = getTopMode();
         if (mode === "artist") return;
-        if (looksLikeArtistOnlyRow(item)) return;
+        if (looksLikeArtistOnlyRow(row)) return;
       }
 
       e.preventDefault();
       e.stopPropagation();
-      pulse(item);
+      pulse(row);
 
-      const uri = await resolveUriForRow(item);
+      const uri = await resolveUriForRow(row);
       if (uri) await playUri(uri);
     }, { passive: false });
   }
@@ -602,15 +756,16 @@
     ensureDock();
     positionDock();
 
+    // Only 1 light poll loop
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(() => { pollPlaybackOnce().catch(() => {}); }, 1500);
     pollPlaybackOnce().catch(() => {});
 
-    // Delegated handlers (works for .row and li and generic blocks)
+    // Delegated handlers (NO loops, NO scanning)
     installDelegatedListHandler(document.getElementById("recentList"), "recent");
     installDelegatedListHandler(document.getElementById("topList"), "top");
 
-    // Reposition dock on resize + scroll (rAF)
+    // Reposition dock on resize + on scroll (throttled via rAF)
     let raf = 0;
     const schedulePos = () => {
       if (raf) return;
@@ -622,7 +777,7 @@
     window.addEventListener("resize", schedulePos, { passive: true });
     window.addEventListener("scroll", schedulePos, { passive: true });
 
-    // MutationObserver: only light work
+    // MutationObserver: DO NOT do heavy work; only re-run tiny stuff (dock position + make sure delegation exists)
     let moRaf = 0;
     const mo = new MutationObserver(() => {
       if (moRaf) return;

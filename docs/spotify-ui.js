@@ -1,7 +1,7 @@
 /* spotify-ui.js (FULL REPLACE) — PART 1/2
-   Only changes requested:
-   - Spotify icon +10px right
-   - Glyph left of "Listening Mirror" toggles play/pause
+   Only changes requested (and minimal):
+   - Glyph left of "Listening Mirror" toggles play/pause (FIXED via fallback detection + pointerdown)
+   - Spotify icon positioning stays as-is (your current translate is untouched)
 */
 
 (function () {
@@ -82,16 +82,12 @@
 #lmSpotifyBtn.lmOff{ opacity:.35; filter: grayscale(1); }
 #lmSpotifyBtn.lmOn{ opacity:.95; filter:none; }
 
-/* Placement:
-   You asked: +10px right.
-   So we move X from 290px -> 300px (adds +10px right).
-   Y stays as-is.
-*/
+/* Placement: keep YOUR current transform exactly */
 .lmOnlineRow{ position:relative !important; }
 #lmSpotifyBtn{
   position:absolute !important;
   top:50% !important;
-  transform: translate(300px, calc(-50% + 62px)) !important;
+  transform: translate(290px, calc(-50% + 62px)) !important;
   left:0 !important;
 }
 
@@ -232,7 +228,7 @@
     return null;
   }
 
-  // pick the glyph that is immediately left of the title
+  // pick the glyph that is immediately left of the title (primary)
   function findGlyphLeftOfTitle(titleNode) {
     if (!titleNode) return null;
 
@@ -275,6 +271,53 @@
 
       const dx = Math.abs(titleRect.left - r.right);
       const dy = Math.abs(((titleRect.top + titleRect.bottom) / 2) - ((r.top + r.bottom) / 2));
+      const score = dx + dy * 2;
+
+      if (score < bestScore) {
+        bestScore = score;
+        best = n;
+      }
+    }
+
+    return best;
+  }
+
+  // ✅ NEW: fallback detector (roundish small element near title, inside header)
+  function findOrbNearTitleFallback(titleNode, headerEl) {
+    if (!titleNode || !headerEl) return null;
+
+    const titleRect = titleNode.getBoundingClientRect?.();
+    if (!titleRect) return null;
+
+    const candidates = $$("div,span,button,a,svg", headerEl).slice(0, 260);
+
+    let best = null;
+    let bestScore = Infinity;
+
+    const titleMidY = (titleRect.top + titleRect.bottom) / 2;
+
+    for (const n of candidates) {
+      if (!n || n === titleNode) continue;
+
+      const r = n.getBoundingClientRect?.();
+      if (!r) continue;
+
+      const small = r.width >= 10 && r.width <= 60 && r.height >= 10 && r.height <= 60;
+      if (!small) continue;
+
+      const cs = window.getComputedStyle(n);
+      const br = parseFloat(cs.borderRadius || "0");
+      const roundish = br > 12 || cs.borderRadius === "999px";
+      if (!roundish) continue;
+
+      const midY = (r.top + r.bottom) / 2;
+      if (Math.abs(midY - titleMidY) > 46) continue;
+
+      // Must be left of title (or slightly overlapping left edge)
+      if (r.right > titleRect.left + 24) continue;
+
+      const dx = Math.abs(titleRect.left - r.right);
+      const dy = Math.abs(titleMidY - midY);
       const score = dx + dy * 2;
 
       if (score < bestScore) {
@@ -370,14 +413,18 @@
     if (LM_ORB.dataset && LM_ORB.dataset.lmOrbBound === "1") return;
 
     LM_ORB.dataset.lmOrbBound = "1";
+    try { LM_ORB.style.cursor = "pointer"; } catch {}
 
-    LM_ORB.addEventListener("click", async (e) => {
+    const handler = async (e) => {
       e.preventDefault();
       e.stopPropagation();
-
       if (!getToken()) return;
       await togglePlayPause();
-    }, { passive: false });
+    };
+
+    // ✅ bind to both pointerdown + click (fixes “does nothing” cases)
+    LM_ORB.addEventListener("pointerdown", handler, { passive: false });
+    LM_ORB.addEventListener("click", handler, { passive: false });
   }
 
   function refreshHeader() {
@@ -391,13 +438,18 @@
     LM_HEADER = pickCompactHeaderContainer(LM_TITLE);
     if (!LM_HEADER) return;
 
-    // glyph left of title => play/pause
-    LM_ORB = findGlyphLeftOfTitle(LM_TITLE) || null;
+    // ✅ FIX: primary glyph-left detector, fallback to header scan
+    LM_ORB =
+      findGlyphLeftOfTitle(LM_TITLE) ||
+      findOrbNearTitleFallback(LM_TITLE, LM_HEADER) ||
+      null;
+
     bindOrbAsPlayPause();
 
     ensureSpotifyIconNearOnline(LM_HEADER);
     markTabsClickable();
   }
+/* spotify-ui.js (FULL REPLACE) — PART 2/2 */
 
   // ---------------- Click-to-play (delegated) ----------------
 
@@ -539,7 +591,6 @@
 
     return row;
   }
-/* spotify-ui.js (FULL REPLACE) — PART 2/2 */
 
   async function handleDocumentClick(e) {
     if (!getToken()) return;

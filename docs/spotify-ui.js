@@ -1,8 +1,7 @@
-/* spotify-ui.js (FULL REPLACE) — FIXED glyph->Mirror accidental playback
-   - Adds HARD click guard inside Listening Mirror header container:
-     clicks on glyph/header will NOT trigger click-to-play,
-     and will call openStats() if available.
-   - Keeps previous fixes (throttled loops + Web API fallback playUri)
+/* spotify-ui.js (FULL REPLACE) — HARD FIX: glyph/header click triggers "Mirror" playback
+   - Adds WINDOW CAPTURE blocker with stopImmediatePropagation()
+   - Blocks any click/pointerdown in Listening Mirror header area (except #spDock)
+   - Optionally calls openStats()
 */
 
 (function () {
@@ -125,23 +124,8 @@
 }
 
 /* Clickable artwork / fallback clickable row */
-.spArtworkPlayable{
-  cursor: pointer !important;
-  outline: 1px solid rgba(49,208,124,.0);
-  border-radius: 12px;
-  transition: outline-color .12s ease, transform .12s ease;
-}
-.spArtworkPlayable:active{
-  transform: translateY(1px);
-  outline-color: rgba(49,208,124,.35);
-}
-.spRowPlayable{
-  cursor: pointer !important;
-  transition: transform .12s ease;
-}
-.spRowPlayable:active{
-  transform: translateY(1px);
-}
+.spArtworkPlayable{ cursor: pointer !important; border-radius: 12px; }
+.spRowPlayable{ cursor: pointer !important; }
     `.trim();
 
     const style = document.createElement("style");
@@ -162,11 +146,11 @@
   function spotifyLogoSvg() {
     return `
       <svg viewBox="0 0 168 168" aria-hidden="true">
-        <path fill="currentColor" d="M84 0C37.6 0 0 37.6 0 84s37.6 84 84 84 84-37.6 84-84S130.4 0 84 0zm38.6 121.3c-1.5 2.4-4.6 3.2-7 1.7-19.2-11.7-43.4-14.3-72-7.8-2.8.6-5.6-1.1-6.2-3.9-.6-2.8 1.1-5.6 3.9-6.2 31.5-7.2 58.5-4.2 80.3 9.1 2.4 1.5 3.2 4.6 1.7 7.1zm9.9-22c-1.9 3-5.8 4-8.8 2.1-22-13.5-55.6-17.4-81.8-9.5-3.4 1-7-0.9-8-4.3-1-3.4.9-7 4.3-8 30-9.1 67.3-4.7 92.8 11.1 3 1.9 4 5.9 2.1 8.6zm.8-23c-26.3-15.6-69.7-17.1-94.8-9.5-4 .1-7.4-2.6-8.5-6.4-1.1-3.8 1.2-7.8 5-8.9 29.1-8.8 77.5-7.1 108.1 11.1 3.5 2.1 4.7 6.7 2.6 10.2-2.1 3.5-6.7 4.7-10.2 2.6z"/>
+        <path fill="currentColor" d="M84 0C37.6 0 0 37.6 0 84s37.6 84 84 84 84-37.6 84-84S130.4 0 84 0zm38.6 121.3c-1.5 2.4-4.6 3.2-7 1.7-19.2-11.7-43.4-14.3-72-7.8-2.8.6-5.6-1.1-6.2-3.9-.6-2.8 1.1-5.6 3.9-6.2 31.5-7.2 58.5-4.2 80.3 9.1 2.4 1.5 3.2 4.6 1.7 7.1z"/>
       </svg>
     `;
   }
-// ---------------- Spotify Web API (stable pause/play + click-to-play fallback) ----------------
+// ---------------- Spotify Web API (stable pause/play + playUri fallback) ----------------
   async function spotifyApi(endpoint, method = "GET", body = null) {
     const token = getToken();
     if (!token) return { ok: false, status: 401 };
@@ -189,8 +173,8 @@
     if (!uri || typeof uri !== "string") return false;
     const m = uri.match(/^spotify:track:([A-Za-z0-9]{22})$/);
     if (!m) return false;
-    const ok = await spotifyApi("/me/player/play", "PUT", { uris: [uri] });
-    return !!ok.ok;
+    const res = await spotifyApi("/me/player/play", "PUT", { uris: [uri] });
+    return !!res.ok;
   }
 
   async function playUri(uri) {
@@ -365,7 +349,7 @@
       if (!r.ok) console.warn("[Spotify UI] Prev failed:", r.reason);
     }, { passive: false });
   }
-// ---------------- Header anchor + Orb hard-exclude + NEW glyph guard ----------------
+// ---------------- Header anchor + HARD GLOBAL CAPTURE BLOCKER ----------------
   function findHeaderTitleNode() {
     const nodes = Array.from(document.querySelectorAll("h1,h2,div,span")).slice(0, 3500);
     for (const n of nodes) {
@@ -385,71 +369,43 @@
     return null;
   }
 
-  // NEW: hard-guard clicks in the Listening Mirror header container
-  // so glyph clicks NEVER trigger click-to-play handlers.
-  let lastGuardedHeader = null;
-  function guardHeaderClicks(titleNode) {
-    if (!titleNode) return;
-    const header = titleNode.closest("header, section, article") || titleNode.closest("div") || titleNode.parentElement;
-    if (!header) return;
-    if (header === lastGuardedHeader) return;
+  // Current header container reference (updated by positionDock)
+  let LM_HEADER_EL = null;
 
-    lastGuardedHeader = header;
+  // Install ONCE: Window-capture blocker runs BEFORE any document/body capture delegation
+  let blockerInstalled = false;
+  function installWindowCaptureBlocker() {
+    if (blockerInstalled) return;
+    blockerInstalled = true;
 
-    // Mark header as no-play zone
-    header.setAttribute("data-sp-no-play", "1");
+    const shouldBlock = (e) => {
+      // allow dock clicks always
+      if (e.target && e.target.closest && e.target.closest("#spDock")) return false;
+      if (!LM_HEADER_EL) return false;
+      if (!e.target) return false;
+      // if click is inside Listening Mirror header container -> block
+      return LM_HEADER_EL.contains(e.target);
+    };
 
-    const handler = (e) => {
-      // allow player dock clicks
-      if (e.target && e.target.closest && e.target.closest("#spDock")) return;
+    const kill = (e) => {
+      if (!shouldBlock(e)) return;
 
-      // kill any bubbling that might reach row/play bindings
-      e.preventDefault();
-      e.stopPropagation();
+      // This is the key: stops other handlers even in same phase
+      try { e.preventDefault(); } catch {}
+      try { e.stopImmediatePropagation(); } catch {}
+      try { e.stopPropagation(); } catch {}
 
-      // show stats/index if the app has it
+      // Open stats/index if available
       if (typeof window.openStats === "function") {
         try { window.openStats(); } catch {}
       }
     };
 
-    // Capture phase: before anything else
-    header.addEventListener("pointerdown", handler, { capture: true, passive: false });
-    header.addEventListener("click", handler, { capture: true, passive: false });
-  }
-
-  function markHeaderOrbNoPlay(titleNode) {
-    if (!titleNode) return;
-
-    const container = titleNode.closest("header, section, article, div") || titleNode.parentElement;
-    if (!container) return;
-
-    const candidates = Array.from(container.querySelectorAll("div,span,button,a")).slice(0, 80);
-    const titleRect = titleNode.getBoundingClientRect();
-
-    for (const n of candidates) {
-      if (n === titleNode) continue;
-
-      const r = n.getBoundingClientRect?.();
-      if (!r) continue;
-
-      const closeY = Math.abs((r.top + r.bottom) / 2 - (titleRect.top + titleRect.bottom) / 2) < 24;
-      const leftOfTitle = r.right <= titleRect.left + 10;
-      const small = r.width >= 10 && r.width <= 46 && r.height >= 10 && r.height <= 46;
-      if (!closeY || !leftOfTitle || !small) continue;
-
-      const cs = window.getComputedStyle(n);
-      const br = parseFloat(cs.borderRadius || "0");
-      const roundish = br > 12 || cs.borderRadius === "999px";
-      if (!roundish) continue;
-
-      n.dataset.spNoPlay = "1";
-      n.setAttribute("data-sp-no-play", "1");
-      n.classList.remove("spArtworkPlayable", "spRowPlayable");
-      n.addEventListener("click", (e) => { e.stopPropagation(); }, { passive: true });
-      n.addEventListener("pointerdown", (e) => { e.stopPropagation(); }, { passive: true });
-      break;
-    }
+    // Cover touch + mouse + pointer + click
+    window.addEventListener("pointerdown", kill, { capture: true, passive: false });
+    window.addEventListener("mousedown",   kill, { capture: true, passive: false });
+    window.addEventListener("touchstart",  kill, { capture: true, passive: false });
+    window.addEventListener("click",       kill, { capture: true, passive: false });
   }
 
   function setDockPositionNearTitle(titleNode) {
@@ -475,20 +431,32 @@
 
   function positionDock() {
     ensureDock();
-    const titleNode = findHeaderTitleNode();
+    installWindowCaptureBlocker();
 
+    const titleNode = findHeaderTitleNode();
     if (!titleNode) {
+      LM_HEADER_EL = null;
       setDockHidden(true);
       return;
     }
 
-    guardHeaderClicks(titleNode);       // <<< NEW
-    markHeaderOrbNoPlay(titleNode);
+    // Define header container tightly around the Listening Mirror header area
+    LM_HEADER_EL =
+      titleNode.closest("header") ||
+      titleNode.closest("section") ||
+      titleNode.closest("article") ||
+      titleNode.closest("div") ||
+      titleNode.parentElement ||
+      null;
+
+    // mark as no-play zone (helps our own logic too)
+    if (LM_HEADER_EL) LM_HEADER_EL.setAttribute("data-sp-no-play", "1");
+
     setDockPositionNearTitle(titleNode);
     setDockHidden(false);
   }
 
-  // ---------------- List click-to-play logic (unchanged) ----------------
+  // ---------------- Click-to-play bindings (same logic as before) ----------------
   function isSessionCoversArea(node) {
     const root = node?.closest?.("section, article, div") || null;
     const txt = ((root?.innerText || node?.innerText || "")).toUpperCase();
@@ -499,35 +467,7 @@
   }
 
   function isExplicitNoPlay(node) {
-    return !!(node?.dataset?.spNoPlay === "1" || node?.closest?.("[data-sp-no-play='1']"));
-  }
-
-  // ---------------- Tabs + Mode detection + resolve/play bindings ----------------
-  function getTopMode() {
-    const nodes = Array.from(document.querySelectorAll("*")).slice(0, 3500);
-    for (const n of nodes) {
-      const t = (n.innerText || "").replace(/\s+/g, " ").trim();
-      if (!t) continue;
-      const lt = t.toLowerCase();
-      if (!(lt.includes("track") && lt.includes("artist") && lt.includes("album"))) continue;
-
-      const opts = Array.from(n.querySelectorAll("button, div, span, a")).filter(x => {
-        const tx = (x.textContent || "").trim().toLowerCase();
-        return tx === "track" || tx === "artist" || tx === "album";
-      });
-
-      for (const o of opts) {
-        const tx = (o.textContent || "").trim().toLowerCase();
-        const ariaSel = o.getAttribute("aria-selected");
-        const ariaPress = o.getAttribute("aria-pressed");
-        const cls = (o.className || "").toString().toLowerCase();
-
-        if (ariaSel === "true" || ariaPress === "true" || cls.includes("active") || cls.includes("selected")) {
-          return tx;
-        }
-      }
-    }
-    return null;
+    return !!(node?.closest?.("[data-sp-no-play='1']"));
   }
 
   function extractSpotifyUriFromNode(node) {
@@ -605,6 +545,26 @@
     return l1IsCount;
   }
 
+  function isTopTabActive() {
+    const tabs = Array.from(document.querySelectorAll("button,div,span,a")).slice(0, 2000);
+    for (const n of tabs) {
+      const tx = (n.textContent || "").trim().toLowerCase();
+      if (tx !== "top") continue;
+      const ariaSel = n.getAttribute("aria-selected");
+      const ariaPress = n.getAttribute("aria-pressed");
+      const cls = (n.className || "").toString().toLowerCase();
+      if (ariaSel === "true" || ariaPress === "true" || cls.includes("active") || cls.includes("selected")) return true;
+    }
+    return false;
+  }
+
+  function isLikelyFirstRowInTop(row) {
+    if (!isTopTabActive()) return false;
+    const r = row.getBoundingClientRect?.();
+    if (!r) return false;
+    return r.top >= 0 && r.top < 320;
+  }
+
   function strictOk(row, artist, track) {
     const a = (artist || "").trim();
     const t = (track || "").trim();
@@ -626,26 +586,6 @@
     if (a.toLowerCase() === "agust d" && t.toLowerCase() === "haegeum") return false;
     if (t.endsWith("…") || a.endsWith("…")) return false;
     return true;
-  }
-
-  function isTopTabActive() {
-    const tabs = Array.from(document.querySelectorAll("button,div,span,a")).slice(0, 2000);
-    for (const n of tabs) {
-      const tx = (n.textContent || "").trim().toLowerCase();
-      if (tx !== "top") continue;
-      const ariaSel = n.getAttribute("aria-selected");
-      const ariaPress = n.getAttribute("aria-pressed");
-      const cls = (n.className || "").toString().toLowerCase();
-      if (ariaSel === "true" || ariaPress === "true" || cls.includes("active") || cls.includes("selected")) return true;
-    }
-    return false;
-  }
-
-  function isLikelyFirstRowInTop(row) {
-    if (!isTopTabActive()) return false;
-    const r = row.getBoundingClientRect?.();
-    if (!r) return false;
-    return r.top >= 0 && r.top < 320;
   }
 
   async function resolveUriForRow(row) {
@@ -716,6 +656,30 @@
     if (topMode === "artist") return false;
     if (looksLikeArtistOnlyRow(row)) return false;
     return true;
+  }
+
+  function getTopMode() {
+    const nodes = Array.from(document.querySelectorAll("*")).slice(0, 3500);
+    for (const n of nodes) {
+      const t = (n.innerText || "").replace(/\s+/g, " ").trim();
+      if (!t) continue;
+      const lt = t.toLowerCase();
+      if (!(lt.includes("track") && lt.includes("artist") && lt.includes("album"))) continue;
+
+      const opts = Array.from(n.querySelectorAll("button, div, span, a")).filter(x => {
+        const tx = (x.textContent || "").trim().toLowerCase();
+        return tx === "track" || tx === "artist" || tx === "album";
+      });
+
+      for (const o of opts) {
+        const tx = (o.textContent || "").trim().toLowerCase();
+        const ariaSel = o.getAttribute("aria-selected");
+        const ariaPress = o.getAttribute("aria-pressed");
+        const cls = (o.className || "").toString().toLowerCase();
+        if (ariaSel === "true" || ariaPress === "true" || cls.includes("active") || cls.includes("selected")) return tx;
+      }
+    }
+    return null;
   }
 
   function attachPlayBindings() {
@@ -799,11 +763,9 @@
 
   function startLoops() {
     stopLoops();
-
     pollTimer = setInterval(() => { pollPlaybackOnce().catch(() => {}); }, 1200);
-    pollPlaybackOnce().catch(() => {});
-
     bindTimer = setInterval(() => { try { attachPlayBindings(); } catch {} }, 700);
+    pollPlaybackOnce().catch(() => {});
     try { attachPlayBindings(); } catch {}
   }
 

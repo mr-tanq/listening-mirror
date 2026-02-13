@@ -118,6 +118,176 @@
     console.warn("[Spotify UI] Cannot play URI:", uri);
     return false;
   }
+// ---------------- Header/orb refs ----------------
+  function findHeaderTitleNode() {
+    const nodes = Array.from(document.querySelectorAll("h1,h2,div,span")).slice(0, 4000);
+    for (const n of nodes) {
+      const t = (n.textContent || "").trim();
+      if (t === "Listening Mirror") return n;
+    }
+    for (const n of nodes) {
+      const t = (n.textContent || "").trim();
+      if (t.includes("Listening Mirror")) return n;
+    }
+    return null;
+  }
+
+  function findOrbNearTitle(titleNode) {
+    if (!titleNode) return null;
+    const container =
+      titleNode.closest("header") ||
+      titleNode.closest("section") ||
+      titleNode.closest("article") ||
+      titleNode.closest("div") ||
+      titleNode.parentElement;
+
+    if (!container) return null;
+
+    const titleRect = titleNode.getBoundingClientRect?.();
+    if (!titleRect) return null;
+
+    const candidates = Array.from(container.querySelectorAll("div,span,button,a")).slice(0, 180);
+
+    let best = null;
+    let bestScore = Infinity;
+
+    for (const n of candidates) {
+      if (n === titleNode) continue;
+
+      const r = n.getBoundingClientRect?.();
+      if (!r) continue;
+
+      const small = r.width >= 10 && r.width <= 56 && r.height >= 10 && r.height <= 56;
+      if (!small) continue;
+
+      const cs = window.getComputedStyle(n);
+      const br = parseFloat(cs.borderRadius || "0");
+      const roundish = br > 12 || cs.borderRadius === "999px";
+      if (!roundish) continue;
+
+      const midY = (r.top + r.bottom) / 2;
+      const titleMidY = (titleRect.top + titleRect.bottom) / 2;
+      const closeY = Math.abs(midY - titleMidY) < 32;
+      if (!closeY) continue;
+
+      const dx = Math.abs(titleRect.left - r.right);
+      const dy = Math.abs(titleMidY - midY);
+      const score = dx + dy * 2;
+
+      if (score < bestScore) {
+        bestScore = score;
+        best = n;
+      }
+    }
+
+    return best;
+  }
+
+  // Detect ORIGINAL header controls robustly (no styling, only mark to allow clicks)
+  function markOriginalHeaderControls(headerEl) {
+    if (!headerEl) return null;
+
+    // 1) Best: aria-label buttons (prev/play/next etc.)
+    const ariaBtns = Array.from(headerEl.querySelectorAll("button,[role='button'],a")).filter((n) => {
+      const a = (n.getAttribute("aria-label") || "").toLowerCase();
+      if (!a) return false;
+      return (
+        a.includes("previous") ||
+        a.includes("next") ||
+        a.includes("play") ||
+        a.includes("pause") ||
+        a.includes("spotify")
+      );
+    });
+
+    if (ariaBtns.length >= 2) {
+      // mark the smallest common ancestor container
+      let container = ariaBtns[0].parentElement;
+      for (const b of ariaBtns) {
+        while (container && !container.contains(b)) container = container.parentElement;
+      }
+      const cand = container?.closest("div,nav,header,section") || container;
+      if (cand) {
+        cand.setAttribute("data-sp-controls", "1");
+        return cand;
+      }
+    }
+
+    // 2) Fallback: cluster of 3+ round buttons
+    const nodes = Array.from(headerEl.querySelectorAll("button,a,div,span")).slice(0, 600);
+    const round = nodes.filter((n) => {
+      const r = n.getBoundingClientRect?.();
+      if (!r) return false;
+      if (r.width < 22 || r.width > 60) return false;
+      if (r.height < 22 || r.height > 60) return false;
+      const cs = window.getComputedStyle(n);
+      const br = parseFloat(cs.borderRadius || "0");
+      return br > 12 || cs.borderRadius === "999px";
+    });
+
+    for (const b of round) {
+      const p = b.closest("div,nav,header,section");
+      if (!p) continue;
+      const inside = Array.from(p.querySelectorAll("button,a,div,span")).filter((x) => {
+        const r = x.getBoundingClientRect?.();
+        if (!r) return false;
+        if (r.width < 22 || r.width > 60) return false;
+        if (r.height < 22 || r.height > 60) return false;
+        const cs = window.getComputedStyle(x);
+        const br = parseFloat(cs.borderRadius || "0");
+        return br > 12 || cs.borderRadius === "999px";
+      });
+      if (inside.length >= 3) {
+        p.setAttribute("data-sp-controls", "1");
+        return p;
+      }
+    }
+
+    return null;
+  }
+
+  let LM_HEADER_EL = null;
+  let LM_ORB_EL = null;
+  let LM_CONTROLS_EL = null;
+
+  function bindOrbHoverForIndex() {
+    if (!LM_ORB_EL) return;
+    if (LM_ORB_EL.dataset && LM_ORB_EL.dataset.spOrbHoverBound === "1") return;
+
+    LM_ORB_EL.dataset.spOrbHoverBound = "1";
+    LM_ORB_EL.setAttribute("data-lm-orb", "1");
+
+    LM_ORB_EL.addEventListener("mouseenter", () => { callIndexOrStats(); }, { passive: true });
+    LM_ORB_EL.addEventListener("pointerenter", () => { callIndexOrStats(); }, { passive: true });
+    LM_ORB_EL.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      callIndexOrStats();
+    }, { passive: false });
+  }
+
+  function refreshHeaderRefs() {
+    const titleNode = findHeaderTitleNode();
+    if (!titleNode) {
+      LM_HEADER_EL = null;
+      LM_ORB_EL = null;
+      LM_CONTROLS_EL = null;
+      return;
+    }
+
+    LM_HEADER_EL =
+      titleNode.closest("header") ||
+      titleNode.closest("section") ||
+      titleNode.closest("article") ||
+      titleNode.closest("div") ||
+      titleNode.parentElement ||
+      null;
+
+    LM_ORB_EL = findOrbNearTitle(titleNode);
+    if (LM_ORB_EL) bindOrbHoverForIndex();
+
+    LM_CONTROLS_EL = markOriginalHeaderControls(LM_HEADER_EL);
+  }
 // HARD blocker: blocks header playback bug but NEVER blocks original controls
   let blockerInstalled = false;
   function installWindowCaptureBlocker() {

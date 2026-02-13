@@ -1,7 +1,9 @@
 /* spotify-ui.js (FULL REPLACE)
    Fixes:
-   - Spotify icon goes INLINE next to "Online" (same line, where you drew the red X)
-   - Glyph left of "Listening Mirror" is ONLY Play/Pause (never logout; login only if needed)
+   - Correct Spotify icon SVG (no weird look)
+   - Icon sits cleanly INLINE next to "Online"
+   - Glyph left of title = Play/Pause only (never logout)
+   - Spotify icon next to Online = login/logout + always visible (grey when logged out)
    - Keeps header blocker + row click-to-play (incl. no-artwork rows)
 */
 
@@ -61,12 +63,13 @@
     } catch {}
   }
 
+  // ✅ Correct Spotify logo (circle + 3 arcs), renders cleanly at 16–18px
   function spotifyLogoSvg() {
     return `
-      <svg viewBox="0 0 168 168" aria-hidden="true">
-        <path fill="currentColor" d="M84 0C37.6 0 0 37.6 0 84s37.6 84 84 84 84-37.6 84-84S130.4 0 84 0zm38.6 121.3c-1.5 2.4-4.6 3.2-7 1.7-19.2-11.7-43.4-14.3-72-7.8-2.8.6-5.6-1.1-6.2-3.9-.6-2.8 1.1-5.6 3.9-6.2 31.5-7.2 58.5-4.2 80.3 9.1 2.4 1.5 3.2 4.6 1.7 7.1z"/>
-      </svg>
-    `;
+<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path fill="currentColor" d="M12 0C5.372 0 0 5.372 0 12c0 6.627 5.372 12 12 12c6.627 0 12-5.373 12-12C24 5.372 18.627 0 12 0zm5.478 17.34c-.214.35-.67.46-1.02.246c-2.79-1.704-6.305-2.09-10.45-1.145c-.4.09-.798-.16-.89-.56c-.09-.4.16-.798.56-.89c4.535-1.035 8.43-.59 11.58 1.335c.35.214.46.67.246 1.02zm1.455-3.234c-.268.434-.835.57-1.27.302c-3.194-1.963-8.06-2.53-11.83-1.385c-.49.15-1.01-.127-1.16-.618c-.15-.49.127-1.01.618-1.16c4.306-1.308 9.658-.675 13.338 1.585c.434.268.57.835.302 1.27zm.125-3.36c-3.83-2.275-10.15-2.484-13.806-1.375c-.585.178-1.204-.152-1.382-.737c-.178-.585.152-1.204.737-1.382c4.197-1.273 11.175-1.028 15.58 1.59c.523.31.695.986.385 1.508c-.31.523-.986.695-1.508.385z"/>
+</svg>
+    `.trim();
   }
 
   function ensureCss() {
@@ -80,12 +83,13 @@
 /* allow clicks for marked controls in header */
 [data-sp-controls='1'], [data-sp-controls='1'] *{ pointer-events:auto !important; }
 
-/* --- Online line: force INLINE icon next to text --- */
+/* Online line: keep icon INLINE next to Online (same row) */
 [data-lm-onlinewrap="1"]{
   display: inline-flex !important;
   align-items: center !important;
   gap: 8px !important;
   white-space: nowrap !important;
+  line-height: 1 !important;
 }
 
 /* spotify login icon next to Online */
@@ -95,12 +99,20 @@
   justify-content:center;
   width:18px;
   height:18px;
+  padding:0;
+  margin:0;
   border-radius:999px;
-  opacity:.45;
+  background: transparent !important;
+  box-shadow:none !important;
+  opacity:.40;
   cursor:pointer;
   transform: translateY(-1px);
 }
-#spOnlineLogin svg{ width:18px; height:18px; display:block; }
+#spOnlineLogin svg{
+  width:18px;
+  height:18px;
+  display:block;
+}
 #spOnlineLogin.linked{ opacity:.95; }
     `.trim();
 
@@ -297,14 +309,13 @@
   function ensureSpotifyIconInlineInOnline(onlineNode) {
     if (!onlineNode) return;
 
-    // mark wrapper so CSS forces inline-flex (same line)
     onlineNode.setAttribute("data-lm-onlinewrap", "1");
 
     let icon = document.getElementById("spOnlineLogin");
     if (!icon) {
       icon = document.createElement("span");
       icon.id = "spOnlineLogin";
-      icon.setAttribute("data-sp-controls", "1"); // header blocker must allow it
+      icon.setAttribute("data-sp-controls", "1");
       icon.title = "Spotify login/logout";
       icon.innerHTML = spotifyLogoSvg();
 
@@ -316,7 +327,6 @@
         else loginOnly();
       }, { passive: false });
 
-      // append INSIDE the Online node (guarantees same line)
       onlineNode.appendChild(icon);
     }
 
@@ -329,15 +339,14 @@
     if (glyphEl.dataset && glyphEl.dataset.spGlyphBound === "1") return;
 
     glyphEl.dataset.spGlyphBound = "1";
-    glyphEl.setAttribute("data-sp-controls", "1"); // allow click through header blocker
+    glyphEl.setAttribute("data-sp-controls", "1");
     try { glyphEl.style.cursor = "pointer"; } catch {}
 
     glyphEl.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation();
 
-      // If no token, ONLY login (never logout)
-      if (!getToken()) { loginOnly(); return; }
+      if (!getToken()) { loginOnly(); return; } // login only, never logout
 
       const st = await getPlaybackState();
       const isPlaying = inferIsPlaying(st);
@@ -559,8 +568,7 @@
 
     return "";
   }
-
-  function rectIsSquareish(r) {
+function rectIsSquareish(r) {
     if (!r) return false;
     const w = r.width, h = r.height;
     if (w < 22 || h < 22) return false;
@@ -627,7 +635,8 @@
     }
     return null;
   }
-function attachPlayBindings() {
+
+  function attachPlayBindings() {
     if (!getToken()) return;
 
     const topMode = getTopMode();

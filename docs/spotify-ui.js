@@ -59,44 +59,71 @@
   }
 
   function ensureCss() {
-    if (document.getElementById("spotifyUiCss")) return;
-    const css = `
+  if (document.getElementById("spotifyUiCss")) return;
+  const css = `
 /* row clickability */
 .spArtworkPlayable{ cursor: pointer !important; border-radius: 12px; }
 .spRowPlayable{ cursor: pointer !important; }
 
-/* fallback controls styling (matches your header pill vibe) */
+/* ===== FALLBACK header controls styling (tuned) ===== */
+#spFallbackWrap{
+  position:absolute;
+  top: 8px;          /* πιο πάνω στο κενό */
+  right: 12px;
+  z-index: 50;
+}
+
 #spFallbackControls{
   display:flex;
   align-items:center;
-  gap:10px;
-  padding:10px 12px;
-  border-radius:999px;
-  background: rgba(10,12,14,.42);
+  gap: 8px;          /* πιο σφιχτά */
+  padding: 8px 10px; /* πιο μικρό pill */
+  border-radius: 999px;
+  background: rgba(10,12,14,.38);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   outline: 1px solid rgba(255,255,255,.10);
-  box-shadow: 0 18px 60px rgba(0,0,0,.35);
+  box-shadow: 0 16px 52px rgba(0,0,0,.32);
 }
+
+/* μικρότερα κουμπιά */
 #spFallbackControls button{
-  border:0;
-  width:40px;
-  height:40px;
-  border-radius:999px;
+  border: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
   background: rgba(255,255,255,.06);
   outline: 1px solid rgba(255,255,255,.10);
-  display:grid;
-  place-items:center;
+  display: grid;
+  place-items: center;
   color: rgba(255,255,255,.92);
-  padding:0;
+  padding: 0;
 }
-#spFallbackControls button:active{ transform: translateY(1px); background: rgba(255,255,255,.08); }
-#spFallbackControls svg{ width:18px; height:18px; display:block; }
-    `.trim();
-    const st = document.createElement("style");
-    st.id = "spotifyUiCss";
-    st.textContent = css;
-    document.head.appendChild(st);
+
+/* icon sizing */
+#spFallbackControls button svg{
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+/* Spotify logo ειδικά */
+#spFallbackControls button:first-child svg{
+  width: 18px;
+  height: 18px;
+  transform: translateY(0.5px);
+}
+
+#spFallbackControls button:active{
+  transform: translateY(1px);
+  background: rgba(255,255,255,.08);
+}
+  `.trim();
+  const st = document.createElement("style");
+  st.id = "spotifyUiCss";
+  st.textContent = css;
+  document.head.appendChild(st);
+}(st);
   }
 
   function iconSvg(name) {

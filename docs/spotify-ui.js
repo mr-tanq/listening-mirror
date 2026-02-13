@@ -1,12 +1,8 @@
 /* spotify-ui.js (FULL REPLACE)
    Fixes:
-   1) HARD no-play for MIRROR / SESSION COVERS orb+card (prevents random "mirror" playback)
-   2) Prevent mobile crashes on scroll (throttled + viewport-only binding)
-   3) ALWAYS-visible Spotify icon next to "Online" for login/logout (grey when logged out)
-   Keeps:
-   - original header Spotify controls untouched
-   - header/orb playback blocker ("Mirror bug" blocker)
-   - click-to-play on list rows (Recent/Top)
+   - Spotify icon now FIXED-positioned exactly next to "Online" (red X spot), not inside layout (no wrapping)
+   - Classic Spotify look: green when logged in, grey when logged out
+   - Keeps: header blocker, row click-to-play, no-play for MIRROR/SESSION COVERS, scroll safety
 */
 
 (function () {
@@ -58,8 +54,10 @@
   pointer-events: auto !important;
 }
 
-/* Injected Spotify icon next to Online */
+/* FIXED Spotify icon next to Online */
 #lmSpotifyOnlineBtn{
+  position:fixed;
+  z-index:999999;
   display:inline-flex;
   align-items:center;
   justify-content:center;
@@ -67,15 +65,24 @@
   height:22px;
   border-radius:999px;
   border:0;
-  background:rgba(255,255,255,0.10);
-  margin-left:10px;
   padding:0;
-  transform: translateY(1px);
   cursor:pointer;
+  box-shadow: 0 10px 26px rgba(0,0,0,.38);
+  -webkit-tap-highlight-color: transparent;
 }
 #lmSpotifyOnlineBtn svg{ width:14px; height:14px; display:block; }
-#lmSpotifyOnlineBtn[data-logged="0"]{ opacity:0.45; filter:grayscale(1); }
-#lmSpotifyOnlineBtn[data-logged="1"]{ opacity:1; filter:none; }
+
+#lmSpotifyOnlineBtn[data-logged="1"]{
+  background:#1DB954; /* classic Spotify green */
+  opacity:1;
+}
+#lmSpotifyOnlineBtn[data-logged="0"]{
+  background:rgba(255,255,255,0.20);
+  opacity:0.65;
+  filter:grayscale(1);
+}
+#lmSpotifyOnlineBtn[data-logged="1"] svg path{ stroke:#0b0c0e; opacity:0.95; }
+#lmSpotifyOnlineBtn[data-logged="0"] svg path{ stroke:rgba(255,255,255,0.88); opacity:0.95; }
     `.trim();
     const st = document.createElement("style");
     st.id = "spotifyUiCss";
@@ -120,9 +127,9 @@
     console.warn("[Spotify UI] Cannot play URI:", uri);
     return false;
   }
-// ---------------- ALWAYS-visible Spotify icon next to "Online" ----------------
+// ---------------- ALWAYS-visible Spotify icon next to "Online" (fixed-position) ----------------
   function findOnlineTextNode() {
-    const nodes = Array.from(document.querySelectorAll("span,div,p,small")).slice(0, 2500);
+    const nodes = Array.from(document.querySelectorAll("span,div,p,small")).slice(0, 2800);
     for (const n of nodes) {
       const t = (n.textContent || "").trim();
       if (t !== "Online") continue;
@@ -143,7 +150,6 @@
       const r = safeCall(p);
       if (r.ok) return true;
     }
-    // last resort: click any existing login button if present
     const btn = document.querySelector("button[data-spotify-login], button[id*='login'], button[class*='login']");
     if (btn) { try { btn.click(); return true; } catch {} }
     return false;
@@ -160,7 +166,6 @@
       const r = safeCall(p);
       if (r.ok) return true;
     }
-    // fallback: clear known storages (keeps app stable)
     try {
       localStorage.removeItem("spotify_access_token");
       localStorage.removeItem("SPOTIFY_ACCESS_TOKEN");
@@ -173,33 +178,25 @@
     const onlineNode = findOnlineTextNode();
     if (!onlineNode) return;
 
-    const parent = onlineNode.parentElement || onlineNode;
-    if (!parent) return;
-
-    // already injected?
-    let btn = parent.querySelector("#lmSpotifyOnlineBtn");
+    let btn = document.getElementById("lmSpotifyOnlineBtn");
     if (!btn) {
       btn = document.createElement("button");
       btn.id = "lmSpotifyOnlineBtn";
-
-      // IMPORTANT: allow clicks (header blocker will ignore this)
-      btn.setAttribute("data-sp-controls", "1");
-
       btn.setAttribute("type", "button");
       btn.setAttribute("aria-label", "Spotify login/logout");
 
-      // Minimal Spotify-like glyph (circle + arcs)
+      // IMPORTANT: allow clicks even with header blocker
+      btn.setAttribute("data-sp-controls", "1");
+
+      // Classic-ish Spotify mark (3 arcs) — we color via CSS above
       btn.innerHTML = `
 <svg viewBox="0 0 24 24" aria-hidden="true">
-  <circle cx="12" cy="12" r="10" fill="currentColor" opacity="0.0"></circle>
-  <path d="M7.2 9.7c3.6-1.1 7.8-.7 11.2 1.0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity="0.95"/>
-  <path d="M7.8 12.5c3.0-.8 6.4-.4 9.2 0.9" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" opacity="0.95"/>
-  <path d="M8.5 15.2c2.2-.5 4.7-.2 6.7 0.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.95"/>
+  <path d="M7.2 9.7c3.6-1.1 7.8-.7 11.2 1.0" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+  <path d="M7.8 12.5c3.0-.8 6.4-.4 9.2 0.9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+  <path d="M8.5 15.2c2.2-.5 4.7-.2 6.7 0.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
 </svg>`.trim();
 
-      // Place right after the Online text
-      if (onlineNode.nextSibling) parent.insertBefore(btn, onlineNode.nextSibling);
-      else parent.appendChild(btn);
+      document.body.appendChild(btn);
 
       btn.addEventListener("click", (e) => {
         e.preventDefault();
@@ -209,20 +206,45 @@
         if (logged) tryLogout();
         else tryLogin();
 
-        // update visual
-        setTimeout(() => syncSpotifyIconState(), 80);
-        setTimeout(() => syncSpotifyIconState(), 400);
+        setTimeout(syncSpotifyIconStateAndPosition, 80);
+        setTimeout(syncSpotifyIconStateAndPosition, 400);
       }, { passive: false });
     }
 
-    syncSpotifyIconState();
+    // place it exactly where you draw the red X: right of Online, centered vertically
+    const r = onlineNode.getBoundingClientRect();
+    const size = 22;
+    const gap = 10;
+
+    const top = Math.round(r.top + (r.height - size) / 2);
+    const left = Math.round(r.right + gap);
+
+    btn.style.top = `${top}px`;
+    btn.style.left = `${left}px`;
+
+    syncSpotifyIconStateAndPosition();
   }
 
-  function syncSpotifyIconState() {
+  function syncSpotifyIconStateAndPosition() {
     const btn = document.getElementById("lmSpotifyOnlineBtn");
     if (!btn) return;
+
     const logged = !!getToken();
     btn.setAttribute("data-logged", logged ? "1" : "0");
+
+    // keep position accurate (Online may move slightly with renders)
+    const onlineNode = findOnlineTextNode();
+    if (!onlineNode) return;
+
+    const r = onlineNode.getBoundingClientRect();
+    const size = 22;
+    const gap = 10;
+
+    const top = Math.round(r.top + (r.height - size) / 2);
+    const left = Math.round(r.right + gap);
+
+    btn.style.top = `${top}px`;
+    btn.style.left = `${left}px`;
   }
 // ---------------- Header / Orb: HARD block playback, but NOT the original controls ----------------
   function findHeaderTitleNode() {
@@ -317,7 +339,6 @@
     return false;
   }
 
-  // detect ORIGINAL header Spotify controls and whitelist them from the blocker
   function markOriginalHeaderControls(headerEl) {
     if (!headerEl) return null;
 
@@ -365,7 +386,7 @@
 
     const inHeader = (target) => {
       if (!target || !LM_HEADER_EL) return false;
-      return LM_HEADER_EL.contains(target);
+      return LM_HEADER_EL.confirm ? LM_HEADER_EL.contains(target) : LM_HEADER_EL.contains(target);
     };
 
     const inAllowedControls = (target) => {
@@ -377,10 +398,10 @@
     const killDownOrClick = (e) => {
       if (!inHeader(e.target)) return;
 
-      // allow original Spotify controls + injected spotify icon (data-sp-controls)
+      // allow original Spotify controls + FIXED spotify icon (data-sp-controls)
       if (inAllowedControls(e.target)) return;
 
-      // header orb: show index, never play
+      // orb: show index, never play
       if (LM_ORB_EL && (e.target === LM_ORB_EL || (e.target.closest && e.target.closest("[data-lm-orb='1']")))) {
         try { e.preventDefault(); } catch {}
         try { e.stopImmediatePropagation(); } catch {}
@@ -440,8 +461,7 @@
 
     LM_CONTROLS_EL = markOriginalHeaderControls(LM_HEADER_EL);
   }
-// ---------------- List click-to-play ----------------
-  // HARD no-play for MIRROR/SESSION COVERS area (works even when status is IDLE)
+// ---------------- List click-to-play + scroll-safe binding (same as before) ----------------
   function isSessionCoversArea(node) {
     const root = node?.closest?.("section, article, div") || null;
     const txt = ((root?.innerText || node?.innerText || "")).toUpperCase();
@@ -599,7 +619,6 @@
     return "";
   }
 
-  // ---------------- performance-safe row binding ----------------
   function rectIsSquareish(r) {
     if (!r) return false;
     const w = r.width, h = r.height;
@@ -666,9 +685,7 @@
   function nearViewport(el, pad = 900) {
     const r = el.getBoundingClientRect?.();
     if (!r) return false;
-    const topOk = r.bottom >= -pad;
-    const bottomOk = r.top <= (window.innerHeight + pad);
-    return topOk && bottomOk;
+    return (r.bottom >= -pad) && (r.top <= (window.innerHeight + pad));
   }
 
   async function bindRow(row) {
@@ -738,7 +755,7 @@
       try { refreshHeaderRefs(); } catch {}
       try { ensureSpotifyIconNextToOnline(); } catch {}
       try { attachPlayBindingsLight(); } catch {}
-      try { syncSpotifyIconState(); } catch {}
+      try { syncSpotifyIconStateAndPosition(); } catch {}
     };
 
     if (typeof window.requestIdleCallback === "function") {
@@ -758,6 +775,7 @@
     mo.observe(document.documentElement, { subtree: true, childList: true });
 
     window.addEventListener("scroll", () => scheduleAttach(), { passive: true });
+    window.addEventListener("resize", () => scheduleAttach(), { passive: true });
 
     scheduleAttach();
   }

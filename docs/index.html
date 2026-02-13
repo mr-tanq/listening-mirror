@@ -1,3 +1,4 @@
+<!-- PART 1/4 -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -240,7 +241,7 @@
       outline-color: rgba(49,208,124,.35);
       box-shadow: 0 0 0 3px rgba(49,208,124,.10);
     }
-
+<!-- PART 2/4 -->
     .tabs{
       display:flex;
       gap:10px;
@@ -545,7 +546,7 @@
         box-shadow: 0 12px 32px rgba(0,0,0,.45), 0 0 0 10px rgba(49,208,124,.06);
       }
     }
-
+<!-- PART 3/4 -->
     .orbPopup{
       position:absolute;
       top: calc(100% + 10px);
@@ -744,6 +745,15 @@
       display:grid;
       gap:10px;
     }
+
+    /* ✅ Scroll performance: make the list a proper scroll container */
+    #econcertsList{
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      touch-action: pan-y;
+      overscroll-behavior: contain;
+    }
+
     .eCard{
       border-radius: 16px;
       outline: 1px solid rgba(255,255,255,.08);
@@ -829,6 +839,21 @@
       font-size: 13px;
     }
 
+    /* ✅ Mobile perf killers: disable expensive effects on small screens */
+    @media (max-width: 720px){
+      .doodles{ background-attachment: scroll !important; }
+
+      .card{
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+      }
+
+      .orbPopup{
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+      }
+    }
+
     @media (max-width: 520px){
       .line1{ font-size: 15px; }
       .orbPopup{ left: 0; }
@@ -837,7 +862,7 @@
     }
   </style>
 </head>
-
+<!-- PART 4/4 -->
 <body>
   <div class="doodles bright" aria-hidden="true"></div>
   <div class="doodles dark" aria-hidden="true"></div>
@@ -1069,29 +1094,29 @@
 
       let last = 0;
 
-function isNowPanelActive(){
-  const nowPanel = document.querySelector('.panel[data-panel="now"]');
-  if(!nowPanel) return true;
-  return !nowPanel.classList.contains('hidden');
-}
+      function isNowPanelActive(){
+        const nowPanel = document.querySelector('.panel[data-panel="now"]');
+        if(!nowPanel) return true;
+        return !nowPanel.classList.contains('hidden');
+      }
 
-function tick(ts){
-  // throttle to ~12fps
-  if(!last || (ts - last) > 80){
-    last = ts;
+      function tick(ts){
+        // throttle to ~12fps
+        if(!last || (ts - last) > 80){
+          last = ts;
 
-    // Only do heavy work when Now tab is visible
-    if(isNowPanelActive()){
-      const axis = pctFromLeftStyle(mDot);
-      root.style.setProperty('--axis', axis.toFixed(4));
-      // Only sync bars when popup is open (big win)
-      if(details && details.open) syncPopupBars();
-    }
-  }
-  requestAnimationFrame(tick);
-}
+          // Only do heavy work when Now tab is visible
+          if(isNowPanelActive()){
+            const axis = pctFromLeftStyle(mDot);
+            root.style.setProperty('--axis', axis.toFixed(4));
+            // Only sync bars when popup is open (big win)
+            if(details && details.open) syncPopupBars();
+          }
+        }
+        requestAnimationFrame(tick);
+      }
 
-requestAnimationFrame(tick);
+      requestAnimationFrame(tick);
     })();
   </script>
 </body>

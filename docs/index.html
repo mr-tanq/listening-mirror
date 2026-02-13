@@ -1067,13 +1067,31 @@
         details.open = false;
       }, {passive:true});
 
-      function tick(){
-        const axis = pctFromLeftStyle(mDot);
-        root.style.setProperty('--axis', axis.toFixed(4));
-        syncPopupBars();
-        requestAnimationFrame(tick);
-      }
-      requestAnimationFrame(tick);
+      let last = 0;
+
+function isNowPanelActive(){
+  const nowPanel = document.querySelector('.panel[data-panel="now"]');
+  if(!nowPanel) return true;
+  return !nowPanel.classList.contains('hidden');
+}
+
+function tick(ts){
+  // throttle to ~12fps
+  if(!last || (ts - last) > 80){
+    last = ts;
+
+    // Only do heavy work when Now tab is visible
+    if(isNowPanelActive()){
+      const axis = pctFromLeftStyle(mDot);
+      root.style.setProperty('--axis', axis.toFixed(4));
+      // Only sync bars when popup is open (big win)
+      if(details && details.open) syncPopupBars();
+    }
+  }
+  requestAnimationFrame(tick);
+}
+
+requestAnimationFrame(tick);
     })();
   </script>
 </body>

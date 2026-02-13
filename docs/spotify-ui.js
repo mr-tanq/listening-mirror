@@ -1,9 +1,9 @@
 /* spotify-ui.js (FULL REPLACE)
-   Goal:
-   - KEEP the ORIGINAL header Spotify controls (the circled ones)
-   - HARD block playback triggered by header/orb/title area ("Mirror bug")
-   - BUT allow clicks on the ORIGINAL Spotify controls
-   - Fix click-to-play for rows EVEN when artwork is missing (placeholder)
+   GUARANTEES:
+   - DOES NOT resize/move/hide the ORIGINAL header Spotify controls
+   - Blocks header/orb/title area playback bug ("Mirror bug")
+   - Allows clicks on ORIGINAL header controls (login/prev/play/next)
+   - Fixes click-to-play on rows that have NO artwork (placeholder icon)
 */
 
 (function () {
@@ -43,49 +43,12 @@
     }
   }
 
-  // ---------------- CSS ----------------
+  // IMPORTANT: minimal CSS ONLY for row cursor (NO header styling at all)
   function ensureCss() {
     if (document.getElementById("spotifyUiCss")) return;
     const css = `
-/* row clickability */
-.spArtworkPlayable{ cursor: pointer !important; border-radius: 12px; }
+.spArtworkPlayable{ cursor: pointer !important; }
 .spRowPlayable{ cursor: pointer !important; }
-
-/* marker for "original spotify header controls" (DO NOT BLOCK) */
-[data-sp-controls='1'], [data-sp-controls='1'] *{
-  pointer-events: auto !important;
-}
-
-/* Make the ORIGINAL header controls smaller + slightly higher (SAFE: transform only) */
-[data-sp-controls='1']{
-  transform: translateY(-8px) scale(.88);
-  transform-origin: top right;
-}
-
-/* Tighter gaps inside the pill without reflow surprises */
-[data-sp-controls='1'] button,
-[data-sp-controls='1'] a,
-[data-sp-controls='1'] [role="button"]{
-  width: 34px !important;
-  height: 34px !important;
-  border-radius: 999px !important;
-}
-
-/* normalize svg icon sizes */
-[data-sp-controls='1'] svg{
-  width: 16px !important;
-  height: 16px !important;
-  display: block !important;
-}
-
-/* Spotify icon (first button in the cluster) looks odd sometimes -> nudge & size */
-[data-sp-controls='1'] button:first-child svg,
-[data-sp-controls='1'] a:first-child svg,
-[data-sp-controls='1'] [role="button"]:first-child svg{
-  width: 18px !important;
-  height: 18px !important;
-  transform: translateY(0.5px) !important;
-}
     `.trim();
     const st = document.createElement("style");
     st.id = "spotifyUiCss";
@@ -115,7 +78,8 @@
     }
     return false;
   }
-// ---------------- Spotify play helpers ----------------
+
+  // ---------------- Spotify API (play) ----------------
   async function spotifyApi(endpoint, method = "GET", body = null) {
     const token = getToken();
     if (!token) return { ok: false, status: 401 };
@@ -154,120 +118,7 @@
     console.warn("[Spotify UI] Cannot play URI:", uri);
     return false;
   }
-
-  // ---------------- Header / Orb detection ----------------
-  function findHeaderTitleNode() {
-    const nodes = Array.from(document.querySelectorAll("h1,h2,div,span")).slice(0, 3500);
-    for (const n of nodes) {
-      const t = (n.textContent || "").trim();
-      if (t === "Listening Mirror") {
-        const r = n.getBoundingClientRect?.();
-        if (r && r.width > 120 && r.height > 18 && r.bottom > 0 && r.top < window.innerHeight) return n;
-      }
-    }
-    for (const n of nodes) {
-      const t = (n.textContent || "").trim();
-      if (t.includes("Listening Mirror")) {
-        const r = n.getBoundingClientRect?.();
-        if (r && r.width > 120 && r.height > 18 && r.bottom > 0 && r.top < window.innerHeight) return n;
-      }
-    }
-    return null;
-  }
-
-  function findOrbNearTitle(titleNode) {
-    if (!titleNode) return null;
-
-    const container =
-      titleNode.closest("header") ||
-      titleNode.closest("section") ||
-      titleNode.closest("article") ||
-      titleNode.closest("div") ||
-      titleNode.parentElement;
-
-    if (!container) return null;
-
-    const titleRect = titleNode.getBoundingClientRect();
-    const candidates = Array.from(container.querySelectorAll("div,span,button,a")).slice(0, 160);
-
-    let best = null;
-    let bestScore = Infinity;
-
-    for (const n of candidates) {
-      if (n === titleNode) continue;
-
-      const r = n.getBoundingClientRect?.();
-      if (!r) continue;
-
-      const small = r.width >= 10 && r.width <= 56 && r.height >= 10 && r.height <= 56;
-      if (!small) continue;
-
-      const midY = (r.top + r.bottom) / 2;
-      const titleMidY = (titleRect.top + titleRect.bottom) / 2;
-      const closeY = Math.abs(midY - titleMidY) < 28;
-
-      const cs = window.getComputedStyle(n);
-      const br = parseFloat(cs.borderRadius || "0");
-      const roundish = br > 12 || cs.borderRadius === "999px";
-
-      if (!closeY || !roundish) continue;
-
-      const dx = Math.abs(titleRect.left - r.right);
-      const dy = Math.abs(titleMidY - midY);
-      const score = dx + dy * 2;
-
-      if (score < bestScore) {
-        bestScore = score;
-        best = n;
-      }
-    }
-
-    return best;
-  }
-// IMPORTANT: detect the ORIGINAL Spotify header controls (your circled bar)
-  // We mark its container with data-sp-controls="1" so the blocker ignores it.
-  function markOriginalHeaderControls(headerEl) {
-    if (!headerEl) return null;
-
-    // Look for a compact cluster of 3-4 round buttons (prev/play/next + spotify icon)
-    const buttons = Array.from(headerEl.querySelectorAll("button, a, div, span"))
-      .filter(n => {
-        const r = n.getBoundingClientRect?.();
-        if (!r) return false;
-        if (r.width < 22 || r.width > 54) return false;
-        if (r.height < 22 || r.height > 54) return false;
-        const cs = window.getComputedStyle(n);
-        const br = parseFloat(cs.borderRadius || "0");
-        return br > 12 || cs.borderRadius === "999px";
-      });
-
-    // pick a likely container: nearest ancestor that contains multiple such buttons
-    for (const b of buttons) {
-      const p = b.closest("div, nav, header, section");
-      if (!p) continue;
-      const inside = Array.from(p.querySelectorAll("button, a, div, span"))
-        .filter(x => {
-          const r = x.getBoundingClientRect?.();
-          if (!r) return false;
-          if (r.width < 22 || r.width > 54) return false;
-          if (r.height < 22 || r.height > 54) return false;
-          const cs = window.getComputedStyle(x);
-          const br = parseFloat(cs.borderRadius || "0");
-          return br > 12 || cs.borderRadius === "999px";
-        });
-
-      if (inside.length >= 3) {
-        p.setAttribute("data-sp-controls", "1");
-        return p;
-      }
-    }
-    return null;
-  }
-
-  let LM_HEADER_EL = null;
-  let LM_ORB_EL = null;
-  let LM_CONTROLS_EL = null;
-
+// HARD blocker: blocks header playback bug but NEVER blocks original controls
   let blockerInstalled = false;
   function installWindowCaptureBlocker() {
     if (blockerInstalled) return;
@@ -280,17 +131,16 @@
 
     const inAllowedControls = (target) => {
       if (!target) return false;
-      if (target.closest && target.closest("[data-sp-controls='1']")) return true;
-      return false;
+      return !!(target.closest && target.closest("[data-sp-controls='1']"));
     };
 
-    const killDownOrClick = (e) => {
+    const kill = (e) => {
       if (!inHeader(e.target)) return;
 
-      // allow the original Spotify controls (login + prev/play/next)
+      // allow original control bar always
       if (inAllowedControls(e.target)) return;
 
-      // orb: show index, never play
+      // orb -> show index
       if (LM_ORB_EL && (e.target === LM_ORB_EL || (e.target.closest && e.target.closest("[data-lm-orb='1']")))) {
         try { e.preventDefault(); } catch {}
         try { e.stopImmediatePropagation(); } catch {}
@@ -299,62 +149,19 @@
         return;
       }
 
-      // rest of header: block playback triggers
+      // everything else in header: block
       try { e.preventDefault(); } catch {}
       try { e.stopImmediatePropagation(); } catch {}
       try { e.stopPropagation(); } catch {}
     };
 
-    window.addEventListener("pointerdown", killDownOrClick, { capture: true, passive: false });
-    window.addEventListener("mousedown",   killDownOrClick, { capture: true, passive: false });
-    window.addEventListener("touchstart",  killDownOrClick, { capture: true, passive: false });
-    window.addEventListener("click",       killDownOrClick, { capture: true, passive: false });
+    window.addEventListener("pointerdown", kill, { capture: true, passive: false });
+    window.addEventListener("mousedown",   kill, { capture: true, passive: false });
+    window.addEventListener("touchstart",  kill, { capture: true, passive: false });
+    window.addEventListener("click",       kill, { capture: true, passive: false });
   }
 
-  function bindOrbHoverForIndex() {
-    if (!LM_ORB_EL) return;
-    if (LM_ORB_EL.dataset && LM_ORB_EL.dataset.spOrbHoverBound === "1") return;
-
-    LM_ORB_EL.dataset.spOrbHoverBound = "1";
-    LM_ORB_EL.setAttribute("data-lm-orb", "1");
-
-    LM_ORB_EL.addEventListener("mouseenter", () => { callIndexOrStats(); }, { passive: true });
-    LM_ORB_EL.addEventListener("pointerenter", () => { callIndexOrStats(); }, { passive: true });
-
-    LM_ORB_EL.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      callIndexOrStats();
-    }, { passive: false });
-  }
-
-  function refreshHeaderRefs() {
-    const titleNode = findHeaderTitleNode();
-    if (!titleNode) {
-      LM_HEADER_EL = null;
-      LM_ORB_EL = null;
-      LM_CONTROLS_EL = null;
-      return;
-    }
-
-    LM_HEADER_EL =
-      titleNode.closest("header") ||
-      titleNode.closest("section") ||
-      titleNode.closest("article") ||
-      titleNode.closest("div") ||
-      titleNode.parentElement ||
-      null;
-
-    LM_ORB_EL = findOrbNearTitle(titleNode);
-    if (LM_ORB_EL) bindOrbHoverForIndex();
-
-    // mark allowed original controls so blocker won't kill them
-    LM_CONTROLS_EL = markOriginalHeaderControls(LM_HEADER_EL);
-
-    // ensure CSS sees the marker and styles it
-    ensureCss();
-  }
-// ---------------- List click-to-play ----------------
+  // ---------------- List click-to-play ----------------
   function isSessionCoversArea(node) {
     const root = node?.closest?.("section, article, div") || null;
     const txt = ((root?.innerText || node?.innerText || "")).toUpperCase();
@@ -433,8 +240,7 @@
     const artist = normalizeArtistLine(cleanLine(filtered[1] || ""));
     return { track, artist };
   }
-
-  function looksLikeArtistOnlyRow(row) {
+function looksLikeArtistOnlyRow(row) {
     const text = (row?.innerText || "").split("\n").map(cleanLine).filter(Boolean);
     if (!text.length) return true;
     if (text.length === 1) return true;
@@ -444,7 +250,7 @@
   }
 
   function isTopTabActive() {
-    const tabs = Array.from(document.querySelectorAll("button,div,span,a")).slice(0, 2000);
+    const tabs = Array.from(document.querySelectorAll("button,div,span,a")).slice(0, 2500);
     for (const n of tabs) {
       const tx = (n.textContent || "").trim().toLowerCase();
       if (tx !== "top") continue;
@@ -514,13 +320,13 @@
     return ratio > 0.72 && ratio < 1.38;
   }
 
+  // KEY: includes button because "no artwork" placeholder is often a <button>
   function getArtworkClickable(row) {
     if (isSessionCoversArea(row) || isExplicitNoPlay(row)) return null;
 
     const img = row.querySelector?.("img");
     if (img && !isExplicitNoPlay(img)) return img;
 
-    // IMPORTANT: for "no artwork" rows, there is usually a square placeholder button/div
     const kids = Array.from(row.querySelectorAll?.("div, span, a, button") || []);
     for (const n of kids) {
       if (isSessionCoversArea(n) || isExplicitNoPlay(n)) continue;
@@ -586,9 +392,7 @@
         art.classList.add("spArtworkPlayable");
 
         art.addEventListener("click", async (e) => {
-          if (e.target && e.target.closest && e.target.closest("[data-sp-controls='1']")) return;
           if (isExplicitNoPlay(e.target) || isSessionCoversArea(e.target)) return;
-
           e.preventDefault(); e.stopPropagation();
           const uri = await resolveUriForRow(row);
           if (uri) await playUri(uri);
@@ -600,15 +404,12 @@
         row.classList.add("spRowPlayable");
 
         row.addEventListener("click", async (e) => {
-          if (e.target && e.target.closest && e.target.closest("[data-sp-controls='1']")) return;
           if (isExplicitNoPlay(e.target) || isSessionCoversArea(e.target)) return;
 
-          // FIX: when artwork is missing, the placeholder is often a BUTTON/A.
-          // We only ignore button/a/input if it's NOT the artwork area.
+          // FIX: do NOT ignore button/a clicks if they are the artwork placeholder area
           const tag = (e.target?.tagName || "").toLowerCase();
           const artArea = getArtworkClickable(row);
           const insideArt = !!(artArea && (artArea === e.target || (artArea.contains && artArea.contains(e.target))));
-
           if ((tag === "button" || tag === "a" || tag === "input") && !insideArt) return;
 
           e.preventDefault(); e.stopPropagation();
@@ -619,19 +420,21 @@
     }
   }
 
-  // ---------------- loops ----------------
+  // ---------------- boot/loops ----------------
   let bindTimer = null;
 
   function startLoops() {
     if (bindTimer) clearInterval(bindTimer);
     bindTimer = setInterval(() => {
       try {
+        ensureCss();
         refreshHeaderRefs();
         attachPlayBindings();
       } catch {}
     }, 900);
 
     try {
+      ensureCss();
       refreshHeaderRefs();
       attachPlayBindings();
     } catch {}

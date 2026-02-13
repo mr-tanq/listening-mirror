@@ -1,13 +1,11 @@
-/* spotify-ui.js (FULL REPLACE) — PART 1/4
-   Changes in this version (based on your "1"):
-   - The LEFT glyph next to "Listening Mirror" becomes ⏯️ (Play/Pause toggle)
-   - Prev/Next (⏪ ⏩) are hidden (only if we can safely detect them)
-   - Spotify icon stays for login/logout (we do NOT break it)
-   - Mirror header/orb/title area cannot trigger playback ("Mirror bug") EXCEPT:
-       ✅ the ⏯️ glyph
-       ✅ the Spotify login/logout control
-   - Click-to-play on rows stays
-   - Fix: rows with NO artwork now play (we ignore "♪" placeholder lines so artist/track parsing works)
+/* spotify-ui.js (FULL REPLACE)
+   Goals:
+   - Keep UI stable (no more disappearing controls)
+   - Glyph left of "Listening Mirror" becomes Play/Pause (no visible ⏯️ overlay)
+   - Spotify login/logout icon appears next to "Online" (always visible):
+       logged out => grey, logged in => normal
+   - HARD block "Mirror bug" playback from header/orb/title area
+   - Keep click-to-play on list rows (Recent/Top), including rows with no artwork
 */
 
 (function () {
@@ -47,43 +45,6 @@
     }
   }
 
-  function ensureCss() {
-    if (document.getElementById("spotifyUiCss")) return;
-
-    const css = `
-/* row clickability */
-.spArtworkPlayable{ cursor: pointer !important; border-radius: 12px; }
-.spRowPlayable{ cursor: pointer !important; }
-
-/* marker for "original spotify header controls" (login/logout lives here) */
-[data-sp-controls='1'], [data-sp-controls='1'] *{
-  pointer-events: auto !important;
-}
-
-/* the new ⏯️ glyph (left of Listening Mirror) */
-[data-lm-glyph='1']{
-  position: relative !important;
-  cursor: pointer !important;
-}
-[data-lm-glyph='1'] .lmGlyphIcon{
-  position:absolute;
-  inset:0;
-  display:grid;
-  place-items:center;
-  font-size: 16px;
-  line-height: 1;
-  pointer-events:none;
-  opacity: .92;
-  transform: translateY(-.5px);
-}
-    `.trim();
-
-    const st = document.createElement("style");
-    st.id = "spotifyUiCss";
-    st.textContent = css;
-    document.head.appendChild(st);
-  }
-
   function doLoginOrLogout() {
     const token = getToken();
     if (!token) {
@@ -103,6 +64,48 @@
     } catch {}
   }
 
+  function spotifyLogoSvg() {
+    return `
+      <svg viewBox="0 0 168 168" aria-hidden="true">
+        <path fill="currentColor" d="M84 0C37.6 0 0 37.6 0 84s37.6 84 84 84 84-37.6 84-84S130.4 0 84 0zm38.6 121.3c-1.5 2.4-4.6 3.2-7 1.7-19.2-11.7-43.4-14.3-72-7.8-2.8.6-5.6-1.1-6.2-3.9-.6-2.8 1.1-5.6 3.9-6.2 31.5-7.2 58.5-4.2 80.3 9.1 2.4 1.5 3.2 4.6 1.7 7.1z"/>
+      </svg>
+    `;
+  }
+
+  function ensureCss() {
+    if (document.getElementById("spotifyUiCss")) return;
+
+    const css = `
+/* row clickability */
+.spArtworkPlayable{ cursor: pointer !important; border-radius: 12px; }
+.spRowPlayable{ cursor: pointer !important; }
+
+/* marker for "allowed header controls" (we will use it for spotify icon near Online) */
+[data-sp-controls='1'], [data-sp-controls='1'] *{ pointer-events:auto !important; }
+
+/* spotify login icon near Online */
+#spOnlineLogin{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:18px;
+  height:18px;
+  margin-left:8px;
+  border-radius:999px;
+  opacity:.45;
+  cursor:pointer;
+  transform: translateY(-1px);
+}
+#spOnlineLogin svg{ width:18px; height:18px; display:block; }
+#spOnlineLogin.linked{ opacity:.95; }
+    `.trim();
+
+    const st = document.createElement("style");
+    st.id = "spotifyUiCss";
+    st.textContent = css;
+    document.head.appendChild(st);
+  }
+
   // ---------------- Spotify Web API (fallback) ----------------
   async function spotifyApi(endpoint, method = "GET", body = null) {
     const token = getToken();
@@ -119,15 +122,15 @@
     }
   }
 
-  async function apiPause() { return (await spotifyApi("/me/player/pause", "PUT")).ok; }
-  async function apiPlay()  { return (await spotifyApi("/me/player/play", "PUT")).ok; }
-
   async function apiPlayUri(uri) {
     if (!uri || typeof uri !== "string") return false;
     const m = uri.match(/^spotify:track:([A-Za-z0-9]{22})$/);
     if (!m) return false;
     return !!(await spotifyApi("/me/player/play", "PUT", { uris: [uri] })).ok;
   }
+
+  async function apiPause() { return (await spotifyApi("/me/player/pause", "PUT")).ok; }
+  async function apiPlay()  { return (await spotifyApi("/me/player/play", "PUT")).ok; }
 
   async function playUri(uri) {
     let r = safeCall("SpotifyPlayer.playUri", uri);
@@ -186,13 +189,12 @@
     let r = safeCall("SpotifyPlayer.play");
     if (r.ok) return true;
     r = safeCall("SpotifyPlayer.resume");
-    return !!r.ok;
+    if (r.ok) return true;
+    return false;
   }
-/* spotify-ui.js (FULL REPLACE) — PART 2/4 */
-
-  // ---------------- Header detection ----------------
+// ---------------- Header: find title / glyph / online node ----------------
   function findHeaderTitleNode() {
-    const nodes = Array.from(document.querySelectorAll("h1,h2,div,span")).slice(0, 3500);
+    const nodes = Array.from(document.querySelectorAll("h1,h2,div,span")).slice(0, 4500);
     for (const n of nodes) {
       const t = (n.textContent || "").trim();
       if (t === "Listening Mirror") {
@@ -210,7 +212,8 @@
     return null;
   }
 
-  function findGlyphLeftOfTitle(titleNode) {
+  // "glyph" = small round element near the title on the left (your orb/glyph)
+  function findGlyphNearTitle(titleNode) {
     if (!titleNode) return null;
 
     const container =
@@ -223,34 +226,32 @@
     if (!container) return null;
 
     const titleRect = titleNode.getBoundingClientRect();
-    const candidates = Array.from(container.querySelectorAll("div,span,button,a")).slice(0, 200);
+    const candidates = Array.from(container.querySelectorAll("div,span,button,a,svg")).slice(0, 220);
 
     let best = null;
     let bestScore = Infinity;
 
     for (const n of candidates) {
       if (n === titleNode) continue;
-      if (n.closest && n.closest("[data-sp-controls='1']")) continue;
 
       const r = n.getBoundingClientRect?.();
       if (!r) continue;
 
-      const small = r.width >= 12 && r.width <= 60 && r.height >= 12 && r.height <= 60;
+      const small = r.width >= 10 && r.width <= 56 && r.height >= 10 && r.height <= 56;
       if (!small) continue;
-
-      // must be left-ish of title
-      const leftish = r.right <= titleRect.left + 18;
-      if (!leftish) continue;
 
       const midY = (r.top + r.bottom) / 2;
       const titleMidY = (titleRect.top + titleRect.bottom) / 2;
       const closeY = Math.abs(midY - titleMidY) < 30;
 
+      // usually left of title
+      const leftish = r.right <= titleRect.left + 26;
+
       const cs = window.getComputedStyle(n);
       const br = parseFloat(cs.borderRadius || "0");
-      const roundish = br > 10 || cs.borderRadius === "999px";
+      const roundish = br > 12 || cs.borderRadius === "999px";
 
-      if (!closeY || !roundish) continue;
+      if (!closeY || !roundish || !leftish) continue;
 
       const dx = Math.abs(titleRect.left - r.right);
       const dy = Math.abs(titleMidY - midY);
@@ -265,124 +266,80 @@
     return best;
   }
 
-  // IMPORTANT: detect the ORIGINAL Spotify header controls cluster so we can:
-  // - allow login/logout click
-  // - hide prev/next safely
-  function markOriginalHeaderControls(headerEl) {
-    if (!headerEl) return null;
+  function findOnlineNodeNearTitle(titleNode) {
+    if (!titleNode) return null;
 
-    const buttons = Array.from(headerEl.querySelectorAll("button, a, div, span"))
-      .filter(n => {
-        const r = n.getBoundingClientRect?.();
-        if (!r) return false;
-        if (r.width < 22 || r.width > 64) return false;
-        if (r.height < 22 || r.height > 64) return false;
-        const cs = window.getComputedStyle(n);
-        const br = parseFloat(cs.borderRadius || "0");
-        return br > 12 || cs.borderRadius === "999px";
-      });
+    const container =
+      titleNode.closest("header") ||
+      titleNode.closest("section") ||
+      titleNode.closest("article") ||
+      titleNode.closest("div") ||
+      titleNode.parentElement;
 
-    for (const b of buttons) {
-      const p = b.closest("div, nav, header, section");
-      if (!p) continue;
+    if (!container) return null;
 
-      const inside = Array.from(p.querySelectorAll("button, a, div, span"))
-        .filter(x => {
-          const r = x.getBoundingClientRect?.();
-          if (!r) return false;
-          if (r.width < 22 || r.width > 64) return false;
-          if (r.height < 22 || r.height > 64) return false;
-          const cs = window.getComputedStyle(x);
-          const br = parseFloat(cs.borderRadius || "0");
-          return br > 12 || cs.borderRadius === "999px";
-        });
-
-      if (inside.length >= 3) {
-        p.setAttribute("data-sp-controls", "1");
-        return p;
-      }
+    // Search within header area for a node that has text exactly "Online"
+    const nodes = Array.from(container.querySelectorAll("div,span,p,small")).slice(0, 400);
+    for (const n of nodes) {
+      const t = (n.textContent || "").trim().toLowerCase();
+      if (t === "online") return n;
+    }
+    // fallback: includes "online"
+    for (const n of nodes) {
+      const t = (n.textContent || "").trim().toLowerCase();
+      if (t.includes("online")) return n;
     }
     return null;
   }
 
-  function likelySpotifyIconNode(node) {
-    if (!node) return false;
-    const t = (node.getAttribute?.("title") || node.getAttribute?.("aria-label") || "").toLowerCase();
-    if (t.includes("spotify")) return true;
+  function ensureSpotifyIconNextToOnline(onlineNode) {
+    if (!onlineNode) return;
 
-    const html = (node.innerHTML || "").toLowerCase();
-    // spotify logo SVG often has viewBox 0 0 168 168 or "spotify" in class/id
-    if (html.includes("0 0 168 168")) return true;
-    if (html.includes("spotify")) return true;
+    // If already exists, just update linked state.
+    let icon = document.getElementById("spOnlineLogin");
+    if (!icon) {
+      icon = document.createElement("span");
+      icon.id = "spOnlineLogin";
+      icon.setAttribute("data-sp-controls", "1"); // so header blocker never kills it
+      icon.title = "Spotify login/logout";
+      icon.innerHTML = spotifyLogoSvg();
 
-    return false;
-  }
+      icon.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        doLoginOrLogout();
+        // state will refresh on next loop
+      }, { passive: false });
 
-  function hidePrevNextButKeepSpotify(controlsEl) {
-    if (!controlsEl) return;
-
-    // Find round-ish items inside the controls
-    const items = Array.from(controlsEl.querySelectorAll("button,a,div,span")).filter(n => {
-      const r = n.getBoundingClientRect?.();
-      if (!r) return false;
-      if (r.width < 22 || r.width > 64) return false;
-      if (r.height < 22 || r.height > 64) return false;
-      const cs = window.getComputedStyle(n);
-      const br = parseFloat(cs.borderRadius || "0");
-      return br > 12 || cs.borderRadius === "999px";
-    });
-
-    // Choose the spotify node to keep (best effort). If we can't identify it, DO NOTHING (safety).
-    let keep = null;
-    for (const it of items) {
-      if (likelySpotifyIconNode(it)) { keep = it; break; }
-      const parentBtn = it.closest?.("button,a");
-      if (parentBtn && likelySpotifyIconNode(parentBtn)) { keep = parentBtn; break; }
-    }
-    if (!keep) return; // safety: never hide if we are not sure
-
-    // Hide everything else (prev/next/play buttons)
-    for (const it of items) {
-      const root = it.closest?.("button,a") || it;
-      if (root === keep) continue;
-      // don't hide ancestors of keep
-      if (root.contains && root.contains(keep)) continue;
-      // hide
-      root.style.display = "none";
+      // Insert right after "Online"
+      onlineNode.insertAdjacentElement("afterend", icon);
     }
 
-    // Make sure spotify icon still toggles login/logout
-    if (keep.dataset && keep.dataset.spLoginBound === "1") return;
-    if (keep.dataset) keep.dataset.spLoginBound = "1";
-    keep.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      doLoginOrLogout();
-    }, { passive: false });
+    const linked = !!getToken();
+    icon.classList.toggle("linked", linked);
   }
 
-  // ---------------- ⏯️ glyph binding ----------------
-  function installGlyphPlayPause(glyphEl) {
+  // ---------------- Glyph: play/pause (no visible overlay) ----------------
+  function bindGlyphAsPlayPause(glyphEl) {
     if (!glyphEl) return;
-    if (glyphEl.dataset && glyphEl.dataset.lmGlyphBound === "1") return;
+    if (glyphEl.dataset && glyphEl.dataset.spGlyphBound === "1") return;
 
-    glyphEl.setAttribute("data-lm-glyph", "1");
-    if (glyphEl.dataset) glyphEl.dataset.lmGlyphBound = "1";
+    glyphEl.dataset.spGlyphBound = "1";
+    glyphEl.setAttribute("data-sp-controls", "1"); // do not block its click
 
-    // overlay icon (do not remove existing DOM)
-    if (!glyphEl.querySelector(".lmGlyphIcon")) {
-      glyphEl.style.position = "relative";
-      const s = document.createElement("span");
-      s.className = "lmGlyphIcon";
-      s.textContent = "⏯️";
-      glyphEl.appendChild(s);
-    }
+    // Keep it feeling tappable
+    try { glyphEl.style.cursor = "pointer"; } catch {}
 
     glyphEl.addEventListener("click", async (e) => {
+      // toggle play/pause
       e.preventDefault();
       e.stopPropagation();
 
-      if (!getToken()) { doLoginOrLogout(); return; }
+      if (!getToken()) {
+        // not logged in -> open login
+        doLoginOrLogout();
+        return;
+      }
 
       const st = await getPlaybackState();
       const isPlaying = inferIsPlaying(st);
@@ -394,13 +351,39 @@
       }
     }, { passive: false });
   }
-/* spotify-ui.js (FULL REPLACE) — PART 3/4
-   Header blocker + list click-to-play (with NO-artwork fix)
-*/
 
+  // ---------------- HARD block "Mirror bug" playback in header (except allowed) ----------------
   let LM_HEADER_EL = null;
+  let LM_TITLE_EL = null;
   let LM_GLYPH_EL = null;
-  let LM_CONTROLS_EL = null;
+  let LM_ONLINE_EL = null;
+
+  function refreshHeaderRefs() {
+    const titleNode = findHeaderTitleNode();
+    LM_TITLE_EL = titleNode || null;
+
+    if (!titleNode) {
+      LM_HEADER_EL = null;
+      LM_GLYPH_EL = null;
+      LM_ONLINE_EL = null;
+      return;
+    }
+
+    LM_HEADER_EL =
+      titleNode.closest("header") ||
+      titleNode.closest("section") ||
+      titleNode.closest("article") ||
+      titleNode.closest("div") ||
+      titleNode.parentElement ||
+      null;
+
+    LM_GLYPH_EL = findGlyphNearTitle(titleNode);
+    LM_ONLINE_EL = findOnlineNodeNearTitle(titleNode);
+
+    // bind behaviors (safe, idempotent)
+    bindGlyphAsPlayPause(LM_GLYPH_EL);
+    ensureSpotifyIconNextToOnline(LM_ONLINE_EL);
+  }
 
   let blockerInstalled = false;
   function installWindowCaptureBlocker() {
@@ -414,20 +397,18 @@
 
     const inAllowedControls = (target) => {
       if (!target) return false;
-      // allow spotify login/logout cluster
+      // allow anything marked as controls (glyph + spotify icon near Online)
       if (target.closest && target.closest("[data-sp-controls='1']")) return true;
-      // allow the ⏯️ glyph
-      if (target.closest && target.closest("[data-lm-glyph='1']")) return true;
       return false;
     };
 
     const killDownOrClick = (e) => {
       if (!inHeader(e.target)) return;
 
-      // allow only whitelist clicks
+      // allow our allowed controls in header
       if (inAllowedControls(e.target)) return;
 
-      // rest of header: block any playback triggers
+      // block the rest (prevents mirror playback bug)
       try { e.preventDefault(); } catch {}
       try { e.stopImmediatePropagation(); } catch {}
       try { e.stopPropagation(); } catch {}
@@ -438,34 +419,7 @@
     window.addEventListener("touchstart",  killDownOrClick, { capture: true, passive: false });
     window.addEventListener("click",       killDownOrClick, { capture: true, passive: false });
   }
-
-  function refreshHeaderRefs() {
-    const titleNode = findHeaderTitleNode();
-    if (!titleNode) {
-      LM_HEADER_EL = null;
-      LM_GLYPH_EL = null;
-      LM_CONTROLS_EL = null;
-      return;
-    }
-
-    LM_HEADER_EL =
-      titleNode.closest("header") ||
-      titleNode.closest("section") ||
-      titleNode.closest("article") ||
-      titleNode.closest("div") ||
-      titleNode.parentElement ||
-      null;
-
-    // glyph: left of title => ⏯️
-    LM_GLYPH_EL = findGlyphLeftOfTitle(titleNode);
-    if (LM_GLYPH_EL) installGlyphPlayPause(LM_GLYPH_EL);
-
-    // controls: keep spotify login/logout, hide prev/next/play
-    LM_CONTROLS_EL = markOriginalHeaderControls(LM_HEADER_EL);
-    if (LM_CONTROLS_EL) hidePrevNextButKeepSpotify(LM_CONTROLS_EL);
-  }
-
-  // ---------------- List click-to-play ----------------
+// ---------------- List click-to-play ----------------
   function isSessionCoversArea(node) {
     const root = node?.closest?.("section, article, div") || null;
     const txt = ((root?.innerText || node?.innerText || "")).toUpperCase();
@@ -508,27 +462,14 @@
     return parts.length ? parts[0] : s;
   }
 
-  function isOnlyMusicNote(s) {
-    const t = (s || "").trim();
-    if (!t) return false;
-    // common placeholder glyphs for "no artwork"
-    return /^[♪♫🎵🎶]+$/.test(t);
-  }
-
   function cleanLine(s) {
     let x = (s || "").replace(/\s+/g, " ").trim();
     if (!x) return "";
-    if (isOnlyMusicNote(x)) return "";
-
-    // strip any lingering note chars
-    x = x.replace(/[♪♫🎵🎶]/g, "").trim();
-
     x = x.replace(/^LIVE$/i, "").trim();
-    x = x.replace(/^\d+\.\s+/, "").trim();
+    x = x.replace(/^\d+\.\s+/, "").trim();     // "2. "
     x = x.replace(/\b\d{1,2}\s+[A-Za-z]{3}\s+\d{4}(,\s*\d{2}:\d{2})?\b/gi, "").trim();
     x = x.replace(/\b\d{2}:\d{2}\b/g, "").trim();
-    if (/^\d+$/.test(x)) return "";
-    if (isOnlyMusicNote(x)) return "";
+    if (/^\d+$/.test(x)) return "";           // playcount-only line
     return x;
   }
 
@@ -541,8 +482,7 @@
     const lines = (row?.innerText || "")
       .split("\n")
       .map(cleanLine)
-      .filter(Boolean)
-      .filter(l => !isOnlyMusicNote(l));
+      .filter(Boolean);
 
     const filtered = lines.filter(l => {
       const u = l.toUpperCase();
@@ -554,7 +494,6 @@
       return true;
     });
 
-    // pick first meaningful track line (skip notes/placeholders)
     const track = cleanLine(filtered[0] || "");
     const artist = normalizeArtistLine(cleanLine(filtered[1] || ""));
     return { track, artist };
@@ -570,7 +509,7 @@
   }
 
   function isTopTabActive() {
-    const tabs = Array.from(document.querySelectorAll("button,div,span,a")).slice(0, 2000);
+    const tabs = Array.from(document.querySelectorAll("button,div,span,a")).slice(0, 2500);
     for (const n of tabs) {
       const tx = (n.textContent || "").trim().toLowerCase();
       if (tx !== "top") continue;
@@ -630,31 +569,38 @@
 
     return "";
   }
-/* spotify-ui.js (FULL REPLACE) — PART 4/4 */
 
   function rectIsSquareish(r) {
     if (!r) return false;
     const w = r.width, h = r.height;
-    if (w < 24 || h < 24) return false;
-    if (w > 170 || h > 170) return false;
+    if (w < 22 || h < 22) return false;
+    if (w > 220 || h > 220) return false;
     const ratio = w / h;
-    return ratio > 0.72 && ratio < 1.38;
+    return ratio > 0.70 && ratio < 1.45;
   }
 
+  // Improved: find a clickable "artwork box" even when it's a placeholder (no image)
   function getArtworkClickable(row) {
     if (isSessionCoversArea(row) || isExplicitNoPlay(row)) return null;
 
+    // 1) direct image (real artwork)
     const img = row.querySelector?.("img");
     if (img && !isExplicitNoPlay(img)) return img;
 
-    // fallback: square-ish element (includes placeholders)
-    const kids = Array.from(row.querySelectorAll?.("div, span, a") || []);
-    for (const n of kids) {
+    // 2) common placeholder: svg/icon inside a square wrapper
+    const squares = Array.from(row.querySelectorAll?.("div, span, a") || []);
+    for (const n of squares) {
       if (isSessionCoversArea(n) || isExplicitNoPlay(n)) continue;
       const rr = n.getBoundingClientRect?.();
       if (!rectIsSquareish(rr)) continue;
+
+      // must be near left of row (usually artwork column)
+      const rowR = row.getBoundingClientRect?.();
+      if (rowR && rr.left > rowR.left + 240) continue;
+
       return n;
     }
+
     return null;
   }
 
@@ -674,7 +620,7 @@
   }
 
   function getTopMode() {
-    const nodes = Array.from(document.querySelectorAll("*")).slice(0, 3500);
+    const nodes = Array.from(document.querySelectorAll("*")).slice(0, 4500);
     for (const n of nodes) {
       const t = (n.innerText || "").replace(/\s+/g, " ").trim();
       if (!t) continue;
@@ -696,8 +642,7 @@
     }
     return null;
   }
-
-  function attachPlayBindings() {
+function attachPlayBindings() {
     if (!getToken()) return;
 
     const topMode = getTopMode();
@@ -708,34 +653,37 @@
 
       const art = getArtworkClickable(row);
 
+      // Click on artwork/placeholder box
       if (art && art.dataset.spBound !== "1") {
         art.dataset.spBound = "1";
         art.classList.add("spArtworkPlayable");
 
         art.addEventListener("click", async (e) => {
-          // don't interfere with header controls/glyph
-          if (e.target && e.target.closest && (e.target.closest("[data-sp-controls='1']") || e.target.closest("[data-lm-glyph='1']"))) return;
+          // avoid header controls / glyph / online icon
+          if (e.target && e.target.closest && e.target.closest("[data-sp-controls='1']")) return;
           if (isExplicitNoPlay(e.target) || isSessionCoversArea(e.target)) return;
 
           e.preventDefault(); e.stopPropagation();
+
           const uri = await resolveUriForRow(row);
           if (uri) await playUri(uri);
         }, { passive: false });
       }
 
+      // Click anywhere on row (fallback) — important for "no artwork" cases
       if (row.dataset.spRowBound !== "1") {
         row.dataset.spRowBound = "1";
         row.classList.add("spRowPlayable");
 
         row.addEventListener("click", async (e) => {
-          // don't interfere with header controls/glyph
-          if (e.target && e.target.closest && (e.target.closest("[data-sp-controls='1']") || e.target.closest("[data-lm-glyph='1']"))) return;
+          if (e.target && e.target.closest && e.target.closest("[data-sp-controls='1']")) return;
           if (isExplicitNoPlay(e.target) || isSessionCoversArea(e.target)) return;
 
           const tag = (e.target?.tagName || "").toLowerCase();
           if (tag === "button" || tag === "a" || tag === "input") return;
 
           e.preventDefault(); e.stopPropagation();
+
           const uri = await resolveUriForRow(row);
           if (uri) await playUri(uri);
         }, { passive: false });
@@ -744,21 +692,24 @@
   }
 
   // ---------------- loops ----------------
-  let bindTimer = null;
+  let loopTimer = null;
 
-  function startLoops() {
-    if (bindTimer) clearInterval(bindTimer);
-    bindTimer = setInterval(() => {
-      try {
-        refreshHeaderRefs();
-        attachPlayBindings();
-      } catch {}
-    }, 900);
-
+  function tick() {
     try {
+      ensureCss();
       refreshHeaderRefs();
       attachPlayBindings();
+
+      // keep spotify icon state correct (grey vs normal)
+      const icon = document.getElementById("spOnlineLogin");
+      if (icon) icon.classList.toggle("linked", !!getToken());
     } catch {}
+  }
+
+  function startLoops() {
+    if (loopTimer) clearInterval(loopTimer);
+    loopTimer = setInterval(tick, 850);
+    tick();
   }
 
   function boot() {
@@ -767,9 +718,11 @@
     installWindowCaptureBlocker();
 
     const mo = new MutationObserver(() => {
-      ensureCss();
-      refreshHeaderRefs();
-      try { attachPlayBindings(); } catch {}
+      try {
+        ensureCss();
+        refreshHeaderRefs();
+        attachPlayBindings();
+      } catch {}
     });
     mo.observe(document.documentElement, { subtree: true, childList: true });
 

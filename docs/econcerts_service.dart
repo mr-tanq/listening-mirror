@@ -6,11 +6,11 @@
 import 'concert_model.dart';
 import 'schedule_checker.dart';
 import 'concert_matcher.dart';
+import 'econcerts_storage.dart';
 
-/// Result object returned by refresh().
 class EConcertsRefreshResult {
-  final List<Concert> upcomingSuggested; // sorted by priority
-  final List<Concert> shouldNotifyNow;   // subset worth notifying
+  final List<Concert> upcomingSuggested;
+  final List<Concert> shouldNotifyNow;
   final DateTime refreshedAt;
 
   const EConcertsRefreshResult({
@@ -20,23 +20,32 @@ class EConcertsRefreshResult {
   });
 }
 
-/// EConcertsService: orchestrates fetching, schedule enrichment, scoring, sorting.
-/// v1: mock data instead of Songkick.
 class EConcertsService {
   final ConcertMatcher matcher;
 
-  /// Keeps a very small in-memory "memory" (v1).
-  /// In v2 we’ll persist to local DB (Hive/SQLite/etc).
   final Map<String, Concert> _storeById = {};
+  bool _loaded = false;
 
   EConcertsService({ConcertMatcher? matcher})
       : matcher = matcher ?? const ConcertMatcher();
 
-  /// Public: returns all stored concerts (any status)
+  /// Call once on app start (or before first UI render).
+  Future<void> init() async {
+    if (_loaded) return;
+    final loaded = await EConcertsStorage.load();
+    _storeById
+      ..clear()
+      ..addAll(loaded);
+    _loaded = true;
+  }
+
+  Future<void> _persist() async {
+    await EConcertsStorage.save(_storeById);
+  }
+
   List<Concert> get allStored =>
       _storeById.values.toList()..sort(_byDateAsc);
 
-  /// Public: your plan (things you added)
   List<Concert> get myPlan {
     final list = _storeById.values
         .where((c) => c.status == ConcertStatus.planned)
@@ -45,7 +54,6 @@ class EConcertsService {
     return list;
   }
 
-  /// Public: suggestions (not dismissed, upcoming)
   List<Concert> get suggestions {
     final now = DateTime.now();
     final list = _storeById.values
@@ -56,74 +64,64 @@ class EConcertsService {
     list.sort(_byPriorityDescThenDateAsc);
     return list;
   }
+// ============================
+// econcerts_service.dart (PART 2/4)
+// ============================
 
-  /// Add to plan (user tapped "Add to my plan")
-  void addToPlan(String concertId) {
+  Future<void> addToPlan(String concertId) async {
     final c = _storeById[concertId];
     if (c == null) return;
     _storeById[concertId] = c.copyWith(
       status: ConcertStatus.planned,
       updatedAt: DateTime.now(),
     );
+    await _persist();
   }
 
-  /// Dismiss (user tapped "Not interested")
-  void dismiss(String concertId) {
+  Future<void> dismiss(String concertId) async {
     final c = _storeById[concertId];
     if (c == null) return;
     _storeById[concertId] = c.copyWith(
       status: ConcertStatus.dismissed,
       updatedAt: DateTime.now(),
     );
+    await _persist();
   }
-// ============================
-// econcerts_service.dart (PART 2/4)
-// ============================
 
-  /// The main entry point:
-  /// - fetch events (mock in v1)
-  /// - create Concert objects
-  /// - enrich schedule
-  /// - score with listening profile
-  /// - store/update memory
-  /// - return sorted suggestions + notify decisions
-  EConcertsRefreshResult refresh({
+  /// Main refresh. Make sure init() has been called first.
+  Future<EConcertsRefreshResult> refresh({
     required ListeningProfile profile,
     DateTime? now,
-  }) {
+  }) async {
     final t0 = now ?? DateTime.now();
 
     // 1) Fetch raw events (mock)
     final raw = _mockEvents(now: t0);
 
-    // 2) Convert to Concert + enrich schedule + score
+    // 2) Process pipeline
     final List<Concert> processed = [];
     for (final e in raw) {
       final concert = _createSuggestedConcertFromMock(e);
-
-      // schedule
       final enriched = enrichConcertWithSchedule(concert);
-
-      // score
       final scored = matcher.scoreConcert(concert: enriched, profile: profile);
-
       processed.add(scored);
     }
 
-    // 3) Merge into store (memory)
+    // 3) Merge into store (keep user intent)
     for (final c in processed) {
       final existing = _storeById[c.id];
 
       if (existing == null) {
-        // new item
         _storeById[c.id] = c;
       } else {
-        // keep user's intent (planned/dismissed) if already set
-        final keepStatus = existing.status;
         _storeById[c.id] = c.copyWith(
-          status: keepStatus,
+          status: existing.status,
           createdAt: existing.createdAt,
           updatedAt: DateTime.now(),
+          extra: {
+            ...c.extra,
+            ...existing.extra, // keep things like lastNotifiedAt
+          },
         );
       }
     }
@@ -136,7 +134,7 @@ class EConcertsService {
         .where((c) => !_recentlyNotified(c, now: t0))
         .toList();
 
-    // Mark notify timestamp in memory so we don’t spam
+    // 5) Mark notifications + persist
     for (final c in shouldNotifyNow) {
       _storeById[c.id] = c.copyWith(
         updatedAt: DateTime.now(),
@@ -147,14 +145,18 @@ class EConcertsService {
       );
     }
 
+    await _persist();
+
     return EConcertsRefreshResult(
       upcomingSuggested: upcomingSuggested,
       shouldNotifyNow: shouldNotifyNow,
       refreshedAt: t0,
     );
   }
+// ============================
+// econcerts_service.dart (PART 3/4)
+// ============================
 
-  /// Anti-spam: do not notify again if we notified within last N hours.
   bool _recentlyNotified(Concert c, {required DateTime now}) {
     final raw = c.extra['lastNotifiedAt'];
     if (raw is! String) return false;
@@ -162,16 +164,12 @@ class EConcertsService {
     try {
       final last = DateTime.parse(raw);
       final diff = now.difference(last);
-      return diff.inHours < 24; // configurable later
+      return diff.inHours < 24;
     } catch (_) {
       return false;
     }
   }
-// ============================
-// econcerts_service.dart (PART 3/4)
-// ============================
 
-  /// Creates a Concert from our mock event map.
   Concert _createSuggestedConcertFromMock(Map<String, dynamic> e) {
     final artist = e['artist'] as String;
     final city = e['city'] as String;
@@ -187,8 +185,8 @@ class EConcertsService {
       countryCode: country,
       venueName: venue,
       startDateTimeLocal: dt,
-      interestScore: 0,  // will be filled by matcher
-      priorityScore: 0,  // will be filled by matcher
+      interestScore: 0,
+      priorityScore: 0,
       url: url,
       lineup: e['lineup'] as String?,
       notes: e['notes'] as String?,
@@ -198,11 +196,7 @@ class EConcertsService {
     );
   }
 
-  /// Mock events generator.
-  /// Replace with Songkick fetching later.
   List<Map<String, dynamic>> _mockEvents({required DateTime now}) {
-    // We generate a handful of future events relative to "now"
-    // so you can test the pipeline immediately.
     DateTime dayPlus(int days, {int hour = 20, int minute = 0}) {
       final d = now.add(Duration(days: days));
       return DateTime(d.year, d.month, d.day, hour, minute);
@@ -218,7 +212,7 @@ class EConcertsService {
         'startDateTimeLocal': dayPlus(12, hour: 21),
         'url': null,
         'lineup': 'Metallica',
-        'notes': 'Mock event for testing notifications',
+        'notes': 'Mock event',
       },
       {
         'id': 'm2',
@@ -262,7 +256,7 @@ class EConcertsService {
         'startDateTimeLocal': dayPlus(9, hour: 20),
         'url': null,
         'lineup': 'Random Indie Band',
-        'notes': 'Should likely be ignored unless in profile',
+        'notes': 'Should likely be ignored',
       },
     ];
   }

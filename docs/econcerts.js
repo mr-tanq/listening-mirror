@@ -1,17 +1,14 @@
-/* ============================
-   econcerts.js  (FULL FILE)
-   Delete everything in econcerts.js and paste this whole file.
-   ============================ */
-
+/* econcerts.js (FULL FILE REPLACE) — PART 1/4
+   Premium/minimal cleanup + dedupe + MEDIUM for 2nd morning
+*/
 (() => {
   "use strict";
 
   // ---------- Helpers ----------
   const $ = (sel, root = document) => root.querySelector(sel);
-  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel)); // (kept for future)
+  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel)); // kept for future
 
   const pad2 = (n) => String(n).padStart(2, "0");
-  const clamp01 = (x) => Math.max(0, Math.min(1, x));
 
   function toISODate(d) {
     return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -38,9 +35,13 @@
     return String(s || "").trim().toLowerCase();
   }
 
+  function safeStr(s) {
+    return String(s || "").trim();
+  }
+
   // ---------- Storage (memory) ----------
-  // v3 so you don't get stuck with old dismissed IDs from mock era
-  const STORE_KEY = "lm_econcerts_v3";
+  // v4 so you get the new UI behavior clean
+  const STORE_KEY = "lm_econcerts_v4";
 
   function loadStore() {
     try {
@@ -63,14 +64,9 @@
     localStorage.setItem(STORE_KEY, JSON.stringify(next));
   }
 
-  // We'll initialize store early so other helpers can safely read it.
   let store = loadStore();
 
   // ---------- Cloudflare Worker base ----------
-  // Priority:
-  // 1) window.BASE_API (if your app already defines it)
-  // 2) localStorage store.baseApi (optional)
-  // 3) fallback default (NEW live worker)
   const FALLBACK_BASE_API = "https://live.errtanq9.workers.dev";
 
   function getBaseApi() {
@@ -82,13 +78,12 @@
   }
 
   // ---------- econcerts API defaults ----------
-  // ✅ Default: NL-wide (no city, no radius).
-  // If you want "near Utrecht" you can override by passing { city:"Utrecht", radiusKm:30 }.
+  // Default: NL-wide (no city, no radius).
   const ECONCERTS_DEFAULTS = {
-    size: 200,          // UI-friendly default (you can raise it)
+    size: 200,
     radiusKm: 30,       // only used if city is set
-    scoreMin: 50,       // only >=50 suggestions
-    tasteArtists: 1000, // all-time taste
+    scoreMin: 50,
+    tasteArtists: 1000,
     city: "",           // empty => whole NL
     countryCode: "NL",
   };
@@ -103,8 +98,7 @@
     u.searchParams.set("tasteArtists", String(cfg.tasteArtists));
     u.searchParams.set("countryCode", String(cfg.countryCode || "NL"));
 
-    // ✅ Only send city/radius if city is provided.
-    const city = String(cfg.city || "").trim();
+    const city = safeStr(cfg.city);
     if (city) {
       u.searchParams.set("city", city);
       u.searchParams.set("radiusKm", String(cfg.radiusKm));
@@ -120,22 +114,21 @@
 
     const events = Array.isArray(data.events) ? data.events : [];
     return events.map(ev => ({
-      id: String(ev.id),
-      artist: String(ev.artist || ""),
+      id: safeStr(ev.id),
+      artist: safeStr(ev.artist),
       attractions: Array.isArray(ev.attractions) ? ev.attractions : [],
-      city: String(ev.city || ""),
-      venue: String(ev.venue || ""),
-      start: new Date(String(ev.start)), // worker gives ISO-like local string
-      url: String(ev.url || ""),
+      city: safeStr(ev.city),
+      venue: safeStr(ev.venue),
+      start: new Date(safeStr(ev.start)), // worker gives ISO-like local string
+      url: safeStr(ev.url),
       country: "NL",
 
-      // worker signals
       plays: Number(ev.plays || 0),
-      tier: String(ev.tier || "discovery"),
+      tier: safeStr(ev.tier || "discovery"),
       score: Number(ev.score || 0),
-      level: String(ev.level || ""),
+      level: safeStr(ev.level || ""),
       startTs: Number(ev.startTs || 0),
-    }));
+    })).filter(x => x.id && x.artist && x.start instanceof Date && !Number.isNaN(x.start.getTime()));
   }
 
   // ---------- Tier helpers (fallback) ----------
@@ -152,6 +145,7 @@
     if (tier === "maybe") return 45;
     return 32;
   }
+/* econcerts.js (FULL FILE REPLACE) — PART 2/4 */
 
   // ---------- Your shift cycle rules ----------
   // 18 Oct 2025 = Day 1 Off
@@ -191,51 +185,109 @@
     let why = "Looks doable";
 
     if (shift.type === "night") {
-      if (hour >= 0 && hour <= 22) { badge = "CONFLICT"; why = "Night shift starts 23:00 today"; }
+      // Night shift starts 23:00 same day -> a concert earlier that day is conflict
+      if (hour >= 0 && hour <= 22) {
+        badge = "CONFLICT";
+        why = "Night shift starts 23:00 today";
+      }
     } else if (shift.type === "afternoon") {
-      if (hour >= 15) { badge = "CONFLICT"; why = "Afternoon shift ends 23:00"; }
+      // Work until 23:00 -> evening show conflicts
+      if (hour >= 15) {
+        badge = "CONFLICT";
+        why = "Afternoon shift ends 23:00";
+      }
     } else if (shift.type === "morning") {
-      badge = "OK"; why = "Morning shift — evening is free";
+      badge = "OK";
+      why = "Morning shift — evening is free";
     } else if (shift.type === "off") {
-      badge = "FREE"; why = "Off day";
+      badge = "FREE";
+      why = "Off day";
     }
 
-    if (shift.lastDayOff) { if (badge === "FREE") badge = "HARD"; why = "Last day off — early wake-up next day"; }
-    if (shift.secondMorning) { if (badge === "OK" || badge === "FREE") badge = "EASY"; why = "2nd morning — free evening and late start next day"; }
+    // Last day off: you can go, but you pay for it next day
+    if (shift.lastDayOff && badge === "FREE") {
+      badge = "HARD";
+      why = "Last day off — early wake-up next day";
+    }
+
+    // ✅ Your rule: 2nd morning is NOT easy -> MEDIUM
+    if (shift.secondMorning) {
+      // If you were FREE/OK, it becomes MEDIUM (not conflict)
+      if (badge === "FREE" || badge === "OK") {
+        badge = "MEDIUM";
+        why = "2nd morning — doable but not easy";
+      }
+    }
 
     return { badge, why, shift };
   }
 
-  // ---------- No mock fallback (you asked: no fake) ----------
-  const USE_MOCK_FALLBACK = false;
-
-  function mockFetchConcertsNL() {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = now.getMonth();
-
-    const mk = (id, artist, city, venue, dateStr, url) => ({
-      id,
-      artist,
-      attractions: [artist],
-      city,
-      venue,
-      start: parseLocalDateTime(dateStr),
-      url: url || "",
-      country: "NL",
-      plays: 0,
-      tier: "discovery",
-      score: 30,
-      level: "weak",
-    });
-
-    const d1 = new Date(y, m, Math.min(28, now.getDate() + 7), 21, 0);
-    const iso = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-
-    return Promise.resolve([
-      mk("ev_example", "Example Artist", "Utrecht", "Example Venue", iso(d1), "https://example.com"),
-    ]);
+  // ---------- Dedupe ----------
+  // Ticketmaster often returns duplicates (e.g. same show + VIP packages).
+  // We'll dedupe by:
+  // 1) id (hard)
+  // 2) (artist + startTs + city + venue) (soft)
+  // When duplicates exist, we prefer the non-VIP URL.
+  function isVipUrl(url) {
+    const u = lowerKey(url);
+    return u.includes("vip") || u.includes("package") || u.includes("packages");
   }
+
+  function softKey(ev) {
+    // startTs from worker is best; fallback to start.getTime()
+    const ts = Number(ev.startTs || 0) || ev.start.getTime();
+    return [
+      lowerKey(ev.artist),
+      String(ts),
+      lowerKey(ev.city),
+      lowerKey(ev.venue),
+    ].join("|");
+  }
+
+  function dedupeEvents(events) {
+    const byId = new Map();
+    for (const ev of events) {
+      if (!ev || !ev.id) continue;
+      if (!byId.has(ev.id)) {
+        byId.set(ev.id, ev);
+      } else {
+        // choose better between duplicates
+        const a = byId.get(ev.id);
+        byId.set(ev.id, pickBetterEvent(a, ev));
+      }
+    }
+
+    const bySoft = new Map();
+    for (const ev of byId.values()) {
+      const k = softKey(ev);
+      if (!bySoft.has(k)) {
+        bySoft.set(k, ev);
+      } else {
+        const a = bySoft.get(k);
+        bySoft.set(k, pickBetterEvent(a, ev));
+      }
+    }
+
+    return Array.from(bySoft.values());
+  }
+
+  function pickBetterEvent(a, b) {
+    // Prefer: non-VIP url, has venue/city, has attractions, higher score
+    const aVip = isVipUrl(a.url);
+    const bVip = isVipUrl(b.url);
+    if (aVip !== bVip) return aVip ? b : a;
+
+    const aMeta = (a.venue ? 1 : 0) + (a.city ? 1 : 0) + (a.attractions?.length ? 1 : 0);
+    const bMeta = (b.venue ? 1 : 0) + (b.city ? 1 : 0) + (b.attractions?.length ? 1 : 0);
+    if (aMeta !== bMeta) return bMeta > aMeta ? b : a;
+
+    const aScore = Number(a.score || 0);
+    const bScore = Number(b.score || 0);
+    if (aScore !== bScore) return bScore > aScore ? b : a;
+
+    return a; // stable
+  }
+/* econcerts.js (FULL FILE REPLACE) — PART 3/4 */
 
   // state
   let lastEvents = [];
@@ -251,14 +303,13 @@
   groupBtn.setAttribute("aria-pressed", store.groupByCity ? "true" : "false");
   groupBtn.textContent = store.groupByCity ? "Group by city" : "Ungroup";
 
-  // Add "Reset dismissed" button next to Refresh (safe, no layout assumptions)
+  // Add "Reset dismissed" button next to Refresh
   const resetBtn = document.createElement("button");
   resetBtn.className = "eBtn ghost";
   resetBtn.type = "button";
   resetBtn.textContent = "Reset dismissed";
   resetBtn.title = "Bring back events you dismissed (does not affect My Plan)";
 
-  // Try to place next to refresh button
   if (refreshBtn && refreshBtn.parentElement) {
     refreshBtn.parentElement.appendChild(resetBtn);
   }
@@ -277,7 +328,6 @@
       store.baseApi = String(next || "").trim();
       saveStore(store);
     },
-    // quick toggle to test Utrecht-only from console
     fetchNearUtrecht() {
       return refresh({ city: "Utrecht", radiusKm: 30 });
     }
@@ -287,13 +337,18 @@
     const plays = Number(event.plays || 0);
     const tier = event.tier || tierFromPlays(plays);
 
+    // score from worker (fallback if missing)
     let score = Number.isFinite(event.score) ? Number(event.score) : baseScoreFromTier(tier);
 
+    // availability adjustments (client-side)
     const av = availabilityBadgeForEvent(event.start);
     if (av.badge === "CONFLICT") score -= 18;
     if (av.badge === "HARD") score -= 8;
-    if (av.badge === "EASY") score += 6;
 
+    // ✅ MEDIUM = small boost (not +6 like EASY used to be)
+    if (av.badge === "MEDIUM") score += 2;
+
+    // small Utrecht boost
     if (lowerKey(event.city) === "utrecht") score += 4;
 
     score = Math.max(0, Math.min(100, Math.round(score)));
@@ -354,12 +409,11 @@
     meta2.className = "eMeta2";
     meta2.textContent = `Shift: ${shift.label} • ${why}`;
 
+    // ✅ Premium/minimal pills: keep only Tier + Plays (no duplicate Score/Badge)
     const pills = document.createElement("div");
     pills.className = "ePills";
-    pills.appendChild(pill(`Score: ${score}/100`));
     pills.appendChild(pill(`Tier: ${tier}`));
     pills.appendChild(pill(`Plays: ${plays}`));
-    pills.appendChild(pill(`Badge: ${badge}`));
 
     main.appendChild(artist);
     main.appendChild(meta);
@@ -369,6 +423,7 @@
     const right = document.createElement("div");
     right.className = "eRight";
 
+    // ✅ Single score + single badge (no duplicates)
     const scoreEl = document.createElement("div");
     scoreEl.className = "eScore";
     scoreEl.textContent = `${score}/100`;
@@ -451,6 +506,7 @@
     }
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }
+/* econcerts.js (FULL FILE REPLACE) — PART 4/4 */
 
   function render(events) {
     const visible = events.filter(ev => (isPlanned(ev.id) ? true : !isDismissed(ev.id)));
@@ -524,22 +580,18 @@
     setEmpty("Refreshing…");
 
     try {
-      const events = await fetchConcertsFromWorker(overrides);
+      const raw = await fetchConcertsFromWorker(overrides);
+
+      // ✅ dedupe here
+      const events = dedupeEvents(raw);
+
       lastEvents = events;
       render(events);
       return;
     } catch (err) {
       console.warn("[eConcerts] worker fetch failed:", err);
-
-      if (!USE_MOCK_FALLBACK) {
-        lastEvents = [];
-        setEmpty(`Worker error: ${String(err && err.message ? err.message : err)}`);
-        return;
-      }
-
-      const events = await mockFetchConcertsNL();
-      lastEvents = events;
-      render(events);
+      lastEvents = [];
+      setEmpty(`Worker error: ${String(err && err.message ? err.message : err)}`);
     }
   }
 
@@ -588,5 +640,4 @@
   }
 
   debugShiftForNextDays();
-
 })();

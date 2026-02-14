@@ -11,19 +11,17 @@
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
   const pad2 = (n) => String(n).padStart(2, "0");
-  const clamp01 = (x) => Math.max(0, Math.min(1, x));
+  const clamp01 = (x) => Math.max(0, Math.min(1, x)));
 
   function toISODate(d) {
-    // YYYY-MM-DD in local time
     return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
   }
 
   function parseLocalDateTime(isoLike) {
     // expects "YYYY-MM-DDTHH:mm"
-    // (no timezone) -> local time Date
-    const [datePart, timePart] = isoLike.split("T");
-    const [y, m, d] = datePart.split("-").map(Number);
-    const [hh, mm] = timePart.split(":").map(Number);
+    const [datePart, timePart] = String(isoLike || "").split("T");
+    const [y, m, d] = (datePart || "").split("-").map(Number);
+    const [hh, mm] = (timePart || "").split(":").map(Number);
     return new Date(y, (m - 1), d, hh, mm, 0, 0);
   }
 
@@ -41,21 +39,22 @@
   }
 
   // ---------- Storage (memory) ----------
-  const STORE_KEY = "lm_econcerts_v1";
+  const STORE_KEY = "lm_econcerts_v2";
 
   function loadStore() {
     try {
       const raw = localStorage.getItem(STORE_KEY);
-      if (!raw) return { planIds: [], dismissedIds: [], lastRefreshAt: 0, groupByCity: true };
+      if (!raw) return { planIds: [], dismissedIds: [], lastRefreshAt: 0, groupByCity: true, baseApi: "" };
       const obj = JSON.parse(raw);
       return {
         planIds: Array.isArray(obj.planIds) ? obj.planIds : [],
         dismissedIds: Array.isArray(obj.dismissedIds) ? obj.dismissedIds : [],
         lastRefreshAt: Number(obj.lastRefreshAt || 0),
         groupByCity: Boolean(obj.groupByCity ?? true),
+        baseApi: String(obj.baseApi || ""),
       };
     } catch {
-      return { planIds: [], dismissedIds: [], lastRefreshAt: 0, groupByCity: true };
+      return { planIds: [], dismissedIds: [], lastRefreshAt: 0, groupByCity: true, baseApi: "" };
     }
   }
 
@@ -63,25 +62,72 @@
     localStorage.setItem(STORE_KEY, JSON.stringify(next));
   }
 
-  // ---------- Mock "Listening Profile" (replace later with Last.fm) ----------
-  // plays map is used to compute score tiers
-  const mockProfile = {
-    plays: {
-      metallica: 200,
-      amenra: 150,
-      mono: 90,
-      "sólstafir": 60,
-      solstafir: 60,
-      opeth: 80,
-      "queens of the stone age": 55,
-    },
-  };
+  // ---------- Cloudflare Worker base ----------
+  // Priority:
+  // 1) window.BASE_API (if your app already defines it)
+  // 2) localStorage store.baseApi (optional)
+  // 3) fallback default you showed in screenshots
+  const FALLBACK_BASE_API = "https://i.errtanq9.workers.dev";
 
-  function getPlaysForArtist(artistName) {
-    const k = lowerKey(artistName);
-    return Number(mockProfile.plays[k] || 0);
+  function getBaseApi() {
+    const w = (typeof window !== "undefined") ? window : {};
+    const fromWindow = typeof w.BASE_API === "string" ? w.BASE_API : "";
+    const fromStore = (store && typeof store.baseApi === "string") ? store.baseApi : "";
+    const base = (fromWindow || fromStore || FALLBACK_BASE_API).trim();
+    return base.replace(/\/+$/, "");
   }
 
+  // ---------- econcerts API defaults ----------
+  const ECONCERTS_DEFAULTS = {
+    size: 1000,
+    radiusKm: 10,
+    scoreMin: 50,       // only >=50 suggestions
+    tasteArtists: 1000, // all-time taste
+    city: "Utrecht",
+    countryCode: "NL",
+  };
+
+  async function fetchConcertsFromWorker(overrides = {}) {
+    const cfg = { ...ECONCERTS_DEFAULTS, ...overrides };
+    const base = getBaseApi();
+
+    const u = new URL(base + "/econcerts");
+    u.searchParams.set("size", String(cfg.size));
+    u.searchParams.set("radiusKm", String(cfg.radiusKm));
+    u.searchParams.set("scoreMin", String(cfg.scoreMin));
+    u.searchParams.set("tasteArtists", String(cfg.tasteArtists));
+    u.searchParams.set("city", String(cfg.city || "Utrecht"));
+    u.searchParams.set("countryCode", String(cfg.countryCode || "NL"));
+
+    const res = await fetch(u.toString(), { method: "GET" });
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok || !data || data.ok !== true) {
+      const msg = (data && (data.error || data.message)) ? String(data.error || data.message) : `HTTP ${res.status}`;
+      throw new Error(msg);
+    }
+
+    const events = Array.isArray(data.events) ? data.events : [];
+    return events.map(ev => ({
+      id: String(ev.id),
+      artist: String(ev.artist || ""),
+      attractions: Array.isArray(ev.attractions) ? ev.attractions : [],
+      city: String(ev.city || ""),
+      venue: String(ev.venue || ""),
+      start: new Date(String(ev.start)), // worker gives ISO
+      url: String(ev.url || ""),
+      country: "NL",
+
+      // worker signals
+      plays: Number(ev.plays || 0),
+      tier: String(ev.tier || "discovery"),
+      score: Number(ev.score || 0),
+      level: String(ev.level || ""),
+      startTs: Number(ev.startTs || 0),
+    }));
+  }
+
+  // ---------- Tier helpers (fallback) ----------
   function tierFromPlays(plays) {
     if (plays >= 120) return "core";
     if (plays >= 40) return "known";
@@ -97,17 +143,9 @@
   }
 
   // ---------- Your shift cycle rules ----------
-  // You told me: 10-day cycle starting reference:
   // 18 Oct 2025 = Day 1 Off
-  // Pattern (10 days):
-  // Day 1-4: Off
-  // Day 5: Morning 1 (07-15)
-  // Day 6: Morning 2 (07-15)
-  // Day 7: Afternoon 1 (15-23)
-  // Day 8: Afternoon 2 (15-23)
-  // Day 9: Night 1 (23-07)  <-- starts at 23:00 of that day
-  // Day10: Night 2 (23-07)  <-- starts at 23:00 of that day
-  const REF_LOCAL = new Date(2025, 9, 18, 0, 0, 0, 0); // months are 0-based: 9=Oct
+  // Pattern (10 days): OFF1,OFF2,OFF3,OFF4, M1,M2, A1,A2, N1,N2
+  const REF_LOCAL = new Date(2025, 9, 18, 0, 0, 0, 0); // 9=Oct
   const SHIFT_BY_DAY = [
     { code: "OFF1", label: "Off (Day 1)", type: "off" },
     { code: "OFF2", label: "Off (Day 2)", type: "off" },
@@ -126,8 +164,8 @@
     const d0 = new Date(dateLocalMidnight.getFullYear(), dateLocalMidnight.getMonth(), dateLocalMidnight.getDate(), 0, 0, 0, 0);
     const r0 = new Date(REF_LOCAL.getFullYear(), REF_LOCAL.getMonth(), REF_LOCAL.getDate(), 0, 0, 0, 0);
     const diffDays = Math.floor((d0.getTime() - r0.getTime()) / msPerDay);
-    const mod = ((diffDays % 10) + 10) % 10; // 0..9
-    return mod; // 0=Day1 Off
+    const mod = ((diffDays % 10) + 10) % 10;
+    return mod;
   }
 
   function shiftForDate(dateLocal) {
@@ -137,32 +175,23 @@
   }
 
   function availabilityBadgeForEvent(eventStart) {
-    // eventStart is Date local
-    // Rule you stated:
-    // If you have a night shift that starts 23:00 on the same calendar day,
-    // then a concert at 21:00 same day is NOT feasible -> conflict.
     const shift = shiftForDate(eventStart);
     const hour = eventStart.getHours();
 
-    // Base: off / work
     let badge = "FREE";
     let why = "Looks doable";
 
     if (shift.type === "night") {
-      // event is same day as night shift start
-      // if event starts before 23:00, it's still conflict in real life for you.
       if (hour >= 0 && hour <= 22) {
         badge = "CONFLICT";
         why = "Night shift starts 23:00 today";
       }
     } else if (shift.type === "afternoon") {
-      // If concert is evening (>=19) and you work until 23, conflict
       if (hour >= 15) {
         badge = "CONFLICT";
         why = "Afternoon shift ends 23:00";
       }
     } else if (shift.type === "morning") {
-      // Morning shift: evening is free (good), but still fatigue.
       badge = "OK";
       why = "Morning shift — evening is free";
     } else if (shift.type === "off") {
@@ -170,14 +199,11 @@
       why = "Off day";
     }
 
-    // Difficulty modifiers you told me:
     if (shift.lastDayOff) {
-      // last day off is harder because next day you wake 06:00 (for morning shift day)
       badge = badge === "FREE" ? "HARD" : badge;
       why = "Last day off — early wake-up next day";
     }
     if (shift.secondMorning) {
-      // 2nd morning: easier to go out because next day is afternoon (starts 15:00)
       badge = badge === "OK" ? "EASY" : badge;
       if (badge === "FREE") badge = "EASY";
       why = "2nd morning — free evening and late start next day";
@@ -186,25 +212,27 @@
     return { badge, why, shift };
   }
 
-  // ---------- Mock events (replace later with real concert API / Sonic Kick) ----------
+  // ---------- Fallback mock events (only used if worker fails) ----------
   function mockFetchConcertsNL() {
-    // Use future dates so it always shows something.
-    // You can edit these any time.
     const now = new Date();
     const y = now.getFullYear();
-    const m = now.getMonth(); // 0-based
+    const m = now.getMonth();
 
     const mk = (id, artist, city, venue, dateStr, url) => ({
       id,
       artist,
+      attractions: [artist],
       city,
       venue,
       start: parseLocalDateTime(dateStr),
       url: url || "",
       country: "NL",
+      plays: 0,
+      tier: "discovery",
+      score: 30,
+      level: "weak",
     });
 
-    // Keep date strings stable but future-ish:
     const d1 = new Date(y, m, Math.min(28, now.getDate() + 7), 21, 0);
     const d2 = new Date(y, m, Math.min(28, now.getDate() + 14), 20, 30);
     const d3 = new Date(y, m, Math.min(28, now.getDate() + 21), 19, 30);
@@ -220,7 +248,7 @@
     ]);
   }
 
-  // We'll keep state in memory (and persist plan/dismiss).
+  // state
   let store = loadStore();
   let lastEvents = [];
 
@@ -230,43 +258,43 @@
   const groupBtn = $("#econcertsToggleGroup");
 
   if (!listEl || !refreshBtn || !groupBtn) {
-    // This script is safe: if the panel doesn't exist, do nothing.
     return;
   }
 
-  // init group button state from store
+  // init group button
   groupBtn.setAttribute("aria-pressed", store.groupByCity ? "true" : "false");
   groupBtn.textContent = store.groupByCity ? "Group by city" : "Ungroup";
 
-  // Expose small debug in console
+  // debug
   window.__LM_ECONCERTS__ = {
     get store() { return store; },
     get lastEvents() { return lastEvents; },
+    setBaseApi(next) {
+      store.baseApi = String(next || "").trim();
+      saveStore(store);
+    }
   };
 /* ============================
    econcerts.js  (PART 2/4)
    ============================ */
 
   function computePriority(event) {
-    const plays = getPlaysForArtist(event.artist);
-    const tier = tierFromPlays(plays);
-    let score = baseScoreFromTier(tier);
+    const plays = Number(event.plays || 0);
+    const tier = event.tier || tierFromPlays(plays);
 
-    // proximity boost (so closer shows feel more urgent)
-    const daysAway = Math.max(0, Math.round((event.start.getTime() - Date.now()) / (24 * 60 * 60 * 1000)));
-    const proximityBoost = clamp01(1 - (daysAway / 60)); // within ~60 days
-    score += Math.round(proximityBoost * 18); // +0..18
+    // score from worker (fallback if missing)
+    let score = Number.isFinite(event.score) ? Number(event.score) : baseScoreFromTier(tier);
 
-    // small city preference boost: Utrecht (you live nearby) – keep minimal and factual
-    if (lowerKey(event.city) === "utrecht") score += 4;
-
-    // availability affects score:
+    // availability adjustments (client-side)
     const av = availabilityBadgeForEvent(event.start);
     if (av.badge === "CONFLICT") score -= 18;
     if (av.badge === "HARD") score -= 8;
     if (av.badge === "EASY") score += 6;
 
-    score = Math.max(0, Math.min(100, score));
+    // small Utrecht boost
+    if (lowerKey(event.city) === "utrecht") score += 4;
+
+    score = Math.max(0, Math.min(100, Math.round(score)));
     return { score, tier, plays, availability: av };
   }
 
@@ -279,14 +307,12 @@
 
   async function addToPlan(id) {
     if (!store.planIds.includes(id)) store.planIds.push(id);
-    // if it was dismissed, un-dismiss it
     store.dismissedIds = store.dismissedIds.filter(x => x !== id);
     saveStore(store);
   }
 
   async function dismiss(id) {
     if (!store.dismissedIds.includes(id)) store.dismissedIds.push(id);
-    // if it was planned, remove from plan
     store.planIds = store.planIds.filter(x => x !== id);
     saveStore(store);
   }
@@ -372,7 +398,7 @@
 
       btnPrimary.addEventListener("click", async () => {
         await addToPlan(event.id);
-        render(lastEvents); // re-render
+        render(lastEvents);
       });
 
       btnSecondary.addEventListener("click", async () => {
@@ -394,7 +420,6 @@
       });
     }
 
-    // Link (optional)
     if (event.url) {
       const btnLink = document.createElement("button");
       btnLink.className = "eBtn ghost";
@@ -426,18 +451,15 @@
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(ev);
     }
-    // sort cities
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }
 
   function render(events) {
-    // Filter dismissed from suggestions view, but keep planned visible.
     const visible = events.filter(ev => {
       if (isPlanned(ev.id)) return true;
       return !isDismissed(ev.id);
     });
 
-    // Sort by priority score desc, then date asc
     const computedMap = new Map();
     for (const ev of visible) computedMap.set(ev.id, computePriority(ev));
 
@@ -453,7 +475,6 @@
       return;
     }
 
-    // split planned vs suggested (so you see your plan first)
     const planned = visible.filter(ev => isPlanned(ev.id));
     const suggested = visible.filter(ev => !isPlanned(ev.id));
 
@@ -491,7 +512,6 @@
           cityPill.style.opacity = ".85";
           wrap.appendChild(cityPill);
 
-          // inside city: sort by date
           items.sort((a, b) => a.start.getTime() - b.start.getTime());
           for (const ev of items) {
             wrap.appendChild(buildCard(ev, computedMap.get(ev.id)));
@@ -510,14 +530,32 @@
    ============================ */
 
   async function refresh() {
-    // "Memory": keep lastRefreshAt
     store.lastRefreshAt = Date.now();
     saveStore(store);
 
     setEmpty("Refreshing…");
-    const events = await mockFetchConcertsNL();
-    lastEvents = events;
-    render(events);
+
+    try {
+      // main path: worker
+      const events = await fetchConcertsFromWorker();
+      lastEvents = events;
+      render(events);
+      return;
+    } catch (err) {
+      // fallback: mock
+      console.warn("[eConcerts] worker fetch failed, using mock:", err);
+      const events = await mockFetchConcertsNL();
+      lastEvents = events;
+      render(events);
+
+      // small hint in UI (non-blocking)
+      const hint = document.createElement("div");
+      hint.className = "eEmpty";
+      hint.style.opacity = ".8";
+      hint.style.marginTop = "8px";
+      hint.textContent = `Worker error: ${String(err && err.message ? err.message : err)}`;
+      listEl.prepend(hint);
+    }
   }
 
   // Group toggle
@@ -536,37 +574,24 @@
     await refresh();
   });
 
-  // Optional: refresh once on first load of the page
-  // (we won't auto-switch tabs; we just populate when available)
-  if (!store.lastRefreshAt) {
-    refresh().catch(() => setEmpty("Failed to refresh."));
-  } else {
-    // If you already refreshed before, render from fresh mock fetch anyway (simple)
-    refresh().catch(() => setEmpty("Failed to refresh."));
-  }
+  // initial load
+  refresh().catch(() => setEmpty("Failed to refresh."));
 
-  // If you want: small hook to auto-refresh when the eConcerts tab becomes active.
-  // This is safe and won't break your existing tab logic.
+  // optional: refresh when tab becomes active
   function wireTabAutoRefresh() {
     const tabBtn = document.querySelector('.tabBtn[data-tab="econcerts"]');
     if (!tabBtn) return;
 
     tabBtn.addEventListener("click", () => {
-      // If list is empty, fetch. Otherwise do nothing.
       const hasCards = listEl.querySelector(".eCard");
       if (!hasCards) refresh().catch(() => {});
     }, { passive: true });
   }
 
   wireTabAutoRefresh();
-/* ============================
-   econcerts.js  (PART 4/4)
-   ============================ */
 
   // ---------- Tiny sanity diagnostics ----------
-  // This helps you quickly see if the shift logic is aligned with your expectation.
   function debugShiftForNextDays() {
-    // prints 12 days from today with shift code
     const out = [];
     const today = new Date();
     for (let i = 0; i < 12; i++) {
@@ -574,10 +599,17 @@
       const sh = shiftForDate(d);
       out.push(`${toISODate(d)} -> ${sh.code}`);
     }
-    // comment out if you don't want console noise:
     // console.log("[eConcerts] shift preview:", out);
   }
 
   debugShiftForNextDays();
 
 })();
+/* ============================
+   econcerts.js  (PART 4/4)
+   NOTES:
+   - If you want to change base API at runtime from console:
+     window.__LM_ECONCERTS__.setBaseApi("https://i.errtanq9.workers.dev")
+   - To test without filtering:
+     change ECONCERTS_DEFAULTS.scoreMin from 50 to 0
+   ============================ */

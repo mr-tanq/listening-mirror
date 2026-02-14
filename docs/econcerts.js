@@ -39,7 +39,8 @@
   }
 
   // ---------- Storage (memory) ----------
-  const STORE_KEY = "lm_econcerts_v2";
+  // v3 so you don't get stuck with old dismissed IDs from mock era
+  const STORE_KEY = "lm_econcerts_v3";
 
   function loadStore() {
     try {
@@ -69,8 +70,8 @@
   // Priority:
   // 1) window.BASE_API (if your app already defines it)
   // 2) localStorage store.baseApi (optional)
-  // 3) fallback default you showed in screenshots
-  const FALLBACK_BASE_API = "https://i.errtanq9.workers.dev";
+  // 3) fallback default (NEW live worker)
+  const FALLBACK_BASE_API = "https://live.errtanq9.workers.dev";
 
   function getBaseApi() {
     const w = (typeof window !== "undefined") ? window : {};
@@ -81,12 +82,14 @@
   }
 
   // ---------- econcerts API defaults ----------
+  // ✅ Default: NL-wide (no city, no radius).
+  // If you want "near Utrecht" you can override by passing { city:"Utrecht", radiusKm:30 }.
   const ECONCERTS_DEFAULTS = {
-    size: 1000,
-    radiusKm: 10,
+    size: 200,          // UI-friendly default (you can raise it)
+    radiusKm: 30,       // only used if city is set
     scoreMin: 50,       // only >=50 suggestions
     tasteArtists: 1000, // all-time taste
-    city: "Utrecht",
+    city: "",           // empty => whole NL
     countryCode: "NL",
   };
 
@@ -96,11 +99,16 @@
 
     const u = new URL(base + "/econcerts");
     u.searchParams.set("size", String(cfg.size));
-    u.searchParams.set("radiusKm", String(cfg.radiusKm));
     u.searchParams.set("scoreMin", String(cfg.scoreMin));
     u.searchParams.set("tasteArtists", String(cfg.tasteArtists));
-    u.searchParams.set("city", String(cfg.city || "Utrecht"));
     u.searchParams.set("countryCode", String(cfg.countryCode || "NL"));
+
+    // ✅ Only send city/radius if city is provided.
+    const city = String(cfg.city || "").trim();
+    if (city) {
+      u.searchParams.set("city", city);
+      u.searchParams.set("radiusKm", String(cfg.radiusKm));
+    }
 
     const res = await fetch(u.toString(), { method: "GET" });
     const data = await res.json().catch(() => ({}));
@@ -117,7 +125,7 @@
       attractions: Array.isArray(ev.attractions) ? ev.attractions : [],
       city: String(ev.city || ""),
       venue: String(ev.venue || ""),
-      start: new Date(String(ev.start)), // worker gives ISO
+      start: new Date(String(ev.start)), // worker gives ISO-like local string
       url: String(ev.url || ""),
       country: "NL",
 
@@ -167,14 +175,12 @@
     const d0 = new Date(dateLocalMidnight.getFullYear(), dateLocalMidnight.getMonth(), dateLocalMidnight.getDate(), 0, 0, 0, 0);
     const r0 = new Date(REF_LOCAL.getFullYear(), REF_LOCAL.getMonth(), REF_LOCAL.getDate(), 0, 0, 0, 0);
     const diffDays = Math.floor((d0.getTime() - r0.getTime()) / msPerDay);
-    const mod = ((diffDays % 10) + 10) % 10;
-    return mod;
+    return ((diffDays % 10) + 10) % 10;
   }
 
   function shiftForDate(dateLocal) {
     const d0 = new Date(dateLocal.getFullYear(), dateLocal.getMonth(), dateLocal.getDate(), 0, 0, 0, 0);
-    const idx = dayIndexInCycle(d0);
-    return SHIFT_BY_DAY[idx];
+    return SHIFT_BY_DAY[dayIndexInCycle(d0)];
   }
 
   function availabilityBadgeForEvent(eventStart) {
@@ -185,41 +191,22 @@
     let why = "Looks doable";
 
     if (shift.type === "night") {
-      // Night shift starts 23:00 same day -> a concert earlier that day is conflict
-      if (hour >= 0 && hour <= 22) {
-        badge = "CONFLICT";
-        why = "Night shift starts 23:00 today";
-      }
+      if (hour >= 0 && hour <= 22) { badge = "CONFLICT"; why = "Night shift starts 23:00 today"; }
     } else if (shift.type === "afternoon") {
-      // Work until 23:00 -> evening show conflicts
-      if (hour >= 15) {
-        badge = "CONFLICT";
-        why = "Afternoon shift ends 23:00";
-      }
+      if (hour >= 15) { badge = "CONFLICT"; why = "Afternoon shift ends 23:00"; }
     } else if (shift.type === "morning") {
-      badge = "OK";
-      why = "Morning shift — evening is free";
+      badge = "OK"; why = "Morning shift — evening is free";
     } else if (shift.type === "off") {
-      badge = "FREE";
-      why = "Off day";
+      badge = "FREE"; why = "Off day";
     }
 
-    if (shift.lastDayOff) {
-      badge = badge === "FREE" ? "HARD" : badge;
-      why = "Last day off — early wake-up next day";
-    }
-    if (shift.secondMorning) {
-      badge = badge === "OK" ? "EASY" : badge;
-      if (badge === "FREE") badge = "EASY";
-      why = "2nd morning — free evening and late start next day";
-    }
+    if (shift.lastDayOff) { if (badge === "FREE") badge = "HARD"; why = "Last day off — early wake-up next day"; }
+    if (shift.secondMorning) { if (badge === "OK" || badge === "FREE") badge = "EASY"; why = "2nd morning — free evening and late start next day"; }
 
     return { badge, why, shift };
   }
 
-  // ---------- Fallback mock events (ONLY if worker fails) ----------
-  // You said: "I don't want to see fake" -> so this is only a safety net.
-  // If you want ZERO fake even on errors, set USE_MOCK_FALLBACK = false.
+  // ---------- No mock fallback (you asked: no fake) ----------
   const USE_MOCK_FALLBACK = false;
 
   function mockFetchConcertsNL() {
@@ -243,17 +230,10 @@
     });
 
     const d1 = new Date(y, m, Math.min(28, now.getDate() + 7), 21, 0);
-    const d2 = new Date(y, m, Math.min(28, now.getDate() + 14), 20, 30);
-    const d3 = new Date(y, m, Math.min(28, now.getDate() + 21), 19, 30);
-    const d4 = new Date(y, m, Math.min(28, now.getDate() + 25), 21, 30);
-
     const iso = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 
     return Promise.resolve([
-      mk("ev_metallica_utrecht", "Metallica", "Utrecht", "TivoliVredenburg (example)", iso(d1), "https://example.com/metallica"),
-      mk("ev_amenra_amsterdam", "Amenra", "Amsterdam", "AFAS Live (example)", iso(d2), "https://example.com/amenra"),
-      mk("ev_mono_rotterdam", "Mono", "Rotterdam", "Rotown (example)", iso(d3), "https://example.com/mono"),
-      mk("ev_solstafir_denhaag", "Sólstafir", "The Hague", "Paard (example)", iso(d4), "https://example.com/solstafir"),
+      mk("ev_example", "Example Artist", "Utrecht", "Example Venue", iso(d1), "https://example.com"),
     ]);
   }
 
@@ -265,14 +245,29 @@
   const refreshBtn = $("#econcertsRefresh");
   const groupBtn = $("#econcertsToggleGroup");
 
-  if (!listEl || !refreshBtn || !groupBtn) {
-    // panel not present -> do nothing safely
-    return;
-  }
+  if (!listEl || !refreshBtn || !groupBtn) return;
 
   // init group button
   groupBtn.setAttribute("aria-pressed", store.groupByCity ? "true" : "false");
   groupBtn.textContent = store.groupByCity ? "Group by city" : "Ungroup";
+
+  // Add "Reset dismissed" button next to Refresh (safe, no layout assumptions)
+  const resetBtn = document.createElement("button");
+  resetBtn.className = "eBtn ghost";
+  resetBtn.type = "button";
+  resetBtn.textContent = "Reset dismissed";
+  resetBtn.title = "Bring back events you dismissed (does not affect My Plan)";
+
+  // Try to place next to refresh button
+  if (refreshBtn && refreshBtn.parentElement) {
+    refreshBtn.parentElement.appendChild(resetBtn);
+  }
+
+  resetBtn.addEventListener("click", () => {
+    store.dismissedIds = [];
+    saveStore(store);
+    render(lastEvents);
+  });
 
   // debug
   window.__LM_ECONCERTS__ = {
@@ -281,6 +276,10 @@
     setBaseApi(next) {
       store.baseApi = String(next || "").trim();
       saveStore(store);
+    },
+    // quick toggle to test Utrecht-only from console
+    fetchNearUtrecht() {
+      return refresh({ city: "Utrecht", radiusKm: 30 });
     }
   };
 
@@ -288,28 +287,21 @@
     const plays = Number(event.plays || 0);
     const tier = event.tier || tierFromPlays(plays);
 
-    // score from worker (fallback if missing)
     let score = Number.isFinite(event.score) ? Number(event.score) : baseScoreFromTier(tier);
 
-    // availability adjustments (client-side)
     const av = availabilityBadgeForEvent(event.start);
     if (av.badge === "CONFLICT") score -= 18;
     if (av.badge === "HARD") score -= 8;
     if (av.badge === "EASY") score += 6;
 
-    // small Utrecht boost
     if (lowerKey(event.city) === "utrecht") score += 4;
 
     score = Math.max(0, Math.min(100, Math.round(score)));
     return { score, tier, plays, availability: av };
   }
 
-  function isPlanned(id) {
-    return store.planIds.includes(id);
-  }
-  function isDismissed(id) {
-    return store.dismissedIds.includes(id);
-  }
+  const isPlanned = (id) => store.planIds.includes(id);
+  const isDismissed = (id) => store.dismissedIds.includes(id);
 
   async function addToPlan(id) {
     if (!store.planIds.includes(id)) store.planIds.push(id);
@@ -461,10 +453,7 @@
   }
 
   function render(events) {
-    const visible = events.filter(ev => {
-      if (isPlanned(ev.id)) return true;
-      return !isDismissed(ev.id);
-    });
+    const visible = events.filter(ev => (isPlanned(ev.id) ? true : !isDismissed(ev.id)));
 
     const computedMap = new Map();
     for (const ev of visible) computedMap.set(ev.id, computePriority(ev));
@@ -506,9 +495,7 @@
         empty.textContent = "Empty";
         wrap.appendChild(empty);
       } else if (!store.groupByCity) {
-        for (const ev of arr) {
-          wrap.appendChild(buildCard(ev, computedMap.get(ev.id)));
-        }
+        for (const ev of arr) wrap.appendChild(buildCard(ev, computedMap.get(ev.id)));
       } else {
         const grouped = groupByCity(arr);
         for (const [city, items] of grouped) {
@@ -519,9 +506,7 @@
           wrap.appendChild(cityPill);
 
           items.sort((a, b) => a.start.getTime() - b.start.getTime());
-          for (const ev of items) {
-            wrap.appendChild(buildCard(ev, computedMap.get(ev.id)));
-          }
+          for (const ev of items) wrap.appendChild(buildCard(ev, computedMap.get(ev.id)));
         }
       }
 
@@ -532,39 +517,29 @@
     addSection("Upcoming", suggested);
   }
 
-  async function refresh() {
+  async function refresh(overrides = {}) {
     store.lastRefreshAt = Date.now();
     saveStore(store);
 
     setEmpty("Refreshing…");
 
     try {
-      // main path: worker
-      const events = await fetchConcertsFromWorker();
+      const events = await fetchConcertsFromWorker(overrides);
       lastEvents = events;
       render(events);
       return;
     } catch (err) {
       console.warn("[eConcerts] worker fetch failed:", err);
 
-      // You said: no fake. So by default we do NOT show mock.
       if (!USE_MOCK_FALLBACK) {
         lastEvents = [];
         setEmpty(`Worker error: ${String(err && err.message ? err.message : err)}`);
         return;
       }
 
-      // optional fallback: mock
       const events = await mockFetchConcertsNL();
       lastEvents = events;
       render(events);
-
-      const hint = document.createElement("div");
-      hint.className = "eEmpty";
-      hint.style.opacity = ".8";
-      hint.style.marginTop = "8px";
-      hint.textContent = `Worker error: ${String(err && err.message ? err.message : err)}`;
-      listEl.prepend(hint);
     }
   }
 
@@ -581,7 +556,7 @@
 
   // Refresh button
   refreshBtn.addEventListener("click", async () => {
-    await refresh();
+    await refresh(); // NL-wide default
   });
 
   // initial load

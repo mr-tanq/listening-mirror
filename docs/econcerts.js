@@ -1,6 +1,8 @@
-/* econcerts.js (FULL FILE REPLACE) — PART 1/4
-   Premium/minimal cleanup + dedupe + MEDIUM for 2nd morning
-*/
+/* ============================
+   econcerts.js  (FULL FILE REPLACE) — PART 1/4
+   Delete everything in econcerts.js and paste ALL 4 parts in order.
+   Premium/minimal cleanup + HUMAN dedupe + 2nd morning = MEDIUM
+   ============================ */
 (() => {
   "use strict";
 
@@ -145,7 +147,9 @@
     if (tier === "maybe") return 45;
     return 32;
   }
-/* econcerts.js (FULL FILE REPLACE) — PART 2/4 */
+/* ============================
+   econcerts.js  (FULL FILE REPLACE) — PART 2/4
+   ============================ */
 
   // ---------- Your shift cycle rules ----------
   // 18 Oct 2025 = Day 1 Off
@@ -197,7 +201,8 @@
         why = "Afternoon shift ends 23:00";
       }
     } else if (shift.type === "morning") {
-      badge = "OK";
+      // ✅ baseline morning = EASY (evening is free)
+      badge = "EASY";
       why = "Morning shift — evening is free";
     } else if (shift.type === "off") {
       badge = "FREE";
@@ -212,8 +217,7 @@
 
     // ✅ Your rule: 2nd morning is NOT easy -> MEDIUM
     if (shift.secondMorning) {
-      // If you were FREE/OK, it becomes MEDIUM (not conflict)
-      if (badge === "FREE" || badge === "OK") {
+      if (badge === "FREE" || badge === "EASY") {
         badge = "MEDIUM";
         why = "2nd morning — doable but not easy";
       }
@@ -222,63 +226,65 @@
     return { badge, why, shift };
   }
 
-  // ---------- Dedupe ----------
-  // Ticketmaster often returns duplicates (e.g. same show + VIP packages).
-  // We'll dedupe by:
-  // 1) id (hard)
-  // 2) (artist + startTs + city + venue) (soft)
-  // When duplicates exist, we prefer the non-VIP URL.
+  // ---------- HUMAN Dedupe ----------
+  // Ticketmaster often returns duplicates (same show + VIP/resale/packages/rooms).
+  // We dedupe in 2 layers:
+  // 1) hard by id
+  // 2) human by "same real concert": artist + city + same day + time within 90min + venue normalized
   function isVipUrl(url) {
     const u = lowerKey(url);
-    return u.includes("vip") || u.includes("package") || u.includes("packages");
+    return u.includes("vip") || u.includes("package") || u.includes("packages") || u.includes("platinum") || u.includes("resale");
   }
 
-  function softKey(ev) {
-    // startTs from worker is best; fallback to start.getTime()
-    const ts = Number(ev.startTs || 0) || ev.start.getTime();
-    return [
-      lowerKey(ev.artist),
-      String(ts),
-      lowerKey(ev.city),
-      lowerKey(ev.venue),
-    ].join("|");
+  function normalizeVenue(v) {
+    return lowerKey(v)
+      .replace(/[\u2013\u2014]/g, "-")
+      .replace(/\(.*?\)/g, "")
+      .replace(/\bclub\b/g, "")
+      .replace(/\bvinyl room\b/g, "")
+      .replace(/\bzaal\b/g, "")
+      .replace(/\broom\b/g, "")
+      .replace(/\s+/g, " ")
+      .replace(/-+/g, "-")
+      .trim();
   }
 
-  function dedupeEvents(events) {
-    const byId = new Map();
-    for (const ev of events) {
-      if (!ev || !ev.id) continue;
-      if (!byId.has(ev.id)) {
-        byId.set(ev.id, ev);
-      } else {
-        // choose better between duplicates
-        const a = byId.get(ev.id);
-        byId.set(ev.id, pickBetterEvent(a, ev));
-      }
-    }
+  function sameCalendarDay(a, b) {
+    return (
+      a.getFullYear() === b.getFullYear() &&
+      a.getMonth() === b.getMonth() &&
+      a.getDate() === b.getDate()
+    );
+  }
 
-    const bySoft = new Map();
-    for (const ev of byId.values()) {
-      const k = softKey(ev);
-      if (!bySoft.has(k)) {
-        bySoft.set(k, ev);
-      } else {
-        const a = bySoft.get(k);
-        bySoft.set(k, pickBetterEvent(a, ev));
-      }
-    }
+  function isSameConcert(a, b) {
+    if (lowerKey(a.artist) !== lowerKey(b.artist)) return false;
+    if (lowerKey(a.city) !== lowerKey(b.city)) return false;
 
-    return Array.from(bySoft.values());
+    const dA = new Date(a.start);
+    const dB = new Date(b.start);
+    if (!sameCalendarDay(dA, dB)) return false;
+
+    // time difference <= 90 minutes
+    const diff = Math.abs(dA.getTime() - dB.getTime());
+    if (diff > 90 * 60 * 1000) return false;
+
+    // venue normalization (handle Ziggo Dome / Ziggo Dome Club / Vinyl Room etc.)
+    const vA = normalizeVenue(a.venue || "");
+    const vB = normalizeVenue(b.venue || "");
+    if (!vA || !vB) return true; // if one is missing venue, treat as same (we'll pick the better one)
+
+    return vA === vB || vA.includes(vB) || vB.includes(vA);
   }
 
   function pickBetterEvent(a, b) {
-    // Prefer: non-VIP url, has venue/city, has attractions, higher score
+    // Prefer: non-VIP url, richer metadata, then higher score
     const aVip = isVipUrl(a.url);
     const bVip = isVipUrl(b.url);
     if (aVip !== bVip) return aVip ? b : a;
 
-    const aMeta = (a.venue ? 1 : 0) + (a.city ? 1 : 0) + (a.attractions?.length ? 1 : 0);
-    const bMeta = (b.venue ? 1 : 0) + (b.city ? 1 : 0) + (b.attractions?.length ? 1 : 0);
+    const aMeta = (a.venue ? 1 : 0) + (a.city ? 1 : 0) + (a.attractions?.length ? 1 : 0) + (a.url ? 1 : 0);
+    const bMeta = (b.venue ? 1 : 0) + (b.city ? 1 : 0) + (b.attractions?.length ? 1 : 0) + (b.url ? 1 : 0);
     if (aMeta !== bMeta) return bMeta > aMeta ? b : a;
 
     const aScore = Number(a.score || 0);
@@ -287,7 +293,29 @@
 
     return a; // stable
   }
-/* econcerts.js (FULL FILE REPLACE) — PART 3/4 */
+
+  function dedupeEvents(events) {
+    // 1) hard by id
+    const byId = new Map();
+    for (const ev of events) {
+      if (!ev || !ev.id) continue;
+      if (!byId.has(ev.id)) byId.set(ev.id, ev);
+      else byId.set(ev.id, pickBetterEvent(byId.get(ev.id), ev));
+    }
+
+    // 2) human merge
+    const merged = [];
+    for (const ev of byId.values()) {
+      const existing = merged.find(m => isSameConcert(m, ev));
+      if (!existing) merged.push(ev);
+      else Object.assign(existing, pickBetterEvent(existing, ev));
+    }
+
+    return merged;
+  }
+/* ============================
+   econcerts.js  (FULL FILE REPLACE) — PART 3/4
+   ============================ */
 
   // state
   let lastEvents = [];
@@ -345,7 +373,7 @@
     if (av.badge === "CONFLICT") score -= 18;
     if (av.badge === "HARD") score -= 8;
 
-    // ✅ MEDIUM = small boost (not +6 like EASY used to be)
+    // MEDIUM = small boost (not big)
     if (av.badge === "MEDIUM") score += 2;
 
     // small Utrecht boost
@@ -409,7 +437,7 @@
     meta2.className = "eMeta2";
     meta2.textContent = `Shift: ${shift.label} • ${why}`;
 
-    // ✅ Premium/minimal pills: keep only Tier + Plays (no duplicate Score/Badge)
+    // Premium/minimal pills: keep only Tier + Plays
     const pills = document.createElement("div");
     pills.className = "ePills";
     pills.appendChild(pill(`Tier: ${tier}`));
@@ -423,7 +451,7 @@
     const right = document.createElement("div");
     right.className = "eRight";
 
-    // ✅ Single score + single badge (no duplicates)
+    // Single score + single badge (no duplicates)
     const scoreEl = document.createElement("div");
     scoreEl.className = "eScore";
     scoreEl.textContent = `${score}/100`;
@@ -506,7 +534,9 @@
     }
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }
-/* econcerts.js (FULL FILE REPLACE) — PART 4/4 */
+/* ============================
+   econcerts.js  (FULL FILE REPLACE) — PART 4/4
+   ============================ */
 
   function render(events) {
     const visible = events.filter(ev => (isPlanned(ev.id) ? true : !isDismissed(ev.id)));
@@ -582,7 +612,7 @@
     try {
       const raw = await fetchConcertsFromWorker(overrides);
 
-      // ✅ dedupe here
+      // ✅ dedupe here (human-level)
       const events = dedupeEvents(raw);
 
       lastEvents = events;

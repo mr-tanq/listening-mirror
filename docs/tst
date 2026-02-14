@@ -1,4 +1,4 @@
-/* live.js (FULL REPLACE) — PART 1/3
+/* live.js (FULL REPLACE)
    Cloudflare Worker: /econcerts endpoint
    Sources:
    - Ticketmaster (tm)
@@ -96,10 +96,12 @@ async function handleEconcerts(request, env, ctx, jsonRes, lowerKey, clamp01, cl
   const size = clampInt(url.searchParams.get("size"), 1, 1000, 50);
   const radiusKm = clampInt(url.searchParams.get("radiusKm"), 1, 500, 30);
   const scoreMin = clampInt(url.searchParams.get("scoreMin"), 0, 100, 50);
-  const tasteArtists = clampInt(url.searchParams.get("tasteArtists"), 10, 2000, 200);
 
-  // ✅ How many Last.fm top artists to query on Bandsintown
-  const bitArtists = clampInt(url.searchParams.get("bitArtists"), 5, 300, 60);
+  // ✅ allow small tasteArtists for debugging
+  const tasteArtists = clampInt(url.searchParams.get("tasteArtists"), 1, 2000, 200);
+
+  // ✅ how many of your top artists to query on Bandsintown
+  const bitArtists = clampInt(url.searchParams.get("bitArtists"), 1, 400, 60);
 
   // Default: WHOLE NL (if city is provided, "near city" mode)
   const cityRaw = String(url.searchParams.get("city") || "").trim();
@@ -111,7 +113,6 @@ async function handleEconcerts(request, env, ctx, jsonRes, lowerKey, clamp01, cl
 
   if (!LASTFM_API_KEY) return jsonRes({ ok: false, error: "missing_env", message: "Missing LASTFM_API_KEY" }, 500);
   if (!LASTFM_USER) return jsonRes({ ok: false, error: "missing_env", message: "Missing LASTFM_USER" }, 500);
-
   if (sources.includes("tm") && !TMASTER_API_KEY) {
     return jsonRes({ ok: false, error: "missing_env", message: "Missing TMASTER_API_KEY" }, 500);
   }
@@ -136,6 +137,14 @@ async function handleEconcerts(request, env, ctx, jsonRes, lowerKey, clamp01, cl
   }
 
   // Bandsintown (personal: based on your taste artists)
+  // ✅ debug counters so we can SEE what happens
+  const bitDebug = {
+    bitTried: 0,
+    bitOk: 0,
+    bitFailed: 0,
+    bitErrorSample: null,
+  };
+
   if (sources.includes("bit")) {
     const topNames = taste.map((t) => t.name).filter(Boolean);
     const bitEvents = await bandsintownEventsFromTaste({
@@ -145,22 +154,21 @@ async function handleEconcerts(request, env, ctx, jsonRes, lowerKey, clamp01, cl
       countryCode,
       maxEvents: size,
       maxArtistsToTry: bitArtists,
+      debug: bitDebug,
     });
     for (const ev of bitEvents) collected.push({ ...ev, source: "bit" });
   }
-
-  // ✅ Server-side dedupe (reduce TM package duplicates etc.)
-  const deduped = dedupeCollected(collected, lowerKey);
-
-  // 3) Score + filter
+// 3) Score + filter
   const eventsScored = [];
-  for (const ev of deduped) {
+  for (const ev of collected) {
     const artist = ev.artist || "";
     const plays = tasteMap.get(lowerKey(artist)) || 0;
 
+    // Tier from plays
     const tier = tierFromPlays(plays);
     const base = baseScoreFromTier(tier);
 
+    // Proximity boost up to ~1 year
     const daysAway = Math.max(0, Math.round((ev.startTs - Date.now()) / (24 * 60 * 60 * 1000)));
     const proximityBoost = clamp01(1 - daysAway / 365); // 0..1
     let score = base + Math.round(proximityBoost * 18);
@@ -193,9 +201,13 @@ async function handleEconcerts(request, env, ctx, jsonRes, lowerKey, clamp01, cl
     if (score >= scoreMin) eventsScored.push(out);
   }
 
+  // Sort by score desc then soonest
   eventsScored.sort((a, b) => (b.score - a.score) || (a.startTs - b.startTs));
+
+  // Return up to requested size
   const finalEvents = eventsScored.slice(0, size);
 
+  // include BIT debug meta so we can diagnose "0 fetched"
   return jsonRes({
     ok: true,
     meta: {
@@ -211,6 +223,7 @@ async function handleEconcerts(request, env, ctx, jsonRes, lowerKey, clamp01, cl
       sources,
       mode: city ? "near_city" : "nl_wide",
       bitAppId: sources.includes("bit") ? BIT_APP_ID : null,
+      ...(sources.includes("bit") ? bitDebug : {}),
     },
     events: finalEvents,
   });
@@ -258,7 +271,6 @@ async function lastfmTopArtistsOverall(apiKey, user, limit) {
   }
   return out;
 }
-/* live.js (FULL REPLACE) — PART 2/3 */
 
 // ---------------- Ticketmaster ----------------
 async function ticketmasterEvents({ apiKey, countryCode, city, radiusKm, sizeRequested }) {
@@ -352,34 +364,56 @@ async function ticketmasterEvents({ apiKey, countryCode, city, radiusKm, sizeReq
 
   return out;
 }
-
 // ---------------- Bandsintown (taste-based) ----------------
-// Fetch upcoming events for top artists, keep only selected country.
-async function bandsintownEventsFromTaste({ appId, artists, tasteMap, countryCode, maxEvents, maxArtistsToTry }) {
+// We fetch upcoming events for your top artists, then keep only NL.
+async function bandsintownEventsFromTaste({
+  appId,
+  artists,
+  tasteMap,
+  countryCode,
+  maxEvents,
+  maxArtistsToTry,
+  debug,
+}) {
   const want = Math.max(1, Math.min(1000, Number(maxEvents) || 50));
   const out = [];
 
-  const maxArtists = Math.min(Number(maxArtistsToTry) || 60, artists.length);
+  // Limit artists to keep it responsive
+  const limitArtists = Math.min(Number(maxArtistsToTry) || 60, artists.length);
 
-  // Concurrency limiter
+  // Simple concurrency limiter
   const concurrency = 6;
   let idx = 0;
 
   const worker = async () => {
-    while (idx < maxArtists && out.length < want) {
+    while (idx < limitArtists && out.length < want) {
       const i = idx++;
       const name = String(artists[i] || "").trim();
       if (!name) continue;
 
-      // If plays are 0, skip (pure noise)
+      // If plays are super low, skip to reduce noise
       const plays = tasteMap.get(String(name).trim().toLowerCase()) || 0;
       if (plays <= 0) continue;
 
-      const events = await bandsintownArtistEvents(name, appId).catch(() => []);
+      if (debug) debug.bitTried += 1;
+
+      let events = [];
+      try {
+        events = await bandsintownArtistEvents(name, appId);
+        if (debug) debug.bitOk += 1;
+      } catch (e) {
+        if (debug) {
+          debug.bitFailed += 1;
+          if (!debug.bitErrorSample) debug.bitErrorSample = String(e?.message || e);
+        }
+        continue;
+      }
+
       for (const ev of events) {
         if (out.length >= want) break;
         if (!ev) continue;
 
+        // Keep only NL (countryCode = "NL")
         const cc = normalizeCountryCode(ev?.venue?.country);
         if (cc !== countryCode) continue;
 
@@ -393,6 +427,8 @@ async function bandsintownEventsFromTaste({ appId, artists, tasteMap, countryCod
         const city = String(ev?.venue?.city || "").trim();
 
         const url = String(ev?.url || ev?.offers?.[0]?.url || "").trim();
+
+        // Bandsintown event id can be numeric
         const id = String(ev?.id || "").trim() || `${name}|${startTs}|${city}|${venueName}`;
 
         out.push({
@@ -416,26 +452,22 @@ async function bandsintownEventsFromTaste({ appId, artists, tasteMap, countryCod
 }
 
 async function bandsintownArtistEvents(artistName, appId) {
-  // ✅ IMPORTANT: new BIT expects date param in ISO Z format (not "upcoming")
-  const nowIso = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-
-  // (No trailing slash — avoids some 301/quirks)
+  // ✅ IMPORTANT: no trailing slash + correct query format
   const u = new URL(`https://rest.bandsintown.com/artists/${encodeURIComponent(artistName)}/events`);
   u.searchParams.set("app_id", appId);
-  u.searchParams.set("date", nowIso); // <-- fixes your "date must be YYYY-MM-DDTHH:mm:ssZ" error
+  u.searchParams.set("date", "upcoming");
 
   const r = await fetch(u.toString(), {
     method: "GET",
     headers: {
-      // ✅ Keep only safe headers in Workers
       "accept": "application/json",
     },
   });
 
   if (!r.ok) {
-    const body = await r.text().catch(() => "");
-    // keep message small but informative
-    const extra = body ? ` — ${body.slice(0, 120)}` : "";
+    // Keep body snippet if possible (helps debugging)
+    const t = await r.text().catch(() => "");
+    const extra = t ? ` — ${t.slice(0, 120)}` : "";
     throw new Error(`Bandsintown HTTP ${r.status}${extra}`);
   }
 
@@ -450,10 +482,10 @@ function normalizeCountryCode(countryField) {
   if (s === "nl" || s === "netherlands" || s === "the netherlands") return "NL";
   if (s === "be" || s === "belgium") return "BE";
   if (s === "de" || s === "germany") return "DE";
+  // fallback: if it already looks like ISO2
   if (s.length === 2) return s.toUpperCase();
   return "";
 }
-/* live.js (FULL REPLACE) — PART 3/3 */
 
 // ---------------- Scoring tiers ----------------
 function tierFromPlays(plays) {
@@ -493,50 +525,4 @@ function formatAmsterdamLocal(dateObj) {
   const ss = get("second");
 
   return `${y}-${m}-${d}T${hh}:${mm}:${ss}`;
-}
-
-// ---------------- Dedupe (server-side) ----------------
-function isVipUrl(url) {
-  const u = String(url || "").toLowerCase();
-  return u.includes("vip") || u.includes("package") || u.includes("packages");
-}
-
-function softKey(ev, lowerKey) {
-  const ts = Number(ev.startTs || 0);
-  return [
-    lowerKey(ev.artist),
-    String(ts),
-    lowerKey(ev.city),
-    lowerKey(ev.venue),
-  ].join("|");
-}
-
-function pickBetter(a, b) {
-  const aVip = isVipUrl(a.url);
-  const bVip = isVipUrl(b.url);
-  if (aVip !== bVip) return aVip ? b : a;
-
-  const aMeta = (a.venue ? 1 : 0) + (a.city ? 1 : 0) + (a.attractions?.length ? 1 : 0);
-  const bMeta = (b.venue ? 1 : 0) + (b.city ? 1 : 0) + (b.attractions?.length ? 1 : 0);
-  if (aMeta !== bMeta) return bMeta > aMeta ? b : a;
-
-  return a;
-}
-
-function dedupeCollected(events, lowerKey) {
-  const byId = new Map();
-  for (const ev of events) {
-    if (!ev?.id) continue;
-    if (!byId.has(ev.id)) byId.set(ev.id, ev);
-    else byId.set(ev.id, pickBetter(byId.get(ev.id), ev));
-  }
-
-  const bySoft = new Map();
-  for (const ev of byId.values()) {
-    const k = softKey(ev, lowerKey);
-    if (!bySoft.has(k)) bySoft.set(k, ev);
-    else bySoft.set(k, pickBetter(bySoft.get(k), ev));
-  }
-
-  return Array.from(bySoft.values());
 }

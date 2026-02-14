@@ -1,8 +1,8 @@
-/* econcerts.js (FULL FILE REPLACE) — PART 1/4
-   Personal mode:
-   - Default: show only favorites (plays >= 5)
-   - TivoliVredenburg: show ★ (no text, no score boost)
-*/
+/* ============================
+   econcerts.js  (FULL FILE REPLACE)
+   Paste PART 1/4 then append 2/4, 3/4, 4/4
+   ============================ */
+
 (() => {
   "use strict";
 
@@ -41,33 +41,23 @@
     return String(s || "").trim();
   }
 
-  // ---------- Personal rules ----------
-  const MIN_PLAYS_FAVORITE = 5; // ✅ your choice (C)
-  const MY_VENUE_KEY = "tivolivredenburg";
-
-  function isMyVenue(venueName) {
-    const v = lowerKey(venueName);
-    // keep it strict but tolerant of minor formatting
-    return v.includes(MY_VENUE_KEY);
+  // ---------- Personal venue (★ only) ----------
+  // ONLY TivoliVredenburg is your venue.
+  const FAV_VENUE_TOKENS = ["tivolivredenburg"];
+  function isFavVenue(venue) {
+    const v = lowerKey(venue);
+    if (!v) return false;
+    return FAV_VENUE_TOKENS.some((t) => v.includes(t));
   }
 
   // ---------- Storage (memory) ----------
-  // v5 so you get a clean store + new toggles
-  const STORE_KEY = "lm_econcerts_v5";
+  // v4 so you get the new UI behavior clean
+  const STORE_KEY = "lm_econcerts_v4";
 
   function loadStore() {
     try {
       const raw = localStorage.getItem(STORE_KEY);
-      if (!raw) {
-        return {
-          planIds: [],
-          dismissedIds: [],
-          lastRefreshAt: 0,
-          groupByCity: true,
-          baseApi: "",
-          showAll: false, // ✅ default favorites-only
-        };
-      }
+      if (!raw) return { planIds: [], dismissedIds: [], lastRefreshAt: 0, groupByCity: true, baseApi: "" };
       const obj = JSON.parse(raw);
       return {
         planIds: Array.isArray(obj.planIds) ? obj.planIds : [],
@@ -75,17 +65,9 @@
         lastRefreshAt: Number(obj.lastRefreshAt || 0),
         groupByCity: Boolean(obj.groupByCity ?? true),
         baseApi: String(obj.baseApi || ""),
-        showAll: Boolean(obj.showAll ?? false),
       };
     } catch {
-      return {
-        planIds: [],
-        dismissedIds: [],
-        lastRefreshAt: 0,
-        groupByCity: true,
-        baseApi: "",
-        showAll: false,
-      };
+      return { planIds: [], dismissedIds: [], lastRefreshAt: 0, groupByCity: true, baseApi: "" };
     }
   }
 
@@ -174,7 +156,9 @@
     if (tier === "maybe") return 45;
     return 32;
   }
-/* econcerts.js (FULL FILE REPLACE) — PART 2/4 */
+/* ============================
+   econcerts.js — PART 2/4
+   ============================ */
 
   // ---------- Your shift cycle rules ----------
   // 18 Oct 2025 = Day 1 Off
@@ -214,11 +198,13 @@
     let why = "Looks doable";
 
     if (shift.type === "night") {
+      // Night shift starts 23:00 same day -> a concert earlier that day is conflict
       if (hour >= 0 && hour <= 22) {
         badge = "CONFLICT";
         why = "Night shift starts 23:00 today";
       }
     } else if (shift.type === "afternoon") {
+      // Work until 23:00 -> evening show conflicts
       if (hour >= 15) {
         badge = "CONFLICT";
         why = "Afternoon shift ends 23:00";
@@ -231,12 +217,13 @@
       why = "Off day";
     }
 
+    // Last day off: you can go, but you pay for it next day
     if (shift.lastDayOff && badge === "FREE") {
       badge = "HARD";
       why = "Last day off — early wake-up next day";
     }
 
-    // ✅ Your rule: 2nd morning is MEDIUM (not easy)
+    // ✅ Your rule: 2nd morning is NOT easy -> MEDIUM
     if (shift.secondMorning) {
       if (badge === "FREE" || badge === "OK") {
         badge = "MEDIUM";
@@ -247,70 +234,74 @@
     return { badge, why, shift };
   }
 
-  // ---------- Dedupe ----------
   // ---------- Smart Concert Clustering (REAL dedupe) ----------
+  // Ticketmaster returns: main show + VIP packages + lounge variations.
+  // We dedupe by: same artist + same city + same day + time within 2 hours.
+  function isVipUrl(url) {
+    const u = lowerKey(url);
+    return u.includes("vip") || u.includes("package") || u.includes("packages");
+  }
 
-function sameConcert(a, b) {
-  if (lowerKey(a.artist) !== lowerKey(b.artist)) return false;
-  if (lowerKey(a.city) !== lowerKey(b.city)) return false;
+  function sameConcert(a, b) {
+    if (lowerKey(a.artist) !== lowerKey(b.artist)) return false;
+    if (lowerKey(a.city) !== lowerKey(b.city)) return false;
 
-  const dayA = toISODate(a.start);
-  const dayB = toISODate(b.start);
-  if (dayA !== dayB) return false;
+    const dayA = toISODate(a.start);
+    const dayB = toISODate(b.start);
+    if (dayA !== dayB) return false;
 
-  const diff = Math.abs(a.start.getTime() - b.start.getTime());
-  return diff <= (2 * 60 * 60 * 1000); // within 2 hours
-}
+    const diff = Math.abs(a.start.getTime() - b.start.getTime());
+    return diff <= (2 * 60 * 60 * 1000); // within 2 hours
+  }
 
-function eventQualityScore(ev) {
-  let score = 0;
+  function eventQualityScore(ev) {
+    let score = 0;
 
-  // prefer main venue (no VIP words)
-  const url = lowerKey(ev.url);
-  if (!url.includes("vip") && !url.includes("package")) score += 4;
+    // prefer non-VIP url
+    const url = lowerKey(ev.url);
+    if (!isVipUrl(url)) score += 4;
 
-  // prefer real venue name
-  if (ev.venue && ev.venue.length > 6) score += 2;
+    // prefer meaningful venue text
+    if (ev.venue && ev.venue.length > 6) score += 2;
 
-  // prefer exact hour (20:00 typical concert)
-  const hour = ev.start.getHours();
-  if (hour >= 18 && hour <= 22) score += 2;
+    // prefer typical concert hours
+    const hour = ev.start.getHours();
+    if (hour >= 18 && hour <= 22) score += 2;
 
-  // prefer higher score from worker
-  score += Number(ev.score || 0) / 50;
+    // prefer higher worker score (small weight)
+    score += (Number(ev.score || 0) / 50);
 
-  return score;
-}
+    return score;
+  }
 
-function dedupeEvents(events) {
-  const groups = [];
+  function dedupeEvents(events) {
+    const groups = [];
 
-  for (const ev of events) {
-    let placed = false;
+    for (const ev of events) {
+      let placed = false;
 
-    for (const group of groups) {
-      if (sameConcert(group[0], ev)) {
-        group.push(ev);
-        placed = true;
-        break;
+      for (const group of groups) {
+        if (sameConcert(group[0], ev)) {
+          group.push(ev);
+          placed = true;
+          break;
+        }
       }
+
+      if (!placed) groups.push([ev]);
     }
 
-    if (!placed) groups.push([ev]);
-  }
+    const result = [];
+    for (const group of groups) {
+      group.sort((a, b) => eventQualityScore(b) - eventQualityScore(a));
+      result.push(group[0]);
+    }
 
-  // pick best event from each group
-  const result = [];
-
-  for (const group of groups) {
-    group.sort((a, b) => eventQualityScore(b) - eventQualityScore(a));
-    result.push(group[0]);
+    return result;
   }
-
-  return result;
-}(bySoft.values());
-  }
-/* econcerts.js (FULL FILE REPLACE) — PART 3/4 */
+/* ============================
+   econcerts.js — PART 3/4
+   ============================ */
 
   // state
   let lastEvents = [];
@@ -326,39 +317,20 @@ function dedupeEvents(events) {
   groupBtn.setAttribute("aria-pressed", store.groupByCity ? "true" : "false");
   groupBtn.textContent = store.groupByCity ? "Group by city" : "Ungroup";
 
-  // Add "Reset dismissed" + "Show all / Only favorites" next to Refresh
+  // Add "Reset dismissed" button next to Refresh
   const resetBtn = document.createElement("button");
   resetBtn.className = "eBtn ghost";
   resetBtn.type = "button";
   resetBtn.textContent = "Reset dismissed";
   resetBtn.title = "Bring back events you dismissed (does not affect My Plan)";
 
-  const showBtn = document.createElement("button");
-  showBtn.className = "eBtn ghost";
-  showBtn.type = "button";
-  const syncShowBtn = () => {
-    showBtn.textContent = store.showAll ? "Only favorites" : "Show all";
-    showBtn.title = store.showAll
-      ? `Hide low-play events (show only plays >= ${MIN_PLAYS_FAVORITE})`
-      : `Show everything (including plays < ${MIN_PLAYS_FAVORITE})`;
-  };
-  syncShowBtn();
-
   if (refreshBtn && refreshBtn.parentElement) {
     refreshBtn.parentElement.appendChild(resetBtn);
-    refreshBtn.parentElement.appendChild(showBtn);
   }
 
   resetBtn.addEventListener("click", () => {
     store.dismissedIds = [];
     saveStore(store);
-    render(lastEvents);
-  });
-
-  showBtn.addEventListener("click", () => {
-    store.showAll = !store.showAll;
-    saveStore(store);
-    syncShowBtn();
     render(lastEvents);
   });
 
@@ -379,14 +351,18 @@ function dedupeEvents(events) {
     const plays = Number(event.plays || 0);
     const tier = event.tier || tierFromPlays(plays);
 
+    // score from worker (fallback if missing)
     let score = Number.isFinite(event.score) ? Number(event.score) : baseScoreFromTier(tier);
 
+    // availability adjustments (client-side)
     const av = availabilityBadgeForEvent(event.start);
     if (av.badge === "CONFLICT") score -= 18;
     if (av.badge === "HARD") score -= 8;
+
+    // ✅ MEDIUM = small boost (not big)
     if (av.badge === "MEDIUM") score += 2;
 
-    // ✅ Rule A: only Utrecht gets +
+    // ✅ Rule: ONLY Utrecht gets a plus
     if (lowerKey(event.city) === "utrecht") score += 4;
 
     score = Math.max(0, Math.min(100, Math.round(score)));
@@ -439,8 +415,7 @@ function dedupeEvents(events) {
     artist.className = "eArtist";
     artist.textContent = event.artist;
 
-    const venueStar = isMyVenue(event.venue) ? "  ★" : "";
-
+    const venueStar = isFavVenue(event.venue) ? " ★" : "";
     const meta = document.createElement("div");
     meta.className = "eMeta";
     meta.textContent = `${formatDateTime(event.start)}  •  ${event.city}  •  ${event.venue}${venueStar}`;
@@ -449,7 +424,7 @@ function dedupeEvents(events) {
     meta2.className = "eMeta2";
     meta2.textContent = `Shift: ${shift.label} • ${why}`;
 
-    // Premium/minimal pills: Tier + Plays only
+    // Premium/minimal pills: keep only Tier + Plays
     const pills = document.createElement("div");
     pills.className = "ePills";
     pills.appendChild(pill(`Tier: ${tier}`));
@@ -463,6 +438,7 @@ function dedupeEvents(events) {
     const right = document.createElement("div");
     right.className = "eRight";
 
+    // Single score + single badge (no duplicates)
     const scoreEl = document.createElement("div");
     scoreEl.className = "eScore";
     scoreEl.textContent = `${score}/100`;
@@ -545,19 +521,12 @@ function dedupeEvents(events) {
     }
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }
-/* econcerts.js (FULL FILE REPLACE) — PART 4/4 */
-
-  function passesFavoritesFilter(ev) {
-    if (store.showAll) return true;
-    // Always show planned events even if plays are low (you explicitly chose them)
-    if (isPlanned(ev.id)) return true;
-    return Number(ev.plays || 0) >= MIN_PLAYS_FAVORITE;
-  }
+/* ============================
+   econcerts.js — PART 4/4
+   ============================ */
 
   function render(events) {
-    const visible = events
-      .filter(ev => (isPlanned(ev.id) ? true : !isDismissed(ev.id)))
-      .filter(passesFavoritesFilter);
+    const visible = events.filter(ev => (isPlanned(ev.id) ? true : !isDismissed(ev.id)));
 
     const computedMap = new Map();
     for (const ev of visible) computedMap.set(ev.id, computePriority(ev));
@@ -570,10 +539,7 @@ function dedupeEvents(events) {
     });
 
     if (!visible.length) {
-      const msg = store.showAll
-        ? "No events yet. Tap Refresh."
-        : `No favorites found (plays >= ${MIN_PLAYS_FAVORITE}). Tap “Show all” to broaden.`;
-      setEmpty(msg);
+      setEmpty("No events yet. Tap Refresh.");
       return;
     }
 
@@ -632,6 +598,8 @@ function dedupeEvents(events) {
 
     try {
       const raw = await fetchConcertsFromWorker(overrides);
+
+      // ✅ smart dedupe here
       const events = dedupeEvents(raw);
 
       lastEvents = events;

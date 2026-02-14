@@ -1,12 +1,6 @@
-/* live.js (FULL REPLACE)
-   Cloudflare Worker: /econcerts endpoint
-   Sources:
-   - Ticketmaster (tm)
-   - MetalAgenda.nl venues (ma)
-   Env vars:
-   - TMASTER_API_KEY
-   - LASTFM_API_KEY
-   - LASTFM_USER
+/* live.js (FULL REPLACE) — PART 1/3
+   Patch: MetalAgenda events now ALWAYS use the venue page URL (no javascript:addToInterests links)
+   (Everything else unchanged)
 */
 
 export default {
@@ -206,6 +200,7 @@ function parseSources(raw) {
   }
   return out.length ? Array.from(new Set(out)) : ["tm"];
 }
+
 // ---------------- Last.fm ----------------
 async function lastfmTopArtistsOverall(apiKey, user, limit) {
   const u = new URL("https://ws.audioscrobbler.com/2.0/");
@@ -234,6 +229,7 @@ async function lastfmTopArtistsOverall(apiKey, user, limit) {
   }
   return out;
 }
+/* live.js (FULL REPLACE) — PART 2/3 */
 
 // ---------------- Ticketmaster ----------------
 async function ticketmasterEvents({ apiKey, countryCode, city, radiusKm, sizeRequested }) {
@@ -506,12 +502,12 @@ function parseMetalAgendaVenueHtml(pageUrl, html) {
     }
 
     // Build a local Amsterdam datetime safely:
-    // We create an ISO-like string and then convert via Intl format util
     const startDate = new Date(Date.UTC(year, monthIdx, day, hh, mm, 0));
     const startLocal = formatAmsterdamLocal(startDate);
     const startTs = Date.parse(startLocal); // local parse on frontend expectation
 
-    const url = findFirstLinkForTitle(html, title) || pageUrl;
+    // ✅ PATCH: ALWAYS use the venue page URL for MetalAgenda items
+    const url = pageUrl;
 
     const id = `ma:${slugify(venue || "venue")}:${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}:${slugify(headliner)}:${slugify(city)}`;
 
@@ -529,6 +525,7 @@ function parseMetalAgendaVenueHtml(pageUrl, html) {
 
   return out;
 }
+/* live.js (FULL REPLACE) — PART 3/3 */
 
 function cleanPlace(s) {
   let x = String(s || "").trim();
@@ -599,6 +596,7 @@ function htmlToText(html) {
   return s.trim();
 }
 
+// kept (now unused) — safe to leave
 function findFirstLinkForTitle(html, title) {
   const t = String(title || "").trim();
   if (!t) return "";
@@ -623,6 +621,7 @@ function slugify(s) {
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
 }
+
 function dedupeCollected(items, lowerKey) {
   const map = new Map();
   for (const ev of items || []) {

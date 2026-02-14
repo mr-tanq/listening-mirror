@@ -120,7 +120,7 @@
   // IMPORTANT: we call worker with scoreMin=0 always (no server-side cutting).
   // We apply scoreMin ONLY client-side for "Προτάσεις".
   const ECONCERTS_DEFAULTS = {
-    size: 200,
+    size: 50,
     radiusKm: 30,       // only used if city is set
     // scoreMin here is UI (client-side) threshold for suggestions
     scoreMin: (Number.isFinite(store.uiScoreMin) ? store.uiScoreMin : 55),

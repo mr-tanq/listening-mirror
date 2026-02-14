@@ -1,6 +1,13 @@
 /* live.js (FULL REPLACE) — PART 1/3
-   Patch: MetalAgenda events now ALWAYS use the venue page URL (no javascript:addToInterests links)
-   (Everything else unchanged)
+   Fixes:
+   - REMOVE the "plays===0 => score<=49" cap (the 49 problem)
+   - REMOVE proximity/date boost (you said score should NOT depend on time)
+   - Score factors ONLY:
+       1) plays > 0 (heard)
+       2) plays >= 5 (heard standard)
+       3) taste match based on plays scale (0..100)
+       4) +4 if city is Utrecht
+   - MetalAgenda events always use the VENUE PAGE URL (already in your version)
 */
 
 export default {
@@ -93,8 +100,15 @@ async function handleEconcerts(request, env, ctx, jsonRes, lowerKey, clamp01, cl
     return jsonRes({ ok: false, error: "missing_env", message: "Missing TMASTER_API_KEY" }, 500);
   }
 
+  // --- Taste (Last.fm) ---
   const taste = await lastfmTopArtistsOverall(LASTFM_API_KEY, LASTFM_USER, tasteArtists);
+
+  // tasteMap: artistNameLower -> playcount
   const tasteMap = new Map(taste.map((x) => [lowerKey(x.name), x.playcount]));
+
+  // max playcount (for scaling tasteScore 0..100)
+  const maxTastePlays =
+    taste.reduce((m, x) => Math.max(m, Number(x.playcount || 0)), 0) || 0;
 
   const collected = [];
 
@@ -128,18 +142,31 @@ async function handleEconcerts(request, env, ctx, jsonRes, lowerKey, clamp01, cl
     const artist = ev.artist || "";
     const plays = tasteMap.get(lowerKey(artist)) || 0;
 
-    const tier = tierFromPlays(plays);
-    const base = baseScoreFromTier(tier);
+    // ---------- SCORE (only your rules) ----------
+    // 1) tasteScore: 0..100 from plays scale (log scaled to not kill mid artists)
+    const tasteScore = computeTasteScore(plays, maxTastePlays);
 
-    const daysAway = Math.max(0, Math.round((ev.startTs - Date.now()) / (24 * 60 * 60 * 1000)));
-    const proximityBoost = clamp01(1 - daysAway / 365);
-    let score = base + Math.round(proximityBoost * 18);
+    // 2) heard bonuses
+    let score = tasteScore;
 
+    if (plays >= 5) {
+      // Heard standard: minimum "this is worth seeing" level
+      score = Math.max(score, 70);
+    } else if (plays > 0) {
+      // Heard a bit
+      score = Math.max(score, 55 + plays * 3); // 1=>58 2=>61 3=>64 4=>67
+    }
+
+    // 3) Utrecht bonus only
     if (lowerKey(ev.city) === "utrecht") score += 4;
-    if (plays === 0) score = Math.min(score, 49);
 
     score = Math.max(0, Math.min(100, Math.round(score)));
+
+    // levels (simple)
     const level = score >= 80 ? "strong" : score >= 65 ? "good" : score >= 50 ? "ok" : "weak";
+
+    // tier (still useful for UI)
+    const tier = tierFromPlays(plays);
 
     const venueLower = lowerKey(ev.venue || "");
     const star = venueLower.includes("tivoli") && plays >= 100;
@@ -182,9 +209,27 @@ async function handleEconcerts(request, env, ctx, jsonRes, lowerKey, clamp01, cl
       mode: city ? "near_city" : "nl_wide",
       maPagesFetched: sources.includes("ma") ? maPagesFetched : null,
       maEventsParsed: sources.includes("ma") ? maEventsParsed : null,
+      maxTastePlays,
     },
     events: finalEvents,
   });
+}
+
+// ---------- Taste score scaling ----------
+function computeTasteScore(plays, maxPlays) {
+  const p = Math.max(0, Number(plays || 0));
+  const m = Math.max(0, Number(maxPlays || 0));
+
+  if (p <= 0) return 0;
+  if (m <= 0) return 0;
+
+  // Log scale: 1 play doesn’t become “0”, but also doesn’t equal your #1 artist
+  // tasteScore = 100 * log(p+1) / log(m+1)
+  const num = Math.log(p + 1);
+  const den = Math.log(m + 1);
+  const v = den > 0 ? (num / den) : 0;
+
+  return Math.max(0, Math.min(100, Math.round(v * 100)));
 }
 
 function parseSources(raw) {
@@ -506,7 +551,7 @@ function parseMetalAgendaVenueHtml(pageUrl, html) {
     const startLocal = formatAmsterdamLocal(startDate);
     const startTs = Date.parse(startLocal); // local parse on frontend expectation
 
-    // ✅ PATCH: ALWAYS use the venue page URL for MetalAgenda items
+    // ✅ ALWAYS use the venue page URL for MetalAgenda items
     const url = pageUrl;
 
     const id = `ma:${slugify(venue || "venue")}:${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}:${slugify(headliner)}:${slugify(city)}`;
@@ -655,12 +700,6 @@ function tierFromPlays(plays) {
   if (p >= 40) return "known";
   if (p >= 10) return "maybe";
   return "discovery";
-}
-function baseScoreFromTier(tier) {
-  if (tier === "core") return 72;
-  if (tier === "known") return 58;
-  if (tier === "maybe") return 45;
-  return 32;
 }
 
 // ---------------- Time formatting: Europe/Amsterdam ----------------

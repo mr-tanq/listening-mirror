@@ -108,10 +108,10 @@
   // Sources: Ticketmaster + MetalAgenda
   const ECONCERTS_DEFAULTS = {
     size: 50,
-    radiusKm: 30,       // only used if city is set
-    scoreMin: 50,       // ✅ cut weak matches by default
-    tasteArtists: 1000,
-    city: "",           // empty => whole NL
+    radiusKm: 70,       // only used if city is set
+    scoreMin: 40,       // ✅ cut weak matches by default
+    tasteArtists: 1500,
+    city: "Utrecht",           // empty => whole NL
     countryCode: "NL",
     sources: "tm,ma",   // ✅ Ticketmaster + MetalAgenda
   };

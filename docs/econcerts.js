@@ -109,8 +109,8 @@
   const ECONCERTS_DEFAULTS = {
     size: 50,
     radiusKm: 30,       // only used if city is set
-    scoreMin: 55,       // ✅ cut weak matches by default
-    tasteArtists: 2000,
+    scoreMin: 50,       // ✅ cut weak matches by default
+    tasteArtists: 1000,
     city: "",           // empty => whole NL
     countryCode: "NL",
     sources: "tm,ma",   // ✅ Ticketmaster + MetalAgenda

@@ -1,31 +1,31 @@
-/* econcerts.js (FULL FILE REPLACE) — PART 1/3
-   TM + MetalAgenda • Premium/minimal • Better dedupe • ★ only (Tivoli + plays>=100)
-   + Time window filter: 16:00–22:09
-   + NEW: split into "Σίγουρα (plays>=5)" and "Προτάσεις (plays<5)"
-   + NEW: scoreMin applies ONLY to "Προτάσεις" (client-side)
-   + IMPORTANT: Worker is always called with scoreMin=0 to avoid server-side cutting
+/* econcerts.js (FULL FILE REPLACE) — PART 1/4
+   Listening Mirror • eConcerts UI
+   Works with Cloudflare Worker: GET {BASE}/econcerts
+   Scoring v2:
+     Heard (plays>=1) +55
+     Serious (plays>=10) +15
+     TasteMatch (0..25) from tier
+     Utrecht +5
+   Lists:
+     - Heard (never filtered by uiScoreMin)
+     - Proposals (filtered by uiScoreMin)
 */
 (() => {
   "use strict";
 
   // ---------- Helpers ----------
   const $ = (sel, root = document) => root.querySelector(sel);
-  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel)); // kept for future
-
   const pad2 = (n) => String(n).padStart(2, "0");
 
-  function toISODate(d) {
-    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  function lowerKey(s) {
+    return String(s || "").trim().toLowerCase();
   }
-
-  function parseLocalDateTime(isoLike) {
-    // expects "YYYY-MM-DDTHH:mm" (no timezone) -> local Date
-    const [datePart, timePart] = String(isoLike || "").split("T");
-    const [y, m, d] = (datePart || "").split("-").map(Number);
-    const [hh, mm] = (timePart || "").split(":").map(Number);
-    return new Date(y, (m - 1), d, hh, mm, 0, 0);
+  function safeStr(s) {
+    return String(s || "").trim();
   }
-
+  function isValidDate(d) {
+    return d instanceof Date && !Number.isNaN(d.getTime());
+  }
   function formatDateTime(d) {
     const y = d.getFullYear();
     const m = pad2(d.getMonth() + 1);
@@ -35,31 +35,19 @@
     return `${y}-${m}-${dd} • ${hh}:${mm}`;
   }
 
-  function lowerKey(s) {
-    return String(s || "").trim().toLowerCase();
-  }
-
-  function safeStr(s) {
-    return String(s || "").trim();
-  }
-
-  function isValidDate(d) {
-    return d instanceof Date && !Number.isNaN(d.getTime());
-  }
-
   // ---------- Time window: 16:00–22:09 ----------
   function minutesSinceMidnight(d) {
     return d.getHours() * 60 + d.getMinutes();
   }
   function isWithinShowWindow(startDate) {
     const m = minutesSinceMidnight(startDate);
-    const min = 16 * 60;        // 16:00
-    const max = 22 * 60 + 9;    // 22:09
+    const min = 16 * 60;      // 16:00
+    const max = 22 * 60 + 9;  // 22:09
     return m >= min && m <= max;
   }
 
-  // ---------- Storage (memory) ----------
-  // v7 (split sections + client-side scoreMin for suggestions only)
+  // ---------- Storage ----------
+  // v7: added uiScoreMin + heardPlaysMin + new scoring + heard/proposals split
   const STORE_KEY = "lm_econcerts_v7";
 
   function loadStore() {
@@ -72,8 +60,8 @@
           lastRefreshAt: 0,
           groupByCity: true,
           baseApi: "",
-          uiScoreMin: 55, // NEW: scoreMin used ONLY for "Προτάσεις"
-          heardPlaysMin: 5 // NEW: threshold for "Έχω ακούσει"
+          uiScoreMin: 55,       // cuts only Proposals
+          heardPlaysMin: 1,     // Heard threshold
         };
       }
       const obj = JSON.parse(raw);
@@ -84,7 +72,7 @@
         groupByCity: Boolean(obj.groupByCity ?? true),
         baseApi: String(obj.baseApi || ""),
         uiScoreMin: Number.isFinite(Number(obj.uiScoreMin)) ? Number(obj.uiScoreMin) : 55,
-        heardPlaysMin: Number.isFinite(Number(obj.heardPlaysMin)) ? Number(obj.heardPlaysMin) : 5,
+        heardPlaysMin: Number.isFinite(Number(obj.heardPlaysMin)) ? Number(obj.heardPlaysMin) : 1,
       };
     } catch {
       return {
@@ -94,11 +82,10 @@
         groupByCity: true,
         baseApi: "",
         uiScoreMin: 55,
-        heardPlaysMin: 5
+        heardPlaysMin: 1,
       };
     }
   }
-
   function saveStore(next) {
     localStorage.setItem(STORE_KEY, JSON.stringify(next));
   }
@@ -109,65 +96,41 @@
   const FALLBACK_BASE_API = "https://live.errtanq9.workers.dev";
 
   function getBaseApi() {
-    const w = (typeof window !== "undefined") ? window : {};
+    const w = typeof window !== "undefined" ? window : {};
     const fromWindow = typeof w.BASE_API === "string" ? w.BASE_API : "";
-    const fromStore = (store && typeof store.baseApi === "string") ? store.baseApi : "";
+    const fromStore = store && typeof store.baseApi === "string" ? store.baseApi : "";
     const base = (fromWindow || fromStore || FALLBACK_BASE_API).trim();
     return base.replace(/\/+$/, "");
   }
 
   // ---------- econcerts API defaults ----------
-  // IMPORTANT: we call worker with scoreMin=0 always (no server-side cutting).
-  // We apply scoreMin ONLY client-side for "Προτάσεις".
   const ECONCERTS_DEFAULTS = {
-    size: 50,
+    size: 200,
     radiusKm: 30,       // only used if city is set
-    // scoreMin here is UI (client-side) threshold for suggestions
-    scoreMin: (Number.isFinite(store.uiScoreMin) ? store.uiScoreMin : 55),
+    scoreMin: 0,        // IMPORTANT: worker scoreMin is NOT used for UI filtering
     tasteArtists: 2000,
-    city: "",           // empty => whole NL
+    city: "",
     countryCode: "NL",
     sources: "tm,ma",
   };
 
   function normalizeSources(input) {
     const raw = safeStr(input) || "tm,ma";
-    const parts = raw.split(",").map(s => lowerKey(s)).filter(Boolean);
+    const parts = raw.split(",").map((s) => lowerKey(s)).filter(Boolean);
     const allowed = new Set(["tm", "ma"]);
     const out = [];
     for (const p of parts) if (allowed.has(p) && !out.includes(p)) out.push(p);
     return out.length ? out.join(",") : "tm,ma";
   }
 
-  // NEW: keep UI scoreMin separate from Worker scoreMin
-  function clampInt(n, a, b, fallback) {
-    const x = Number(n);
-    if (!Number.isFinite(x)) return fallback;
-    return Math.max(a, Math.min(b, Math.trunc(x)));
-  }
-
   async function fetchConcertsFromWorker(overrides = {}) {
     const cfg = { ...ECONCERTS_DEFAULTS, ...overrides };
     const base = getBaseApi();
 
-    // persist UI thresholds if passed
-    if (overrides && overrides.scoreMin != null) {
-      store.uiScoreMin = clampInt(overrides.scoreMin, 0, 100, store.uiScoreMin);
-      saveStore(store);
-    }
-    if (overrides && overrides.heardPlaysMin != null) {
-      store.heardPlaysMin = clampInt(overrides.heardPlaysMin, 0, 999999, store.heardPlaysMin);
-      saveStore(store);
-    }
-
     const u = new URL(base + "/econcerts");
-
     u.searchParams.set("sources", normalizeSources(cfg.sources));
     u.searchParams.set("size", String(cfg.size));
-
-    // IMPORTANT: Worker scoreMin is forced to 0 to avoid server-side filtering
-    u.searchParams.set("scoreMin", "0");
-
+    u.searchParams.set("scoreMin", String(cfg.scoreMin)); // worker filter; keep 0 for maximum data
     u.searchParams.set("tasteArtists", String(cfg.tasteArtists));
     u.searchParams.set("countryCode", String(cfg.countryCode || "NL"));
 
@@ -181,54 +144,48 @@
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok || !data || data.ok !== true) {
-      const msg = (data && (data.error || data.message)) ? String(data.error || data.message) : `HTTP ${res.status}`;
+      const msg =
+        data && (data.error || data.message)
+          ? String(data.error || data.message)
+          : `HTTP ${res.status}`;
       throw new Error(msg);
     }
 
     const events = Array.isArray(data.events) ? data.events : [];
-    return events.map(ev => {
-      const startStr = safeStr(ev.start);
-      const startDate = new Date(startStr);
 
-      return {
-        id: safeStr(ev.id),
-        artist: safeStr(ev.artist),
-        attractions: Array.isArray(ev.attractions) ? ev.attractions : [],
-        city: safeStr(ev.city),
-        venue: safeStr(ev.venue),
-        start: startDate,
-        url: safeStr(ev.url),
-        country: "NL",
+    return events
+      .map((ev) => {
+        const startStr = safeStr(ev.start);
+        const startDate = new Date(startStr);
 
-        plays: Number(ev.plays || 0),
-        tier: safeStr(ev.tier || "discovery"),
-        score: Number(ev.score || 0),
-        level: safeStr(ev.level || ""),
-        startTs: Number(ev.startTs || 0) || (isValidDate(startDate) ? startDate.getTime() : 0),
-        source: safeStr(ev.source || ev.src || "tm"),
-      };
-    })
-    .filter(x => x.id && x.artist && isValidDate(x.start))
-    .filter(x => isWithinShowWindow(x.start)); // ONLY 16:00–22:09
+        const plays = Number(ev.plays || 0);
+        const tier = safeStr(ev.tier || "");
+        const score = Number(ev.score || 0);
+
+        return {
+          id: safeStr(ev.id),
+          artist: safeStr(ev.artist),
+          attractions: Array.isArray(ev.attractions) ? ev.attractions : [],
+          city: safeStr(ev.city),
+          venue: safeStr(ev.venue),
+          start: startDate,
+          url: safeStr(ev.url),
+          country: "NL",
+
+          plays: Number.isFinite(plays) ? plays : 0,
+          tier,
+          score: Number.isFinite(score) ? score : 0,
+          level: safeStr(ev.level || ""),
+          startTs: Number(ev.startTs || 0) || (isValidDate(startDate) ? startDate.getTime() : 0),
+          source: safeStr(ev.source || ev.src || "tm"),
+        };
+      })
+      .filter((x) => x.id && x.artist && isValidDate(x.start))
+      .filter((x) => isWithinShowWindow(x.start));
   }
+/* econcerts.js (FULL FILE REPLACE) — PART 2/4 */
 
-  // ---------- Tier helpers (fallback) ----------
-  function tierFromPlays(plays) {
-    if (plays >= 120) return "core";
-    if (plays >= 40) return "known";
-    if (plays >= 10) return "maybe";
-    return "discovery";
-  }
-
-  function baseScoreFromTier(tier) {
-    if (tier === "core") return 72;
-    if (tier === "known") return 58;
-    if (tier === "maybe") return 45;
-    return 32;
-  }
-/* econcerts.js (FULL FILE REPLACE) — PART 2/3 */
-
-  // ---------- Your shift cycle rules ----------
+  // ---------- Shift cycle rules ----------
   // 18 Oct 2025 = Day 1 Off
   // Pattern (10 days): OFF1,OFF2,OFF3,OFF4, M1,M2, A1,A2, N1,N2
   const REF_LOCAL = new Date(2025, 9, 18, 0, 0, 0, 0); // 9=Oct
@@ -288,7 +245,6 @@
       why = "Last day off — early wake-up next day";
     }
 
-    // Your rule: 2nd morning = MEDIUM (not easy)
     if (shift.secondMorning) {
       if (badge === "FREE" || badge === "OK") {
         badge = "MEDIUM";
@@ -299,7 +255,7 @@
     return { badge, why, shift };
   }
 
-  // ---------- Dedupe (fix multi duplicates) ----------
+  // ---------- Dedupe ----------
   function isVipUrl(url) {
     const u = lowerKey(url);
     return u.includes("vip") || u.includes("package") || u.includes("packages") || u.includes("hospitality") || u.includes("comfort");
@@ -330,9 +286,10 @@
     const bMeta = (b.venue ? 1 : 0) + (b.city ? 1 : 0) + (b.attractions?.length ? 1 : 0);
     if (aMeta !== bMeta) return bMeta > aMeta ? b : a;
 
-    const aScore = Number(a.score || 0);
-    const bScore = Number(b.score || 0);
-    if (aScore !== bScore) return bScore > aScore ? b : a;
+    // prefer TM over MA if equal
+    const aSrc = a.source === "tm" ? 1 : 0;
+    const bSrc = b.source === "tm" ? 1 : 0;
+    if (aSrc !== bSrc) return bSrc > aSrc ? b : a;
 
     return a;
   }
@@ -354,35 +311,99 @@
 
     return Array.from(bySoft.values());
   }
+/* econcerts.js (FULL FILE REPLACE) — PART 3/4 */
 
   // ---------- ★ rule (ONLY Tivoli + plays>=100) ----------
   function isTivoli(venueName) {
     const v = lowerKey(venueName);
-    return v.includes("tivolivredenburg") || v === "tivoli vredenburg" || v.includes("tivoli vredenburg");
+    return v.includes("tivoli vredenburg") || v.includes("tivolivredenburg");
   }
   function shouldStarEvent(ev) {
     return isTivoli(ev.venue) && Number(ev.plays || 0) >= 100;
   }
 
-  // NEW: "heard" threshold
-  function isHeard(ev) {
-    const minPlays = Number.isFinite(Number(store.heardPlaysMin)) ? Number(store.heardPlaysMin) : 5;
-    return Number(ev.plays || 0) >= minPlays;
+  // ---------- Scoring v2 (your rules) ----------
+  function tierFromPlays(plays) {
+    if (plays >= 120) return "core";
+    if (plays >= 40) return "known";
+    if (plays >= 10) return "maybe";
+    return "discovery";
   }
 
-  // state
+  // TasteMatch (0..25) — this is “do I like this kind of music?”
+  // Since we don't have genre data, we treat your actual listening (plays) as the best signal.
+  function tasteMatchPoints(plays) {
+    const t = tierFromPlays(plays);
+    if (t === "core") return 25;
+    if (t === "known") return 18;
+    if (t === "maybe") return 10;
+    return 0;
+  }
+
+  function computeIndexScore(ev) {
+    const plays = Number(ev.plays || 0);
+    const heard = plays >= Number(store.heardPlaysMin || 1);
+
+    let score = 0;
+
+    // Heard = big base
+    if (heard) score += 55;
+
+    // Serious = extra if you have listened “properly”
+    if (plays >= 10) score += 15;
+
+    // TasteMatch 0..25
+    score += tasteMatchPoints(plays);
+
+    // Utrecht bonus
+    if (lowerKey(ev.city) === "utrecht") score += 5;
+
+    // cap to 100
+    score = Math.max(0, Math.min(100, Math.round(score)));
+
+    return { score, heard };
+  }
+
+  function computePriority(event) {
+    const plays = Number(event.plays || 0);
+    const tier = event.tier ? event.tier : tierFromPlays(plays);
+
+    // Score = your index score
+    const idx = computeIndexScore(event);
+    let score = idx.score;
+
+    // availability adjustment (small, to avoid ruining your taste score)
+    const av = availabilityBadgeForEvent(event.start);
+    if (av.badge === "CONFLICT") score -= 15;
+    if (av.badge === "HARD") score -= 6;
+    if (av.badge === "MEDIUM") score -= 2;
+
+    score = Math.max(0, Math.min(100, Math.round(score)));
+
+    return {
+      score,
+      tier,
+      plays,
+      availability: av,
+      heard: idx.heard,
+    };
+  }
+
+  // ---------- State ----------
   let lastEvents = [];
 
-  // UI nodes
+  // ---------- UI Nodes ----------
   const listEl = $("#econcertsList");
   const refreshBtn = $("#econcertsRefresh");
   const groupBtn = $("#econcertsToggleGroup");
-
   if (!listEl || !refreshBtn || !groupBtn) return;
 
-  // init group button
-  groupBtn.setAttribute("aria-pressed", store.groupByCity ? "true" : "false");
-  groupBtn.textContent = store.groupByCity ? "Group by city" : "Ungroup";
+  // Group button: show action text
+  function syncGroupButton() {
+    groupBtn.setAttribute("aria-pressed", store.groupByCity ? "true" : "false");
+    groupBtn.textContent = store.groupByCity ? "Ungroup" : "Group by city";
+  }
+  syncGroupButton();
 
   // Add "Reset dismissed" button next to Refresh
   const resetBtn = document.createElement("button");
@@ -390,7 +411,7 @@
   resetBtn.type = "button";
   resetBtn.textContent = "Reset dismissed";
   resetBtn.title = "Bring back events you dismissed (does not affect My Plan)";
-  if (refreshBtn && refreshBtn.parentElement) refreshBtn.parentElement.appendChild(resetBtn);
+  if (refreshBtn.parentElement) refreshBtn.parentElement.appendChild(resetBtn);
 
   resetBtn.addEventListener("click", () => {
     store.dismissedIds = [];
@@ -398,64 +419,55 @@
     render(lastEvents);
   });
 
-  // debug
+  // ---------- Debug controls (safe, no internal error) ----------
   window.__LM_ECONCERTS__ = {
     get store() { return store; },
     get lastEvents() { return lastEvents; },
+
+    // Worker base
     setBaseApi(next) {
       store.baseApi = String(next || "").trim();
       saveStore(store);
     },
+
+    // UI filters
     setUiScoreMin(n) {
-      store.uiScoreMin = clampInt(n, 0, 100, store.uiScoreMin);
+      const v = Number(n);
+      store.uiScoreMin = Number.isFinite(v) ? Math.max(0, Math.min(100, Math.round(v))) : store.uiScoreMin;
       saveStore(store);
       render(lastEvents);
+      return store.uiScoreMin;
     },
     setHeardPlaysMin(n) {
-      store.heardPlaysMin = clampInt(n, 0, 999999, store.heardPlaysMin);
+      const v = Number(n);
+      store.heardPlaysMin = Number.isFinite(v) ? Math.max(1, Math.min(9999, Math.round(v))) : store.heardPlaysMin;
       saveStore(store);
       render(lastEvents);
+      return store.heardPlaysMin;
     },
-    fetchNearUtrecht() {
+
+    // quick test
+    refreshNearUtrecht() {
       return refresh({ city: "Utrecht", radiusKm: 30 });
     }
   };
 
-  function computePriority(event) {
-    const plays = Number(event.plays || 0);
-    const tier = event.tier || tierFromPlays(plays);
-
-    let score = Number.isFinite(event.score) ? Number(event.score) : baseScoreFromTier(tier);
-
-    const av = availabilityBadgeForEvent(event.start);
-    if (av.badge === "CONFLICT") score -= 18;
-    if (av.badge === "HARD") score -= 8;
-    if (av.badge === "MEDIUM") score += 2;
-
-    // rule: ONLY Utrecht gets +
-    if (lowerKey(event.city) === "utrecht") score += 4;
-
-    score = Math.max(0, Math.min(100, Math.round(score)));
-    return { score, tier, plays, availability: av };
-  }
-
+  // ---------- Plan / Dismiss ----------
   const isPlanned = (id) => store.planIds.includes(id);
   const isDismissed = (id) => store.dismissedIds.includes(id);
 
   async function addToPlan(id) {
     if (!store.planIds.includes(id)) store.planIds.push(id);
-    store.dismissedIds = store.dismissedIds.filter(x => x !== id);
+    store.dismissedIds = store.dismissedIds.filter((x) => x !== id);
     saveStore(store);
   }
-
   async function dismiss(id) {
     if (!store.dismissedIds.includes(id)) store.dismissedIds.push(id);
-    store.planIds = store.planIds.filter(x => x !== id);
+    store.planIds = store.planIds.filter((x) => x !== id);
     saveStore(store);
   }
-
   async function removeFromPlan(id) {
-    store.planIds = store.planIds.filter(x => x !== id);
+    store.planIds = store.planIds.filter((x) => x !== id);
     saveStore(store);
   }
 
@@ -469,10 +481,10 @@
     div.textContent = text;
     return div;
   }
-/* econcerts.js (FULL FILE REPLACE) — PART 3/3 */
+/* econcerts.js (FULL FILE REPLACE) — PART 4/4 */
 
   function buildCard(event, computed) {
-    const { score, tier, plays, availability } = computed;
+    const { score, tier, plays, availability, heard } = computed;
     const { badge, why, shift } = availability;
 
     const card = document.createElement("div");
@@ -486,7 +498,6 @@
     artist.className = "eArtist";
     artist.textContent = event.artist;
 
-    // Venue line with ★ (ONLY Tivoli + plays>=100)
     const venueStar = shouldStarEvent(event) ? " ★" : "";
     const venueLabel = event.venue ? `${event.venue}${venueStar}` : (venueStar ? `★` : "");
 
@@ -502,6 +513,7 @@
     pills.className = "ePills";
     pills.appendChild(pill(`Tier: ${tier}`));
     pills.appendChild(pill(`Plays: ${plays}`));
+    pills.appendChild(pill(heard ? "Heard: YES" : "Heard: NO"));
 
     main.appendChild(artist);
     main.appendChild(meta);
@@ -595,34 +607,37 @@
   }
 
   function render(events) {
-    // visible = planned OR not dismissed
-    const visibleAll = events.filter(ev => (isPlanned(ev.id) ? true : !isDismissed(ev.id)));
+    const visible = events.filter((ev) => (isPlanned(ev.id) ? true : !isDismissed(ev.id)));
 
     const computedMap = new Map();
-    for (const ev of visibleAll) computedMap.set(ev.id, computePriority(ev));
+    for (const ev of visible) computedMap.set(ev.id, computePriority(ev));
 
-    // sort base by computed score desc then date asc
-    visibleAll.sort((a, b) => {
+    // split: Heard vs Proposals
+    const heard = visible.filter((ev) => computedMap.get(ev.id).heard);
+    const proposalsAll = visible.filter((ev) => !computedMap.get(ev.id).heard);
+
+    // UI score min affects only proposals
+    const uiMin = Number(store.uiScoreMin || 0);
+    const proposals = proposalsAll.filter((ev) => computedMap.get(ev.id).score >= uiMin);
+
+    // sort each group: score desc, then date asc
+    const sorter = (a, b) => {
       const ca = computedMap.get(a.id).score;
       const cb = computedMap.get(b.id).score;
       if (cb !== ca) return cb - ca;
       return a.start.getTime() - b.start.getTime();
-    });
+    };
+    heard.sort(sorter);
+    proposals.sort(sorter);
 
-    if (!visibleAll.length) {
+    if (!heard.length && !proposals.length) {
       setEmpty("No events yet. Tap Refresh.");
       return;
     }
 
-    const planned = visibleAll.filter(ev => isPlanned(ev.id));
-    const notPlanned = visibleAll.filter(ev => !isPlanned(ev.id));
-
-    const heard = notPlanned.filter(ev => isHeard(ev));
-    const suggestionsRaw = notPlanned.filter(ev => !isHeard(ev));
-
-    // NEW: scoreMin applies ONLY to suggestions
-    const uiScoreMin = clampInt(store.uiScoreMin, 0, 100, 55);
-    const suggestions = suggestionsRaw.filter(ev => computedMap.get(ev.id).score >= uiScoreMin);
+    const planned = visible.filter((ev) => isPlanned(ev.id));
+    // planned can include heard or proposals, but we show My Plan first always
+    planned.sort(sorter);
 
     listEl.innerHTML = "";
 
@@ -665,20 +680,11 @@
     };
 
     addSection("My Plan", planned);
-
-    const heardMin = clampInt(store.heardPlaysMin, 0, 999999, 5);
-    addSection(`Σίγουρα • Έχω ακούσει (Plays ≥ ${heardMin})`, heard);
-
-    addSection(`Προτάσεις • Discovery (Plays < ${heardMin}) • Score ≥ ${uiScoreMin}`, suggestions);
+    addSection(`Heard (plays ≥ ${store.heardPlaysMin})`, heard.filter((ev) => !isPlanned(ev.id)));
+    addSection(`Proposals (score ≥ ${uiMin})`, proposals.filter((ev) => !isPlanned(ev.id)));
   }
 
   async function refresh(overrides = {}) {
-    // keep UI scoreMin in store if provided
-    if (overrides && overrides.scoreMin != null) {
-      store.uiScoreMin = clampInt(overrides.scoreMin, 0, 100, store.uiScoreMin);
-      saveStore(store);
-    }
-
     store.lastRefreshAt = Date.now();
     saveStore(store);
 
@@ -687,7 +693,7 @@
     try {
       const raw = await fetchConcertsFromWorker(overrides);
 
-      // dedupe here
+      // dedupe
       const events = dedupeEvents(raw);
 
       lastEvents = events;
@@ -703,16 +709,13 @@
   groupBtn.addEventListener("click", async () => {
     store.groupByCity = !store.groupByCity;
     saveStore(store);
-
-    groupBtn.setAttribute("aria-pressed", store.groupByCity ? "true" : "false");
-    groupBtn.textContent = store.groupByCity ? "Group by city" : "Ungroup";
-
+    syncGroupButton();
     render(lastEvents);
   });
 
   // Refresh button
   refreshBtn.addEventListener("click", async () => {
-    await refresh(); // NL-wide default
+    await refresh();
   });
 
   // initial load
@@ -728,20 +731,5 @@
       if (!hasCards) refresh().catch(() => {});
     }, { passive: true });
   }
-
   wireTabAutoRefresh();
-
-  // ---------- Tiny sanity diagnostics ----------
-  function debugShiftForNextDays() {
-    const out = [];
-    const today = new Date();
-    for (let i = 0; i < 12; i++) {
-      const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + i, 0, 0, 0, 0);
-      const sh = shiftForDate(d);
-      out.push(`${toISODate(d)} -> ${sh.code}`);
-    }
-    // console.log("[eConcerts] shift preview:", out);
-  }
-
-  debugShiftForNextDays();
 })();

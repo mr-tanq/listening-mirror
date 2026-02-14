@@ -120,9 +120,9 @@
     u.searchParams.set("size", String(cfg.size));
     u.searchParams.set("scoreMin", String(cfg.scoreMin));
     u.searchParams.set("tasteArtists", String(cfg.tasteArtists));
+u.searchParams.set("bitArtists", String(cfg.bitArtists || 60));
     u.searchParams.set("countryCode", String(cfg.countryCode || "NL"));
     u.searchParams.set("sources", String(cfg.sources || "tm,bit"));
-    u.searchParams.set("bitArtists", String(cfg.bitArtists || 60));
 
     const city = safeStr(cfg.city);
     if (city) {

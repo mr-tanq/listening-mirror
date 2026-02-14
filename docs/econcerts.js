@@ -100,7 +100,7 @@
     size: 200,
     radiusKm: 30,       // only used if city is set
     scoreMin: 50,       // your "only artists I like"
-    tasteArtists: 1000,
+    tasteArtists: 2000,
     city: "",           // empty => whole NL
     countryCode: "NL",
     sources: "tm,ma",   // ✅ Ticketmaster + MetalAgenda

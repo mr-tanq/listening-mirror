@@ -1,0 +1,121 @@
+/* worker.js — FULL REPLACE
+   Base: your stable Last.fm worker
+      Adds:
+         - /resolve (Spotify track resolver via Client Credentials)
+            - /api/top response echo: { type, period, limit, resolvedPeriod }
+               NOTE: Needs env:
+                    LASTFM_API_KEY
+                         LASTFM_USER
+                              SPOTIFY_CLIENT_ID  (only for /resolve)
+                                   SPOTIFY_CLIENT_SECRET (only for /resolve)
+                                   */
+
+                                   export default {
+                                     async fetch(request, env, ctx) {
+                                         try {
+                                               const url = new URL(request.url);
+                                                     const path = url.pathname;
+
+                                                           // CORS preflight
+                                                                 if (request.method === "OPTIONS") return cors(new Response("", { status: 204 }));
+
+                                                                       // ROUTES
+                                                                             if (path === "/api/ping") return cors(json({ ok: true, ts: Date.now() }));
+
+                                                                                   if (path === "/img") return cors(await handleImgProxy(request, ctx));
+
+                                                                                         if (path === "/api/top") return cors(await handleTop(request, env, ctx));
+                                                                                               if (path === "/api/now") return cors(await handleNow(request, env, ctx));
+                                                                                                     if (path === "/api/history") return cors(await handleHistory(request, env, ctx));
+
+                                                                                                           // ✅ Insight (UI-only for now)
+                                                                                                                 if (path === "/api/insight") return cors(await handleInsight(request, env, ctx));
+
+                                                                                                                       // ✅ Spotify resolver
+                                                                                                                             if (path === "/resolve") return cors(await handleResolve(url, env, ctx));
+
+                                                                                                                                   // default
+                                                                                                                                         return cors(json({ ok: false, error: "Not found" }, 404));
+                                                                                                                                             } catch (e) {
+                                                                                                                                                   return cors(json({ ok: false, error: String(e?.message || e) }, 500));
+                                                                                                                                                       }
+                                                                                                                                                         }
+                                                                                                                                                         };
+
+                                                                                                                                                         function cors(res) {
+                                                                                                                                                           const h = new Headers(res.headers);
+                                                                                                                                                             h.set("Access-Control-Allow-Origin", "*");
+                                                                                                                                                               h.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+                                                                                                                                                                 h.set("Access-Control-Allow-Headers", "Content-Type");
+                                                                                                                                                                   if (!h.has("Cache-Control")) h.set("Cache-Control", "no-store");
+                                                                                                                                                                     return new Response(res.body, { status: res.status, headers: h });
+                                                                                                                                                                     }
+
+                                                                                                                                                                     function json(obj, status = 200, headers = {}) {
+                                                                                                                                                                       return new Response(JSON.stringify(obj), {
+                                                                                                                                                                           status,
+                                                                                                                                                                               headers: { "Content-Type": "application/json; charset=utf-8", ...headers }
+                                                                                                                                                                                 });
+                                                                                                                                                                                 }
+
+                                                                                                                                                                                 // ---------------------------
+                                                                                                                                                                                 // CONFIG / HELPERS
+                                                                                                                                                                                 // ---------------------------
+                                                                                                                                                                                 const LASTFM_BASE = "https://ws.audioscrobbler.com/2.0/";
+                                                                                                                                                                                 const SPOTIFY_ACCOUNTS = "https://accounts.spotify.com/api/token";
+                                                                                                                                                                                 const SPOTIFY_API = "https://api.spotify.com/v1";
+
+                                                                                                                                                                                 const PLACEHOLDER_HASH = "2a96cbd8b46e442fc41c2b86b821562f"; // last.fm no-image
+
+                                                                                                                                                                                 function mustEnv(env, key) {
+                                                                                                                                                                                   const v = env?.[key];
+                                                                                                                                                                                     if (!v) throw new Error(`Missing env var: ${key}`);
+                                                                                                                                                                                       return v;
+                                                                                                                                                                                       }
+
+                                                                                                                                                                                       function isPlaceholderImageUrl(u) {
+                                                                                                                                                                                         if (!u) return true;
+                                                                                                                                                                                           return String(u).includes(PLACEHOLDER_HASH);
+                                                                                                                                                                                           }
+
+                                                                                                                                                                                           function toProxyPath(imageUrl) {
+                                                                                                                                                                                             if (!imageUrl) return "";
+                                                                                                                                                                                               return `/img?u=${encodeURIComponent(imageUrl)}`;
+                                                                                                                                                                                               }
+
+                                                                                                                                                                                               async function cachedFetchJson(ctx, cacheKeyUrl, fetcher, ttlSeconds = 3600) {
+                                                                                                                                                                                                 const cache = caches.default;
+                                                                                                                                                                                                   const cacheReq = new Request(cacheKeyUrl, { method: "GET" });
+                                                                                                                                                                                                     const cached = await cache.match(cacheReq);
+                                                                                                                                                                                                       if (cached) return await cached.json();
+
+                                                                                                                                                                                                         const data = await fetcher();
+                                                                                                                                                                                                           const res = new Response(JSON.stringify(data), {
+                                                                                                                                                                                                               headers: {
+                                                                                                                                                                                                                     "Content-Type": "application/json; charset=utf-8",
+                                                                                                                                                                                                                           "Cache-Control": `public, max-age=${ttlSeconds}`
+                                                                                                                                                                                                                               }
+                                                                                                                                                                                                                                 });
+                                                                                                                                                                                                                                   ctx.waitUntil(cache.put(cacheReq, res.clone()));
+                                                                                                                                                                                                                                     return data;
+                                                                                                                                                                                                                                     }
+                                                                                                                                                                                                                                     // ---------------------------
+                                                                                                                                                                                                                                     // LAST.FM API
+                                                                                                                                                                                                                                     // ---------------------------
+                                                                                                                                                                                                                                     async function lastfm(env, ctx, params, ttlSeconds = 300) {
+                                                                                                                                                                                                                                       const apiKey = mustEnv(env, "LASTFM_API_KEY");
+                                                                                                                                                                                                                                         const full = new URL(LASTFM_BASE);
+                                                                                                                                                                                                                                           full.searchParams.set("format", "json");
+                                                                                                                                                                                                                                             full.searchParams.set("api_key", apiKey);
+                                                                                                                                                                                                                                               for (const [k, v] of Object.entries(params)) full.searchParams.set(k, String(v));
+
+                                                                                                                                                                                                                                                 const cacheKey = "https://cache.local/lastfm" + full.search;
+                                                                                                                                                                                                                                                   return await cachedFetchJson(
+                                                                                                                                                                                                                                                       ctx,
+                                                                                                                                                                                                                                                           cacheKey,
+                                                                                                                                                                                                                                                               async () => {
+                                                                                                                                                                                                                                                                     const r = await fetch(full.toString(), { cf: { cacheTtl: ttlSeconds, cacheEverything: true } });
+                                                                                                                                                                                                                                                                           const t = await r.text();
+                                                                                                                                                                                                                                                                                 let j = null;
+                                                                                                                                                                                                                                                                                       try { j = JSON.parse(t); } catch { j = null; }
+                                                                                                                                                                                                                                                                   

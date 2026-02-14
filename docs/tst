@@ -2,13 +2,11 @@
    Cloudflare Worker: /econcerts endpoint
    Sources:
    - Ticketmaster (tm)
-   - Bandsintown (bit) via public API + app_id
+   - MetalAgenda.nl venues (ma)
    Env vars:
    - TMASTER_API_KEY
    - LASTFM_API_KEY
    - LASTFM_USER
-   Optional:
-   - BIT_APP_ID  (defaults to "mr-tanq" if missing)
 */
 
 export default {
@@ -86,33 +84,23 @@ async function handleEconcerts(request, env, ctx, jsonRes, lowerKey, clamp01, cl
   const LASTFM_API_KEY = String(env.LASTFM_API_KEY || "").trim();
   const LASTFM_USER = String(env.LASTFM_USER || "").trim();
 
-  // Bandsintown app_id (public api requires it)
-  const BIT_APP_ID =
-    String(url.searchParams.get("bitAppId") || "").trim() ||
-    String(env.BIT_APP_ID || "").trim() ||
-    "mr-tanq";
-
-  // Query params (safe defaults)
+  // Query params
   const size = clampInt(url.searchParams.get("size"), 1, 1000, 50);
   const radiusKm = clampInt(url.searchParams.get("radiusKm"), 1, 500, 30);
   const scoreMin = clampInt(url.searchParams.get("scoreMin"), 0, 100, 50);
-
-  // ✅ allow small tasteArtists for debugging
-  const tasteArtists = clampInt(url.searchParams.get("tasteArtists"), 1, 2000, 200);
-
-  // ✅ how many of your top artists to query on Bandsintown
-  const bitArtists = clampInt(url.searchParams.get("bitArtists"), 1, 400, 60);
+  const tasteArtists = clampInt(url.searchParams.get("tasteArtists"), 10, 2000, 200);
 
   // Default: WHOLE NL (if city is provided, "near city" mode)
   const cityRaw = String(url.searchParams.get("city") || "").trim();
   const city = cityRaw; // empty => NL-wide
   const countryCode = String(url.searchParams.get("countryCode") || "NL").trim().toUpperCase();
 
-  // sources: "tm,bit"
+  // sources: "tm,ma"
   const sources = parseSources(String(url.searchParams.get("sources") || "tm"));
 
   if (!LASTFM_API_KEY) return jsonRes({ ok: false, error: "missing_env", message: "Missing LASTFM_API_KEY" }, 500);
   if (!LASTFM_USER) return jsonRes({ ok: false, error: "missing_env", message: "Missing LASTFM_USER" }, 500);
+
   if (sources.includes("tm") && !TMASTER_API_KEY) {
     return jsonRes({ ok: false, error: "missing_env", message: "Missing TMASTER_API_KEY" }, 500);
   }
@@ -136,31 +124,25 @@ async function handleEconcerts(request, env, ctx, jsonRes, lowerKey, clamp01, cl
     for (const ev of tmEvents) collected.push({ ...ev, source: "tm" });
   }
 
-  // Bandsintown (personal: based on your taste artists)
-  // ✅ debug counters so we can SEE what happens
-  const bitDebug = {
-    bitTried: 0,
-    bitOk: 0,
-    bitFailed: 0,
-    bitErrorSample: null,
-  };
-
-  if (sources.includes("bit")) {
-    const topNames = taste.map((t) => t.name).filter(Boolean);
-    const bitEvents = await bandsintownEventsFromTaste({
-      appId: BIT_APP_ID,
-      artists: topNames,
-      tasteMap,
-      countryCode,
+  // MetalAgenda venues (NL, underground/metal-ish)
+  let maPagesFetched = 0;
+  let maEventsParsed = 0;
+  if (sources.includes("ma")) {
+    const maRes = await metalAgendaEvents({
       maxEvents: size,
-      maxArtistsToTry: bitArtists,
-      debug: bitDebug,
+      countryCode,
     });
-    for (const ev of bitEvents) collected.push({ ...ev, source: "bit" });
+    maPagesFetched = maRes.pagesFetched;
+    maEventsParsed = maRes.eventsParsed;
+    for (const ev of maRes.events) collected.push({ ...ev, source: "ma" });
   }
-// 3) Score + filter
+
+  // 2b) Backend dedupe (reduce duplicates like Wu-Tang x4)
+  const deduped = dedupeCollected(collected, lowerKey);
+
+  // 3) Score + filter
   const eventsScored = [];
-  for (const ev of collected) {
+  for (const ev of deduped) {
     const artist = ev.artist || "";
     const plays = tasteMap.get(lowerKey(artist)) || 0;
 
@@ -182,6 +164,10 @@ async function handleEconcerts(request, env, ctx, jsonRes, lowerKey, clamp01, cl
     score = Math.max(0, Math.min(100, Math.round(score)));
     const level = score >= 80 ? "strong" : score >= 65 ? "good" : score >= 50 ? "ok" : "weak";
 
+    // ⭐ rule: ONLY Tivoli + plays >= 100 (your rule)
+    const venueLower = lowerKey(ev.venue || "");
+    const star = venueLower.includes("tivoli") && plays >= 100;
+
     const out = {
       id: ev.id,
       artist: artist,
@@ -196,6 +182,7 @@ async function handleEconcerts(request, env, ctx, jsonRes, lowerKey, clamp01, cl
       level,
       startTs: ev.startTs,
       source: ev.source || "tm",
+      star,
     };
 
     if (score >= scoreMin) eventsScored.push(out);
@@ -207,7 +194,6 @@ async function handleEconcerts(request, env, ctx, jsonRes, lowerKey, clamp01, cl
   // Return up to requested size
   const finalEvents = eventsScored.slice(0, size);
 
-  // include BIT debug meta so we can diagnose "0 fetched"
   return jsonRes({
     ok: true,
     meta: {
@@ -215,15 +201,14 @@ async function handleEconcerts(request, env, ctx, jsonRes, lowerKey, clamp01, cl
       radiusKm: city ? radiusKm : null,
       scoreMin,
       tasteArtists,
-      bitArtists,
-      eventsFetched: collected.length,
+      eventsFetched: deduped.length,
       eventsReturned: finalEvents.length,
       city: city || null,
       countryCode,
       sources,
       mode: city ? "near_city" : "nl_wide",
-      bitAppId: sources.includes("bit") ? BIT_APP_ID : null,
-      ...(sources.includes("bit") ? bitDebug : {}),
+      maPagesFetched: sources.includes("ma") ? maPagesFetched : null,
+      maEventsParsed: sources.includes("ma") ? maEventsParsed : null,
     },
     events: finalEvents,
   });
@@ -238,11 +223,10 @@ function parseSources(raw) {
   const out = [];
   for (const x of s) {
     if (x === "tm" || x === "ticketmaster") out.push("tm");
-    if (x === "bit" || x === "bandsintown") out.push("bit");
+    if (x === "ma" || x === "metalagenda") out.push("ma");
   }
   return out.length ? Array.from(new Set(out)) : ["tm"];
 }
-
 // ---------------- Last.fm ----------------
 async function lastfmTopArtistsOverall(apiKey, user, limit) {
   const u = new URL("https://ws.audioscrobbler.com/2.0/");
@@ -329,10 +313,7 @@ async function ticketmasterEvents({ apiKey, countryCode, city, radiusKm, sizeReq
       const venueObj = Array.isArray(e?._embedded?.venues) ? e._embedded.venues[0] : null;
       const venue = String(venueObj?.name || "").trim();
 
-      const cityName =
-        String(venueObj?.city?.name || "").trim() ||
-        cityTrim ||
-        "";
+      const cityName = String(venueObj?.city?.name || "").trim() || cityTrim || "";
 
       const dt = String(e?.dates?.start?.dateTime || "").trim();
       if (!dt) continue;
@@ -364,129 +345,288 @@ async function ticketmasterEvents({ apiKey, countryCode, city, radiusKm, sizeReq
 
   return out;
 }
-// ---------------- Bandsintown (taste-based) ----------------
-// We fetch upcoming events for your top artists, then keep only NL.
-async function bandsintownEventsFromTaste({
-  appId,
-  artists,
-  tasteMap,
-  countryCode,
-  maxEvents,
-  maxArtistsToTry,
-  debug,
-}) {
+
+// ---------------- MetalAgenda (venues) ----------------
+async function metalAgendaEvents({ maxEvents, countryCode }) {
+  // We only support NL in this source (site is NL-focused)
+  if (String(countryCode || "").toUpperCase() !== "NL") {
+    return { pagesFetched: 0, eventsParsed: 0, events: [] };
+  }
+
   const want = Math.max(1, Math.min(1000, Number(maxEvents) || 50));
-  const out = [];
+  const venueUrls = [
+    // Utrecht
+    "https://www.metalagenda.nl/venues/tivoli-vredenburg",
+    "https://www.metalagenda.nl/venues/db-s",
+    "https://www.metalagenda.nl/venues/de-helling",
+    // Amsterdam
+    "https://www.metalagenda.nl/venues/melkweg",
+    "https://www.metalagenda.nl/venues/paradiso",
+    // Rotterdam
+    "https://www.metalagenda.nl/venues/baroeg",
+    // Tilburg / Eindhoven / Nijmegen / Den Haag etc
+    "https://www.metalagenda.nl/venues/013",
+    "https://www.metalagenda.nl/venues/dynamo",
+    "https://www.metalagenda.nl/venues/doornroosje",
+    "https://www.metalagenda.nl/venues/paard",
+    "https://www.metalagenda.nl/venues/patronaat",
+    "https://www.metalagenda.nl/venues/metropool",
+  ];
 
-  // Limit artists to keep it responsive
-  const limitArtists = Math.min(Number(maxArtistsToTry) || 60, artists.length);
+  const events = [];
+  let pagesFetched = 0;
+  let eventsParsed = 0;
 
-  // Simple concurrency limiter
-  const concurrency = 6;
+  // mild concurrency
+  const concurrency = 4;
   let idx = 0;
 
-  const worker = async () => {
-    while (idx < limitArtists && out.length < want) {
+  const runner = async () => {
+    while (idx < venueUrls.length && events.length < want) {
       const i = idx++;
-      const name = String(artists[i] || "").trim();
-      if (!name) continue;
+      const vurl = venueUrls[i];
 
-      // If plays are super low, skip to reduce noise
-      const plays = tasteMap.get(String(name).trim().toLowerCase()) || 0;
-      if (plays <= 0) continue;
+      const html = await fetchText(vurl).catch(() => "");
+      pagesFetched += 1;
+      if (!html) continue;
 
-      if (debug) debug.bitTried += 1;
+      const parsed = parseMetalAgendaVenueHtml(vurl, html);
+      eventsParsed += parsed.length;
 
-      let events = [];
-      try {
-        events = await bandsintownArtistEvents(name, appId);
-        if (debug) debug.bitOk += 1;
-      } catch (e) {
-        if (debug) {
-          debug.bitFailed += 1;
-          if (!debug.bitErrorSample) debug.bitErrorSample = String(e?.message || e);
-        }
-        continue;
-      }
-
-      for (const ev of events) {
-        if (out.length >= want) break;
-        if (!ev) continue;
-
-        // Keep only NL (countryCode = "NL")
-        const cc = normalizeCountryCode(ev?.venue?.country);
-        if (cc !== countryCode) continue;
-
-        const startTs = Date.parse(ev?.datetime || "");
-        if (!Number.isFinite(startTs)) continue;
-
-        const startDate = new Date(startTs);
-        const startLocal = formatAmsterdamLocal(startDate);
-
-        const venueName = String(ev?.venue?.name || "").trim();
-        const city = String(ev?.venue?.city || "").trim();
-
-        const url = String(ev?.url || ev?.offers?.[0]?.url || "").trim();
-
-        // Bandsintown event id can be numeric
-        const id = String(ev?.id || "").trim() || `${name}|${startTs}|${city}|${venueName}`;
-
-        out.push({
-          id: `bit:${id}`,
-          artist: name,
-          attractions: [name],
-          city,
-          venue: venueName,
-          startTs,
-          startLocal,
-          url,
-        });
+      for (const ev of parsed) {
+        if (events.length >= want) break;
+        events.push(ev);
       }
     }
   };
 
-  const runners = Array.from({ length: concurrency }, () => worker());
-  await Promise.all(runners);
+  await Promise.all(Array.from({ length: concurrency }, () => runner()));
+
+  // keep only upcoming (>= now - 12h safety)
+  const cutoff = Date.now() - 12 * 60 * 60 * 1000;
+  const upcoming = events.filter((e) => Number(e?.startTs) >= cutoff);
+
+  // sort soonest
+  upcoming.sort((a, b) => (a.startTs - b.startTs));
+
+  return {
+    pagesFetched,
+    eventsParsed,
+    events: upcoming.slice(0, want),
+  };
+}
+
+async function fetchText(u) {
+  const r = await fetch(u, {
+    method: "GET",
+    headers: {
+      "accept": "text/html,*/*",
+      "user-agent": "ListeningMirror/1.0 (mr-tanq)",
+    },
+  });
+  if (!r.ok) return "";
+  return await r.text().catch(() => "");
+}
+
+function parseMetalAgendaVenueHtml(pageUrl, html) {
+  const text = htmlToText(html);
+
+  // Header: "Metal concerten bij Tivoli Vredenburg te Utrecht"
+  let venue = "";
+  let city = "";
+
+  const headerMatch = text.match(/Metal concerten bij\s+(.+?)\s+te\s+([A-Za-zÀ-ÿ'’\-\s]+)\s*/i);
+  if (headerMatch) {
+    venue = String(headerMatch[1] || "").trim();
+    city = String(headerMatch[2] || "").trim();
+  }
+
+  // Fix the "spaced letters" format:
+  // "1 4 f e b r u a r i 2 0 2 6" -> "14 februari 2026"
+  const normalized = normalizeSpacedText(text);
+
+  const lines = normalized
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
+  const out = [];
+  const monthMap = {
+    januari: 0,
+    februari: 1,
+    maart: 2,
+    april: 3,
+    mei: 4,
+    juni: 5,
+    juli: 6,
+    augustus: 7,
+    september: 8,
+    oktober: 9,
+    november: 10,
+    december: 11,
+  };
+
+  // Walk through lines; date line then title then optional "Bands:"
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    const dm = line.match(/^(\d{1,2})\s+([a-z]+)\s+(\d{4})/i);
+    if (!dm) continue;
+
+    const day = Number(dm[1]);
+    const monthName = String(dm[2] || "").toLowerCase();
+    const year = Number(dm[3]);
+
+    const monthIdx = monthMap[monthName];
+    if (monthIdx == null) continue;
+
+    // title is next non-empty line
+    const title = (lines[i + 1] || "").replace(/^uitverkocht\s+/i, "").trim();
+    if (!title) continue;
+
+    // bands line maybe at i+2 or i+3 etc
+    let bandsLine = "";
+    for (let k = i + 2; k < Math.min(i + 6, lines.length); k++) {
+      if (/^Bands:\s*/i.test(lines[k])) {
+        bandsLine = lines[k];
+        break;
+      }
+    }
+
+    let bands = [];
+    if (bandsLine) {
+      const raw = bandsLine.replace(/^Bands:\s*/i, "").trim();
+      bands = raw
+        .split("|")
+        .map((x) => x.trim())
+        .filter(Boolean)
+        .map((x) => x.replace(/\s+/g, " "));
+    }
+
+    const headliner = (bands[0] || title).trim();
+
+    // Try to extract time from title like "20:00" if present (rare on MA)
+    let hh = 20, mm = 0; // default evening
+    const tm = title.match(/\b([01]\d|2[0-3]):([0-5]\d)\b/);
+    if (tm) {
+      hh = Number(tm[1]);
+      mm = Number(tm[2]);
+    }
+
+    const startDate = new Date(Date.UTC(year, monthIdx, day, hh - 1, mm, 0)); // rough: NL is UTC+1 winter; we output local string anyway
+    const startLocal = formatAmsterdamLocal(startDate);
+    const startTs = startDate.getTime();
+
+    // Link: try to find the first href after the title in the HTML (best-effort)
+    const url = findFirstLinkForTitle(html, title) || pageUrl;
+
+    const id = `ma:${slugify(venue || "venue")}:${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}:${slugify(headliner)}:${city}`;
+
+    out.push({
+      id,
+      artist: headliner,
+      attractions: bands.length ? bands : [headliner],
+      city: city || "",
+      venue: venue || "",
+      startTs,
+      startLocal,
+      url,
+    });
+  }
 
   return out;
 }
 
-async function bandsintownArtistEvents(artistName, appId) {
-  // ✅ IMPORTANT: no trailing slash + correct query format
-  const u = new URL(`https://rest.bandsintown.com/artists/${encodeURIComponent(artistName)}/events`);
-  u.searchParams.set("app_id", appId);
-  u.searchParams.set("date", "upcoming");
+function normalizeSpacedText(s) {
+  let t = String(s || "");
+  // digits: "2 0 2 6" -> "2026"
+  t = t.replace(/(\d)\s+(?=\d)/g, "$1");
+  // letters: "f e b r u a r i" -> "februari"
+  // apply multiple times to be safe
+  for (let i = 0; i < 4; i++) {
+    t = t.replace(/([A-Za-zÀ-ÿ])\s+(?=[A-Za-zÀ-ÿ])/g, "$1");
+  }
+  // normalize whitespace
+  t = t.replace(/[ \t]+/g, " ");
+  return t;
+}
 
-  const r = await fetch(u.toString(), {
-    method: "GET",
-    headers: {
-      "accept": "application/json",
-    },
-  });
+function htmlToText(html) {
+  let s = String(html || "");
+  s = s.replace(/<br\s*\/?>/gi, "\n");
+  s = s.replace(/<\/p>/gi, "\n");
+  s = s.replace(/<\/h\d>/gi, "\n");
+  s = s.replace(/<\/li>/gi, "\n");
+  s = s.replace(/<\/div>/gi, "\n");
+  s = s.replace(/<[^>]+>/g, " ");
+  // minimal entity decoding
+  s = s.replace(/&nbsp;/g, " ");
+  s = s.replace(/&amp;/g, "&");
+  s = s.replace(/&quot;/g, "\"");
+  s = s.replace(/&#39;/g, "'");
+  s = s.replace(/&lt;/g, "<");
+  s = s.replace(/&gt;/g, ">");
+  // cleanup
+  s = s.replace(/\r/g, "\n");
+  s = s.replace(/\n{3,}/g, "\n\n");
+  return s.trim();
+}
 
-  if (!r.ok) {
-    // Keep body snippet if possible (helps debugging)
-    const t = await r.text().catch(() => "");
-    const extra = t ? ` — ${t.slice(0, 120)}` : "";
-    throw new Error(`Bandsintown HTTP ${r.status}${extra}`);
+function findFirstLinkForTitle(html, title) {
+  const t = String(title || "").trim();
+  if (!t) return "";
+  // naive: find first <a ...> after title text
+  const idx = String(html).toLowerCase().indexOf(t.toLowerCase());
+  if (idx < 0) return "";
+  const snippet = String(html).slice(idx, idx + 1500);
+  const m = snippet.match(/href\s*=\s*["']([^"']+)["']/i);
+  if (!m) return "";
+  const href = String(m[1] || "").trim();
+  if (!href) return "";
+  if (href.startsWith("http")) return href;
+  if (href.startsWith("/")) return "https://www.metalagenda.nl" + href;
+  return href;
+}
+
+function slugify(s) {
+  return String(s || "")
+    .toLowerCase()
+    .trim()
+    .replace(/['’]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function dedupeCollected(items, lowerKey) {
+  const map = new Map();
+  for (const ev of items || []) {
+    const artist = lowerKey(ev?.artist || "");
+    const venue = lowerKey(ev?.venue || "");
+    const city = lowerKey(ev?.city || "");
+    const ts = Number(ev?.startTs || 0);
+    if (!artist || !ts) continue;
+
+    // dedupe key: artist + ts + city + venue
+    const key = `${artist}|${ts}|${city}|${venue}`;
+
+    const prev = map.get(key);
+    if (!prev) {
+      map.set(key, ev);
+      continue;
+    }
+
+    // Keep one with better URL (not pageUrl), or prefer Ticketmaster over MA for mainstream
+    const prevUrl = String(prev?.url || "");
+    const curUrl = String(ev?.url || "");
+    const prevScore = (prev?.source === "tm" ? 2 : 1) + (prevUrl.startsWith("http") ? 1 : 0);
+    const curScore = (ev?.source === "tm" ? 2 : 1) + (curUrl.startsWith("http") ? 1 : 0);
+
+    if (curScore > prevScore) map.set(key, ev);
   }
 
-  const j = await r.json().catch(() => null);
-  if (!Array.isArray(j)) return [];
-  return j;
+  return Array.from(map.values());
 }
-
-function normalizeCountryCode(countryField) {
-  const s = String(countryField || "").trim().toLowerCase();
-  if (!s) return "";
-  if (s === "nl" || s === "netherlands" || s === "the netherlands") return "NL";
-  if (s === "be" || s === "belgium") return "BE";
-  if (s === "de" || s === "germany") return "DE";
-  // fallback: if it already looks like ISO2
-  if (s.length === 2) return s.toUpperCase();
-  return "";
-}
-
 // ---------------- Scoring tiers ----------------
 function tierFromPlays(plays) {
   const p = Number(plays || 0);

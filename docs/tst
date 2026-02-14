@@ -1,245 +1,493 @@
-/* worker.js — FULL REPLACE
-   Base: your stable Last.fm worker
-      Adds:
-         - /resolve (Spotify track resolver via Client Credentials)
-            - /api/top response echo: { type, period, limit, resolvedPeriod }
-               NOTE: Needs env:
-                    LASTFM_API_KEY
-                         LASTFM_USER
-                              SPOTIFY_CLIENT_ID  (only for /resolve)
-                                   SPOTIFY_CLIENT_SECRET (only for /resolve)
-                                   */
+/* live.js (FULL REPLACE)
+   Cloudflare Worker: /econcerts endpoint
+   Sources:
+   - Ticketmaster (tm)
+   - Bandsintown (bit) via public API + app_id
+   Env vars:
+   - TMASTER_API_KEY
+   - LASTFM_API_KEY
+   - LASTFM_USER
+   Optional:
+   - BIT_APP_ID  (defaults to "mr-tanq" if missing)
+*/
 
-                                   export default {
-                                     async fetch(request, env, ctx) {
-                                         try {
-                                               const url = new URL(request.url);
-                                                     const path = url.pathname;
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
 
-                                                           // CORS preflight
-                                                                 if (request.method === "OPTIONS") return cors(new Response("", { status: 204 }));
+    // --- CORS (GitHub Pages + optional localhost) ---
+    const origin = request.headers.get("Origin") || "";
+    const allowed = new Set([
+      "https://mr-tanq.github.io",
+      "http://localhost:5173",
+      "http://localhost:4173",
+      "http://localhost:3000",
+    ]);
+    const allowOrigin = allowed.has(origin) ? origin : "https://mr-tanq.github.io";
 
-                                                                       // ROUTES
-                                                                             if (path === "/api/ping") return cors(json({ ok: true, ts: Date.now() }));
+    const corsHeaders = {
+      "access-control-allow-origin": allowOrigin,
+      "access-control-allow-methods": "GET,POST,OPTIONS",
+      "access-control-allow-headers": "content-type, authorization",
+      "access-control-max-age": "86400",
+    };
 
-                                                                                   if (path === "/img") return cors(await handleImgProxy(request, ctx));
+    // Preflight
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders });
+    }
 
-                                                                                         if (path === "/api/top") return cors(await handleTop(request, env, ctx));
-                                                                                               if (path === "/api/now") return cors(await handleNow(request, env, ctx));
-                                                                                                     if (path === "/api/history") return cors(await handleHistory(request, env, ctx));
+    // Tiny utils
+    const jsonRes = (obj, status = 200) =>
+      new Response(JSON.stringify(obj, null, 2), {
+        status,
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          ...corsHeaders,
+        },
+      });
 
-                                                                                                           // ✅ Insight (UI-only for now)
-                                                                                                                 if (path === "/api/insight") return cors(await handleInsight(request, env, ctx));
+    const lowerKey = (s) => String(s || "").trim().toLowerCase();
+    const clamp01 = (x) => Math.max(0, Math.min(1, x));
+    const clampInt = (v, a, b, fallback) => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return fallback;
+      return Math.max(a, Math.min(b, Math.trunc(n)));
+    };
 
-                                                                                                                       // ✅ Spotify resolver
-                                                                                                                             if (path === "/resolve") return cors(await handleResolve(url, env, ctx));
+    try {
+      if (url.pathname === "/health") {
+        return jsonRes({ ok: true, service: "live", time: new Date().toISOString() });
+      }
 
-                                                                                                                                   // default
-                                                                                                                                         return cors(json({ ok: false, error: "Not found" }, 404));
-                                                                                                                                             } catch (e) {
-                                                                                                                                                   return cors(json({ ok: false, error: String(e?.message || e) }, 500));
-                                                                                                                                                       }
-                                                                                                                                                         }
-                                                                                                                                                         };
+      if (url.pathname === "/econcerts") {
+        return await handleEconcerts(request, env, ctx, jsonRes, lowerKey, clamp01, clampInt);
+      }
 
-                                                                                                                                                         function cors(res) {
-                                                                                                                                                           const h = new Headers(res.headers);
-                                                                                                                                                             h.set("Access-Control-Allow-Origin", "*");
-                                                                                                                                                               h.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-                                                                                                                                                                 h.set("Access-Control-Allow-Headers", "Content-Type");
-                                                                                                                                                                   if (!h.has("Cache-Control")) h.set("Cache-Control", "no-store");
-                                                                                                                                                                     return new Response(res.body, { status: res.status, headers: h });
-                                                                                                                                                                     }
+      return jsonRes({ ok: false, error: "not_found", path: url.pathname }, 404);
+    } catch (err) {
+      return jsonRes(
+        {
+          ok: false,
+          error: "internal_error",
+          message: String(err && err.message ? err.message : err),
+        },
+        500
+      );
+    }
+  },
+};
 
-                                                                                                                                                                     function json(obj, status = 200, headers = {}) {
-                                                                                                                                                                       return new Response(JSON.stringify(obj), {
-                                                                                                                                                                           status,
-                                                                                                                                                                               headers: { "Content-Type": "application/json; charset=utf-8", ...headers }
-                                                                                                                                                                                 });
-                                                                                                                                                                                 }
+// ---------------- econcerts handler ----------------
+async function handleEconcerts(request, env, ctx, jsonRes, lowerKey, clamp01, clampInt) {
+  const url = new URL(request.url);
 
-                                                                                                                                                                                 // ---------------------------
-                                                                                                                                                                                 // CONFIG / HELPERS
-                                                                                                                                                                                 // ---------------------------
-                                                                                                                                                                                 const LASTFM_BASE = "https://ws.audioscrobbler.com/2.0/";
-                                                                                                                                                                                 const SPOTIFY_ACCOUNTS = "https://accounts.spotify.com/api/token";
-                                                                                                                                                                                 const SPOTIFY_API = "https://api.spotify.com/v1";
+  const TMASTER_API_KEY = String(env.TMASTER_API_KEY || "").trim();
+  const LASTFM_API_KEY = String(env.LASTFM_API_KEY || "").trim();
+  const LASTFM_USER = String(env.LASTFM_USER || "").trim();
 
-                                                                                                                                                                                 const PLACEHOLDER_HASH = "2a96cbd8b46e442fc41c2b86b821562f"; // last.fm no-image
+  // Bandsintown app_id (public api requires it)
+  const BIT_APP_ID =
+    String(url.searchParams.get("bitAppId") || "").trim() ||
+    String(env.BIT_APP_ID || "").trim() ||
+    "mr-tanq";
 
-                                                                                                                                                                                 function mustEnv(env, key) {
-                                                                                                                                                                                   const v = env?.[key];
-                                                                                                                                                                                     if (!v) throw new Error(`Missing env var: ${key}`);
-                                                                                                                                                                                       return v;
-                                                                                                                                                                                       }
+  // Query params (safe defaults)
+  const size = clampInt(url.searchParams.get("size"), 1, 1000, 50);
+  const radiusKm = clampInt(url.searchParams.get("radiusKm"), 1, 500, 30);
+  const scoreMin = clampInt(url.searchParams.get("scoreMin"), 0, 100, 50);
+  const tasteArtists = clampInt(url.searchParams.get("tasteArtists"), 10, 2000, 200);
 
-                                                                                                                                                                                       function isPlaceholderImageUrl(u) {
-                                                                                                                                                                                         if (!u) return true;
-                                                                                                                                                                                           return String(u).includes(PLACEHOLDER_HASH);
-                                                                                                                                                                                           }
+  // Default: WHOLE NL (if city is provided, "near city" mode)
+  const cityRaw = String(url.searchParams.get("city") || "").trim();
+  const city = cityRaw; // empty => NL-wide
+  const countryCode = String(url.searchParams.get("countryCode") || "NL").trim().toUpperCase();
 
-                                                                                                                                                                                           function toProxyPath(imageUrl) {
-                                                                                                                                                                                             if (!imageUrl) return "";
-                                                                                                                                                                                               return `/img?u=${encodeURIComponent(imageUrl)}`;
-                                                                                                                                                                                               }
+  // sources: "tm,bit"
+  const sources = parseSources(String(url.searchParams.get("sources") || "tm"));
 
-                                                                                                                                                                                               async function cachedFetchJson(ctx, cacheKeyUrl, fetcher, ttlSeconds = 3600) {
-                                                                                                                                                                                                 const cache = caches.default;
-                                                                                                                                                                                                   const cacheReq = new Request(cacheKeyUrl, { method: "GET" });
-                                                                                                                                                                                                     const cached = await cache.match(cacheReq);
-                                                                                                                                                                                                       if (cached) return await cached.json();
+  if (!LASTFM_API_KEY) return jsonRes({ ok: false, error: "missing_env", message: "Missing LASTFM_API_KEY" }, 500);
+  if (!LASTFM_USER) return jsonRes({ ok: false, error: "missing_env", message: "Missing LASTFM_USER" }, 500);
 
-                                                                                                                                                                                                         const data = await fetcher();
-                                                                                                                                                                                                           const res = new Response(JSON.stringify(data), {
-                                                                                                                                                                                                               headers: {
-                                                                                                                                                                                                                     "Content-Type": "application/json; charset=utf-8",
-                                                                                                                                                                                                                           "Cache-Control": `public, max-age=${ttlSeconds}`
-                                                                                                                                                                                                                               }
-                                                                                                                                                                                                                                 });
-                                                                                                                                                                                                                                   ctx.waitUntil(cache.put(cacheReq, res.clone()));
-                                                                                                                                                                                                                                     return data;
-                                                                                                                                                                                                                                     }
-                                                                                                                                                                                                                                     // ---------------------------
-                                                                                                                                                                                                                                     // LAST.FM API
-                                                                                                                                                                                                                                     // ---------------------------
-                                                                                                                                                                                                                                     async function lastfm(env, ctx, params, ttlSeconds = 300) {
-                                                                                                                                                                                                                                       const apiKey = mustEnv(env, "LASTFM_API_KEY");
-                                                                                                                                                                                                                                         const full = new URL(LASTFM_BASE);
-                                                                                                                                                                                                                                           full.searchParams.set("format", "json");
-                                                                                                                                                                                                                                             full.searchParams.set("api_key", apiKey);
-                                                                                                                                                                                                                                               for (const [k, v] of Object.entries(params)) full.searchParams.set(k, String(v));
+  if (sources.includes("tm") && !TMASTER_API_KEY) {
+    return jsonRes({ ok: false, error: "missing_env", message: "Missing TMASTER_API_KEY" }, 500);
+  }
 
-                                                                                                                                                                                                                                                 const cacheKey = "https://cache.local/lastfm" + full.search;
-                                                                                                                                                                                                                                                   return await cachedFetchJson(
-                                                                                                                                                                                                                                                       ctx,
-                                                                                                                                                                                                                                                           cacheKey,
-                                                                                                                                                                                                                                                               async () => {
-                                                                                                                                                                                                                                                                     const r = await fetch(full.toString(), { cf: { cacheTtl: ttlSeconds, cacheEverything: true } });
-                                                                                                                                                                                                                                                                           const t = await r.text();
-                                                                                                                                                                                                                                                                                 let j = null;
-                                                                                                                                                                                                                                                                                       try { j = JSON.parse(t); } catch { j = null; }
+  // 1) Load all-time top artists from Last.fm (period=overall)
+  const taste = await lastfmTopArtistsOverall(LASTFM_API_KEY, LASTFM_USER, tasteArtists);
+  const tasteMap = new Map(taste.map((x) => [lowerKey(x.name), x.playcount]));
 
-                                                                                                                                                                                                                                                                                                   if (j?.error) throw new Error(`Last.fm error: ${j.message || "unknown"}`);
-                                                                                                                                                                                                                                                                                                         return j;
-                                                                                                                                                                                                                                                                                                             },
-                                                                                                                                                                                                                                                                                                                 ttlSeconds
-                                                                                                                                                                                                                                                                                                                   );
-                                                                                                                                                                                                                                                                                                                   }
+  // 2) Collect events from sources
+  const collected = [];
 
-                                                                                                                                                                                                                                                                                                                   // ---------------------------
-                                                                                                                                                                                                                                                                                                                   // IMG PROXY
-                                                                                                                                                                                                                                                                                                                   // ---------------------------
-                                                                                                                                                                                                                                                                                                                   async function handleImgProxy(request, ctx) {
-                                                                                                                                                                                                                                                                                                                     const url = new URL(request.url);
-                                                                                                                                                                                                                                                                                                                       const u = url.searchParams.get("u");
-                                                                                                                                                                                                                                                                                                                         if (!u) return new Response("Missing u", { status: 400 });
+  // Ticketmaster (NL-wide by default)
+  if (sources.includes("tm")) {
+    const tmEvents = await ticketmasterEvents({
+      apiKey: TMASTER_API_KEY,
+      countryCode,
+      city: city || "",
+      radiusKm: city ? radiusKm : null,
+      sizeRequested: size,
+    });
+    for (const ev of tmEvents) {
+      collected.push({ ...ev, source: "tm" });
+    }
+  }
 
-                                                                                                                                                                                                                                                                                                                           const cache = caches.default;
-                                                                                                                                                                                                                                                                                                                             const cacheReq = new Request("https://cache.local/img?u=" + encodeURIComponent(u));
-                                                                                                                                                                                                                                                                                                                               const hit = await cache.match(cacheReq);
-                                                                                                                                                                                                                                                                                                                                 if (hit) return hit;
+  // Bandsintown (personal: based on your taste artists)
+  if (sources.includes("bit")) {
+    const topNames = taste.map((t) => t.name).filter(Boolean);
+    const bitEvents = await bandsintownEventsFromTaste({
+      appId: BIT_APP_ID,
+      artists: topNames,
+      tasteMap,
+      countryCode,
+      maxEvents: size,
+    });
+    for (const ev of bitEvents) {
+      collected.push({ ...ev, source: "bit" });
+    }
+  }
+// 3) Score + filter
+  const eventsScored = [];
+  for (const ev of collected) {
+    const artist = ev.artist || "";
+    const plays = tasteMap.get(lowerKey(artist)) || 0;
 
-                                                                                                                                                                                                                                                                                                                                   const upstream = await fetch(u, {
-                                                                                                                                                                                                                                                                                                                                       headers: { "User-Agent": "ListeningMirror/1.0" }
-                                                                                                                                                                                                                                                                                                                                         });
-                                                                                                                                                                                                                                                                                                                                           if (!upstream.ok) return new Response("Image fetch failed", { status: 502 });
+    // Tier from plays
+    const tier = tierFromPlays(plays);
+    const base = baseScoreFromTier(tier);
 
-                                                                                                                                                                                                                                                                                                                                             const ct = upstream.headers.get("content-type") || "image/jpeg";
-                                                                                                                                                                                                                                                                                                                                               const res = new Response(upstream.body, {
-                                                                                                                                                                                                                                                                                                                                                   status: 200,
-                                                                                                                                                                                                                                                                                                                                                       headers: {
-                                                                                                                                                                                                                                                                                                                                                             "Content-Type": ct,
-                                                                                                                                                                                                                                                                                                                                                                   "Cache-Control": "public, max-age=86400"
-                                                                                                                                                                                                                                                                                                                                                                       }
-                                                                                                                                                                                                                                                                                                                                                                         });
+    // Proximity boost up to ~1 year
+    const daysAway = Math.max(0, Math.round((ev.startTs - Date.now()) / (24 * 60 * 60 * 1000)));
+    const proximityBoost = clamp01(1 - daysAway / 365); // 0..1
+    let score = base + Math.round(proximityBoost * 18);
 
-                                                                                                                                                                                                                                                                                                                                                                           ctx.waitUntil(cache.put(cacheReq, res.clone()));
-                                                                                                                                                                                                                                                                                                                                                                             return res;
-                                                                                                                                                                                                                                                                                                                                                                             }
+    // Utrecht boost stays ONLY on city Utrecht (your rule)
+    if (lowerKey(ev.city) === "utrecht") score += 4;
 
-                                                                                                                                                                                                                                                                                                                                                                             // ---------------------------
-                                                                                                                                                                                                                                                                                                                                                                             // ARTIST IMAGE FALLBACK
-                                                                                                                                                                                                                                                                                                                                                                             // ---------------------------
-                                                                                                                                                                                                                                                                                                                                                                             async function resolveArtistImage(env, ctx, artistName) {
-                                                                                                                                                                                                                                                                                                                                                                               if (!artistName) return "";
+    // HARD RULE: if plays==0, never allow score >= 50
+    if (plays === 0) score = Math.min(score, 49);
 
-                                                                                                                                                                                                                                                                                                                                                                                 // 1) artist.getinfo
-                                                                                                                                                                                                                                                                                                                                                                                   const info = await lastfm(env, ctx, {
-                                                                                                                                                                                                                                                                                                                                                                                       method: "artist.getinfo",
-                                                                                                                                                                                                                                                                                                                                                                                           artist: artistName,
-                                                                                                                                                                                                                                                                                                                                                                                               autocorrect: 1
-                                                                                                                                                                                                                                                                                                                                                                                                 }, 86400);
+    score = Math.max(0, Math.min(100, Math.round(score)));
+    const level = score >= 80 ? "strong" : score >= 65 ? "good" : score >= 50 ? "ok" : "weak";
 
-                                                                                                                                                                                                                                                                                                                                                                                                   let img = pickBestLastfmImage(info?.artist?.image);
-                                                                                                                                                                                                                                                                                                                                                                                                     if (img && !isPlaceholderImageUrl(img)) return img;
+    const out = {
+      id: ev.id,
+      artist: artist,
+      attractions: ev.attractions,
+      city: ev.city,
+      venue: ev.venue,
+      start: ev.startLocal, // "YYYY-MM-DDTHH:mm:ss" Europe/Amsterdam local
+      url: ev.url,
+      plays,
+      tier,
+      score,
+      level,
+      startTs: ev.startTs,
+      source: ev.source || "tm",
+    };
 
-                                                                                                                                                                                                                                                                                                                                                                                                       // 2) artist.gettopalbums
-                                                                                                                                                                                                                                                                                                                                                                                                         const tops = await lastfm(env, ctx, {
-                                                                                                                                                                                                                                                                                                                                                                                                             method: "artist.gettopalbums",
-                                                                                                                                                                                                                                                                                                                                                                                                                 artist: artistName,
-                                                                                                                                                                                                                                                                                                                                                                                                                     autocorrect: 1,
-                                                                                                                                                                                                                                                                                                                                                                                                                         limit: 5
-                                                                                                                                                                                                                                                                                                                                                                                                                           }, 86400);
+    if (score >= scoreMin) eventsScored.push(out);
+  }
 
-                                                                                                                                                                                                                                                                                                                                                                                                                             const albums = tops?.topalbums?.album || [];
-                                                                                                                                                                                                                                                                                                                                                                                                                               for (const al of albums) {
-                                                                                                                                                                                                                                                                                                                                                                                                                                   const cover = pickBestLastfmImage(al?.image);
-                                                                                                                                                                                                                                                                                                                                                                                                                                       if (cover && !isPlaceholderImageUrl(cover)) return cover;
-                                                                                                                                                                                                                                                                                                                                                                                                                                         }
+  // Sort by score desc then soonest
+  eventsScored.sort((a, b) => (b.score - a.score) || (a.startTs - b.startTs));
 
-                                                                                                                                                                                                                                                                                                                                                                                                                                           return "";
-                                                                                                                                                                                                                                                                                                                                                                                                                                           }
-                                                                                                                                                                                                                                                                                                                                                                                                                                           // ---------------------------
-                                                                                                                                                                                                                                                                                                                                                                                                                                           // TRUE "TODAY" (last 24h) via recenttracks aggregation
-                                                                                                                                                                                                                                                                                                                                                                                                                                           // ---------------------------
-                                                                                                                                                                                                                                                                                                                                                                                                                                           async function fetchRecentLast24h(env, ctx, limitHardCap = 1000) {
-                                                                                                                                                                                                                                                                                                                                                                                                                                             const user = mustEnv(env, "LASTFM_USER");
-                                                                                                                                                                                                                                                                                                                                                                                                                                               const sinceMs = Date.now() - 24 * 60 * 60 * 1000;
+  // Return up to requested size
+  const finalEvents = eventsScored.slice(0, size);
 
-                                                                                                                                                                                                                                                                                                                                                                                                                                                 const perPage = 200; // last.fm max
-                                                                                                                                                                                                                                                                                                                                                                                                                                                   let page = 1;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                     let collected = [];
-                                                                                                                                                                                                                                                                                                                                                                                                                                                       let done = false;
+  return jsonRes({
+    ok: true,
+    meta: {
+      sizeRequested: size,
+      radiusKm: city ? radiusKm : null,
+      scoreMin,
+      tasteArtists,
+      eventsFetched: collected.length,
+      eventsReturned: finalEvents.length,
+      city: city || null,
+      countryCode,
+      sources,
+      mode: city ? "near_city" : "nl_wide",
+      bitAppId: sources.includes("bit") ? BIT_APP_ID : null,
+    },
+    events: finalEvents,
+  });
+}
 
-                                                                                                                                                                                                                                                                                                                                                                                                                                                         const maxPages = Math.ceil(Math.min(limitHardCap, 1000) / perPage);
+function parseSources(raw) {
+  const s = String(raw || "tm")
+    .split(",")
+    .map((x) => x.trim().toLowerCase())
+    .filter(Boolean);
 
-                                                                                                                                                                                                                                                                                                                                                                                                                                                           while (!done && page <= maxPages) {
-                                                                                                                                                                                                                                                                                                                                                                                                                                                               const raw = await lastfm(env, ctx, {
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                     method: "user.getrecenttracks",
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                           user,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 limit: perPage,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       page,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             extended: 1
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 }, 10);
+  const out = [];
+  for (const x of s) {
+    if (x === "tm" || x === "ticketmaster") out.push("tm");
+    if (x === "bit" || x === "bandsintown") out.push("bit");
+  }
+  return out.length ? Array.from(new Set(out)) : ["tm"];
+}
 
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     const list = raw?.recenttracks?.track || [];
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         if (!list.length) break;
+// ---------------- Last.fm ----------------
+async function lastfmTopArtistsOverall(apiKey, user, limit) {
+  const u = new URL("https://ws.audioscrobbler.com/2.0/");
+  u.searchParams.set("method", "user.gettopartists");
+  u.searchParams.set("user", user);
+  u.searchParams.set("api_key", apiKey);
+  u.searchParams.set("format", "json");
+  u.searchParams.set("limit", String(limit));
+  u.searchParams.set("period", "overall");
 
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             for (const t of list) {
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   if (t?.["@attr"]?.nowplaying === "true") continue;
+  const r = await fetch(u.toString(), { method: "GET" });
+  const j = await r.json().catch(() => ({}));
 
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         const uts = Number(t?.date?.uts || 0) * 1000;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               if (!uts) continue;
+  if (!r.ok) throw new Error(`Last.fm HTTP ${r.status}`);
+  if (j && j.error) throw new Error(`Last.fm: ${j.message || "error"}`);
 
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     if (uts < sinceMs) {
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             done = true;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     break;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           }
+  const arr = j?.topartists?.artist;
+  if (!Array.isArray(arr)) return [];
 
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 collected.push(t);
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       if (collected.length >= limitHardCap) {
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               done = true;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       break;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             }
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 }
+  const out = [];
+  for (const a of arr) {
+    const name = String(a?.name || "").trim();
+    const playcount = Number(a?.playcount || 0);
+    if (!name) continue;
+    out.push({ name, playcount: Number.isFinite(playcount) ? playcount : 0 });
+  }
+  return out;
+}
 
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     if (done) break;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         page += 1;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           }
+// ---------------- Ticketmaster ----------------
+async function ticketmasterEvents({ apiKey, countryCode, city, radiusKm, sizeRequested }) {
+  const want = Math.max(1, Math.min(1000, Number(sizeRequested) || 1));
+  const pageSize = Math.min(200, want);
 
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             return collected;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             }
+  // ✅ Ticketmaster wants YYYY-MM-DDTHH:mm:ssZ (NO milliseconds)
+  const nowIso = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             function normKey(s) {
+  const out = [];
+  let page = 0;
+  const maxPages = Math.min(10, Math.ceil(want / pageSize) + 2);
 
-                                                                                                                                                                                                                                                                   
+  while (out.length < want && page < maxPages) {
+    const u = new URL("https://app.ticketmaster.com/discovery/v2/events.json");
+    u.searchParams.set("apikey", apiKey);
+    u.searchParams.set("countryCode", countryCode);
+    u.searchParams.set("classificationName", "music");
+    u.searchParams.set("sort", "date,asc");
+    u.searchParams.set("size", String(pageSize));
+    u.searchParams.set("page", String(page));
+    u.searchParams.set("startDateTime", nowIso);
+
+    const cityTrim = String(city || "").trim();
+    if (cityTrim) {
+      u.searchParams.set("city", cityTrim);
+      if (radiusKm != null) {
+        u.searchParams.set("radius", String(radiusKm));
+        u.searchParams.set("unit", "km");
+      }
+    }
+
+    const r = await fetch(u.toString(), { method: "GET" });
+    const j = await r.json().catch(() => ({}));
+
+    if (!r.ok) {
+      const msg = j?.errors?.[0]?.detail || `Ticketmaster HTTP ${r.status}`;
+      throw new Error(msg);
+    }
+
+    const items = j?._embedded?.events;
+    if (!Array.isArray(items) || items.length === 0) break;
+
+    for (const e of items) {
+      if (out.length >= want) break;
+
+      const id = String(e?.id || "").trim();
+      if (!id) continue;
+
+      const attractions = Array.isArray(e?._embedded?.attractions)
+        ? e._embedded.attractions.map((a) => String(a?.name || "").trim()).filter(Boolean)
+        : [];
+
+      const artist = attractions[0] || String(e?.name || "").trim();
+
+      const venueObj = Array.isArray(e?._embedded?.venues) ? e._embedded.venues[0] : null;
+      const venue = String(venueObj?.name || "").trim();
+
+      const cityName =
+        String(venueObj?.city?.name || "").trim() ||
+        cityTrim ||
+        "";
+
+      const dt = String(e?.dates?.start?.dateTime || "").trim();
+      if (!dt) continue;
+
+      const startDate = new Date(dt);
+      if (Number.isNaN(startDate.getTime())) continue;
+
+      const startTs = startDate.getTime();
+      const startLocal = formatAmsterdamLocal(startDate);
+      const url = String(e?.url || "").trim();
+
+      out.push({
+        id: `tm:${id}`,
+        artist,
+        attractions,
+        city: cityName,
+        venue: venue || "",
+        startTs,
+        startLocal,
+        url,
+      });
+    }
+
+    page += 1;
+
+    const pageInfo = j?.page;
+    if (pageInfo && Number.isFinite(pageInfo.totalPages) && page >= pageInfo.totalPages) break;
+  }
+
+  return out;
+}
+// ---------------- Bandsintown (taste-based) ----------------
+// We fetch upcoming events for your top artists, then keep only NL.
+async function bandsintownEventsFromTaste({ appId, artists, tasteMap, countryCode, maxEvents }) {
+  const want = Math.max(1, Math.min(1000, Number(maxEvents) || 50));
+  const out = [];
+
+  // Limit artists to keep it responsive
+  const maxArtistsToTry = Math.min(80, artists.length);
+
+  // Simple concurrency limiter
+  const concurrency = 6;
+  let idx = 0;
+
+  const worker = async () => {
+    while (idx < maxArtistsToTry && out.length < want) {
+      const i = idx++;
+      const name = String(artists[i] || "").trim();
+      if (!name) continue;
+
+      // If plays are super low, skip to reduce noise
+      const plays = tasteMap.get(String(name).trim().toLowerCase()) || 0;
+      if (plays <= 0) continue;
+
+      const events = await bandsintownArtistEvents(name, appId).catch(() => []);
+      for (const ev of events) {
+        if (out.length >= want) break;
+        if (!ev) continue;
+
+        // Keep only NL (countryCode = "NL")
+        const cc = normalizeCountryCode(ev?.venue?.country);
+        if (cc !== countryCode) continue;
+
+        const startTs = Date.parse(ev?.datetime || "");
+        if (!Number.isFinite(startTs)) continue;
+
+        const startDate = new Date(startTs);
+        const startLocal = formatAmsterdamLocal(startDate);
+
+        const venueName = String(ev?.venue?.name || "").trim();
+        const city = String(ev?.venue?.city || "").trim();
+
+        const url = String(ev?.url || ev?.offers?.[0]?.url || "").trim();
+
+        // Bandsintown event id can be numeric
+        const id = String(ev?.id || "").trim() || `${name}|${startTs}|${city}|${venueName}`;
+
+        out.push({
+          id: `bit:${id}`,
+          artist: name,
+          attractions: [name],
+          city,
+          venue: venueName,
+          startTs,
+          startLocal,
+          url,
+        });
+      }
+    }
+  };
+
+  const runners = Array.from({ length: concurrency }, () => worker());
+  await Promise.all(runners);
+
+  return out;
+}
+
+async function bandsintownArtistEvents(artistName, appId) {
+  const u = new URL(`https://rest.bandsintown.com/artists/${encodeURIComponent(artistName)}/events/`);
+  u.searchParams.set("app_id", appId);
+  // Ask for upcoming by default (supported per docs; if ignored, we filter ourselves)
+  u.searchParams.set("date", "upcoming");
+
+  const r = await fetch(u.toString(), {
+    method: "GET",
+    headers: {
+      "accept": "application/json",
+      "user-agent": "ListeningMirror/1.0 (mr-tanq)",
+    },
+  });
+
+  // 403 means BIT rejected the request (often app_id / policy / blocking)
+  if (!r.ok) {
+    throw new Error(`Bandsintown HTTP ${r.status}`);
+  }
+
+  const j = await r.json().catch(() => null);
+  if (!Array.isArray(j)) return [];
+  return j;
+}
+
+function normalizeCountryCode(countryField) {
+  const s = String(countryField || "").trim().toLowerCase();
+  if (!s) return "";
+  if (s === "nl" || s === "netherlands" || s === "the netherlands") return "NL";
+  if (s === "be" || s === "belgium") return "BE";
+  if (s === "de" || s === "germany") return "DE";
+  // fallback: if it already looks like ISO2
+  if (s.length === 2) return s.toUpperCase();
+  return "";
+}
+
+// ---------------- Scoring tiers ----------------
+function tierFromPlays(plays) {
+  const p = Number(plays || 0);
+  if (p >= 120) return "core";
+  if (p >= 40) return "known";
+  if (p >= 10) return "maybe";
+  return "discovery";
+}
+function baseScoreFromTier(tier) {
+  if (tier === "core") return 72;
+  if (tier === "known") return 58;
+  if (tier === "maybe") return 45;
+  return 32;
+}
+
+// ---------------- Time formatting: Europe/Amsterdam ----------------
+// Output: "YYYY-MM-DDTHH:mm:ss" WITHOUT timezone so frontend Date() treats it as local.
+function formatAmsterdamLocal(dateObj) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Amsterdam",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(dateObj);
+
+  const get = (type) => parts.find((p) => p.type === type)?.value || "00";
+  const y = get("year");
+  const m = get("month");
+  const d = get("day");
+  const hh = get("hour");
+  const mm = get("minute");
+  const ss = get("second");
+
+  return `${y}-${m}-${d}T${hh}:${mm}:${ss}`;
+}

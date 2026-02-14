@@ -408,22 +408,25 @@
   let LM_TAP_FALLBACK_BOUND = false;
 
   function bindOrbAsPlayPause() {
-    if (!LM_ORB) return;
-    if (LM_ORB.dataset && LM_ORB.dataset.lmOrbBound === "1") return;
+  if (!LM_ORB) return;
+  if (LM_ORB.dataset && LM_ORB.dataset.lmOrbBound === "1") return;
 
-    LM_ORB.dataset.lmOrbBound = "1";
-    try { LM_ORB.style.cursor = "pointer"; } catch {}
+  LM_ORB.dataset.lmOrbBound = "1";
 
-    const handler = async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (!getToken()) return;
-      await togglePlayPause();
-    };
+  // --- force clickable on mobile ---
+  LM_ORB.style.position = "relative";
+  LM_ORB.style.zIndex = "9999";
+  LM_ORB.style.pointerEvents = "auto";
+  LM_ORB.style.touchAction = "manipulation";
 
-    LM_ORB.addEventListener("pointerdown", handler, { passive: false });
-    LM_ORB.addEventListener("click", handler, { passive: false });
-  }
+  LM_ORB.addEventListener("click", async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!getToken()) return;
+    await togglePlayPause();
+  }, { passive: false });
+}
 
   function refreshHeader() {
     LM_TITLE = findHeaderTitleNode();

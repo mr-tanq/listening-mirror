@@ -1,6 +1,9 @@
 /* econcerts.js (FULL FILE REPLACE) — PART 1/3
    TM + MetalAgenda • Premium/minimal • Better dedupe • ★ only (Tivoli + plays>=100)
    + Time window filter: 16:00–22:09
+   + NEW: split into "Σίγουρα (plays>=5)" and "Προτάσεις (plays<5)"
+   + NEW: scoreMin applies ONLY to "Προτάσεις" (client-side)
+   + IMPORTANT: Worker is always called with scoreMin=0 to avoid server-side cutting
 */
 (() => {
   "use strict";
@@ -44,16 +47,6 @@
     return d instanceof Date && !Number.isNaN(d.getTime());
   }
 
-  // Block "javascript:" URLs (MetalAgenda sometimes uses addToInterests(...))
-  function safeHttpUrl(url) {
-    const u = safeStr(url);
-    if (!u) return "";
-    const lu = lowerKey(u);
-    if (lu.startsWith("javascript:")) return "";
-    if (lu.startsWith("http://") || lu.startsWith("https://")) return u;
-    return ""; // keep strict
-  }
-
   // ---------- Time window: 16:00–22:09 ----------
   function minutesSinceMidnight(d) {
     return d.getHours() * 60 + d.getMinutes();
@@ -66,13 +59,23 @@
   }
 
   // ---------- Storage (memory) ----------
-  // v7 (fix group label + default scoreMin 55 + block javascript urls + default size 50)
+  // v7 (split sections + client-side scoreMin for suggestions only)
   const STORE_KEY = "lm_econcerts_v7";
 
   function loadStore() {
     try {
       const raw = localStorage.getItem(STORE_KEY);
-      if (!raw) return { planIds: [], dismissedIds: [], lastRefreshAt: 0, groupByCity: true, baseApi: "" };
+      if (!raw) {
+        return {
+          planIds: [],
+          dismissedIds: [],
+          lastRefreshAt: 0,
+          groupByCity: true,
+          baseApi: "",
+          uiScoreMin: 55, // NEW: scoreMin used ONLY for "Προτάσεις"
+          heardPlaysMin: 5 // NEW: threshold for "Έχω ακούσει"
+        };
+      }
       const obj = JSON.parse(raw);
       return {
         planIds: Array.isArray(obj.planIds) ? obj.planIds : [],
@@ -80,9 +83,19 @@
         lastRefreshAt: Number(obj.lastRefreshAt || 0),
         groupByCity: Boolean(obj.groupByCity ?? true),
         baseApi: String(obj.baseApi || ""),
+        uiScoreMin: Number.isFinite(Number(obj.uiScoreMin)) ? Number(obj.uiScoreMin) : 55,
+        heardPlaysMin: Number.isFinite(Number(obj.heardPlaysMin)) ? Number(obj.heardPlaysMin) : 5,
       };
     } catch {
-      return { planIds: [], dismissedIds: [], lastRefreshAt: 0, groupByCity: true, baseApi: "" };
+      return {
+        planIds: [],
+        dismissedIds: [],
+        lastRefreshAt: 0,
+        groupByCity: true,
+        baseApi: "",
+        uiScoreMin: 55,
+        heardPlaysMin: 5
+      };
     }
   }
 
@@ -104,16 +117,17 @@
   }
 
   // ---------- econcerts API defaults ----------
-  // Default: NL-wide (no city, no radius).
-  // Sources: Ticketmaster + MetalAgenda
+  // IMPORTANT: we call worker with scoreMin=0 always (no server-side cutting).
+  // We apply scoreMin ONLY client-side for "Προτάσεις".
   const ECONCERTS_DEFAULTS = {
-    size: 100,
-    radiusKm: 70,       // only used if city is set
-    scoreMin: 50,       // ✅ cut weak matches by default
-    tasteArtists: 1000,
-    city: "Utrecht",           // empty => whole NL
+    size: 200,
+    radiusKm: 30,       // only used if city is set
+    // scoreMin here is UI (client-side) threshold for suggestions
+    scoreMin: (Number.isFinite(store.uiScoreMin) ? store.uiScoreMin : 55),
+    tasteArtists: 2000,
+    city: "",           // empty => whole NL
     countryCode: "NL",
-    sources: "tm,ma",   // ✅ Ticketmaster + MetalAgenda
+    sources: "tm,ma",
   };
 
   function normalizeSources(input) {
@@ -125,16 +139,35 @@
     return out.length ? out.join(",") : "tm,ma";
   }
 
+  // NEW: keep UI scoreMin separate from Worker scoreMin
+  function clampInt(n, a, b, fallback) {
+    const x = Number(n);
+    if (!Number.isFinite(x)) return fallback;
+    return Math.max(a, Math.min(b, Math.trunc(x)));
+  }
+
   async function fetchConcertsFromWorker(overrides = {}) {
     const cfg = { ...ECONCERTS_DEFAULTS, ...overrides };
     const base = getBaseApi();
 
+    // persist UI thresholds if passed
+    if (overrides && overrides.scoreMin != null) {
+      store.uiScoreMin = clampInt(overrides.scoreMin, 0, 100, store.uiScoreMin);
+      saveStore(store);
+    }
+    if (overrides && overrides.heardPlaysMin != null) {
+      store.heardPlaysMin = clampInt(overrides.heardPlaysMin, 0, 999999, store.heardPlaysMin);
+      saveStore(store);
+    }
+
     const u = new URL(base + "/econcerts");
 
-    // ✅ Worker-compatible params
     u.searchParams.set("sources", normalizeSources(cfg.sources));
     u.searchParams.set("size", String(cfg.size));
-    u.searchParams.set("scoreMin", String(cfg.scoreMin));
+
+    // IMPORTANT: Worker scoreMin is forced to 0 to avoid server-side filtering
+    u.searchParams.set("scoreMin", "0");
+
     u.searchParams.set("tasteArtists", String(cfg.tasteArtists));
     u.searchParams.set("countryCode", String(cfg.countryCode || "NL"));
 
@@ -143,7 +176,6 @@
       u.searchParams.set("city", city);
       u.searchParams.set("radiusKm", String(cfg.radiusKm));
     }
-    // ✅ IMPORTANT: if city is empty, DO NOT send radiusKm -> meta.radiusKm becomes null in worker
 
     const res = await fetch(u.toString(), { method: "GET" });
     const data = await res.json().catch(() => ({}));
@@ -156,7 +188,6 @@
     const events = Array.isArray(data.events) ? data.events : [];
     return events.map(ev => {
       const startStr = safeStr(ev.start);
-      // Worker returns ISO-like without tz; browser treats it as local time
       const startDate = new Date(startStr);
 
       return {
@@ -166,7 +197,7 @@
         city: safeStr(ev.city),
         venue: safeStr(ev.venue),
         start: startDate,
-        url: safeHttpUrl(ev.url), // ✅ block javascript:
+        url: safeStr(ev.url),
         country: "NL",
 
         plays: Number(ev.plays || 0),
@@ -175,11 +206,10 @@
         level: safeStr(ev.level || ""),
         startTs: Number(ev.startTs || 0) || (isValidDate(startDate) ? startDate.getTime() : 0),
         source: safeStr(ev.source || ev.src || "tm"),
-        star: Boolean(ev.star || false),
       };
     })
     .filter(x => x.id && x.artist && isValidDate(x.start))
-    .filter(x => isWithinShowWindow(x.start)); // ✅ ONLY 16:00–22:09
+    .filter(x => isWithinShowWindow(x.start)); // ONLY 16:00–22:09
   }
 
   // ---------- Tier helpers (fallback) ----------
@@ -236,8 +266,7 @@
     let why = "Looks doable";
 
     if (shift.type === "night") {
-      // You work 23:00 today, so evening plans can be risky.
-      if (hour >= 16 && hour <= 22) {
+      if (hour >= 0 && hour <= 22) {
         badge = "CONFLICT";
         why = "Night shift starts 23:00 today";
       }
@@ -259,7 +288,7 @@
       why = "Last day off — early wake-up next day";
     }
 
-    // ✅ Your rule: 2nd morning = MEDIUM (not easy)
+    // Your rule: 2nd morning = MEDIUM (not easy)
     if (shift.secondMorning) {
       if (badge === "FREE" || badge === "OK") {
         badge = "MEDIUM";
@@ -270,18 +299,14 @@
     return { badge, why, shift };
   }
 
-  // ---------- Dedupe (fix 4x Wu-Tang etc.) ----------
-  // Ticketmaster often returns same event with venue variations (Club/VIP/Packages).
-  // New dedupe key ignores venue name:
-  //   artist + timeBucket + city
-  // timeBucket rounds to 10 minutes to merge tiny inconsistencies but not different nights.
+  // ---------- Dedupe (fix multi duplicates) ----------
   function isVipUrl(url) {
     const u = lowerKey(url);
     return u.includes("vip") || u.includes("package") || u.includes("packages") || u.includes("hospitality") || u.includes("comfort");
   }
   function venueLooksLikeSubRoom(venue) {
     const v = lowerKey(venue);
-    return v.includes("club") || v.includes("room") || v.includes("loge") || v.includes("lounge") || v.includes("vinyl") || v.includes("bar");
+    return v.includes("club") || v.includes("room") || v.includes("lounge") || v.includes("vinyl") || v.includes("bar");
   }
   function timeBucket(ts) {
     const step = 10 * 60 * 1000; // 10 min
@@ -293,7 +318,6 @@
   }
 
   function pickBetterEvent(a, b) {
-    // Prefer: non-VIP url; cleaner venue (not sub-room); richer meta; higher score
     const aVip = isVipUrl(a.url);
     const bVip = isVipUrl(b.url);
     if (aVip !== bVip) return aVip ? b : a;
@@ -334,10 +358,16 @@
   // ---------- ★ rule (ONLY Tivoli + plays>=100) ----------
   function isTivoli(venueName) {
     const v = lowerKey(venueName);
-    return v.includes("tivoli vredenburg") || v.includes("tivolivredenburg");
+    return v.includes("tivolivredenburg") || v === "tivoli vredenburg" || v.includes("tivoli vredenburg");
   }
   function shouldStarEvent(ev) {
     return isTivoli(ev.venue) && Number(ev.plays || 0) >= 100;
+  }
+
+  // NEW: "heard" threshold
+  function isHeard(ev) {
+    const minPlays = Number.isFinite(Number(store.heardPlaysMin)) ? Number(store.heardPlaysMin) : 5;
+    return Number(ev.plays || 0) >= minPlays;
   }
 
   // state
@@ -350,9 +380,9 @@
 
   if (!listEl || !refreshBtn || !groupBtn) return;
 
-  // init group button (FIXED LABEL)
+  // init group button
   groupBtn.setAttribute("aria-pressed", store.groupByCity ? "true" : "false");
-  groupBtn.textContent = store.groupByCity ? "Ungroup" : "Group by city";
+  groupBtn.textContent = store.groupByCity ? "Group by city" : "Ungroup";
 
   // Add "Reset dismissed" button next to Refresh
   const resetBtn = document.createElement("button");
@@ -375,6 +405,16 @@
     setBaseApi(next) {
       store.baseApi = String(next || "").trim();
       saveStore(store);
+    },
+    setUiScoreMin(n) {
+      store.uiScoreMin = clampInt(n, 0, 100, store.uiScoreMin);
+      saveStore(store);
+      render(lastEvents);
+    },
+    setHeardPlaysMin(n) {
+      store.heardPlaysMin = clampInt(n, 0, 999999, store.heardPlaysMin);
+      saveStore(store);
+      render(lastEvents);
     },
     fetchNearUtrecht() {
       return refresh({ city: "Utrecht", radiusKm: 30 });
@@ -458,7 +498,6 @@
     meta2.className = "eMeta2";
     meta2.textContent = `Shift: ${shift.label} • ${why}`;
 
-    // Premium/minimal pills: Tier + Plays only
     const pills = document.createElement("div");
     pills.className = "ePills";
     pills.appendChild(pill(`Tier: ${tier}`));
@@ -472,7 +511,6 @@
     const right = document.createElement("div");
     right.className = "eRight";
 
-    // Single score + single badge (no duplicates)
     const scoreEl = document.createElement("div");
     scoreEl.className = "eScore";
     scoreEl.textContent = `${score}/100`;
@@ -522,7 +560,6 @@
       });
     }
 
-    // Link button (only if safe http url exists)
     if (event.url) {
       const btnLink = document.createElement("button");
       btnLink.className = "eBtn ghost";
@@ -558,25 +595,34 @@
   }
 
   function render(events) {
-    const visible = events.filter(ev => (isPlanned(ev.id) ? true : !isDismissed(ev.id)));
+    // visible = planned OR not dismissed
+    const visibleAll = events.filter(ev => (isPlanned(ev.id) ? true : !isDismissed(ev.id)));
 
     const computedMap = new Map();
-    for (const ev of visible) computedMap.set(ev.id, computePriority(ev));
+    for (const ev of visibleAll) computedMap.set(ev.id, computePriority(ev));
 
-    visible.sort((a, b) => {
+    // sort base by computed score desc then date asc
+    visibleAll.sort((a, b) => {
       const ca = computedMap.get(a.id).score;
       const cb = computedMap.get(b.id).score;
       if (cb !== ca) return cb - ca;
       return a.start.getTime() - b.start.getTime();
     });
 
-    if (!visible.length) {
+    if (!visibleAll.length) {
       setEmpty("No events yet. Tap Refresh.");
       return;
     }
 
-    const planned = visible.filter(ev => isPlanned(ev.id));
-    const suggested = visible.filter(ev => !isPlanned(ev.id));
+    const planned = visibleAll.filter(ev => isPlanned(ev.id));
+    const notPlanned = visibleAll.filter(ev => !isPlanned(ev.id));
+
+    const heard = notPlanned.filter(ev => isHeard(ev));
+    const suggestionsRaw = notPlanned.filter(ev => !isHeard(ev));
+
+    // NEW: scoreMin applies ONLY to suggestions
+    const uiScoreMin = clampInt(store.uiScoreMin, 0, 100, 55);
+    const suggestions = suggestionsRaw.filter(ev => computedMap.get(ev.id).score >= uiScoreMin);
 
     listEl.innerHTML = "";
 
@@ -619,10 +665,20 @@
     };
 
     addSection("My Plan", planned);
-    addSection("Upcoming", suggested);
+
+    const heardMin = clampInt(store.heardPlaysMin, 0, 999999, 5);
+    addSection(`Σίγουρα • Έχω ακούσει (Plays ≥ ${heardMin})`, heard);
+
+    addSection(`Προτάσεις • Discovery (Plays < ${heardMin}) • Score ≥ ${uiScoreMin}`, suggestions);
   }
 
   async function refresh(overrides = {}) {
+    // keep UI scoreMin in store if provided
+    if (overrides && overrides.scoreMin != null) {
+      store.uiScoreMin = clampInt(overrides.scoreMin, 0, 100, store.uiScoreMin);
+      saveStore(store);
+    }
+
     store.lastRefreshAt = Date.now();
     saveStore(store);
 
@@ -631,7 +687,7 @@
     try {
       const raw = await fetchConcertsFromWorker(overrides);
 
-      // ✅ dedupe here (kills the multi-event spam)
+      // dedupe here
       const events = dedupeEvents(raw);
 
       lastEvents = events;
@@ -649,7 +705,7 @@
     saveStore(store);
 
     groupBtn.setAttribute("aria-pressed", store.groupByCity ? "true" : "false");
-    groupBtn.textContent = store.groupByCity ? "Ungroup" : "Group by city";
+    groupBtn.textContent = store.groupByCity ? "Group by city" : "Ungroup";
 
     render(lastEvents);
   });

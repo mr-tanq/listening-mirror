@@ -1,5 +1,6 @@
 /* econcerts.js (FULL FILE REPLACE) — PART 1/3
-   TM-only • Premium/minimal • Better dedupe (fix 4x Wu-Tang) • ★ only (Tivoli + plays>=100)
+   TM + MetalAgenda • Premium/minimal • Better dedupe • ★ only (Tivoli + plays>=100)
+   + Time window filter: 16:00–22:09
 */
 (() => {
   "use strict";
@@ -43,9 +44,20 @@
     return d instanceof Date && !Number.isNaN(d.getTime());
   }
 
+  // ---------- Time window: 16:00–22:09 ----------
+  function minutesSinceMidnight(d) {
+    return d.getHours() * 60 + d.getMinutes();
+  }
+  function isWithinShowWindow(startDate) {
+    const m = minutesSinceMidnight(startDate);
+    const min = 16 * 60;        // 16:00
+    const max = 22 * 60 + 9;    // 22:09
+    return m >= min && m <= max;
+  }
+
   // ---------- Storage (memory) ----------
-  // v5 (new dedupe + star rules clean)
-  const STORE_KEY = "lm_econcerts_v5";
+  // v6 (added sources tm+ma default + time window filter)
+  const STORE_KEY = "lm_econcerts_v6";
 
   function loadStore() {
     try {
@@ -82,8 +94,8 @@
   }
 
   // ---------- econcerts API defaults ----------
-  // ✅ TM-only (no Bandsintown)
   // Default: NL-wide (no city, no radius).
+  // Sources: Ticketmaster + MetalAgenda
   const ECONCERTS_DEFAULTS = {
     size: 200,
     radiusKm: 30,       // only used if city is set
@@ -91,15 +103,26 @@
     tasteArtists: 1000,
     city: "",           // empty => whole NL
     countryCode: "NL",
-    sources: "tm",      // hard lock to Ticketmaster
+    sources: "tm,ma",   // ✅ Ticketmaster + MetalAgenda
   };
+
+  function normalizeSources(input) {
+    const raw = safeStr(input) || "tm,ma";
+    const parts = raw.split(",").map(s => lowerKey(s)).filter(Boolean);
+    const allowed = new Set(["tm", "ma"]);
+    const out = [];
+    for (const p of parts) if (allowed.has(p) && !out.includes(p)) out.push(p);
+    return out.length ? out.join(",") : "tm,ma";
+  }
 
   async function fetchConcertsFromWorker(overrides = {}) {
     const cfg = { ...ECONCERTS_DEFAULTS, ...overrides };
     const base = getBaseApi();
 
     const u = new URL(base + "/econcerts");
-    u.searchParams.set("sources", "tm"); // ✅ always tm
+
+    // ✅ allow tm + ma (worker decides)
+    u.searchParams.set("sources", normalizeSources(cfg.sources));
     u.searchParams.set("size", String(cfg.size));
     u.searchParams.set("scoreMin", String(cfg.scoreMin));
     u.searchParams.set("tasteArtists", String(cfg.tasteArtists));
@@ -139,9 +162,11 @@
         score: Number(ev.score || 0),
         level: safeStr(ev.level || ""),
         startTs: Number(ev.startTs || 0) || (isValidDate(startDate) ? startDate.getTime() : 0),
-        source: "tm",
+        source: safeStr(ev.source || ev.src || "tm"), // ✅ keep source
       };
-    }).filter(x => x.id && x.artist && isValidDate(x.start));
+    })
+    .filter(x => x.id && x.artist && isValidDate(x.start))
+    .filter(x => isWithinShowWindow(x.start)); // ✅ ONLY 16:00–22:09
   }
 
   // ---------- Tier helpers (fallback) ----------

@@ -248,48 +248,67 @@
   }
 
   // ---------- Dedupe ----------
-  function isVipUrl(url) {
-    const u = lowerKey(url);
-    return u.includes("vip") || u.includes("package") || u.includes("packages");
-  }
+  // ---------- Smart Concert Clustering (REAL dedupe) ----------
 
-  function softKey(ev) {
-    const ts = Number(ev.startTs || 0) || ev.start.getTime();
-    return [lowerKey(ev.artist), String(ts), lowerKey(ev.city), lowerKey(ev.venue)].join("|");
-  }
+function sameConcert(a, b) {
+  if (lowerKey(a.artist) !== lowerKey(b.artist)) return false;
+  if (lowerKey(a.city) !== lowerKey(b.city)) return false;
 
-  function pickBetterEvent(a, b) {
-    const aVip = isVipUrl(a.url);
-    const bVip = isVipUrl(b.url);
-    if (aVip !== bVip) return aVip ? b : a;
+  const dayA = toISODate(a.start);
+  const dayB = toISODate(b.start);
+  if (dayA !== dayB) return false;
 
-    const aMeta = (a.venue ? 1 : 0) + (a.city ? 1 : 0) + (a.attractions?.length ? 1 : 0);
-    const bMeta = (b.venue ? 1 : 0) + (b.city ? 1 : 0) + (b.attractions?.length ? 1 : 0);
-    if (aMeta !== bMeta) return bMeta > aMeta ? b : a;
+  const diff = Math.abs(a.start.getTime() - b.start.getTime());
+  return diff <= (2 * 60 * 60 * 1000); // within 2 hours
+}
 
-    const aScore = Number(a.score || 0);
-    const bScore = Number(b.score || 0);
-    if (aScore !== bScore) return bScore > aScore ? b : a;
+function eventQualityScore(ev) {
+  let score = 0;
 
-    return a;
-  }
+  // prefer main venue (no VIP words)
+  const url = lowerKey(ev.url);
+  if (!url.includes("vip") && !url.includes("package")) score += 4;
 
-  function dedupeEvents(events) {
-    const byId = new Map();
-    for (const ev of events) {
-      if (!ev || !ev.id) continue;
-      if (!byId.has(ev.id)) byId.set(ev.id, ev);
-      else byId.set(ev.id, pickBetterEvent(byId.get(ev.id), ev));
+  // prefer real venue name
+  if (ev.venue && ev.venue.length > 6) score += 2;
+
+  // prefer exact hour (20:00 typical concert)
+  const hour = ev.start.getHours();
+  if (hour >= 18 && hour <= 22) score += 2;
+
+  // prefer higher score from worker
+  score += Number(ev.score || 0) / 50;
+
+  return score;
+}
+
+function dedupeEvents(events) {
+  const groups = [];
+
+  for (const ev of events) {
+    let placed = false;
+
+    for (const group of groups) {
+      if (sameConcert(group[0], ev)) {
+        group.push(ev);
+        placed = true;
+        break;
+      }
     }
 
-    const bySoft = new Map();
-    for (const ev of byId.values()) {
-      const k = softKey(ev);
-      if (!bySoft.has(k)) bySoft.set(k, ev);
-      else bySoft.set(k, pickBetterEvent(bySoft.get(k), ev));
-    }
+    if (!placed) groups.push([ev]);
+  }
 
-    return Array.from(bySoft.values());
+  // pick best event from each group
+  const result = [];
+
+  for (const group of groups) {
+    group.sort((a, b) => eventQualityScore(b) - eventQualityScore(a));
+    result.push(group[0]);
+  }
+
+  return result;
+}(bySoft.values());
   }
 /* econcerts.js (FULL FILE REPLACE) — PART 3/4 */
 

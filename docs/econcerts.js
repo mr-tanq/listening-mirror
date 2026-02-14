@@ -1,6 +1,6 @@
 /* ============================
-   econcerts.js  (PART 1/4)
-   Full file - delete & paste all parts in order.
+   econcerts.js  (FULL FILE)
+   Delete everything in econcerts.js and paste this whole file.
    ============================ */
 
 (() => {
@@ -8,17 +8,17 @@
 
   // ---------- Helpers ----------
   const $ = (sel, root = document) => root.querySelector(sel);
-  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel)); // (kept for future)
 
   const pad2 = (n) => String(n).padStart(2, "0");
-  const clamp01 = (x) => Math.max(0, Math.min(1, x)));
+  const clamp01 = (x) => Math.max(0, Math.min(1, x));
 
   function toISODate(d) {
     return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
   }
 
   function parseLocalDateTime(isoLike) {
-    // expects "YYYY-MM-DDTHH:mm"
+    // expects "YYYY-MM-DDTHH:mm" (no timezone) -> local Date
     const [datePart, timePart] = String(isoLike || "").split("T");
     const [y, m, d] = (datePart || "").split("-").map(Number);
     const [hh, mm] = (timePart || "").split(":").map(Number);
@@ -61,6 +61,9 @@
   function saveStore(next) {
     localStorage.setItem(STORE_KEY, JSON.stringify(next));
   }
+
+  // We'll initialize store early so other helpers can safely read it.
+  let store = loadStore();
 
   // ---------- Cloudflare Worker base ----------
   // Priority:
@@ -182,11 +185,13 @@
     let why = "Looks doable";
 
     if (shift.type === "night") {
+      // Night shift starts 23:00 same day -> a concert earlier that day is conflict
       if (hour >= 0 && hour <= 22) {
         badge = "CONFLICT";
         why = "Night shift starts 23:00 today";
       }
     } else if (shift.type === "afternoon") {
+      // Work until 23:00 -> evening show conflicts
       if (hour >= 15) {
         badge = "CONFLICT";
         why = "Afternoon shift ends 23:00";
@@ -212,7 +217,11 @@
     return { badge, why, shift };
   }
 
-  // ---------- Fallback mock events (only used if worker fails) ----------
+  // ---------- Fallback mock events (ONLY if worker fails) ----------
+  // You said: "I don't want to see fake" -> so this is only a safety net.
+  // If you want ZERO fake even on errors, set USE_MOCK_FALLBACK = false.
+  const USE_MOCK_FALLBACK = false;
+
   function mockFetchConcertsNL() {
     const now = new Date();
     const y = now.getFullYear();
@@ -249,7 +258,6 @@
   }
 
   // state
-  let store = loadStore();
   let lastEvents = [];
 
   // UI nodes
@@ -258,6 +266,7 @@
   const groupBtn = $("#econcertsToggleGroup");
 
   if (!listEl || !refreshBtn || !groupBtn) {
+    // panel not present -> do nothing safely
     return;
   }
 
@@ -274,9 +283,6 @@
       saveStore(store);
     }
   };
-/* ============================
-   econcerts.js  (PART 2/4)
-   ============================ */
 
   function computePriority(event) {
     const plays = Number(event.plays || 0);
@@ -525,9 +531,6 @@
     addSection("My Plan", planned);
     addSection("Upcoming", suggested);
   }
-/* ============================
-   econcerts.js  (PART 3/4)
-   ============================ */
 
   async function refresh() {
     store.lastRefreshAt = Date.now();
@@ -542,13 +545,20 @@
       render(events);
       return;
     } catch (err) {
-      // fallback: mock
-      console.warn("[eConcerts] worker fetch failed, using mock:", err);
+      console.warn("[eConcerts] worker fetch failed:", err);
+
+      // You said: no fake. So by default we do NOT show mock.
+      if (!USE_MOCK_FALLBACK) {
+        lastEvents = [];
+        setEmpty(`Worker error: ${String(err && err.message ? err.message : err)}`);
+        return;
+      }
+
+      // optional fallback: mock
       const events = await mockFetchConcertsNL();
       lastEvents = events;
       render(events);
 
-      // small hint in UI (non-blocking)
       const hint = document.createElement("div");
       hint.className = "eEmpty";
       hint.style.opacity = ".8";
@@ -605,11 +615,3 @@
   debugShiftForNextDays();
 
 })();
-/* ============================
-   econcerts.js  (PART 4/4)
-   NOTES:
-   - If you want to change base API at runtime from console:
-     window.__LM_ECONCERTS__.setBaseApi("https://i.errtanq9.workers.dev")
-   - To test without filtering:
-     change ECONCERTS_DEFAULTS.scoreMin from 50 to 0
-   ============================ */

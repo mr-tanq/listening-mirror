@@ -9,7 +9,12 @@
    + FIXES FOR TIVOLI:
      - allow sources: tm, ma, tv
      - use startTs for Date (avoid parsing Amsterdam-local string without timezone)
+   + NEW (what you asked):
+     - Stop “irrelevant Tivoli” suggestions (talks, specials, podcasts, etc.)
+     - Rule: Tivoli items can appear in Suggestions ONLY if they look like MUSIC.
+       (Heard/My Plan always show even if title looks non-music.)
 */
+
 (() => {
   "use strict";
 
@@ -41,8 +46,8 @@
   }
 
   // ---------- Storage ----------
-  // v7 (split view + UI filters + worker scoreMin forced 0)
-  const STORE_KEY = "lm_econcerts_v7";
+  // v8 (tivoli non-music suggestion filter)
+  const STORE_KEY = "lm_econcerts_v8";
 
   function loadStore() {
     try {
@@ -56,6 +61,9 @@
           baseApi: "",
           uiScoreMin: 40,       // only applies to Suggestions
           heardPlaysMin: 5,     // "heard standard" threshold
+
+          // ✅ New: hide non-music Tivoli in Suggestions
+          hideNonMusicTvSuggestions: true,
         };
       }
       const obj = JSON.parse(raw);
@@ -67,6 +75,8 @@
         baseApi: String(obj.baseApi || ""),
         uiScoreMin: Number.isFinite(Number(obj.uiScoreMin)) ? Number(obj.uiScoreMin) : 40,
         heardPlaysMin: Number.isFinite(Number(obj.heardPlaysMin)) ? Number(obj.heardPlaysMin) : 5,
+
+        hideNonMusicTvSuggestions: Boolean(obj.hideNonMusicTvSuggestions ?? true),
       };
     } catch {
       return {
@@ -77,6 +87,7 @@
         baseApi: "",
         uiScoreMin: 40,
         heardPlaysMin: 5,
+        hideNonMusicTvSuggestions: true,
       };
     }
   }
@@ -99,23 +110,20 @@
   }
 
   // ---------- econcerts API defaults ----------
-  // RULES:
-  // - tasteArtists is ALWAYS 1000 (your rule)
-  // - worker scoreMin forced to 0 to avoid worker-side bugs and let UI filter suggestions
   const ECONCERTS_DEFAULTS = {
     size: 50,
-    radiusKm: 30,       // only used if city is set
-    scoreMin: 0,        // forced 0 (worker-side)
-    tasteArtists: 1000, // fixed
-    city: "",           // empty => whole NL
+    radiusKm: 30,
+    scoreMin: 0,
+    tasteArtists: 1000,
+    city: "",
     countryCode: "NL",
-    sources: "tm,ma,tv", // ✅ include Tivoli
+    sources: "tm,ma,tv",
   };
 
   function normalizeSources(input) {
     const raw = safeStr(input) || "tm,ma,tv";
     const parts = raw.split(",").map(s => lowerKey(s)).filter(Boolean);
-    const allowed = new Set(["tm", "ma", "tv"]); // ✅ allow tv
+    const allowed = new Set(["tm", "ma", "tv"]);
     const out = [];
     for (const p of parts) if (allowed.has(p) && !out.includes(p)) out.push(p);
     return out.length ? out.join(",") : "tm,ma,tv";
@@ -126,11 +134,10 @@
     const base = getBaseApi();
     const u = new URL(base + "/econcerts");
 
-    // worker params
     u.searchParams.set("sources", normalizeSources(cfg.sources));
     u.searchParams.set("size", String(cfg.size));
-    u.searchParams.set("scoreMin", "0");                // ✅ ALWAYS 0
-    u.searchParams.set("tasteArtists", "1000");         // ✅ ALWAYS 1000
+    u.searchParams.set("scoreMin", "0");        // ✅ ALWAYS 0
+    u.searchParams.set("tasteArtists", "1000"); // ✅ ALWAYS 1000
     u.searchParams.set("countryCode", String(cfg.countryCode || "NL"));
 
     const city = safeStr(cfg.city);
@@ -151,8 +158,6 @@
 
     return events.map(ev => {
       const startTs = Number(ev.startTs || 0);
-
-      // ✅ Always build Date from epoch (fixes Amsterdam-local string parsing issues)
       const startDate = startTs ? new Date(startTs) : new Date(safeStr(ev.start));
 
       return {
@@ -185,7 +190,7 @@
     return v.includes("club") || v.includes("room") || v.includes("lounge") || v.includes("vinyl") || v.includes("bar");
   }
   function timeBucket(ts) {
-    const step = 10 * 60 * 1000; // 10 min
+    const step = 10 * 60 * 1000;
     return Math.round(ts / step) * step;
   }
   function softKey(ev) {
@@ -227,14 +232,72 @@
     return Array.from(bySoft.values());
   }
 
-  // ---------- Simple scoring model (UI-side bonus only) ----------
-  // We trust worker.score as the “music match” score.
-  // UI final score = worker.score + Utrecht bonus (+4).
+  // ---------- UI-side score ----------
   function computeFinalScore(event) {
     let s = Number(event.score || 0);
     if (lowerKey(event.city) === "utrecht") s += 4;
     s = Math.max(0, Math.min(100, Math.round(s)));
     return s;
+  }
+
+  // ---------- Tivoli “music-only suggestions” filter ----------
+  // Goal: stop suggesting talks/specials/etc from Tivoli when you have 0 plays.
+  // This does NOT affect:
+  // - My Plan
+  // - Heard (plays >= heardPlaysMin)
+  //
+  // It ONLY gates “Suggestions” for source=tv.
+  function tvLooksLikeMusic(ev) {
+    const title = lowerKey(ev?.artist || "");
+    const venue = lowerKey(ev?.venue || "");
+    const url = lowerKey(ev?.url || "");
+    const blob = `${title} ${venue} ${url}`.trim();
+
+    // If it explicitly looks like a concert, let it through.
+    const musicYes = [
+      "concert", "live", "album release", "release show", "tour",
+      "ft.", "feat", "featuring", "support", "special guest",
+      "dj", "clubnight", "club night", "afterparty", "after party",
+      "orchestra", "symphony", "ensemble", "quartet", "trio",
+      "impro", "improvis", "jazz", "metal", "doom", "ambient",
+      "electronic", "techno", "house", "dnb", "drum", "bass",
+      "hiphop", "hip-hop", "rap", "indie", "rock", "pop",
+      "folk", "classical",
+    ];
+
+    // If it looks like a talk/lecture/event (non-music), block it.
+    const musicNo = [
+      // English
+      "talk", "lecture", "debate", "panel", "workshop", "masterclass", "conference", "symposium",
+      "podcast", "q&a", "screening", "film", "theatre", "theater", "dance", "comedy", "cabaret",
+      "kids", "children", "family", "expo", "exhibition",
+      // Dutch
+      "lezing", "debat", "workshop", "college", "congres", "symposium",
+      "podcast", "film", "theater", "dans", "cabaret",
+      "kind", "kinderen", "familie",
+      // Specific “special” vibes that are often not concerts
+      "how-to", "special", "olympics", "winter olympics", "tech bro", "tech bros", "hoe ",
+    ];
+
+    // Strong allow: Tivoli pages that clearly are music programs
+    for (const k of musicYes) {
+      if (blob.includes(k)) return true;
+    }
+
+    // Strong deny: looks like non-music program
+    for (const k of musicNo) {
+      if (blob.includes(k)) return false;
+    }
+
+    // Neutral fallback:
+    // If we cannot tell, we assume NOT MUSIC for Suggestions
+    // (because Tivoli has a lot of non-music programs).
+    return false;
+  }
+
+  function isTvSource(ev) {
+    const s = lowerKey(ev?.source || "");
+    return s === "tv";
   }
 
   // ---------- State + UI nodes ----------
@@ -267,6 +330,7 @@
   window.__LM_ECONCERTS__ = {
     get store() { return store; },
     get lastEvents() { return lastEvents; },
+
     setBaseApi(next) {
       store.baseApi = String(next || "").trim();
       saveStore(store);
@@ -278,6 +342,13 @@
     },
     setHeardPlaysMin(n) {
       store.heardPlaysMin = Math.max(0, Math.min(999999, Number(n) || 0));
+      saveStore(store);
+      render(lastEvents);
+    },
+
+    // ✅ Toggle: if you ever want to see all Tivoli suggestions again
+    setHideNonMusicTvSuggestions(on) {
+      store.hideNonMusicTvSuggestions = Boolean(on);
       saveStore(store);
       render(lastEvents);
     },
@@ -326,7 +397,6 @@
     artist.className = "eArtist";
     artist.textContent = event.artist;
 
-    // Minimal meta line
     const meta = document.createElement("div");
     meta.className = "eMeta";
     const venuePart = event.venue ? ` • ${event.venue}` : "";
@@ -337,10 +407,14 @@
     if (sectionType === "heard") {
       meta2.textContent = `You have listened to this artist (plays ≥ ${store.heardPlaysMin}).`;
     } else {
-      meta2.textContent = `Suggestion based on your taste (score ≥ ${store.uiScoreMin}).`;
+      // For tv, clarify it is “music-only suggestions”
+      if (isTvSource(event) && store.hideNonMusicTvSuggestions) {
+        meta2.textContent = `Suggestion based on your taste (score ≥ ${store.uiScoreMin}) • Tivoli music-only.`;
+      } else {
+        meta2.textContent = `Suggestion based on your taste (score ≥ ${store.uiScoreMin}).`;
+      }
     }
 
-    // Pills: plays + source (small info)
     const pills = document.createElement("div");
     pills.className = "ePills";
     pills.appendChild(pill(`Plays: ${Number(event.plays || 0)}`));
@@ -438,27 +512,34 @@
   }
 
   function render(events) {
-    // Show planned always; hide dismissed unless planned
     const visible = events.filter(ev => (isPlanned(ev.id) ? true : !isDismissed(ev.id)));
 
     const heardMin = Number(store.heardPlaysMin || 5);
     const uiMin = Number(store.uiScoreMin || 40);
 
-    // Compute final score map once
     const finalMap = new Map();
     for (const ev of visible) finalMap.set(ev.id, computeFinalScore(ev));
 
-    // Planned first
     const planned = visible.filter(ev => isPlanned(ev.id));
-
-    // Non-planned:
     const rest = visible.filter(ev => !isPlanned(ev.id));
 
-    // Heard (standard): plays >= heardMin
     const heard = rest.filter(ev => Number(ev.plays || 0) >= heardMin);
 
-    // Suggestions: plays < heardMin and finalScore >= uiMin
-    const suggestions = rest.filter(ev => Number(ev.plays || 0) < heardMin && finalMap.get(ev.id) >= uiMin);
+    // ✅ Suggestions with Tivoli non-music filter
+    const suggestions = rest.filter(ev => {
+      const plays = Number(ev.plays || 0);
+      if (plays >= heardMin) return false;
+
+      const scoreOk = (finalMap.get(ev.id) >= uiMin);
+      if (!scoreOk) return false;
+
+      // If it's Tivoli and toggle is on, only show if title looks like MUSIC.
+      if (store.hideNonMusicTvSuggestions && isTvSource(ev)) {
+        return tvLooksLikeMusic(ev);
+      }
+
+      return true;
+    });
 
     function sortByScoreThenDate(a, b) {
       const sa = finalMap.get(a.id);
@@ -477,7 +558,6 @@
 
     suggestions.sort(sortByScoreThenDate);
 
-    // Render
     listEl.innerHTML = "";
 
     const addSection = (title, arr, typeForCards) => {
@@ -542,8 +622,6 @@
 
     try {
       const raw = await fetchConcertsFromWorker(overrides);
-
-      // ✅ dedupe to kill VIP/comfort spam etc.
       const events = dedupeEvents(raw);
 
       lastEvents = events;
@@ -568,7 +646,7 @@
 
   // Refresh button
   refreshBtn.addEventListener("click", async () => {
-    await refresh(); // NL-wide default
+    await refresh();
   });
 
   // initial load

@@ -1,9 +1,7 @@
 /* econcerts.js (FULL FILE REPLACE) — SINGLE PART
-   ✅ FIX: Show Patronaat/Doornroosje/Effenaar/Fluor/Neushoorn/dB’s etc
-   ✅ FIX: If MetalAgenda drops an event as "no_match_to_taste_or_ecosystem",
-          we STILL surface it under "Venue Watch" (so you won't miss Sólstafir etc.)
-   ✅ ADD: Whitelisted venues filter (default ON)
-   ✅ Keeps your existing UI: #econcertsList, #econcertsRefresh, #econcertsToggleGroup
+   ✅ TM + MetalAgenda + Tivoli
+   ✅ Venue whitelist affects ONLY MetalAgenda (+ Venue Watch), NOT TM/TV
+   ✅ Keeps "Venue Watch" from dropped[] so you don't miss Patronaat etc
 */
 (() => {
   "use strict";
@@ -49,9 +47,16 @@
     return Array.from(new Set(arr));
   }
 
+  function looksLikeMA(ev) {
+    const src = lowerKey(ev?.source || ev?.src || "");
+    if (src === "ma") return true;
+    const id = safeStr(ev?.id);
+    return id.startsWith("ma:");
+  }
+
   // ---------- Storage ----------
-  // v8 (adds venue whitelist + Venue Watch from dropped[])
-  const STORE_KEY = "lm_econcerts_v8";
+  // v9 (TM+TV back + whitelist only for MA)
+  const STORE_KEY = "lm_econcerts_v9";
 
   function loadStore() {
     try {
@@ -63,9 +68,9 @@
           lastRefreshAt: 0,
           groupByCity: true,
           baseApi: "",
-          uiScoreMin: 40,       // Suggestions threshold
-          heardPlaysMin: 5,     // Heard threshold
-          venueOnly: true,      // ✅ show only whitelisted venues by default
+          uiScoreMin: 40,
+          heardPlaysMin: 5,
+          venueOnly: true, // only applies to MA + Venue Watch
         };
       }
       const obj = JSON.parse(raw);
@@ -110,8 +115,7 @@
     return base.replace(/\/+$/, "");
   }
 
-  // ---------- Venue whitelist (MetalAgenda venue pages) ----------
-  // These are the ones you said are MUST: Patronaat/Doornroosje/Fluor/Neushoorn/dB’s (+ core)
+  // ---------- MA venue whitelist ----------
   const MA_VENUE_WHITELIST = uniq([
     "https://www.metalagenda.nl/venues/tivoli-vredenburg",
     "https://www.metalagenda.nl/venues/de-helling",
@@ -130,10 +134,9 @@
     "https://www.metalagenda.nl/venues/occii",
   ]);
 
-  function isWhitelistedVenueUrl(url) {
+  function isWhitelistedMAUrl(url) {
     const u = safeStr(url);
     if (!u) return false;
-    // exact match or startsWith (in case of trailing slash differences)
     return MA_VENUE_WHITELIST.some(v => u === v || u === (v + "/") || u.startsWith(v + "?") || u.startsWith(v + "/"));
   }
 
@@ -145,16 +148,16 @@
     tasteArtists: 1000,  // forced 1000
     city: "",            // empty => whole NL
     countryCode: "NL",
-    sources: "ma",       // keep simple for now (MetalAgenda)
+    sources: "tm,ma,tv", // ✅ IMPORTANT: bring TM + TV back
   };
 
   function normalizeSources(input) {
-    const raw = safeStr(input) || "ma";
+    const raw = safeStr(input) || "tm,ma,tv";
     const parts = raw.split(",").map(s => lowerKey(s)).filter(Boolean);
     const allowed = new Set(["tm", "ma", "tv", "pi"]);
     const out = [];
     for (const p of parts) if (allowed.has(p) && !out.includes(p)) out.push(p);
-    return out.length ? out.join(",") : "ma";
+    return out.length ? out.join(",") : "tm,ma,tv";
   }
 
   async function fetchConcertsFromWorker(overrides = {}) {
@@ -164,8 +167,8 @@
 
     u.searchParams.set("sources", normalizeSources(cfg.sources));
     u.searchParams.set("size", String(cfg.size));
-    u.searchParams.set("scoreMin", "0");         // ALWAYS 0
-    u.searchParams.set("tasteArtists", "1000");  // ALWAYS 1000
+    u.searchParams.set("scoreMin", "0");
+    u.searchParams.set("tasteArtists", "1000");
     u.searchParams.set("countryCode", String(cfg.countryCode || "NL"));
 
     const city = safeStr(cfg.city);
@@ -196,6 +199,7 @@
         venue: safeStr(ev.venue),
         start: startDate,
         url: safeStr(ev.url),
+
         plays: Number(ev.plays || 0),
         tier: safeStr(ev.tier || "discovery"),
         score: Number(ev.score || 0),
@@ -207,15 +211,14 @@
       };
     }).filter(x => x.id && x.artist && isValidDate(x.start));
 
-    // ✅ Turn "dropped" into visible "Venue Watch" items (no date given by worker)
-    // We keep them separate section; they still have a link to the venue page.
+    // Venue Watch from dropped (usually MA)
     const mappedDropped = dropped.map(d => ({
       id: safeStr(d.id),
       artist: safeStr(d.title || "Unknown"),
       attractions: [],
       city: "",
       venue: "",
-      start: new Date(0),                 // placeholder (we won’t show a real date)
+      start: new Date(0),
       url: safeStr(d.url),
       plays: 0,
       tier: "venue_watch",
@@ -240,7 +243,7 @@
     return v.includes("club") || v.includes("room") || v.includes("lounge") || v.includes("vinyl") || v.includes("bar");
   }
   function timeBucket(ts) {
-    const step = 10 * 60 * 1000; // 10 min
+    const step = 10 * 60 * 1000;
     return Math.round(ts / step) * step;
   }
   function softKey(ev) {
@@ -282,7 +285,7 @@
     return Array.from(bySoft.values());
   }
 
-  // ---------- UI-side final score (tiny bonus only) ----------
+  // ---------- UI-side final score ----------
   function computeFinalScore(event) {
     let s = Number(event.score || 0);
     if (lowerKey(event.city) === "utrecht") s += 4;
@@ -316,8 +319,8 @@
   const venueBtn = document.createElement("button");
   venueBtn.className = "eBtn ghost";
   venueBtn.type = "button";
-  venueBtn.textContent = store.venueOnly ? "Venues: Only whitelist" : "Venues: All";
-  venueBtn.title = "Toggle showing only your key venues (Patronaat, Doornroosje, etc.)";
+  venueBtn.textContent = store.venueOnly ? "MA Venues: Only whitelist" : "MA Venues: All";
+  venueBtn.title = "This filters ONLY MetalAgenda (+ Venue Watch). TM/TV always show.";
   controlsWrap.appendChild(venueBtn);
 
   resetBtn.addEventListener("click", () => {
@@ -329,7 +332,7 @@
   venueBtn.addEventListener("click", () => {
     store.venueOnly = !store.venueOnly;
     saveStore(store);
-    venueBtn.textContent = store.venueOnly ? "Venues: Only whitelist" : "Venues: All";
+    venueBtn.textContent = store.venueOnly ? "MA Venues: Only whitelist" : "MA Venues: All";
     render(lastEvents, lastDropped);
   });
 
@@ -535,38 +538,34 @@
   function render(events, dropped) {
     const venueOnly = Boolean(store.venueOnly);
 
-    // Filter by whitelist if enabled (only affects real events; dropped are already venue-pages)
-    let filtered = events;
+    // ✅ Filter ONLY MA events when venueOnly = true.
+    // TM/TV always pass through.
+    let visibleBase = events.slice();
     if (venueOnly) {
-      filtered = events.filter(ev => isWhitelistedVenueUrl(ev.url));
+      visibleBase = visibleBase.filter(ev => {
+        if (!looksLikeMA(ev)) return true; // keep TM/TV always
+        return isWhitelistedMAUrl(ev.url);
+      });
     }
 
-    // Show planned always; hide dismissed unless planned
-    const visible = filtered.filter(ev => (isPlanned(ev.id) ? true : !isDismissed(ev.id)));
+    // Hide dismissed (unless planned)
+    const visible = visibleBase.filter(ev => (isPlanned(ev.id) ? true : !isDismissed(ev.id)));
 
     const heardMin = Number(store.heardPlaysMin || 5);
     const uiMin = Number(store.uiScoreMin || 40);
 
-    // Compute final score map once
     const finalMap = new Map();
     for (const ev of visible) finalMap.set(ev.id, computeFinalScore(ev));
 
-    // Planned first
     const planned = visible.filter(ev => isPlanned(ev.id));
     const rest = visible.filter(ev => !isPlanned(ev.id));
 
-    // Heard: plays >= heardMin
     const heard = rest.filter(ev => Number(ev.plays || 0) >= heardMin);
-
-    // Suggestions: plays < heardMin AND score >= uiMin
     const suggestions = rest.filter(ev => Number(ev.plays || 0) < heardMin && finalMap.get(ev.id) >= uiMin);
 
-    // Venue Watch: dropped items (optionally filtered to whitelist too)
+    // Venue Watch (dropped) — filter whitelist only if venueOnly
     let watch = Array.isArray(dropped) ? dropped.slice() : [];
-    if (venueOnly) {
-      watch = watch.filter(ev => isWhitelistedVenueUrl(ev.url));
-    }
-    // Hide dismissed watch items too
+    if (venueOnly) watch = watch.filter(ev => isWhitelistedMAUrl(ev.url));
     watch = watch.filter(ev => !isDismissed(ev.id));
 
     function sortByScoreThenDate(a, b) {
@@ -587,7 +586,6 @@
 
     suggestions.sort(sortByScoreThenDate);
 
-    // Render
     listEl.innerHTML = "";
 
     const addSection = (title, arr, typeForCards) => {
@@ -613,18 +611,13 @@
       }
 
       if (typeForCards === "watch") {
-        // No grouping needed (no city/date from worker)
-        for (const ev of arr) {
-          wrap.appendChild(buildCard(ev, 0, "watch"));
-        }
+        for (const ev of arr) wrap.appendChild(buildCard(ev, 0, "watch"));
         listEl.appendChild(wrap);
         return;
       }
 
       if (!store.groupByCity) {
-        for (const ev of arr) {
-          wrap.appendChild(buildCard(ev, finalMap.get(ev.id), typeForCards));
-        }
+        for (const ev of arr) wrap.appendChild(buildCard(ev, finalMap.get(ev.id), typeForCards));
       } else {
         const grouped = groupByCity(arr);
         for (const [city, items] of grouped) {
@@ -635,9 +628,7 @@
           wrap.appendChild(cityPill);
 
           items.sort((a, b) => a.start.getTime() - b.start.getTime());
-          for (const ev of items) {
-            wrap.appendChild(buildCard(ev, finalMap.get(ev.id), typeForCards));
-          }
+          for (const ev of items) wrap.appendChild(buildCard(ev, finalMap.get(ev.id), typeForCards));
         }
       }
 
@@ -662,8 +653,6 @@
 
     try {
       const { events: rawEvents, dropped: rawDropped } = await fetchConcertsFromWorker(overrides);
-
-      // dedupe real events only
       const events = dedupeEvents(rawEvents);
 
       lastEvents = events;
@@ -691,7 +680,7 @@
 
   // Refresh button
   refreshBtn.addEventListener("click", async () => {
-    await refresh(); // default NL-wide
+    await refresh();
   });
 
   // initial load

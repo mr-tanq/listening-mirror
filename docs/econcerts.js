@@ -1,4 +1,4 @@
-/* econcerts.js (FULL FILE REPLACE) — PART 1/2
+/* econcerts.js (FULL FILE REPLACE) — SINGLE PART
    TM + MetalAgenda + Tivoli • Premium/minimal • Better dedupe
    + SPLIT VIEW:
      - "Heard (Standard)" = plays >= heardPlaysMin
@@ -9,8 +9,8 @@
    + FIXES FOR TIVOLI:
      - allow sources: tm, ma, tv
      - use startTs for Date (avoid parsing Amsterdam-local string without timezone)
-   + UI:
-     - Date format: 05.08.2026 (DD.MM.YYYY)
+   + UI DATE FORMAT:
+     - display as DD.MM.YYYY • HH:mm (Europe/Amsterdam)
 */
 (() => {
   "use strict";
@@ -21,14 +21,30 @@
 
   const pad2 = (n) => String(n).padStart(2, "0");
 
-  // ✅ DD.MM.YYYY • HH:mm
+  function isValidDate(d) {
+    return d instanceof Date && !Number.isNaN(d.getTime());
+  }
+
+  // ✅ DD.MM.YYYY • HH:mm in Europe/Amsterdam (stable)
   function formatDateTime(d) {
-    const dd = pad2(d.getDate());
-    const mm = pad2(d.getMonth() + 1);
-    const y = d.getFullYear();
-    const hh = pad2(d.getHours());
-    const min = pad2(d.getMinutes());
-    return `${dd}.${mm}.${y} • ${hh}:${min}`;
+    if (!isValidDate(d)) return "";
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/Amsterdam",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(d);
+
+    const get = (type) => parts.find((p) => p.type === type)?.value || "00";
+    const dd = get("day");
+    const mm = get("month");
+    const yyyy = get("year");
+    const hh = get("hour");
+    const min = get("minute");
+    return `${dd}.${mm}.${yyyy} • ${hh}:${min}`;
   }
 
   function lowerKey(s) {
@@ -39,11 +55,8 @@
     return String(s || "").trim();
   }
 
-  function isValidDate(d) {
-    return d instanceof Date && !Number.isNaN(d.getTime());
-  }
-
   // ---------- Storage ----------
+  // v7 (split view + UI filters + worker scoreMin forced 0)
   const STORE_KEY = "lm_econcerts_v7";
 
   function loadStore() {
@@ -56,8 +69,8 @@
           lastRefreshAt: 0,
           groupByCity: true,
           baseApi: "",
-          uiScoreMin: 40,
-          heardPlaysMin: 5,
+          uiScoreMin: 40,       // only applies to Suggestions
+          heardPlaysMin: 5,     // "heard standard" threshold
         };
       }
       const obj = JSON.parse(raw);
@@ -103,10 +116,10 @@
   // ---------- econcerts API defaults ----------
   const ECONCERTS_DEFAULTS = {
     size: 50,
-    radiusKm: 30,
-    scoreMin: 0,
-    tasteArtists: 1000,
-    city: "",
+    radiusKm: 30,       // only used if city is set
+    scoreMin: 0,        // forced 0 (worker-side)
+    tasteArtists: 1000, // fixed
+    city: "",           // empty => whole NL
     countryCode: "NL",
     sources: "tm,ma,tv",
   };
@@ -127,8 +140,8 @@
 
     u.searchParams.set("sources", normalizeSources(cfg.sources));
     u.searchParams.set("size", String(cfg.size));
-    u.searchParams.set("scoreMin", "0");
-    u.searchParams.set("tasteArtists", "1000");
+    u.searchParams.set("scoreMin", "0");                // ✅ ALWAYS 0
+    u.searchParams.set("tasteArtists", "1000");         // ✅ ALWAYS 1000
     u.searchParams.set("countryCode", String(cfg.countryCode || "NL"));
 
     const city = safeStr(cfg.city);
@@ -170,8 +183,7 @@
       };
     }).filter(x => x.id && x.artist && isValidDate(x.start));
   }
-
-  // ---------- Dedupe ----------
+// ---------- Dedupe ----------
   function isVipUrl(url) {
     const u = lowerKey(url);
     return u.includes("vip") || u.includes("package") || u.includes("packages") || u.includes("hospitality") || u.includes("comfort");
@@ -181,7 +193,7 @@
     return v.includes("club") || v.includes("room") || v.includes("lounge") || v.includes("vinyl") || v.includes("bar");
   }
   function timeBucket(ts) {
-    const step = 10 * 60 * 1000;
+    const step = 10 * 60 * 1000; // 10 min
     return Math.round(ts / step) * step;
   }
   function softKey(ev) {
@@ -223,6 +235,7 @@
     return Array.from(bySoft.values());
   }
 
+  // ---------- Simple scoring model (UI-side bonus only) ----------
   function computeFinalScore(event) {
     let s = Number(event.score || 0);
     if (lowerKey(event.city) === "utrecht") s += 4;
@@ -242,6 +255,7 @@
   groupBtn.setAttribute("aria-pressed", store.groupByCity ? "true" : "false");
   groupBtn.textContent = store.groupByCity ? "Group by city" : "Ungroup";
 
+  // Add "Reset dismissed" button next to Refresh
   const resetBtn = document.createElement("button");
   resetBtn.className = "eBtn ghost";
   resetBtn.type = "button";
@@ -255,6 +269,7 @@
     render(lastEvents);
   });
 
+  // Debug helpers (simple + safe)
   window.__LM_ECONCERTS__ = {
     get store() { return store; },
     get lastEvents() { return lastEvents; },
@@ -304,8 +319,7 @@
     div.textContent = text;
     return div;
   }
-
-  function buildCard(event, finalScore, sectionType) {
+function buildCard(event, finalScore, sectionType) {
     const card = document.createElement("div");
     card.className = "eCard";
     card.dataset.id = event.id;
@@ -317,6 +331,7 @@
     artist.className = "eArtist";
     artist.textContent = event.artist;
 
+    // Minimal meta line
     const meta = document.createElement("div");
     meta.className = "eMeta";
     const venuePart = event.venue ? ` • ${event.venue}` : "";
@@ -330,6 +345,7 @@
       meta2.textContent = `Suggestion based on your taste (score ≥ ${store.uiScoreMin}).`;
     }
 
+    // Pills: plays + source (small info)
     const pills = document.createElement("div");
     pills.className = "ePills";
     pills.appendChild(pill(`Plays: ${Number(event.plays || 0)}`));
@@ -415,7 +431,8 @@
 
     return card;
   }
-function groupByCity(events) {
+
+  function groupByCity(events) {
     const map = new Map();
     for (const ev of events) {
       const key = ev.city || "Unknown";
@@ -426,17 +443,26 @@ function groupByCity(events) {
   }
 
   function render(events) {
+    // Show planned always; hide dismissed unless planned
     const visible = events.filter(ev => (isPlanned(ev.id) ? true : !isDismissed(ev.id)));
 
     const heardMin = Number(store.heardPlaysMin || 5);
     const uiMin = Number(store.uiScoreMin || 40);
 
+    // Compute final score map once
     const finalMap = new Map();
     for (const ev of visible) finalMap.set(ev.id, computeFinalScore(ev));
 
+    // Planned first
     const planned = visible.filter(ev => isPlanned(ev.id));
+
+    // Non-planned:
     const rest = visible.filter(ev => !isPlanned(ev.id));
+
+    // Heard (standard): plays >= heardMin
     const heard = rest.filter(ev => Number(ev.plays || 0) >= heardMin);
+
+    // Suggestions: plays < heardMin and finalScore >= uiMin
     const suggestions = rest.filter(ev => Number(ev.plays || 0) < heardMin && finalMap.get(ev.id) >= uiMin);
 
     function sortByScoreThenDate(a, b) {
@@ -456,6 +482,7 @@ function groupByCity(events) {
 
     suggestions.sort(sortByScoreThenDate);
 
+    // Render
     listEl.innerHTML = "";
 
     const addSection = (title, arr, typeForCards) => {
@@ -511,8 +538,7 @@ function groupByCity(events) {
       setEmpty("No events yet. Tap Refresh.");
     }
   }
-
-  async function refresh(overrides = {}) {
+async function refresh(overrides = {}) {
     store.lastRefreshAt = Date.now();
     saveStore(store);
 
@@ -520,6 +546,8 @@ function groupByCity(events) {
 
     try {
       const raw = await fetchConcertsFromWorker(overrides);
+
+      // ✅ dedupe to kill VIP/comfort spam etc.
       const events = dedupeEvents(raw);
 
       lastEvents = events;
@@ -531,6 +559,7 @@ function groupByCity(events) {
     }
   }
 
+  // Group toggle
   groupBtn.addEventListener("click", async () => {
     store.groupByCity = !store.groupByCity;
     saveStore(store);
@@ -541,12 +570,15 @@ function groupByCity(events) {
     render(lastEvents);
   });
 
+  // Refresh button
   refreshBtn.addEventListener("click", async () => {
-    await refresh();
+    await refresh(); // NL-wide default
   });
 
+  // initial load
   refresh().catch(() => setEmpty("Failed to refresh."));
 
+  // optional: refresh when tab becomes active
   function wireTabAutoRefresh() {
     const tabBtn = document.querySelector('.tabBtn[data-tab="econcerts"]');
     if (!tabBtn) return;

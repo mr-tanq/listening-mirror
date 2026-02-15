@@ -1,26 +1,21 @@
-/* econcerts.js (FULL FILE REPLACE) — PART 1/4
-   TM + MetalAgenda + Tivoli (+ optional venueUrls) • Premium/minimal • Better dedupe
-   + SPLIT VIEW:
-     - "Heard (Standard)" = plays >= heardPlaysMin
-     - "Suggestions" = plays < heardPlaysMin AND finalScore >= uiScoreMin
-   + IMPORTANT:
-     - We always call worker with scoreMin=0
-     - tasteArtists fixed to 1000
-   + Optional:
-     - venueUrls (comma-separated) sent to worker as `venueUrls=...`
+/* econcerts.js (FULL FILE REPLACE) — SINGLE PART
+   ✅ FIX: Show Patronaat/Doornroosje/Effenaar/Fluor/Neushoorn/dB’s etc
+   ✅ FIX: If MetalAgenda drops an event as "no_match_to_taste_or_ecosystem",
+          we STILL surface it under "Venue Watch" (so you won't miss Sólstafir etc.)
+   ✅ ADD: Whitelisted venues filter (default ON)
+   ✅ Keeps your existing UI: #econcertsList, #econcertsRefresh, #econcertsToggleGroup
 */
 (() => {
   "use strict";
 
   // ---------- Helpers ----------
   const $ = (sel, root = document) => root.querySelector(sel);
-  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel)); // kept for future
 
   function isValidDate(d) {
     return d instanceof Date && !Number.isNaN(d.getTime());
   }
 
-  // ✅ DD.MM.YYYY • HH:mm in Europe/Amsterdam (stable)
+  // DD.MM.YYYY • HH:mm in Europe/Amsterdam
   function formatDateTime(d) {
     if (!isValidDate(d)) return "";
     const parts = new Intl.DateTimeFormat("en-GB", {
@@ -50,44 +45,13 @@
     return String(s || "").trim();
   }
 
-  // ---------- Storage ----------
-  // v8 (adds venueUrls support)
-  const STORE_KEY = "lm_econcerts_v8";
-
-  // Default NL venues (MetalAgenda venue pages)
-  const DEFAULT_VENUE_URLS = [
-    "https://www.metalagenda.nl/venues/tivoli-vredenburg",
-    "https://www.metalagenda.nl/venues/patronaat",
-    "https://www.metalagenda.nl/venues/doornroosje",
-    "https://www.metalagenda.nl/venues/effenaar",
-    "https://www.metalagenda.nl/venues/fluor",
-    "https://www.metalagenda.nl/venues/neushoorn",
-    "https://www.metalagenda.nl/venues/dbs",
-    "https://www.metalagenda.nl/venues/baroeg",
-    "https://www.metalagenda.nl/venues/013",
-    "https://www.metalagenda.nl/venues/dynamo",
-    "https://www.metalagenda.nl/venues/vera",
-    "https://www.metalagenda.nl/venues/rotown",
-    "https://www.metalagenda.nl/venues/merleyn",
-    "https://www.metalagenda.nl/venues/occii",
-  ];
-
-  function normalizeVenueUrls(input) {
-    // Accept: array or comma-separated string
-    let arr = [];
-    if (Array.isArray(input)) arr = input;
-    else if (typeof input === "string") arr = input.split(",").map(s => s.trim());
-
-    // keep only plausible URLs
-    const out = [];
-    for (const u of arr) {
-      const v = safeStr(u);
-      if (!v) continue;
-      if (!/^https?:\/\//i.test(v)) continue;
-      if (!out.includes(v)) out.push(v);
-    }
-    return out;
+  function uniq(arr) {
+    return Array.from(new Set(arr));
   }
+
+  // ---------- Storage ----------
+  // v8 (adds venue whitelist + Venue Watch from dropped[])
+  const STORE_KEY = "lm_econcerts_v8";
 
   function loadStore() {
     try {
@@ -99,9 +63,9 @@
           lastRefreshAt: 0,
           groupByCity: true,
           baseApi: "",
-          uiScoreMin: 40,       // only applies to Suggestions
-          heardPlaysMin: 5,     // "heard standard" threshold
-          venueUrls: [...DEFAULT_VENUE_URLS],
+          uiScoreMin: 40,       // Suggestions threshold
+          heardPlaysMin: 5,     // Heard threshold
+          venueOnly: true,      // ✅ show only whitelisted venues by default
         };
       }
       const obj = JSON.parse(raw);
@@ -113,7 +77,7 @@
         baseApi: String(obj.baseApi || ""),
         uiScoreMin: Number.isFinite(Number(obj.uiScoreMin)) ? Number(obj.uiScoreMin) : 40,
         heardPlaysMin: Number.isFinite(Number(obj.heardPlaysMin)) ? Number(obj.heardPlaysMin) : 5,
-        venueUrls: normalizeVenueUrls(obj.venueUrls).length ? normalizeVenueUrls(obj.venueUrls) : [...DEFAULT_VENUE_URLS],
+        venueOnly: Boolean(obj.venueOnly ?? true),
       };
     } catch {
       return {
@@ -124,7 +88,7 @@
         baseApi: "",
         uiScoreMin: 40,
         heardPlaysMin: 5,
-        venueUrls: [...DEFAULT_VENUE_URLS],
+        venueOnly: true,
       };
     }
   }
@@ -146,28 +110,53 @@
     return base.replace(/\/+$/, "");
   }
 
+  // ---------- Venue whitelist (MetalAgenda venue pages) ----------
+  // These are the ones you said are MUST: Patronaat/Doornroosje/Fluor/Neushoorn/dB’s (+ core)
+  const MA_VENUE_WHITELIST = uniq([
+    "https://www.metalagenda.nl/venues/tivoli-vredenburg",
+    "https://www.metalagenda.nl/venues/de-helling",
+    "https://www.metalagenda.nl/venues/dbs",
+    "https://www.metalagenda.nl/venues/patronaat",
+    "https://www.metalagenda.nl/venues/doornroosje",
+    "https://www.metalagenda.nl/venues/effenaar",
+    "https://www.metalagenda.nl/venues/fluor",
+    "https://www.metalagenda.nl/venues/neushoorn",
+    "https://www.metalagenda.nl/venues/baroeg",
+    "https://www.metalagenda.nl/venues/013",
+    "https://www.metalagenda.nl/venues/dynamo",
+    "https://www.metalagenda.nl/venues/vera",
+    "https://www.metalagenda.nl/venues/rotown",
+    "https://www.metalagenda.nl/venues/merleyn",
+    "https://www.metalagenda.nl/venues/occii",
+  ]);
+
+  function isWhitelistedVenueUrl(url) {
+    const u = safeStr(url);
+    if (!u) return false;
+    // exact match or startsWith (in case of trailing slash differences)
+    return MA_VENUE_WHITELIST.some(v => u === v || u === (v + "/") || u.startsWith(v + "?") || u.startsWith(v + "/"));
+  }
+
   // ---------- econcerts API defaults ----------
   const ECONCERTS_DEFAULTS = {
-    size: 50,
-    radiusKm: 30,       // only used if city is set
-    scoreMin: 0,        // forced 0 (worker-side)
-    tasteArtists: 1000, // fixed
-    city: "",           // empty => whole NL
+    size: 200,
+    radiusKm: 30,
+    scoreMin: 0,         // forced 0
+    tasteArtists: 1000,  // forced 1000
+    city: "",            // empty => whole NL
     countryCode: "NL",
-    sources: "tm,ma,tv",
-    venueUrls: [],      // optional
+    sources: "ma",       // keep simple for now (MetalAgenda)
   };
 
   function normalizeSources(input) {
-    const raw = safeStr(input) || "tm,ma,tv";
+    const raw = safeStr(input) || "ma";
     const parts = raw.split(",").map(s => lowerKey(s)).filter(Boolean);
-    // allow pi too, even if not used now
     const allowed = new Set(["tm", "ma", "tv", "pi"]);
     const out = [];
     for (const p of parts) if (allowed.has(p) && !out.includes(p)) out.push(p);
-    return out.length ? out.join(",") : "tm,ma,tv";
+    return out.length ? out.join(",") : "ma";
   }
-/* econcerts.js (FULL FILE REPLACE) — PART 2/4 */
+
   async function fetchConcertsFromWorker(overrides = {}) {
     const cfg = { ...ECONCERTS_DEFAULTS, ...overrides };
     const base = getBaseApi();
@@ -175,22 +164,14 @@
 
     u.searchParams.set("sources", normalizeSources(cfg.sources));
     u.searchParams.set("size", String(cfg.size));
-    u.searchParams.set("scoreMin", "0");                // ✅ ALWAYS 0
-    u.searchParams.set("tasteArtists", "1000");         // ✅ ALWAYS 1000
+    u.searchParams.set("scoreMin", "0");         // ALWAYS 0
+    u.searchParams.set("tasteArtists", "1000");  // ALWAYS 1000
     u.searchParams.set("countryCode", String(cfg.countryCode || "NL"));
 
     const city = safeStr(cfg.city);
     if (city) {
       u.searchParams.set("city", city);
       u.searchParams.set("radiusKm", String(cfg.radiusKm));
-    }
-
-    // ✅ Optional venueUrls (comma-separated)
-    // If worker supports it, it will filter by these venues.
-    // If not, harmless.
-    const vlist = normalizeVenueUrls(cfg.venueUrls && cfg.venueUrls.length ? cfg.venueUrls : store.venueUrls);
-    if (vlist.length) {
-      u.searchParams.set("venueUrls", vlist.join(","));
     }
 
     const res = await fetch(u.toString(), { method: "GET" });
@@ -202,11 +183,11 @@
     }
 
     const events = Array.isArray(data.events) ? data.events : [];
+    const dropped = Array.isArray(data.dropped) ? data.dropped : [];
 
-    return events.map(ev => {
+    const mappedEvents = events.map(ev => {
       const startTs = Number(ev.startTs || 0);
       const startDate = startTs ? new Date(startTs) : new Date(safeStr(ev.start));
-
       return {
         id: safeStr(ev.id),
         artist: safeStr(ev.artist),
@@ -215,7 +196,6 @@
         venue: safeStr(ev.venue),
         start: startDate,
         url: safeStr(ev.url),
-
         plays: Number(ev.plays || 0),
         tier: safeStr(ev.tier || "discovery"),
         score: Number(ev.score || 0),
@@ -223,8 +203,31 @@
         startTs: startTs || (isValidDate(startDate) ? startDate.getTime() : 0),
         source: safeStr(ev.source || ev.src || ""),
         star: Boolean(ev.star),
+        __kind: "event",
       };
     }).filter(x => x.id && x.artist && isValidDate(x.start));
+
+    // ✅ Turn "dropped" into visible "Venue Watch" items (no date given by worker)
+    // We keep them separate section; they still have a link to the venue page.
+    const mappedDropped = dropped.map(d => ({
+      id: safeStr(d.id),
+      artist: safeStr(d.title || "Unknown"),
+      attractions: [],
+      city: "",
+      venue: "",
+      start: new Date(0),                 // placeholder (we won’t show a real date)
+      url: safeStr(d.url),
+      plays: 0,
+      tier: "venue_watch",
+      score: 0,
+      level: safeStr(d.reason || "dropped"),
+      startTs: 0,
+      source: safeStr(d.source || "ma"),
+      star: false,
+      __kind: "dropped",
+    })).filter(x => x.id && x.artist && x.url);
+
+    return { events: mappedEvents, dropped: mappedDropped };
   }
 
   // ---------- Dedupe ----------
@@ -241,7 +244,7 @@
     return Math.round(ts / step) * step;
   }
   function softKey(ev) {
-    const ts = Number(ev.startTs || 0) || ev.start.getTime();
+    const ts = Number(ev.startTs || 0) || (ev.start ? ev.start.getTime() : 0);
     return [lowerKey(ev.artist), String(timeBucket(ts)), lowerKey(ev.city)].join("|");
   }
   function pickBetterEvent(a, b) {
@@ -279,7 +282,7 @@
     return Array.from(bySoft.values());
   }
 
-  // ---------- Simple scoring model (UI-side bonus only) ----------
+  // ---------- UI-side final score (tiny bonus only) ----------
   function computeFinalScore(event) {
     let s = Number(event.score || 0);
     if (lowerKey(event.city) === "utrecht") s += 4;
@@ -289,6 +292,7 @@
 
   // ---------- State + UI nodes ----------
   let lastEvents = [];
+  let lastDropped = [];
 
   const listEl = $("#econcertsList");
   const refreshBtn = $("#econcertsRefresh");
@@ -298,58 +302,61 @@
 
   groupBtn.setAttribute("aria-pressed", store.groupByCity ? "true" : "false");
   groupBtn.textContent = store.groupByCity ? "Group by city" : "Ungroup";
-/* econcerts.js (FULL FILE REPLACE) — PART 3/4 */
-  // Add "Reset dismissed" button next to Refresh
+
+  // Add buttons next to Refresh
+  const controlsWrap = refreshBtn.parentElement || refreshBtn;
+
   const resetBtn = document.createElement("button");
   resetBtn.className = "eBtn ghost";
   resetBtn.type = "button";
   resetBtn.textContent = "Reset dismissed";
   resetBtn.title = "Bring back events you dismissed (does not affect My Plan)";
-  if (refreshBtn && refreshBtn.parentElement) refreshBtn.parentElement.appendChild(resetBtn);
+  controlsWrap.appendChild(resetBtn);
+
+  const venueBtn = document.createElement("button");
+  venueBtn.className = "eBtn ghost";
+  venueBtn.type = "button";
+  venueBtn.textContent = store.venueOnly ? "Venues: Only whitelist" : "Venues: All";
+  venueBtn.title = "Toggle showing only your key venues (Patronaat, Doornroosje, etc.)";
+  controlsWrap.appendChild(venueBtn);
 
   resetBtn.addEventListener("click", () => {
     store.dismissedIds = [];
     saveStore(store);
-    render(lastEvents);
+    render(lastEvents, lastDropped);
   });
 
-  // Debug helpers (simple + safe)
+  venueBtn.addEventListener("click", () => {
+    store.venueOnly = !store.venueOnly;
+    saveStore(store);
+    venueBtn.textContent = store.venueOnly ? "Venues: Only whitelist" : "Venues: All";
+    render(lastEvents, lastDropped);
+  });
+
+  // Debug helpers
   window.__LM_ECONCERTS__ = {
     get store() { return store; },
     get lastEvents() { return lastEvents; },
-
+    get lastDropped() { return lastDropped; },
     setBaseApi(next) {
       store.baseApi = String(next || "").trim();
       saveStore(store);
     },
-
     setUiScoreMin(n) {
       store.uiScoreMin = Math.max(0, Math.min(100, Number(n) || 0));
       saveStore(store);
-      render(lastEvents);
+      render(lastEvents, lastDropped);
     },
-
     setHeardPlaysMin(n) {
       store.heardPlaysMin = Math.max(0, Math.min(999999, Number(n) || 0));
       saveStore(store);
-      render(lastEvents);
+      render(lastEvents, lastDropped);
     },
-
-    // ✅ Set venue urls (array OR comma-separated string)
-    setVenueUrls(list) {
-      const v = normalizeVenueUrls(list);
-      store.venueUrls = v.length ? v : [...DEFAULT_VENUE_URLS];
+    setVenueOnly(v) {
+      store.venueOnly = Boolean(v);
       saveStore(store);
-      render(lastEvents);
-      return store.venueUrls;
-    },
-
-    resetVenueUrls() {
-      store.venueUrls = [...DEFAULT_VENUE_URLS];
-      saveStore(store);
-      render(lastEvents);
-      return store.venueUrls;
-    },
+      render(lastEvents, lastDropped);
+    }
   };
 
   const isPlanned = (id) => store.planIds.includes(id);
@@ -395,25 +402,38 @@
     artist.className = "eArtist";
     artist.textContent = event.artist;
 
-    // Minimal meta line
     const meta = document.createElement("div");
     meta.className = "eMeta";
-    const venuePart = event.venue ? ` • ${event.venue}` : "";
-    meta.textContent = `${formatDateTime(event.start)} • ${event.city}${venuePart}`;
+
+    if (event.__kind === "dropped") {
+      meta.textContent = `Venue Watch • Not matched to taste • Open venue page for details`;
+    } else {
+      const venuePart = event.venue ? ` • ${event.venue}` : "";
+      meta.textContent = `${formatDateTime(event.start)} • ${event.city}${venuePart}`;
+    }
 
     const meta2 = document.createElement("div");
     meta2.className = "eMeta2";
-    if (sectionType === "heard") {
+    if (event.__kind === "dropped") {
+      meta2.textContent = `Reason: ${event.level || "no_match_to_taste_or_ecosystem"}`;
+    } else if (sectionType === "heard") {
       meta2.textContent = `You have listened to this artist (plays ≥ ${store.heardPlaysMin}).`;
+    } else if (sectionType === "plan") {
+      meta2.textContent = `Saved in your plan.`;
     } else {
       meta2.textContent = `Suggestion based on your taste (score ≥ ${store.uiScoreMin}).`;
     }
 
-    // Pills: plays + source (small info)
     const pills = document.createElement("div");
     pills.className = "ePills";
-    pills.appendChild(pill(`Plays: ${Number(event.plays || 0)}`));
-    if (event.source) pills.appendChild(pill(`Src: ${String(event.source).toUpperCase()}`));
+
+    if (event.__kind !== "dropped") {
+      pills.appendChild(pill(`Plays: ${Number(event.plays || 0)}`));
+      if (event.source) pills.appendChild(pill(`Src: ${String(event.source).toUpperCase()}`));
+    } else {
+      pills.appendChild(pill(`Src: ${String(event.source || "MA").toUpperCase()}`));
+      pills.appendChild(pill(`Watchlist`));
+    }
 
     main.appendChild(artist);
     main.appendChild(meta);
@@ -425,52 +445,18 @@
 
     const scoreEl = document.createElement("div");
     scoreEl.className = "eScore";
-    scoreEl.textContent = `${finalScore}/100`;
+    scoreEl.textContent = event.__kind === "dropped" ? "—" : `${finalScore}/100`;
 
     const badgeEl = document.createElement("div");
     badgeEl.className = "eBadge";
-    badgeEl.textContent = sectionType === "heard" ? "HEARD" : "SUGGEST";
+    badgeEl.textContent =
+      event.__kind === "dropped" ? "WATCH" :
+      sectionType === "heard" ? "HEARD" :
+      sectionType === "plan" ? "PLAN" :
+      "SUGGEST";
 
     const actions = document.createElement("div");
     actions.className = "eActions";
-
-    const btnPrimary = document.createElement("button");
-    btnPrimary.className = "eBtn";
-    btnPrimary.type = "button";
-
-    const btnSecondary = document.createElement("button");
-    btnSecondary.className = "eBtn ghost";
-    btnSecondary.type = "button";
-
-    const planned = isPlanned(event.id);
-
-    if (!planned) {
-      btnPrimary.textContent = "Add to plan";
-      btnSecondary.textContent = "Dismiss";
-
-      btnPrimary.addEventListener("click", async () => {
-        await addToPlan(event.id);
-        render(lastEvents);
-      });
-
-      btnSecondary.addEventListener("click", async () => {
-        await dismiss(event.id);
-        render(lastEvents);
-      });
-    } else {
-      btnPrimary.textContent = "Remove";
-      btnSecondary.textContent = "Dismiss";
-
-      btnPrimary.addEventListener("click", async () => {
-        await removeFromPlan(event.id);
-        render(lastEvents);
-      });
-
-      btnSecondary.addEventListener("click", async () => {
-        await dismiss(event.id);
-        render(lastEvents);
-      });
-    }
 
     if (event.url) {
       const btnLink = document.createElement("button");
@@ -483,8 +469,48 @@
       actions.appendChild(btnLink);
     }
 
-    actions.appendChild(btnSecondary);
-    actions.appendChild(btnPrimary);
+    if (event.__kind !== "dropped") {
+      const btnPrimary = document.createElement("button");
+      btnPrimary.className = "eBtn";
+      btnPrimary.type = "button";
+
+      const btnSecondary = document.createElement("button");
+      btnSecondary.className = "eBtn ghost";
+      btnSecondary.type = "button";
+
+      const planned = isPlanned(event.id);
+
+      if (!planned) {
+        btnPrimary.textContent = "Add to plan";
+        btnSecondary.textContent = "Dismiss";
+
+        btnPrimary.addEventListener("click", async () => {
+          await addToPlan(event.id);
+          render(lastEvents, lastDropped);
+        });
+
+        btnSecondary.addEventListener("click", async () => {
+          await dismiss(event.id);
+          render(lastEvents, lastDropped);
+        });
+      } else {
+        btnPrimary.textContent = "Remove";
+        btnSecondary.textContent = "Dismiss";
+
+        btnPrimary.addEventListener("click", async () => {
+          await removeFromPlan(event.id);
+          render(lastEvents, lastDropped);
+        });
+
+        btnSecondary.addEventListener("click", async () => {
+          await dismiss(event.id);
+          render(lastEvents, lastDropped);
+        });
+      }
+
+      actions.appendChild(btnSecondary);
+      actions.appendChild(btnPrimary);
+    }
 
     right.appendChild(scoreEl);
     right.appendChild(badgeEl);
@@ -505,10 +531,18 @@
     }
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }
-/* econcerts.js (FULL FILE REPLACE) — PART 4/4 */
-  function render(events) {
+
+  function render(events, dropped) {
+    const venueOnly = Boolean(store.venueOnly);
+
+    // Filter by whitelist if enabled (only affects real events; dropped are already venue-pages)
+    let filtered = events;
+    if (venueOnly) {
+      filtered = events.filter(ev => isWhitelistedVenueUrl(ev.url));
+    }
+
     // Show planned always; hide dismissed unless planned
-    const visible = events.filter(ev => (isPlanned(ev.id) ? true : !isDismissed(ev.id)));
+    const visible = filtered.filter(ev => (isPlanned(ev.id) ? true : !isDismissed(ev.id)));
 
     const heardMin = Number(store.heardPlaysMin || 5);
     const uiMin = Number(store.uiScoreMin || 40);
@@ -519,15 +553,21 @@
 
     // Planned first
     const planned = visible.filter(ev => isPlanned(ev.id));
-
-    // Non-planned:
     const rest = visible.filter(ev => !isPlanned(ev.id));
 
-    // Heard (standard): plays >= heardMin
+    // Heard: plays >= heardMin
     const heard = rest.filter(ev => Number(ev.plays || 0) >= heardMin);
 
-    // Suggestions: plays < heardMin and finalScore >= uiMin
+    // Suggestions: plays < heardMin AND score >= uiMin
     const suggestions = rest.filter(ev => Number(ev.plays || 0) < heardMin && finalMap.get(ev.id) >= uiMin);
+
+    // Venue Watch: dropped items (optionally filtered to whitelist too)
+    let watch = Array.isArray(dropped) ? dropped.slice() : [];
+    if (venueOnly) {
+      watch = watch.filter(ev => isWhitelistedVenueUrl(ev.url));
+    }
+    // Hide dismissed watch items too
+    watch = watch.filter(ev => !isDismissed(ev.id));
 
     function sortByScoreThenDate(a, b) {
       const sa = finalMap.get(a.id);
@@ -535,6 +575,7 @@
       if (sb !== sa) return sb - sa;
       return a.start.getTime() - b.start.getTime();
     }
+
     planned.sort(sortByScoreThenDate);
 
     heard.sort((a, b) => {
@@ -571,6 +612,15 @@
         return;
       }
 
+      if (typeForCards === "watch") {
+        // No grouping needed (no city/date from worker)
+        for (const ev of arr) {
+          wrap.appendChild(buildCard(ev, 0, "watch"));
+        }
+        listEl.appendChild(wrap);
+        return;
+      }
+
       if (!store.groupByCity) {
         for (const ev of arr) {
           wrap.appendChild(buildCard(ev, finalMap.get(ev.id), typeForCards));
@@ -594,11 +644,12 @@
       listEl.appendChild(wrap);
     };
 
-    addSection("My Plan", planned, "heard");
+    addSection("My Plan", planned, "plan");
     addSection(`Heard (Standard) • plays ≥ ${heardMin}`, heard, "heard");
     addSection(`Suggestions • score ≥ ${uiMin}`, suggestions, "suggest");
+    addSection("Venue Watch • on your venues but not matched to taste", watch, "watch");
 
-    if (!planned.length && !heard.length && !suggestions.length) {
+    if (!planned.length && !heard.length && !suggestions.length && !watch.length) {
       setEmpty("No events yet. Tap Refresh.");
     }
   }
@@ -610,16 +661,19 @@
     setEmpty("Refreshing…");
 
     try {
-      const raw = await fetchConcertsFromWorker(overrides);
+      const { events: rawEvents, dropped: rawDropped } = await fetchConcertsFromWorker(overrides);
 
-      // ✅ dedupe to kill VIP/comfort spam etc.
-      const events = dedupeEvents(raw);
+      // dedupe real events only
+      const events = dedupeEvents(rawEvents);
 
       lastEvents = events;
-      render(events);
+      lastDropped = rawDropped;
+
+      render(events, rawDropped);
     } catch (err) {
       console.warn("[eConcerts] worker fetch failed:", err);
       lastEvents = [];
+      lastDropped = [];
       setEmpty(`Worker error: ${String(err && err.message ? err.message : err)}`);
     }
   }
@@ -632,12 +686,12 @@
     groupBtn.setAttribute("aria-pressed", store.groupByCity ? "true" : "false");
     groupBtn.textContent = store.groupByCity ? "Group by city" : "Ungroup";
 
-    render(lastEvents);
+    render(lastEvents, lastDropped);
   });
 
   // Refresh button
   refreshBtn.addEventListener("click", async () => {
-    await refresh(); // NL-wide default
+    await refresh(); // default NL-wide
   });
 
   // initial load

@@ -1,4 +1,4 @@
-/* econcerts.js (FULL FILE REPLACE) — SINGLE PART
+/* econcerts.js (FULL FILE REPLACE) — PART 1/2
    TM + MetalAgenda + Tivoli • Premium/minimal • Better dedupe
    + SPLIT VIEW:
      - "Heard (Standard)" = plays >= heardPlaysMin
@@ -9,12 +9,9 @@
    + FIXES FOR TIVOLI:
      - allow sources: tm, ma, tv
      - use startTs for Date (avoid parsing Amsterdam-local string without timezone)
-   + NEW (what you asked):
-     - Stop “irrelevant Tivoli” suggestions (talks, specials, podcasts, etc.)
-     - Rule: Tivoli items can appear in Suggestions ONLY if they look like MUSIC.
-       (Heard/My Plan always show even if title looks non-music.)
+   + UI:
+     - Date format: 05.08.2026 (DD.MM.YYYY)
 */
-
 (() => {
   "use strict";
 
@@ -24,13 +21,14 @@
 
   const pad2 = (n) => String(n).padStart(2, "0");
 
+  // ✅ DD.MM.YYYY • HH:mm
   function formatDateTime(d) {
-    const y = d.getFullYear();
-    const m = pad2(d.getMonth() + 1);
     const dd = pad2(d.getDate());
+    const mm = pad2(d.getMonth() + 1);
+    const y = d.getFullYear();
     const hh = pad2(d.getHours());
-    const mm = pad2(d.getMinutes());
-    return `${y}-${m}-${dd} • ${hh}:${mm}`;
+    const min = pad2(d.getMinutes());
+    return `${dd}.${mm}.${y} • ${hh}:${min}`;
   }
 
   function lowerKey(s) {
@@ -46,8 +44,7 @@
   }
 
   // ---------- Storage ----------
-  // v8 (tivoli non-music suggestion filter)
-  const STORE_KEY = "lm_econcerts_v8";
+  const STORE_KEY = "lm_econcerts_v7";
 
   function loadStore() {
     try {
@@ -59,11 +56,8 @@
           lastRefreshAt: 0,
           groupByCity: true,
           baseApi: "",
-          uiScoreMin: 40,       // only applies to Suggestions
-          heardPlaysMin: 5,     // "heard standard" threshold
-
-          // ✅ New: hide non-music Tivoli in Suggestions
-          hideNonMusicTvSuggestions: true,
+          uiScoreMin: 40,
+          heardPlaysMin: 5,
         };
       }
       const obj = JSON.parse(raw);
@@ -75,8 +69,6 @@
         baseApi: String(obj.baseApi || ""),
         uiScoreMin: Number.isFinite(Number(obj.uiScoreMin)) ? Number(obj.uiScoreMin) : 40,
         heardPlaysMin: Number.isFinite(Number(obj.heardPlaysMin)) ? Number(obj.heardPlaysMin) : 5,
-
-        hideNonMusicTvSuggestions: Boolean(obj.hideNonMusicTvSuggestions ?? true),
       };
     } catch {
       return {
@@ -87,7 +79,6 @@
         baseApi: "",
         uiScoreMin: 40,
         heardPlaysMin: 5,
-        hideNonMusicTvSuggestions: true,
       };
     }
   }
@@ -136,8 +127,8 @@
 
     u.searchParams.set("sources", normalizeSources(cfg.sources));
     u.searchParams.set("size", String(cfg.size));
-    u.searchParams.set("scoreMin", "0");        // ✅ ALWAYS 0
-    u.searchParams.set("tasteArtists", "1000"); // ✅ ALWAYS 1000
+    u.searchParams.set("scoreMin", "0");
+    u.searchParams.set("tasteArtists", "1000");
     u.searchParams.set("countryCode", String(cfg.countryCode || "NL"));
 
     const city = safeStr(cfg.city);
@@ -232,72 +223,11 @@
     return Array.from(bySoft.values());
   }
 
-  // ---------- UI-side score ----------
   function computeFinalScore(event) {
     let s = Number(event.score || 0);
     if (lowerKey(event.city) === "utrecht") s += 4;
     s = Math.max(0, Math.min(100, Math.round(s)));
     return s;
-  }
-
-  // ---------- Tivoli “music-only suggestions” filter ----------
-  // Goal: stop suggesting talks/specials/etc from Tivoli when you have 0 plays.
-  // This does NOT affect:
-  // - My Plan
-  // - Heard (plays >= heardPlaysMin)
-  //
-  // It ONLY gates “Suggestions” for source=tv.
-  function tvLooksLikeMusic(ev) {
-    const title = lowerKey(ev?.artist || "");
-    const venue = lowerKey(ev?.venue || "");
-    const url = lowerKey(ev?.url || "");
-    const blob = `${title} ${venue} ${url}`.trim();
-
-    // If it explicitly looks like a concert, let it through.
-    const musicYes = [
-      "concert", "live", "album release", "release show", "tour",
-      "ft.", "feat", "featuring", "support", "special guest",
-      "dj", "clubnight", "club night", "afterparty", "after party",
-      "orchestra", "symphony", "ensemble", "quartet", "trio",
-      "impro", "improvis", "jazz", "metal", "doom", "ambient",
-      "electronic", "techno", "house", "dnb", "drum", "bass",
-      "hiphop", "hip-hop", "rap", "indie", "rock", "pop",
-      "folk", "classical",
-    ];
-
-    // If it looks like a talk/lecture/event (non-music), block it.
-    const musicNo = [
-      // English
-      "talk", "lecture", "debate", "panel", "workshop", "masterclass", "conference", "symposium",
-      "podcast", "q&a", "screening", "film", "theatre", "theater", "dance", "comedy", "cabaret",
-      "kids", "children", "family", "expo", "exhibition",
-      // Dutch
-      "lezing", "debat", "workshop", "college", "congres", "symposium",
-      "podcast", "film", "theater", "dans", "cabaret",
-      "kind", "kinderen", "familie",
-      // Specific “special” vibes that are often not concerts
-      "how-to", "special", "olympics", "winter olympics", "tech bro", "tech bros", "hoe ",
-    ];
-
-    // Strong allow: Tivoli pages that clearly are music programs
-    for (const k of musicYes) {
-      if (blob.includes(k)) return true;
-    }
-
-    // Strong deny: looks like non-music program
-    for (const k of musicNo) {
-      if (blob.includes(k)) return false;
-    }
-
-    // Neutral fallback:
-    // If we cannot tell, we assume NOT MUSIC for Suggestions
-    // (because Tivoli has a lot of non-music programs).
-    return false;
-  }
-
-  function isTvSource(ev) {
-    const s = lowerKey(ev?.source || "");
-    return s === "tv";
   }
 
   // ---------- State + UI nodes ----------
@@ -312,7 +242,6 @@
   groupBtn.setAttribute("aria-pressed", store.groupByCity ? "true" : "false");
   groupBtn.textContent = store.groupByCity ? "Group by city" : "Ungroup";
 
-  // Add "Reset dismissed" button next to Refresh
   const resetBtn = document.createElement("button");
   resetBtn.className = "eBtn ghost";
   resetBtn.type = "button";
@@ -326,11 +255,9 @@
     render(lastEvents);
   });
 
-  // Debug helpers (simple + safe)
   window.__LM_ECONCERTS__ = {
     get store() { return store; },
     get lastEvents() { return lastEvents; },
-
     setBaseApi(next) {
       store.baseApi = String(next || "").trim();
       saveStore(store);
@@ -342,13 +269,6 @@
     },
     setHeardPlaysMin(n) {
       store.heardPlaysMin = Math.max(0, Math.min(999999, Number(n) || 0));
-      saveStore(store);
-      render(lastEvents);
-    },
-
-    // ✅ Toggle: if you ever want to see all Tivoli suggestions again
-    setHideNonMusicTvSuggestions(on) {
-      store.hideNonMusicTvSuggestions = Boolean(on);
       saveStore(store);
       render(lastEvents);
     },
@@ -407,12 +327,7 @@
     if (sectionType === "heard") {
       meta2.textContent = `You have listened to this artist (plays ≥ ${store.heardPlaysMin}).`;
     } else {
-      // For tv, clarify it is “music-only suggestions”
-      if (isTvSource(event) && store.hideNonMusicTvSuggestions) {
-        meta2.textContent = `Suggestion based on your taste (score ≥ ${store.uiScoreMin}) • Tivoli music-only.`;
-      } else {
-        meta2.textContent = `Suggestion based on your taste (score ≥ ${store.uiScoreMin}).`;
-      }
+      meta2.textContent = `Suggestion based on your taste (score ≥ ${store.uiScoreMin}).`;
     }
 
     const pills = document.createElement("div");
@@ -500,8 +415,7 @@
 
     return card;
   }
-
-  function groupByCity(events) {
+function groupByCity(events) {
     const map = new Map();
     for (const ev of events) {
       const key = ev.city || "Unknown";
@@ -522,24 +436,8 @@
 
     const planned = visible.filter(ev => isPlanned(ev.id));
     const rest = visible.filter(ev => !isPlanned(ev.id));
-
     const heard = rest.filter(ev => Number(ev.plays || 0) >= heardMin);
-
-    // ✅ Suggestions with Tivoli non-music filter
-    const suggestions = rest.filter(ev => {
-      const plays = Number(ev.plays || 0);
-      if (plays >= heardMin) return false;
-
-      const scoreOk = (finalMap.get(ev.id) >= uiMin);
-      if (!scoreOk) return false;
-
-      // If it's Tivoli and toggle is on, only show if title looks like MUSIC.
-      if (store.hideNonMusicTvSuggestions && isTvSource(ev)) {
-        return tvLooksLikeMusic(ev);
-      }
-
-      return true;
-    });
+    const suggestions = rest.filter(ev => Number(ev.plays || 0) < heardMin && finalMap.get(ev.id) >= uiMin);
 
     function sortByScoreThenDate(a, b) {
       const sa = finalMap.get(a.id);
@@ -633,7 +531,6 @@
     }
   }
 
-  // Group toggle
   groupBtn.addEventListener("click", async () => {
     store.groupByCity = !store.groupByCity;
     saveStore(store);
@@ -644,15 +541,12 @@
     render(lastEvents);
   });
 
-  // Refresh button
   refreshBtn.addEventListener("click", async () => {
     await refresh();
   });
 
-  // initial load
   refresh().catch(() => setEmpty("Failed to refresh."));
 
-  // optional: refresh when tab becomes active
   function wireTabAutoRefresh() {
     const tabBtn = document.querySelector('.tabBtn[data-tab="econcerts"]');
     if (!tabBtn) return;

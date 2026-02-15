@@ -1,593 +1,561 @@
-/* econcerts.js (FULL FILE REPLACE) — SINGLE PART
-   TM + MetalAgenda + Tivoli • Premium/minimal • Better dedupe
-   + SPLIT VIEW:
-     - "Heard (Standard)" = plays >= heardPlaysMin
-     - "Suggestions" = plays < heardPlaysMin AND finalScore >= uiScoreMin
-   + IMPORTANT:
-     - We always call worker with scoreMin=0
-     - tasteArtists fixed to 1000
-   + FIXES FOR TIVOLI:
-     - allow sources: tm, ma, tv
-     - use startTs for Date (avoid parsing Amsterdam-local string without timezone)
-   + UI DATE FORMAT:
-     - display as DD.MM.YYYY • HH:mm (Europe/Amsterdam)
+/* live.js (FULL FILE REPLACE) — PART 1/4
+   Model: music_only_ecosystem_no_distance_no_time
+
+   Goals:
+   - Keep existing TM/MA/TV parsing behavior (do not break sources).
+   - Add Podiuminfo (pi) using HTMLRewriter (robust, not regex).
+   - Filter OUT non-music events WITHOUT blacklist by requiring match to:
+       (A) taste artists (Last.fm top 1000), OR
+       (B) ecosystem artists (Last.fm artist.getSimilar from a small seed set)
+   - No distance/time boosts in scoring.
+   - Avoid Cloudflare "Too many subrequests":
+       * cap Tivoli hydrate
+       * cap Last.fm similar seeds
+       * cache similars in caches.default
+       * cap Podiuminfo pages
+   - Optional debug=1 returns dropped[] with reasons.
+
+   Sources supported: tm, ma, tv, pi
 */
-(() => {
-  "use strict";
 
-  // ---------- Helpers ----------
-  const $ = (sel, root = document) => root.querySelector(sel);
-  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel)); // kept for future
-
-  const pad2 = (n) => String(n).padStart(2, "0");
-
-  function isValidDate(d) {
-    return d instanceof Date && !Number.isNaN(d.getTime());
-  }
-
-  // ✅ DD.MM.YYYY • HH:mm in Europe/Amsterdam (stable)
-  function formatDateTime(d) {
-    if (!isValidDate(d)) return "";
-    const parts = new Intl.DateTimeFormat("en-GB", {
-      timeZone: "Europe/Amsterdam",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).formatToParts(d);
-
-    const get = (type) => parts.find((p) => p.type === type)?.value || "00";
-    const dd = get("day");
-    const mm = get("month");
-    const yyyy = get("year");
-    const hh = get("hour");
-    const min = get("minute");
-    return `${dd}.${mm}.${yyyy} • ${hh}:${min}`;
-  }
-
-  function lowerKey(s) {
-    return String(s || "").trim().toLowerCase();
-  }
-
-  function safeStr(s) {
-    return String(s || "").trim();
-  }
-
-  // ---------- Storage ----------
-  // v7 (split view + UI filters + worker scoreMin forced 0)
-  const STORE_KEY = "lm_econcerts_v7";
-
-  function loadStore() {
-    try {
-      const raw = localStorage.getItem(STORE_KEY);
-      if (!raw) {
-        return {
-          planIds: [],
-          dismissedIds: [],
-          lastRefreshAt: 0,
-          groupByCity: true,
-          baseApi: "",
-          uiScoreMin: 40,       // only applies to Suggestions
-          heardPlaysMin: 5,     // "heard standard" threshold
-        };
-      }
-      const obj = JSON.parse(raw);
-      return {
-        planIds: Array.isArray(obj.planIds) ? obj.planIds : [],
-        dismissedIds: Array.isArray(obj.dismissedIds) ? obj.dismissedIds : [],
-        lastRefreshAt: Number(obj.lastRefreshAt || 0),
-        groupByCity: Boolean(obj.groupByCity ?? true),
-        baseApi: String(obj.baseApi || ""),
-        uiScoreMin: Number.isFinite(Number(obj.uiScoreMin)) ? Number(obj.uiScoreMin) : 40,
-        heardPlaysMin: Number.isFinite(Number(obj.heardPlaysMin)) ? Number(obj.heardPlaysMin) : 5,
-      };
-    } catch {
-      return {
-        planIds: [],
-        dismissedIds: [],
-        lastRefreshAt: 0,
-        groupByCity: true,
-        baseApi: "",
-        uiScoreMin: 40,
-        heardPlaysMin: 5,
-      };
-    }
-  }
-
-  function saveStore(next) {
-    localStorage.setItem(STORE_KEY, JSON.stringify(next));
-  }
-
-  let store = loadStore();
-
-  // ---------- Cloudflare Worker base ----------
-  const FALLBACK_BASE_API = "https://live.errtanq9.workers.dev";
-
-  function getBaseApi() {
-    const w = (typeof window !== "undefined") ? window : {};
-    const fromWindow = typeof w.BASE_API === "string" ? w.BASE_API : "";
-    const fromStore = (store && typeof store.baseApi === "string") ? store.baseApi : "";
-    const base = (fromWindow || fromStore || FALLBACK_BASE_API).trim();
-    return base.replace(/\/+$/, "");
-  }
-
-  // ---------- econcerts API defaults ----------
-  const ECONCERTS_DEFAULTS = {
-    size: 50,
-    radiusKm: 30,       // only used if city is set
-    scoreMin: 0,        // forced 0 (worker-side)
-    tasteArtists: 1000, // fixed
-    city: "",           // empty => whole NL
-    countryCode: "NL",
-    sources: "tm,ma,tv",
-  };
-
-  function normalizeSources(input) {
-    const raw = safeStr(input) || "tm,ma,tv";
-    const parts = raw.split(",").map(s => lowerKey(s)).filter(Boolean);
-    const allowed = new Set(["tm", "ma", "tv"]);
-    const out = [];
-    for (const p of parts) if (allowed.has(p) && !out.includes(p)) out.push(p);
-    return out.length ? out.join(",") : "tm,ma,tv";
-  }
-
-  async function fetchConcertsFromWorker(overrides = {}) {
-    const cfg = { ...ECONCERTS_DEFAULTS, ...overrides };
-    const base = getBaseApi();
-    const u = new URL(base + "/econcerts");
-
-    u.searchParams.set("sources", normalizeSources(cfg.sources));
-    u.searchParams.set("size", String(cfg.size));
-    u.searchParams.set("scoreMin", "0");                // ✅ ALWAYS 0
-    u.searchParams.set("tasteArtists", "1000");         // ✅ ALWAYS 1000
-    u.searchParams.set("countryCode", String(cfg.countryCode || "NL"));
-
-    const city = safeStr(cfg.city);
-    if (city) {
-      u.searchParams.set("city", city);
-      u.searchParams.set("radiusKm", String(cfg.radiusKm));
-    }
-
-    const res = await fetch(u.toString(), { method: "GET" });
-    const data = await res.json().catch(() => ({}));
-
-    if (!res.ok || !data || data.ok !== true) {
-      const msg = (data && (data.error || data.message)) ? String(data.error || data.message) : `HTTP ${res.status}`;
-      throw new Error(msg);
-    }
-
-    const events = Array.isArray(data.events) ? data.events : [];
-
-    return events.map(ev => {
-      const startTs = Number(ev.startTs || 0);
-      const startDate = startTs ? new Date(startTs) : new Date(safeStr(ev.start));
-
-      return {
-        id: safeStr(ev.id),
-        artist: safeStr(ev.artist),
-        attractions: Array.isArray(ev.attractions) ? ev.attractions : [],
-        city: safeStr(ev.city),
-        venue: safeStr(ev.venue),
-        start: startDate,
-        url: safeStr(ev.url),
-
-        plays: Number(ev.plays || 0),
-        tier: safeStr(ev.tier || "discovery"),
-        score: Number(ev.score || 0),
-        level: safeStr(ev.level || ""),
-        startTs: startTs || (isValidDate(startDate) ? startDate.getTime() : 0),
-        source: safeStr(ev.source || ev.src || ""),
-        star: Boolean(ev.star),
-      };
-    }).filter(x => x.id && x.artist && isValidDate(x.start));
-  }
-// ---------- Dedupe ----------
-  function isVipUrl(url) {
-    const u = lowerKey(url);
-    return u.includes("vip") || u.includes("package") || u.includes("packages") || u.includes("hospitality") || u.includes("comfort");
-  }
-  function venueLooksLikeSubRoom(venue) {
-    const v = lowerKey(venue);
-    return v.includes("club") || v.includes("room") || v.includes("lounge") || v.includes("vinyl") || v.includes("bar");
-  }
-  function timeBucket(ts) {
-    const step = 10 * 60 * 1000; // 10 min
-    return Math.round(ts / step) * step;
-  }
-  function softKey(ev) {
-    const ts = Number(ev.startTs || 0) || ev.start.getTime();
-    return [lowerKey(ev.artist), String(timeBucket(ts)), lowerKey(ev.city)].join("|");
-  }
-  function pickBetterEvent(a, b) {
-    const aVip = isVipUrl(a.url);
-    const bVip = isVipUrl(b.url);
-    if (aVip !== bVip) return aVip ? b : a;
-
-    const aSub = venueLooksLikeSubRoom(a.venue);
-    const bSub = venueLooksLikeSubRoom(b.venue);
-    if (aSub !== bSub) return aSub ? b : a;
-
-    const aMeta = (a.venue ? 1 : 0) + (a.city ? 1 : 0) + (a.attractions?.length ? 1 : 0);
-    const bMeta = (b.venue ? 1 : 0) + (b.city ? 1 : 0) + (b.attractions?.length ? 1 : 0);
-    if (aMeta !== bMeta) return bMeta > aMeta ? b : a;
-
-    const aScore = Number(a.score || 0);
-    const bScore = Number(b.score || 0);
-    if (aScore !== bScore) return bScore > aScore ? b : a;
-
-    return a;
-  }
-  function dedupeEvents(events) {
-    const byId = new Map();
-    for (const ev of events) {
-      if (!ev || !ev.id) continue;
-      if (!byId.has(ev.id)) byId.set(ev.id, ev);
-      else byId.set(ev.id, pickBetterEvent(byId.get(ev.id), ev));
-    }
-    const bySoft = new Map();
-    for (const ev of byId.values()) {
-      const k = softKey(ev);
-      if (!bySoft.has(k)) bySoft.set(k, ev);
-      else bySoft.set(k, pickBetterEvent(bySoft.get(k), ev));
-    }
-    return Array.from(bySoft.values());
-  }
-
-  // ---------- Simple scoring model (UI-side bonus only) ----------
-  function computeFinalScore(event) {
-    let s = Number(event.score || 0);
-    if (lowerKey(event.city) === "utrecht") s += 4;
-    s = Math.max(0, Math.min(100, Math.round(s)));
-    return s;
-  }
-
-  // ---------- State + UI nodes ----------
-  let lastEvents = [];
-
-  const listEl = $("#econcertsList");
-  const refreshBtn = $("#econcertsRefresh");
-  const groupBtn = $("#econcertsToggleGroup");
-
-  if (!listEl || !refreshBtn || !groupBtn) return;
-
-  groupBtn.setAttribute("aria-pressed", store.groupByCity ? "true" : "false");
-  groupBtn.textContent = store.groupByCity ? "Group by city" : "Ungroup";
-
-  // Add "Reset dismissed" button next to Refresh
-  const resetBtn = document.createElement("button");
-  resetBtn.className = "eBtn ghost";
-  resetBtn.type = "button";
-  resetBtn.textContent = "Reset dismissed";
-  resetBtn.title = "Bring back events you dismissed (does not affect My Plan)";
-  if (refreshBtn && refreshBtn.parentElement) refreshBtn.parentElement.appendChild(resetBtn);
-
-  resetBtn.addEventListener("click", () => {
-    store.dismissedIds = [];
-    saveStore(store);
-    render(lastEvents);
-  });
-
-  // Debug helpers (simple + safe)
-  window.__LM_ECONCERTS__ = {
-    get store() { return store; },
-    get lastEvents() { return lastEvents; },
-    setBaseApi(next) {
-      store.baseApi = String(next || "").trim();
-      saveStore(store);
-    },
-    setUiScoreMin(n) {
-      store.uiScoreMin = Math.max(0, Math.min(100, Number(n) || 0));
-      saveStore(store);
-      render(lastEvents);
-    },
-    setHeardPlaysMin(n) {
-      store.heardPlaysMin = Math.max(0, Math.min(999999, Number(n) || 0));
-      saveStore(store);
-      render(lastEvents);
-    },
-  };
-
-  const isPlanned = (id) => store.planIds.includes(id);
-  const isDismissed = (id) => store.dismissedIds.includes(id);
-
-  async function addToPlan(id) {
-    if (!store.planIds.includes(id)) store.planIds.push(id);
-    store.dismissedIds = store.dismissedIds.filter(x => x !== id);
-    saveStore(store);
-  }
-
-  async function dismiss(id) {
-    if (!store.dismissedIds.includes(id)) store.dismissedIds.push(id);
-    store.planIds = store.planIds.filter(x => x !== id);
-    saveStore(store);
-  }
-
-  async function removeFromPlan(id) {
-    store.planIds = store.planIds.filter(x => x !== id);
-    saveStore(store);
-  }
-
-  function setEmpty(msg) {
-    listEl.innerHTML = `<div class="eEmpty">${msg}</div>`;
-  }
-
-  function pill(text) {
-    const div = document.createElement("div");
-    div.className = "ePill";
-    div.textContent = text;
-    return div;
-  }
-function buildCard(event, finalScore, sectionType) {
-    const card = document.createElement("div");
-    card.className = "eCard";
-    card.dataset.id = event.id;
-
-    const main = document.createElement("div");
-    main.className = "eMain";
-
-    const artist = document.createElement("div");
-    artist.className = "eArtist";
-    artist.textContent = event.artist;
-
-    // Minimal meta line
-    const meta = document.createElement("div");
-    meta.className = "eMeta";
-    const venuePart = event.venue ? ` • ${event.venue}` : "";
-    meta.textContent = `${formatDateTime(event.start)} • ${event.city}${venuePart}`;
-
-    const meta2 = document.createElement("div");
-    meta2.className = "eMeta2";
-    if (sectionType === "heard") {
-      meta2.textContent = `You have listened to this artist (plays ≥ ${store.heardPlaysMin}).`;
-    } else {
-      meta2.textContent = `Suggestion based on your taste (score ≥ ${store.uiScoreMin}).`;
-    }
-
-    // Pills: plays + source (small info)
-    const pills = document.createElement("div");
-    pills.className = "ePills";
-    pills.appendChild(pill(`Plays: ${Number(event.plays || 0)}`));
-    if (event.source) pills.appendChild(pill(`Src: ${String(event.source).toUpperCase()}`));
-
-    main.appendChild(artist);
-    main.appendChild(meta);
-    main.appendChild(meta2);
-    main.appendChild(pills);
-
-    const right = document.createElement("div");
-    right.className = "eRight";
-
-    const scoreEl = document.createElement("div");
-    scoreEl.className = "eScore";
-    scoreEl.textContent = `${finalScore}/100`;
-
-    const badgeEl = document.createElement("div");
-    badgeEl.className = "eBadge";
-    badgeEl.textContent = sectionType === "heard" ? "HEARD" : "SUGGEST";
-
-    const actions = document.createElement("div");
-    actions.className = "eActions";
-
-    const btnPrimary = document.createElement("button");
-    btnPrimary.className = "eBtn";
-    btnPrimary.type = "button";
-
-    const btnSecondary = document.createElement("button");
-    btnSecondary.className = "eBtn ghost";
-    btnSecondary.type = "button";
-
-    const planned = isPlanned(event.id);
-
-    if (!planned) {
-      btnPrimary.textContent = "Add to plan";
-      btnSecondary.textContent = "Dismiss";
-
-      btnPrimary.addEventListener("click", async () => {
-        await addToPlan(event.id);
-        render(lastEvents);
-      });
-
-      btnSecondary.addEventListener("click", async () => {
-        await dismiss(event.id);
-        render(lastEvents);
-      });
-    } else {
-      btnPrimary.textContent = "Remove";
-      btnSecondary.textContent = "Dismiss";
-
-      btnPrimary.addEventListener("click", async () => {
-        await removeFromPlan(event.id);
-        render(lastEvents);
-      });
-
-      btnSecondary.addEventListener("click", async () => {
-        await dismiss(event.id);
-        render(lastEvents);
-      });
-    }
-
-    if (event.url) {
-      const btnLink = document.createElement("button");
-      btnLink.className = "eBtn ghost";
-      btnLink.type = "button";
-      btnLink.textContent = "Link";
-      btnLink.addEventListener("click", () => {
-        window.open(event.url, "_blank", "noopener,noreferrer");
-      });
-      actions.appendChild(btnLink);
-    }
-
-    actions.appendChild(btnSecondary);
-    actions.appendChild(btnPrimary);
-
-    right.appendChild(scoreEl);
-    right.appendChild(badgeEl);
-    right.appendChild(actions);
-
-    card.appendChild(main);
-    card.appendChild(right);
-
-    return card;
-  }
-
-  function groupByCity(events) {
-    const map = new Map();
-    for (const ev of events) {
-      const key = ev.city || "Unknown";
-      if (!map.has(key)) map.set(key, []);
-      map.get(key).push(ev);
-    }
-    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }
-
-  function render(events) {
-    // Show planned always; hide dismissed unless planned
-    const visible = events.filter(ev => (isPlanned(ev.id) ? true : !isDismissed(ev.id)));
-
-    const heardMin = Number(store.heardPlaysMin || 5);
-    const uiMin = Number(store.uiScoreMin || 40);
-
-    // Compute final score map once
-    const finalMap = new Map();
-    for (const ev of visible) finalMap.set(ev.id, computeFinalScore(ev));
-
-    // Planned first
-    const planned = visible.filter(ev => isPlanned(ev.id));
-
-    // Non-planned:
-    const rest = visible.filter(ev => !isPlanned(ev.id));
-
-    // Heard (standard): plays >= heardMin
-    const heard = rest.filter(ev => Number(ev.plays || 0) >= heardMin);
-
-    // Suggestions: plays < heardMin and finalScore >= uiMin
-    const suggestions = rest.filter(ev => Number(ev.plays || 0) < heardMin && finalMap.get(ev.id) >= uiMin);
-
-    function sortByScoreThenDate(a, b) {
-      const sa = finalMap.get(a.id);
-      const sb = finalMap.get(b.id);
-      if (sb !== sa) return sb - sa;
-      return a.start.getTime() - b.start.getTime();
-    }
-    planned.sort(sortByScoreThenDate);
-
-    heard.sort((a, b) => {
-      const pa = Number(a.plays || 0);
-      const pb = Number(b.plays || 0);
-      if (pb !== pa) return pb - pa;
-      return sortByScoreThenDate(a, b);
-    });
-
-    suggestions.sort(sortByScoreThenDate);
-
-    // Render
-    listEl.innerHTML = "";
-
-    const addSection = (title, arr, typeForCards) => {
-      const wrap = document.createElement("div");
-      wrap.style.display = "grid";
-      wrap.style.gap = "10px";
-
-      const h = document.createElement("div");
-      h.className = "ePill";
-      h.textContent = title;
-      h.style.justifyContent = "center";
-      h.style.fontWeight = "800";
-      h.style.opacity = ".95";
-      wrap.appendChild(h);
-
-      if (!arr.length) {
-        const empty = document.createElement("div");
-        empty.className = "eEmpty";
-        empty.textContent = "Empty";
-        wrap.appendChild(empty);
-        listEl.appendChild(wrap);
-        return;
-      }
-
-      if (!store.groupByCity) {
-        for (const ev of arr) {
-          wrap.appendChild(buildCard(ev, finalMap.get(ev.id), typeForCards));
-        }
-      } else {
-        const grouped = groupByCity(arr);
-        for (const [city, items] of grouped) {
-          const cityPill = document.createElement("div");
-          cityPill.className = "ePill";
-          cityPill.textContent = `${city} • ${items.length} event(s)`;
-          cityPill.style.opacity = ".85";
-          wrap.appendChild(cityPill);
-
-          items.sort((a, b) => a.start.getTime() - b.start.getTime());
-          for (const ev of items) {
-            wrap.appendChild(buildCard(ev, finalMap.get(ev.id), typeForCards));
-          }
-        }
-      }
-
-      listEl.appendChild(wrap);
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+
+    // --- CORS (GitHub Pages + optional localhost) ---
+    const origin = request.headers.get("Origin") || "";
+    const allowed = new Set([
+      "https://mr-tanq.github.io",
+      "http://localhost:5173",
+      "http://localhost:4173",
+      "http://localhost:3000",
+    ]);
+    const allowOrigin = allowed.has(origin) ? origin : "https://mr-tanq.github.io";
+
+    const corsHeaders = {
+      "access-control-allow-origin": allowOrigin,
+      "access-control-allow-methods": "GET,POST,OPTIONS",
+      "access-control-allow-headers": "content-type, authorization",
+      "access-control-max-age": "86400",
     };
 
-    addSection("My Plan", planned, "heard");
-    addSection(`Heard (Standard) • plays ≥ ${heardMin}`, heard, "heard");
-    addSection(`Suggestions • score ≥ ${uiMin}`, suggestions, "suggest");
-
-    if (!planned.length && !heard.length && !suggestions.length) {
-      setEmpty("No events yet. Tap Refresh.");
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders });
     }
-  }
-async function refresh(overrides = {}) {
-    store.lastRefreshAt = Date.now();
-    saveStore(store);
 
-    setEmpty("Refreshing…");
+    const jsonRes = (obj, status = 200) =>
+      new Response(JSON.stringify(obj, null, 2), {
+        status,
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          ...corsHeaders,
+        },
+      });
+
+    const lowerKey = (s) => String(s || "").trim().toLowerCase();
+    const clamp01 = (x) => Math.max(0, Math.min(1, x));
+    const clampInt = (v, a, b, fallback) => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return fallback;
+      return Math.max(a, Math.min(b, Math.trunc(n)));
+    };
 
     try {
-      const raw = await fetchConcertsFromWorker(overrides);
+      if (url.pathname === "/health") {
+        return jsonRes({ ok: true, service: "live", time: new Date().toISOString() });
+      }
 
-      // ✅ dedupe to kill VIP/comfort spam etc.
-      const events = dedupeEvents(raw);
+      if (url.pathname === "/econcerts") {
+        return await handleEconcerts(request, env, ctx, jsonRes, lowerKey, clamp01, clampInt);
+      }
 
-      lastEvents = events;
-      render(events);
+      return jsonRes({ ok: false, error: "not_found", path: url.pathname }, 404);
     } catch (err) {
-      console.warn("[eConcerts] worker fetch failed:", err);
-      lastEvents = [];
-      setEmpty(`Worker error: ${String(err && err.message ? err.message : err)}`);
+      return jsonRes(
+        {
+          ok: false,
+          error: "internal_error",
+          message: String(err && err.message ? err.message : err),
+        },
+        500
+      );
+    }
+  },
+};
+
+async function handleEconcerts(request, env, ctx, jsonRes, lowerKey, clamp01, clampInt) {
+  const url = new URL(request.url);
+
+  const TMASTER_API_KEY = String(env.TMASTER_API_KEY || "").trim();
+  const LASTFM_API_KEY = String(env.LASTFM_API_KEY || "").trim();
+  const LASTFM_USER = String(env.LASTFM_USER || "").trim();
+
+  const size = clampInt(url.searchParams.get("size"), 1, 1000, 50);
+  const radiusKm = clampInt(url.searchParams.get("radiusKm"), 1, 500, 30);
+  const scoreMin = clampInt(url.searchParams.get("scoreMin"), 0, 100, 0);
+
+  // ✅ tasteArtists ALWAYS 1000 (ignores query param)
+  const tasteArtists = 1000;
+
+  const cityRaw = String(url.searchParams.get("city") || "").trim();
+  const city = cityRaw;
+  const countryCode = String(url.searchParams.get("countryCode") || "NL").trim().toUpperCase();
+
+  const sources = parseSources(String(url.searchParams.get("sources") || "tm,ma,tv,pi"));
+
+  const debug = String(url.searchParams.get("debug") || "").trim() === "1";
+
+  if (!LASTFM_API_KEY) return jsonRes({ ok: false, error: "missing_env", message: "Missing LASTFM_API_KEY" }, 500);
+  if (!LASTFM_USER) return jsonRes({ ok: false, error: "missing_env", message: "Missing LASTFM_USER" }, 500);
+
+  if (sources.includes("tm") && !TMASTER_API_KEY) {
+    return jsonRes({ ok: false, error: "missing_env", message: "Missing TMASTER_API_KEY" }, 500);
+  }
+
+  // ---------------- Taste (Last.fm top 1000) ----------------
+  const taste = await lastfmTopArtistsOverall(LASTFM_API_KEY, LASTFM_USER, tasteArtists);
+  const tasteMap = new Map(taste.map((x) => [lowerKey(x.name), x.playcount]));
+  const tasteSet = new Set(taste.map((x) => lowerKey(x.name)));
+
+  // ---------------- Ecosystem (small seed set, cached) ----------------
+  // Keep this LOW to avoid subrequest limits, because we ALSO fetch TM/MA/TV/PI pages.
+  const SIMILAR_SEEDS = 8;   // safe default
+  const SIMILAR_LIMIT = 50; // per seed
+  const seeds = taste.slice(0, SIMILAR_SEEDS).map((x) => x.name).filter(Boolean);
+
+  const ecoBuild = await buildEcosystemCached(LASTFM_API_KEY, seeds, SIMILAR_LIMIT, lowerKey, ctx);
+  const ecosystemSet = ecoBuild.set;
+  const ecosystemWeight = ecoBuild.weightMap; // nameLower -> bestMatch (0..1)
+
+  // ---------------- Collect events from sources (existing behavior) ----------------
+  const collected = [];
+
+  let tmPagesFetched = null;
+  let tmEventsParsed = null;
+
+  if (sources.includes("tm")) {
+    const tmEvents = await ticketmasterEvents({
+      apiKey: TMASTER_API_KEY,
+      countryCode,
+      city: city || "",
+      radiusKm: city ? radiusKm : null,
+      sizeRequested: size,
+    });
+    tmEventsParsed = tmEvents.length;
+    tmPagesFetched = null; // Ticketmaster helper internally pages
+    for (const ev of tmEvents) collected.push({ ...ev, source: "tm" });
+  }
+
+  let maPagesFetched = 0;
+  let maEventsParsed2 = 0;
+  if (sources.includes("ma")) {
+    const maRes = await metalAgendaEvents({
+      maxEvents: size,
+      countryCode,
+    });
+    maPagesFetched = maRes.pagesFetched;
+    maEventsParsed2 = maRes.eventsParsed;
+    for (const ev of maRes.events) collected.push({ ...ev, source: "ma" });
+  }
+
+  let tvPagesFetched = 0;
+  let tvEventsParsed = 0;
+  if (sources.includes("tv")) {
+    const tvRes = await tivoliAgendaEvents({
+      maxEvents: size,
+      countryCode,
+      // IMPORTANT: cap hydration to avoid "Too many subrequests"
+      hydrateLimit: 18,
+    });
+    tvPagesFetched = tvRes.pagesFetched;
+    tvEventsParsed = tvRes.eventsParsed;
+    for (const ev of tvRes.events) collected.push({ ...ev, source: "tv" });
+  }
+
+  // ✅ Podiuminfo (pi) — NEW
+  let piPagesFetched = 0;
+  let piEventsParsed = 0;
+  if (sources.includes("pi")) {
+    const piRes = await podiumInfoAgendaEvents({
+      maxEvents: size,
+      countryCode,
+      maxPages: 6, // safe cap
+    });
+    piPagesFetched = piRes.pagesFetched;
+    piEventsParsed = piRes.eventsParsed;
+    for (const ev of piRes.events) collected.push({ ...ev, source: "pi" });
+  }
+
+  const deduped = dedupeCollected(collected, lowerKey);
+
+  // ---------------- Music-only ecosystem filter + scoring ----------------
+  const dropped = [];
+  const eventsScored = [];
+
+  for (const ev of deduped) {
+    const pick = pickBestArtistMatch(ev, lowerKey, tasteSet, ecosystemSet);
+
+    if (!pick.ok) {
+      if (debug && dropped.length < 250) {
+        dropped.push({
+          id: ev.id,
+          source: ev.source || "",
+          title: ev.artist || "",
+          url: ev.url || "",
+          reason: pick.reason,
+        });
+      }
+      continue;
+    }
+
+    const artistLower = pick.artistLower;
+    const plays = tasteMap.get(artistLower) || 0;
+
+    const inTaste = tasteSet.has(artistLower);
+    const ecoMatch = ecosystemWeight.get(artistLower) || 0;
+
+    // Score model: ONLY music match (no time/distance)
+    // - Taste artists: tier by playcount
+    // - Ecosystem artists: tier by best similar-match (ecoMatch)
+    let tier = "discovery";
+    if (inTaste) tier = tierFromPlays(plays);
+    else tier = tierFromEcosystemMatch(ecoMatch);
+
+    let score = baseScoreFromTier(tier);
+
+    // tiny boost: if the event has multiple attractions and at least one is a taste/core artist
+    const attBoost = attractionBoost(ev, lowerKey, tasteSet);
+    score = Math.max(0, Math.min(100, Math.round(score + attBoost)));
+
+    const level = score >= 80 ? "strong" : score >= 65 ? "good" : score >= 50 ? "ok" : "weak";
+
+    const out = {
+      id: ev.id,
+      artist: pick.artistDisplay,
+      attractions: ev.attractions,
+      city: ev.city,
+      venue: ev.venue,
+      start: ev.startLocal,
+      url: ev.url,
+      plays,
+      tier,
+      score,
+      level,
+      startTs: ev.startTs,
+      source: ev.source || "tm",
+      star: false,
+    };
+
+    if (score >= scoreMin) eventsScored.push(out);
+  }
+
+  // Sort: best match first, then date asc
+  eventsScored.sort((a, b) => (b.score - a.score) || (a.startTs - b.startTs));
+  const finalEvents = eventsScored.slice(0, size);
+
+  return jsonRes({
+    ok: true,
+    meta: {
+      sizeRequested: size,
+      radiusKm: city ? radiusKm : null,
+      scoreMin,
+      tasteArtists,
+      eventsFetched: deduped.length,
+      eventsReturned: finalEvents.length,
+      city: city || null,
+      countryCode,
+      sources,
+      mode: city ? "near_city" : "nl_wide",
+      tmPagesFetched,
+      tmEventsParsed,
+      maPagesFetched: sources.includes("ma") ? maPagesFetched : null,
+      maEventsParsed: sources.includes("ma") ? maEventsParsed2 : null,
+      tvPagesFetched: sources.includes("tv") ? tvPagesFetched : null,
+      tvEventsParsed: sources.includes("tv") ? tvEventsParsed : null,
+      piPagesFetched: sources.includes("pi") ? piPagesFetched : null,
+      piEventsParsed: sources.includes("pi") ? piEventsParsed : null,
+      model: "music_only_ecosystem_no_distance_no_time",
+      ecosystem: {
+        tasteCount: taste.length,
+        ecosystemCount: ecosystemSet.size,
+        similarSeedsUsed: seeds.length,
+      },
+      droppedCount: debug ? dropped.length : undefined,
+    },
+    events: finalEvents,
+    dropped: debug ? dropped : undefined,
+  });
+}
+
+function parseSources(raw) {
+  const s = String(raw || "tm")
+    .split(",")
+    .map((x) => x.trim().toLowerCase())
+    .filter(Boolean);
+
+  const out = [];
+  for (const x of s) {
+    if (x === "tm" || x === "ticketmaster") out.push("tm");
+    if (x === "ma" || x === "metalagenda") out.push("ma");
+    if (x === "tv" || x === "tivoli" || x === "tivolivredenburg") out.push("tv");
+    if (x === "pi" || x === "podiuminfo") out.push("pi");
+  }
+  return out.length ? Array.from(new Set(out)) : ["tm"];
+}
+/* live.js (FULL FILE REPLACE) — PART 2/4 */
+
+// ---------------- Last.fm ----------------
+async function lastfmTopArtistsOverall(apiKey, user, limit) {
+  const u = new URL("https://ws.audioscrobbler.com/2.0/");
+  u.searchParams.set("method", "user.gettopartists");
+  u.searchParams.set("user", user);
+  u.searchParams.set("api_key", apiKey);
+  u.searchParams.set("format", "json");
+  u.searchParams.set("limit", String(limit));
+  u.searchParams.set("period", "overall");
+
+  const r = await fetch(u.toString(), { method: "GET" });
+  const j = await r.json().catch(() => ({}));
+
+  if (!r.ok) throw new Error(`Last.fm HTTP ${r.status}`);
+  if (j && j.error) throw new Error(`Last.fm: ${j.message || "error"}`);
+
+  const arr = j?.topartists?.artist;
+  if (!Array.isArray(arr)) return [];
+
+  const out = [];
+  for (const a of arr) {
+    const name = String(a?.name || "").trim();
+    const playcount = Number(a?.playcount || 0);
+    if (!name) continue;
+    out.push({ name, playcount: Number.isFinite(playcount) ? playcount : 0 });
+  }
+
+  out.sort((a, b) => (b.playcount - a.playcount));
+  return out;
+}
+
+async function lastfmGetSimilar(apiKey, artistName, limit) {
+  const u = new URL("https://ws.audioscrobbler.com/2.0/");
+  u.searchParams.set("method", "artist.getsimilar");
+  u.searchParams.set("artist", artistName);
+  u.searchParams.set("api_key", apiKey);
+  u.searchParams.set("format", "json");
+  u.searchParams.set("limit", String(limit || 50));
+  u.searchParams.set("autocorrect", "1");
+
+  const r = await fetch(u.toString(), { method: "GET" });
+  const j = await r.json().catch(() => ({}));
+
+  if (!r.ok) throw new Error(`Last.fm similar HTTP ${r.status}`);
+  if (j && j.error) throw new Error(`Last.fm similar: ${j.message || "error"}`);
+
+  const arr = j?.similarartists?.artist;
+  if (!Array.isArray(arr)) return [];
+
+  const out = [];
+  for (const a of arr) {
+    const name = String(a?.name || "").trim();
+    const match = Number(a?.match || a?.similarity || 0);
+    if (!name) continue;
+    out.push({ name, match: Number.isFinite(match) ? match : 0 });
+  }
+  return out;
+}
+
+async function buildEcosystemCached(apiKey, seeds, limit, lowerKey, ctx) {
+  const set = new Set();
+  const weightMap = new Map(); // nameLower -> bestMatch
+  const seedList = Array.isArray(seeds) ? seeds.slice(0, 20) : [];
+
+  for (const s of seedList) {
+    const lk = lowerKey(s);
+    if (!lk) continue;
+    set.add(lk);
+    weightMap.set(lk, Math.max(weightMap.get(lk) || 0, 1));
+  }
+
+  for (const seed of seedList) {
+    const cached = await cacheGetSimilar(apiKey, seed, limit).catch(() => null);
+    const arr = Array.isArray(cached) ? cached : [];
+
+    for (const it of arr) {
+      const name = String(it?.name || "").trim();
+      const lk = lowerKey(name);
+      if (!lk) continue;
+      set.add(lk);
+
+      const m = Number(it?.match || 0);
+      const prev = weightMap.get(lk) || 0;
+      if (m > prev) weightMap.set(lk, m);
     }
   }
 
-  // Group toggle
-  groupBtn.addEventListener("click", async () => {
-    store.groupByCity = !store.groupByCity;
-    saveStore(store);
+  return { set, weightMap };
+}
 
-    groupBtn.setAttribute("aria-pressed", store.groupByCity ? "true" : "false");
-    groupBtn.textContent = store.groupByCity ? "Group by city" : "Ungroup";
+async function cacheGetSimilar(apiKey, seed, limit) {
+  const key = `lm:lastfm:similar:v1:${encodeURIComponent(String(seed || "").trim().toLowerCase())}:L${Number(limit || 50)}`;
+  const cache = caches.default;
 
-    render(lastEvents);
-  });
-
-  // Refresh button
-  refreshBtn.addEventListener("click", async () => {
-    await refresh(); // NL-wide default
-  });
-
-  // initial load
-  refresh().catch(() => setEmpty("Failed to refresh."));
-
-  // optional: refresh when tab becomes active
-  function wireTabAutoRefresh() {
-    const tabBtn = document.querySelector('.tabBtn[data-tab="econcerts"]');
-    if (!tabBtn) return;
-
-    tabBtn.addEventListener("click", () => {
-      const hasCards = listEl.querySelector(".eCard");
-      if (!hasCards) refresh().catch(() => {});
-    }, { passive: true });
+  const req = new Request("https://cache.local/" + key, { method: "GET" });
+  const hit = await cache.match(req);
+  if (hit) {
+    const j = await hit.json().catch(() => null);
+    if (Array.isArray(j)) return j;
   }
 
-  wireTabAutoRefresh();
-})();
+  const fresh = await lastfmGetSimilar(apiKey, seed, limit);
+  const res = new Response(JSON.stringify(fresh), {
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "public, max-age=604800", // 7 days
+    },
+  });
+  cache.put(req, res.clone()).catch(() => {});
+  return fresh;
+}
+
+// ---------------- fetch helpers ----------------
+async function fetchText(u) {
+  const r = await fetch(u, {
+    method: "GET",
+    headers: {
+      "accept": "text/html,*/*",
+      "user-agent": "ListeningMirror/1.0 (mr-tanq)",
+    },
+  });
+  if (!r.ok) return "";
+  return await r.text().catch(() => "");
+}
+
+function decodeHtmlEntities(s) {
+  let t = String(s || "");
+
+  t = t.replace(/&#(\d+);/g, (_, n) => {
+    const code = Number(n);
+    if (!Number.isFinite(code)) return _;
+    try { return String.fromCodePoint(code); } catch { return _; }
+  });
+
+  const map = {
+    "&eacute;": "é",
+    "&Eacute;": "É",
+    "&ouml;": "ö",
+    "&Ouml;": "Ö",
+    "&uuml;": "ü",
+    "&Uuml;": "Ü",
+    "&auml;": "ä",
+    "&Auml;": "Ä",
+    "&oslash;": "ø",
+    "&Oslash;": "Ø",
+    "&amp;": "&",
+    "&quot;": "\"",
+    "&#39;": "'",
+    "&lt;": "<",
+    "&gt;": ">",
+    "&nbsp;": " ",
+  };
+
+  for (const [k, v] of Object.entries(map)) {
+    t = t.split(k).join(v);
+  }
+  t = t.replace(/&[a-zA-Z]+;/g, "");
+  return t;
+}
+
+function htmlToText(html) {
+  let s = String(html || "");
+  s = s.replace(/<br\s*\/?>/gi, "\n");
+  s = s.replace(/<\/p>/gi, "\n");
+  s = s.replace(/<\/h\d>/gi, "\n");
+  s = s.replace(/<\/li>/gi, "\n");
+  s = s.replace(/<\/div>/gi, "\n");
+  s = s.replace(/<[^>]+>/g, " ");
+  s = s.replace(/\r/g, "\n");
+  s = s.replace(/\n{3,}/g, "\n\n");
+  return s.trim();
+}
+
+// ---------------- Time formatting: Europe/Amsterdam ----------------
+function formatAmsterdamLocal(dateObj) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Amsterdam",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(dateObj);
+
+  const get = (type) => parts.find((p) => p.type === type)?.value || "00";
+  const y = get("year");
+  const m = get("month");
+  const d = get("day");
+  const hh = get("hour");
+  const mm = get("minute");
+  const ss = get("second");
+
+  return `${y}-${m}-${d}T${hh}:${mm}:${ss}`;
+}
+
+function epochFromAmsterdamLocal(year, monthIdx, day, hh, mm, ss = 0) {
+  let guess = new Date(Date.UTC(year, monthIdx, day, hh, mm, ss));
+
+  for (let i = 0; i < 3; i++) {
+    const local = formatAmsterdamLocal(guess);
+    const y = Number(local.slice(0, 4));
+    const m = Number(local.slice(5, 7)) - 1;
+    const d = Number(local.slice(8, 10));
+    const H = Number(local.slice(11, 13));
+    const M = Number(local.slice(14, 16));
+    const S = Number(local.slice(17, 19));
+
+    const desiredMs = Date.UTC(year, monthIdx, day, hh, mm, ss);
+    const seenMs = Date.UTC(y, m, d, H, M, S);
+    const delta = desiredMs - seenMs;
+    if (delta === 0) break;
+    guess = new Date(guess.getTime() + delta);
+  }
+
+  return guess.getTime();
+}
+
+function slugify(s) {
+  return String(s || "")
+    .toLowerCase()
+    .trim()
+    .replace(/['’]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+// ---------------- Dedupe ----------------
+function dedupeCollected(items, lowerKey) {
+  const map = new Map();
+  for (const ev of items || []) {
+    const artist = lowerKey(ev?.artist || "");
+    const venue = lowerKey(ev?.venue || "");
+    const city = lowerKey(ev?.city || "");
+    const ts = Number(ev?.startTs || 0);
+    if (!artist || !ts) continue;
+
+    const key = `${artist}|${ts}|${city}|${venue}`;
+    const prev = map.get(key);
+    if (!prev) {
+      map.set(key, ev);
+      continue;
+    }
+
+    const prevUrl = String(prev?.url || "");
+    const curUrl = String(ev?.url || "");
+    const prevScore = (prev?.source === "tm" ? 2 : 1) + (prevUrl.startsWith("http") ? 1 : 0);
+    const curScore = (ev?.source === "tm" ? 2 : 1) + (curUrl.startsWith("http") ? 1 : 0);
+
+    if (curScore > prevScore) map.set(key, ev);
+  }
+  return Array.from(map.values());
+}

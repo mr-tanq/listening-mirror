@@ -1,561 +1,799 @@
-/* live.js (FULL FILE REPLACE) — PART 1/4
-   Model: music_only_ecosystem_no_distance_no_time
+/* live.js (FULL FILE REPLACE) — PART 3/4 */
 
-   Goals:
-   - Keep existing TM/MA/TV parsing behavior (do not break sources).
-   - Add Podiuminfo (pi) using HTMLRewriter (robust, not regex).
-   - Filter OUT non-music events WITHOUT blacklist by requiring match to:
-       (A) taste artists (Last.fm top 1000), OR
-       (B) ecosystem artists (Last.fm artist.getSimilar from a small seed set)
-   - No distance/time boosts in scoring.
-   - Avoid Cloudflare "Too many subrequests":
-       * cap Tivoli hydrate
-       * cap Last.fm similar seeds
-       * cache similars in caches.default
-       * cap Podiuminfo pages
-   - Optional debug=1 returns dropped[] with reasons.
+// ---------------- Music-only matching ----------------
+function splitCandidatesFromText(title) {
+  const t = String(title || "").trim();
+  if (!t) return [];
 
-   Sources supported: tm, ma, tv, pi
-*/
+  const parts = t
+    .replace(/\s+/g, " ")
+    .split(/(?:\s+\+\s+|,|\/|&| x | feat\.| ft\.| featuring | presents | w\/| with |\||–|-|:)/i)
+    .map((x) => x.trim())
+    .filter((x) => x.length >= 2);
 
-export default {
-  async fetch(request, env, ctx) {
-    const url = new URL(request.url);
+  return [t, ...parts];
+}
 
-    // --- CORS (GitHub Pages + optional localhost) ---
-    const origin = request.headers.get("Origin") || "";
-    const allowed = new Set([
-      "https://mr-tanq.github.io",
-      "http://localhost:5173",
-      "http://localhost:4173",
-      "http://localhost:3000",
-    ]);
-    const allowOrigin = allowed.has(origin) ? origin : "https://mr-tanq.github.io";
+function pickBestArtistMatch(ev, lowerKey, tasteSet, ecosystemSet) {
+  const primary = String(ev?.artist || "").trim();
+  const atts = Array.isArray(ev?.attractions) ? ev.attractions : [];
 
-    const corsHeaders = {
-      "access-control-allow-origin": allowOrigin,
-      "access-control-allow-methods": "GET,POST,OPTIONS",
-      "access-control-allow-headers": "content-type, authorization",
-      "access-control-max-age": "86400",
-    };
+  const candidates = [];
+  if (primary) candidates.push(primary);
+  for (const a of atts) {
+    const s = String(a || "").trim();
+    if (s) candidates.push(s);
+  }
+  for (const c of splitCandidatesFromText(primary)) candidates.push(c);
 
-    if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders });
+  const uniq = [];
+  const seen = new Set();
+  for (const c of candidates) {
+    const s = String(c || "").trim();
+    if (!s) continue;
+    const k = lowerKey(s);
+    if (!k) continue;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    uniq.push({ display: s, lower: k });
+  }
+
+  for (const c of uniq) {
+    if (tasteSet.has(c.lower)) {
+      return { ok: true, artistDisplay: c.display, artistLower: c.lower, reason: "taste_match" };
+    }
+  }
+
+  for (const c of uniq) {
+    if (ecosystemSet.has(c.lower)) {
+      return { ok: true, artistDisplay: c.display, artistLower: c.lower, reason: "ecosystem_match" };
+    }
+  }
+
+  return { ok: false, reason: "no_match_to_taste_or_ecosystem" };
+}
+
+function attractionBoost(ev, lowerKey, tasteSet) {
+  const atts = Array.isArray(ev?.attractions) ? ev.attractions : [];
+  if (!atts.length) return 0;
+
+  let hits = 0;
+  for (const a of atts) {
+    const lk = lowerKey(a);
+    if (lk && tasteSet.has(lk)) hits += 1;
+  }
+  return Math.min(8, hits * 3);
+}
+
+// ---------------- Scoring tiers ----------------
+function tierFromPlays(plays) {
+  const p = Number(plays || 0);
+  if (p >= 120) return "core";
+  if (p >= 40) return "known";
+  if (p >= 10) return "maybe";
+  return "discovery";
+}
+function tierFromEcosystemMatch(match01) {
+  const m = Number(match01 || 0);
+  if (m >= 0.55) return "known";
+  if (m >= 0.25) return "maybe";
+  return "discovery";
+}
+function baseScoreFromTier(tier) {
+  if (tier === "core") return 78;
+  if (tier === "known") return 62;
+  if (tier === "maybe") return 48;
+  return 34;
+}
+
+// ---------------- Ticketmaster ----------------
+async function ticketmasterEvents({ apiKey, countryCode, city, radiusKm, sizeRequested }) {
+  const want = Math.max(1, Math.min(1000, Number(sizeRequested) || 1));
+  const pageSize = Math.min(200, want);
+  const nowIso = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+
+  const out = [];
+  let page = 0;
+  const maxPages = Math.min(10, Math.ceil(want / pageSize) + 2);
+
+  while (out.length < want && page < maxPages) {
+    const u = new URL("https://app.ticketmaster.com/discovery/v2/events.json");
+    u.searchParams.set("apikey", apiKey);
+    u.searchParams.set("countryCode", countryCode);
+    u.searchParams.set("classificationName", "music");
+    u.searchParams.set("sort", "date,asc");
+    u.searchParams.set("size", String(pageSize));
+    u.searchParams.set("page", String(page));
+    u.searchParams.set("startDateTime", nowIso);
+
+    const cityTrim = String(city || "").trim();
+    if (cityTrim) {
+      u.searchParams.set("city", cityTrim);
+      if (radiusKm != null) {
+        u.searchParams.set("radius", String(radiusKm));
+        u.searchParams.set("unit", "km");
+      }
     }
 
-    const jsonRes = (obj, status = 200) =>
-      new Response(JSON.stringify(obj, null, 2), {
-        status,
-        headers: {
-          "content-type": "application/json; charset=utf-8",
-          ...corsHeaders,
-        },
+    const r = await fetch(u.toString(), { method: "GET" });
+    const j = await r.json().catch(() => ({}));
+
+    if (!r.ok) {
+      const msg = j?.errors?.[0]?.detail || `Ticketmaster HTTP ${r.status}`;
+      throw new Error(msg);
+    }
+
+    const items = j?._embedded?.events;
+    if (!Array.isArray(items) || items.length === 0) break;
+
+    for (const e of items) {
+      if (out.length >= want) break;
+
+      const id = String(e?.id || "").trim();
+      if (!id) continue;
+
+      const attractions = Array.isArray(e?._embedded?.attractions)
+        ? e._embedded.attractions.map((a) => String(a?.name || "").trim()).filter(Boolean)
+        : [];
+
+      const artist = attractions[0] || String(e?.name || "").trim();
+
+      const venueObj = Array.isArray(e?._embedded?.venues) ? e._embedded.venues[0] : null;
+      const venue = String(venueObj?.name || "").trim();
+
+      const cityName = String(venueObj?.city?.name || "").trim() || cityTrim || "";
+
+      const dt = String(e?.dates?.start?.dateTime || "").trim();
+      if (!dt) continue;
+
+      const startDate = new Date(dt);
+      if (Number.isNaN(startDate.getTime())) continue;
+
+      const startTs = startDate.getTime();
+      const startLocal = formatAmsterdamLocal(startDate);
+      const url = String(e?.url || "").trim();
+
+      out.push({
+        id: `tm:${id}`,
+        artist,
+        attractions,
+        city: cityName,
+        venue: venue || "",
+        startTs,
+        startLocal,
+        url,
       });
-
-    const lowerKey = (s) => String(s || "").trim().toLowerCase();
-    const clamp01 = (x) => Math.max(0, Math.min(1, x));
-    const clampInt = (v, a, b, fallback) => {
-      const n = Number(v);
-      if (!Number.isFinite(n)) return fallback;
-      return Math.max(a, Math.min(b, Math.trunc(n)));
-    };
-
-    try {
-      if (url.pathname === "/health") {
-        return jsonRes({ ok: true, service: "live", time: new Date().toISOString() });
-      }
-
-      if (url.pathname === "/econcerts") {
-        return await handleEconcerts(request, env, ctx, jsonRes, lowerKey, clamp01, clampInt);
-      }
-
-      return jsonRes({ ok: false, error: "not_found", path: url.pathname }, 404);
-    } catch (err) {
-      return jsonRes(
-        {
-          ok: false,
-          error: "internal_error",
-          message: String(err && err.message ? err.message : err),
-        },
-        500
-      );
-    }
-  },
-};
-
-async function handleEconcerts(request, env, ctx, jsonRes, lowerKey, clamp01, clampInt) {
-  const url = new URL(request.url);
-
-  const TMASTER_API_KEY = String(env.TMASTER_API_KEY || "").trim();
-  const LASTFM_API_KEY = String(env.LASTFM_API_KEY || "").trim();
-  const LASTFM_USER = String(env.LASTFM_USER || "").trim();
-
-  const size = clampInt(url.searchParams.get("size"), 1, 1000, 50);
-  const radiusKm = clampInt(url.searchParams.get("radiusKm"), 1, 500, 30);
-  const scoreMin = clampInt(url.searchParams.get("scoreMin"), 0, 100, 0);
-
-  // ✅ tasteArtists ALWAYS 1000 (ignores query param)
-  const tasteArtists = 1000;
-
-  const cityRaw = String(url.searchParams.get("city") || "").trim();
-  const city = cityRaw;
-  const countryCode = String(url.searchParams.get("countryCode") || "NL").trim().toUpperCase();
-
-  const sources = parseSources(String(url.searchParams.get("sources") || "tm,ma,tv,pi"));
-
-  const debug = String(url.searchParams.get("debug") || "").trim() === "1";
-
-  if (!LASTFM_API_KEY) return jsonRes({ ok: false, error: "missing_env", message: "Missing LASTFM_API_KEY" }, 500);
-  if (!LASTFM_USER) return jsonRes({ ok: false, error: "missing_env", message: "Missing LASTFM_USER" }, 500);
-
-  if (sources.includes("tm") && !TMASTER_API_KEY) {
-    return jsonRes({ ok: false, error: "missing_env", message: "Missing TMASTER_API_KEY" }, 500);
-  }
-
-  // ---------------- Taste (Last.fm top 1000) ----------------
-  const taste = await lastfmTopArtistsOverall(LASTFM_API_KEY, LASTFM_USER, tasteArtists);
-  const tasteMap = new Map(taste.map((x) => [lowerKey(x.name), x.playcount]));
-  const tasteSet = new Set(taste.map((x) => lowerKey(x.name)));
-
-  // ---------------- Ecosystem (small seed set, cached) ----------------
-  // Keep this LOW to avoid subrequest limits, because we ALSO fetch TM/MA/TV/PI pages.
-  const SIMILAR_SEEDS = 8;   // safe default
-  const SIMILAR_LIMIT = 50; // per seed
-  const seeds = taste.slice(0, SIMILAR_SEEDS).map((x) => x.name).filter(Boolean);
-
-  const ecoBuild = await buildEcosystemCached(LASTFM_API_KEY, seeds, SIMILAR_LIMIT, lowerKey, ctx);
-  const ecosystemSet = ecoBuild.set;
-  const ecosystemWeight = ecoBuild.weightMap; // nameLower -> bestMatch (0..1)
-
-  // ---------------- Collect events from sources (existing behavior) ----------------
-  const collected = [];
-
-  let tmPagesFetched = null;
-  let tmEventsParsed = null;
-
-  if (sources.includes("tm")) {
-    const tmEvents = await ticketmasterEvents({
-      apiKey: TMASTER_API_KEY,
-      countryCode,
-      city: city || "",
-      radiusKm: city ? radiusKm : null,
-      sizeRequested: size,
-    });
-    tmEventsParsed = tmEvents.length;
-    tmPagesFetched = null; // Ticketmaster helper internally pages
-    for (const ev of tmEvents) collected.push({ ...ev, source: "tm" });
-  }
-
-  let maPagesFetched = 0;
-  let maEventsParsed2 = 0;
-  if (sources.includes("ma")) {
-    const maRes = await metalAgendaEvents({
-      maxEvents: size,
-      countryCode,
-    });
-    maPagesFetched = maRes.pagesFetched;
-    maEventsParsed2 = maRes.eventsParsed;
-    for (const ev of maRes.events) collected.push({ ...ev, source: "ma" });
-  }
-
-  let tvPagesFetched = 0;
-  let tvEventsParsed = 0;
-  if (sources.includes("tv")) {
-    const tvRes = await tivoliAgendaEvents({
-      maxEvents: size,
-      countryCode,
-      // IMPORTANT: cap hydration to avoid "Too many subrequests"
-      hydrateLimit: 18,
-    });
-    tvPagesFetched = tvRes.pagesFetched;
-    tvEventsParsed = tvRes.eventsParsed;
-    for (const ev of tvRes.events) collected.push({ ...ev, source: "tv" });
-  }
-
-  // ✅ Podiuminfo (pi) — NEW
-  let piPagesFetched = 0;
-  let piEventsParsed = 0;
-  if (sources.includes("pi")) {
-    const piRes = await podiumInfoAgendaEvents({
-      maxEvents: size,
-      countryCode,
-      maxPages: 6, // safe cap
-    });
-    piPagesFetched = piRes.pagesFetched;
-    piEventsParsed = piRes.eventsParsed;
-    for (const ev of piRes.events) collected.push({ ...ev, source: "pi" });
-  }
-
-  const deduped = dedupeCollected(collected, lowerKey);
-
-  // ---------------- Music-only ecosystem filter + scoring ----------------
-  const dropped = [];
-  const eventsScored = [];
-
-  for (const ev of deduped) {
-    const pick = pickBestArtistMatch(ev, lowerKey, tasteSet, ecosystemSet);
-
-    if (!pick.ok) {
-      if (debug && dropped.length < 250) {
-        dropped.push({
-          id: ev.id,
-          source: ev.source || "",
-          title: ev.artist || "",
-          url: ev.url || "",
-          reason: pick.reason,
-        });
-      }
-      continue;
     }
 
-    const artistLower = pick.artistLower;
-    const plays = tasteMap.get(artistLower) || 0;
-
-    const inTaste = tasteSet.has(artistLower);
-    const ecoMatch = ecosystemWeight.get(artistLower) || 0;
-
-    // Score model: ONLY music match (no time/distance)
-    // - Taste artists: tier by playcount
-    // - Ecosystem artists: tier by best similar-match (ecoMatch)
-    let tier = "discovery";
-    if (inTaste) tier = tierFromPlays(plays);
-    else tier = tierFromEcosystemMatch(ecoMatch);
-
-    let score = baseScoreFromTier(tier);
-
-    // tiny boost: if the event has multiple attractions and at least one is a taste/core artist
-    const attBoost = attractionBoost(ev, lowerKey, tasteSet);
-    score = Math.max(0, Math.min(100, Math.round(score + attBoost)));
-
-    const level = score >= 80 ? "strong" : score >= 65 ? "good" : score >= 50 ? "ok" : "weak";
-
-    const out = {
-      id: ev.id,
-      artist: pick.artistDisplay,
-      attractions: ev.attractions,
-      city: ev.city,
-      venue: ev.venue,
-      start: ev.startLocal,
-      url: ev.url,
-      plays,
-      tier,
-      score,
-      level,
-      startTs: ev.startTs,
-      source: ev.source || "tm",
-      star: false,
-    };
-
-    if (score >= scoreMin) eventsScored.push(out);
+    page += 1;
+    const pageInfo = j?.page;
+    if (pageInfo && Number.isFinite(pageInfo.totalPages) && page >= pageInfo.totalPages) break;
   }
 
-  // Sort: best match first, then date asc
-  eventsScored.sort((a, b) => (b.score - a.score) || (a.startTs - b.startTs));
-  const finalEvents = eventsScored.slice(0, size);
-
-  return jsonRes({
-    ok: true,
-    meta: {
-      sizeRequested: size,
-      radiusKm: city ? radiusKm : null,
-      scoreMin,
-      tasteArtists,
-      eventsFetched: deduped.length,
-      eventsReturned: finalEvents.length,
-      city: city || null,
-      countryCode,
-      sources,
-      mode: city ? "near_city" : "nl_wide",
-      tmPagesFetched,
-      tmEventsParsed,
-      maPagesFetched: sources.includes("ma") ? maPagesFetched : null,
-      maEventsParsed: sources.includes("ma") ? maEventsParsed2 : null,
-      tvPagesFetched: sources.includes("tv") ? tvPagesFetched : null,
-      tvEventsParsed: sources.includes("tv") ? tvEventsParsed : null,
-      piPagesFetched: sources.includes("pi") ? piPagesFetched : null,
-      piEventsParsed: sources.includes("pi") ? piEventsParsed : null,
-      model: "music_only_ecosystem_no_distance_no_time",
-      ecosystem: {
-        tasteCount: taste.length,
-        ecosystemCount: ecosystemSet.size,
-        similarSeedsUsed: seeds.length,
-      },
-      droppedCount: debug ? dropped.length : undefined,
-    },
-    events: finalEvents,
-    dropped: debug ? dropped : undefined,
-  });
-}
-
-function parseSources(raw) {
-  const s = String(raw || "tm")
-    .split(",")
-    .map((x) => x.trim().toLowerCase())
-    .filter(Boolean);
-
-  const out = [];
-  for (const x of s) {
-    if (x === "tm" || x === "ticketmaster") out.push("tm");
-    if (x === "ma" || x === "metalagenda") out.push("ma");
-    if (x === "tv" || x === "tivoli" || x === "tivolivredenburg") out.push("tv");
-    if (x === "pi" || x === "podiuminfo") out.push("pi");
-  }
-  return out.length ? Array.from(new Set(out)) : ["tm"];
-}
-/* live.js (FULL FILE REPLACE) — PART 2/4 */
-
-// ---------------- Last.fm ----------------
-async function lastfmTopArtistsOverall(apiKey, user, limit) {
-  const u = new URL("https://ws.audioscrobbler.com/2.0/");
-  u.searchParams.set("method", "user.gettopartists");
-  u.searchParams.set("user", user);
-  u.searchParams.set("api_key", apiKey);
-  u.searchParams.set("format", "json");
-  u.searchParams.set("limit", String(limit));
-  u.searchParams.set("period", "overall");
-
-  const r = await fetch(u.toString(), { method: "GET" });
-  const j = await r.json().catch(() => ({}));
-
-  if (!r.ok) throw new Error(`Last.fm HTTP ${r.status}`);
-  if (j && j.error) throw new Error(`Last.fm: ${j.message || "error"}`);
-
-  const arr = j?.topartists?.artist;
-  if (!Array.isArray(arr)) return [];
-
-  const out = [];
-  for (const a of arr) {
-    const name = String(a?.name || "").trim();
-    const playcount = Number(a?.playcount || 0);
-    if (!name) continue;
-    out.push({ name, playcount: Number.isFinite(playcount) ? playcount : 0 });
-  }
-
-  out.sort((a, b) => (b.playcount - a.playcount));
   return out;
 }
 
-async function lastfmGetSimilar(apiKey, artistName, limit) {
-  const u = new URL("https://ws.audioscrobbler.com/2.0/");
-  u.searchParams.set("method", "artist.getsimilar");
-  u.searchParams.set("artist", artistName);
-  u.searchParams.set("api_key", apiKey);
-  u.searchParams.set("format", "json");
-  u.searchParams.set("limit", String(limit || 50));
-  u.searchParams.set("autocorrect", "1");
-
-  const r = await fetch(u.toString(), { method: "GET" });
-  const j = await r.json().catch(() => ({}));
-
-  if (!r.ok) throw new Error(`Last.fm similar HTTP ${r.status}`);
-  if (j && j.error) throw new Error(`Last.fm similar: ${j.message || "error"}`);
-
-  const arr = j?.similarartists?.artist;
-  if (!Array.isArray(arr)) return [];
-
-  const out = [];
-  for (const a of arr) {
-    const name = String(a?.name || "").trim();
-    const match = Number(a?.match || a?.similarity || 0);
-    if (!name) continue;
-    out.push({ name, match: Number.isFinite(match) ? match : 0 });
-  }
-  return out;
-}
-
-async function buildEcosystemCached(apiKey, seeds, limit, lowerKey, ctx) {
-  const set = new Set();
-  const weightMap = new Map(); // nameLower -> bestMatch
-  const seedList = Array.isArray(seeds) ? seeds.slice(0, 20) : [];
-
-  for (const s of seedList) {
-    const lk = lowerKey(s);
-    if (!lk) continue;
-    set.add(lk);
-    weightMap.set(lk, Math.max(weightMap.get(lk) || 0, 1));
+// ---------------- MetalAgenda (venues) ----------------
+async function metalAgendaEvents({ maxEvents, countryCode }) {
+  if (String(countryCode || "").toUpperCase() !== "NL") {
+    return { pagesFetched: 0, eventsParsed: 0, events: [] };
   }
 
-  for (const seed of seedList) {
-    const cached = await cacheGetSimilar(apiKey, seed, limit).catch(() => null);
-    const arr = Array.isArray(cached) ? cached : [];
+  const want = Math.max(1, Math.min(1000, Number(maxEvents) || 50));
+  const venueUrls = [
+    "https://www.metalagenda.nl/venues/tivoli-vredenburg",
+    "https://www.metalagenda.nl/venues/db-s",
+    "https://www.metalagenda.nl/venues/de-helling",
+    "https://www.metalagenda.nl/venues/melkweg",
+    "https://www.metalagenda.nl/venues/paradiso",
+    "https://www.metalagenda.nl/venues/baroeg",
+    "https://www.metalagenda.nl/venues/013",
+    "https://www.metalagenda.nl/venues/dynamo",
+    "https://www.metalagenda.nl/venues/doornroosje",
+    "https://www.metalagenda.nl/venues/paard",
+    "https://www.metalagenda.nl/venues/patronaat",
+    "https://www.metalagenda.nl/venues/metropool",
+  ];
 
-    for (const it of arr) {
-      const name = String(it?.name || "").trim();
-      const lk = lowerKey(name);
-      if (!lk) continue;
-      set.add(lk);
+  const events = [];
+  let pagesFetched = 0;
+  let eventsParsed = 0;
 
-      const m = Number(it?.match || 0);
-      const prev = weightMap.get(lk) || 0;
-      if (m > prev) weightMap.set(lk, m);
+  const concurrency = 4;
+  let idx = 0;
+
+  const runner = async () => {
+    while (idx < venueUrls.length && events.length < want) {
+      const i = idx++;
+      const vurl = venueUrls[i];
+
+      const html = await fetchText(vurl).catch(() => "");
+      pagesFetched += 1;
+      if (!html) continue;
+
+      const parsed = parseMetalAgendaVenueHtml(vurl, html);
+      eventsParsed += parsed.length;
+
+      for (const ev of parsed) {
+        if (events.length >= want) break;
+        events.push(ev);
+      }
     }
-  }
-
-  return { set, weightMap };
-}
-
-async function cacheGetSimilar(apiKey, seed, limit) {
-  const key = `lm:lastfm:similar:v1:${encodeURIComponent(String(seed || "").trim().toLowerCase())}:L${Number(limit || 50)}`;
-  const cache = caches.default;
-
-  const req = new Request("https://cache.local/" + key, { method: "GET" });
-  const hit = await cache.match(req);
-  if (hit) {
-    const j = await hit.json().catch(() => null);
-    if (Array.isArray(j)) return j;
-  }
-
-  const fresh = await lastfmGetSimilar(apiKey, seed, limit);
-  const res = new Response(JSON.stringify(fresh), {
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "public, max-age=604800", // 7 days
-    },
-  });
-  cache.put(req, res.clone()).catch(() => {});
-  return fresh;
-}
-
-// ---------------- fetch helpers ----------------
-async function fetchText(u) {
-  const r = await fetch(u, {
-    method: "GET",
-    headers: {
-      "accept": "text/html,*/*",
-      "user-agent": "ListeningMirror/1.0 (mr-tanq)",
-    },
-  });
-  if (!r.ok) return "";
-  return await r.text().catch(() => "");
-}
-
-function decodeHtmlEntities(s) {
-  let t = String(s || "");
-
-  t = t.replace(/&#(\d+);/g, (_, n) => {
-    const code = Number(n);
-    if (!Number.isFinite(code)) return _;
-    try { return String.fromCodePoint(code); } catch { return _; }
-  });
-
-  const map = {
-    "&eacute;": "é",
-    "&Eacute;": "É",
-    "&ouml;": "ö",
-    "&Ouml;": "Ö",
-    "&uuml;": "ü",
-    "&Uuml;": "Ü",
-    "&auml;": "ä",
-    "&Auml;": "Ä",
-    "&oslash;": "ø",
-    "&Oslash;": "Ø",
-    "&amp;": "&",
-    "&quot;": "\"",
-    "&#39;": "'",
-    "&lt;": "<",
-    "&gt;": ">",
-    "&nbsp;": " ",
   };
 
-  for (const [k, v] of Object.entries(map)) {
-    t = t.split(k).join(v);
+  await Promise.all(Array.from({ length: concurrency }, () => runner()));
+
+  const cutoff = Date.now() - 12 * 60 * 60 * 1000;
+  const upcoming = events.filter((e) => Number(e?.startTs) >= cutoff);
+  upcoming.sort((a, b) => (a.startTs - b.startTs));
+
+  return {
+    pagesFetched,
+    eventsParsed,
+    events: upcoming.slice(0, want),
+  };
+}
+
+function cleanPlace(s) {
+  let x = String(s || "").trim();
+  x = x.replace(/\s*De metal concertagenda.*$/i, "").trim();
+  x = x.replace(/\s{2,}/g, " ").trim();
+  return x;
+}
+
+function normalizeSpacedText(s) {
+  let t = String(s || "");
+  t = t.replace(/(\d)\s+(?=\d)/g, "$1");
+  for (let i = 0; i < 5; i++) {
+    t = t.replace(/([A-Za-zÀ-ÿ])\s+(?=[A-Za-zÀ-ÿ])/g, "$1");
   }
-  t = t.replace(/&[a-zA-Z]+;/g, "");
+  t = t.replace(/[ \t]+/g, " ");
   return t;
 }
 
-function htmlToText(html) {
-  let s = String(html || "");
-  s = s.replace(/<br\s*\/?>/gi, "\n");
-  s = s.replace(/<\/p>/gi, "\n");
-  s = s.replace(/<\/h\d>/gi, "\n");
-  s = s.replace(/<\/li>/gi, "\n");
-  s = s.replace(/<\/div>/gi, "\n");
-  s = s.replace(/<[^>]+>/g, " ");
-  s = s.replace(/\r/g, "\n");
-  s = s.replace(/\n{3,}/g, "\n\n");
-  return s.trim();
-}
+function parseMetalAgendaVenueHtml(pageUrl, html) {
+  const text = htmlToText(html);
 
-// ---------------- Time formatting: Europe/Amsterdam ----------------
-function formatAmsterdamLocal(dateObj) {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Europe/Amsterdam",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).formatToParts(dateObj);
+  let venue = "";
+  let city = "";
 
-  const get = (type) => parts.find((p) => p.type === type)?.value || "00";
-  const y = get("year");
-  const m = get("month");
-  const d = get("day");
-  const hh = get("hour");
-  const mm = get("minute");
-  const ss = get("second");
-
-  return `${y}-${m}-${d}T${hh}:${mm}:${ss}`;
-}
-
-function epochFromAmsterdamLocal(year, monthIdx, day, hh, mm, ss = 0) {
-  let guess = new Date(Date.UTC(year, monthIdx, day, hh, mm, ss));
-
-  for (let i = 0; i < 3; i++) {
-    const local = formatAmsterdamLocal(guess);
-    const y = Number(local.slice(0, 4));
-    const m = Number(local.slice(5, 7)) - 1;
-    const d = Number(local.slice(8, 10));
-    const H = Number(local.slice(11, 13));
-    const M = Number(local.slice(14, 16));
-    const S = Number(local.slice(17, 19));
-
-    const desiredMs = Date.UTC(year, monthIdx, day, hh, mm, ss);
-    const seenMs = Date.UTC(y, m, d, H, M, S);
-    const delta = desiredMs - seenMs;
-    if (delta === 0) break;
-    guess = new Date(guess.getTime() + delta);
+  const headerMatch = text.match(/Metal concerten bij\s+(.+?)\s+te\s+(.+?)(?:\n|$)/i);
+  if (headerMatch) {
+    venue = cleanPlace(String(headerMatch[1] || "").trim());
+    city = cleanPlace(String(headerMatch[2] || "").trim());
   }
 
-  return guess.getTime();
-}
+  const normalized = decodeHtmlEntities(normalizeSpacedText(text));
 
-function slugify(s) {
-  return String(s || "")
-    .toLowerCase()
-    .trim()
-    .replace(/['’]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-}
+  const lines = normalized
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
 
-// ---------------- Dedupe ----------------
-function dedupeCollected(items, lowerKey) {
-  const map = new Map();
-  for (const ev of items || []) {
-    const artist = lowerKey(ev?.artist || "");
-    const venue = lowerKey(ev?.venue || "");
-    const city = lowerKey(ev?.city || "");
-    const ts = Number(ev?.startTs || 0);
-    if (!artist || !ts) continue;
+  const monthMap = {
+    januari: 0, februari: 1, maart: 2, april: 3, mei: 4, juni: 5,
+    juli: 6, augustus: 7, september: 8, oktober: 9, november: 10, december: 11,
+  };
 
-    const key = `${artist}|${ts}|${city}|${venue}`;
-    const prev = map.get(key);
-    if (!prev) {
-      map.set(key, ev);
-      continue;
+  const weekdays = [
+    "maandag","dinsdag","woensdag","donderdag","vrijdag","zaterdag","zondag",
+  ];
+
+  const out = [];
+
+  for (const line0 of lines) {
+    const m = line0.match(/^(\d{1,2})\s+([a-z]+)\s+(\d{4})\s*(.*)$/i);
+    if (!m) continue;
+
+    const day = Number(m[1]);
+    const monthName = String(m[2] || "").toLowerCase();
+    const year = Number(m[3]);
+    const rest0 = String(m[4] || "");
+
+    const monthIdx = monthMap[monthName];
+    if (monthIdx == null) continue;
+
+    let rest = rest0.trim();
+
+    for (const wd of weekdays) {
+      if (rest.toLowerCase().startsWith(wd)) {
+        rest = rest.slice(wd.length).trim();
+        break;
+      }
     }
 
-    const prevUrl = String(prev?.url || "");
-    const curUrl = String(ev?.url || "");
-    const prevScore = (prev?.source === "tm" ? 2 : 1) + (prevUrl.startsWith("http") ? 1 : 0);
-    const curScore = (ev?.source === "tm" ? 2 : 1) + (curUrl.startsWith("http") ? 1 : 0);
+    rest = rest.replace(/^uitverkocht\s+/i, "").trim();
 
-    if (curScore > prevScore) map.set(key, ev);
+    let title = rest;
+    let bandsPart = "";
+    const bi = rest.toLowerCase().indexOf("bands:");
+    if (bi >= 0) {
+      title = rest.slice(0, bi).trim();
+      bandsPart = rest.slice(bi + "bands:".length).trim();
+    }
+
+    title = title.replace(/\s+/g, " ").trim();
+    bandsPart = bandsPart.replace(/\s+/g, " ").trim();
+
+    if (!title) continue;
+    if (/^bands:\s*-\s*$/i.test(line0)) continue;
+    if (title.toLowerCase().startsWith("de metal concertagenda")) continue;
+
+    let bands = [];
+    if (bandsPart) {
+      bands = bandsPart
+        .split("|")
+        .map((x) => x.trim())
+        .filter((x) => x && x !== "-");
+    }
+
+    const headliner = (bands[0] || title).trim();
+    if (!headliner || headliner === "-") continue;
+
+    let hh = 20, mm = 0;
+    const tm = line0.match(/\b([01]\d|2[0-3]):([0-5]\d)\b/);
+    if (tm) {
+      hh = Number(tm[1]);
+      mm = Number(tm[2]);
+    }
+
+    const startTs = epochFromAmsterdamLocal(year, monthIdx, day, hh, mm, 0);
+    const startLocal = formatAmsterdamLocal(new Date(startTs));
+
+    const url = pageUrl;
+
+    const id = `ma:${slugify(venue || "venue")}:${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}:${slugify(headliner)}:${slugify(city)}`;
+
+    out.push({
+      id,
+      artist: headliner,
+      attractions: bands.length ? bands : [headliner],
+      city: city || "",
+      venue: venue || "",
+      startTs,
+      startLocal,
+      url,
+    });
   }
-  return Array.from(map.values());
+
+  return out;
+}
+/* live.js (FULL FILE REPLACE) — PART 4/4 */
+
+// ---------------- TivoliVredenburg (agenda pages + hydrate with CAP) ----------------
+async function tivoliAgendaEvents({ maxEvents, countryCode, hydrateLimit = 18 }) {
+  if (String(countryCode || "").toUpperCase() !== "NL") {
+    return { pagesFetched: 0, eventsParsed: 0, events: [] };
+  }
+
+  const want = Math.max(1, Math.min(1000, Number(maxEvents) || 50));
+
+  const events = [];
+  let pagesFetched = 0;
+  let eventsParsed = 0;
+
+  const maxPages = 12;
+  for (let page = 1; page <= maxPages && events.length < want; page++) {
+    const pageUrl = `https://www.tivolivredenburg.nl/agenda/page/${page}/`;
+    const html = await fetchText(pageUrl).catch(() => "");
+    pagesFetched += 1;
+    if (!html) continue;
+
+    const parsed = parseTivoliAgendaHtml(html);
+    eventsParsed += parsed.length;
+
+    for (const ev of parsed) {
+      if (events.length >= want) break;
+      events.push(ev);
+    }
+  }
+
+  const cutoff = Date.now() - 12 * 60 * 60 * 1000;
+  const upcoming = events.filter((e) => Number(e?.startTs) >= cutoff);
+
+  const seen = new Set();
+  const uniq = [];
+  for (const e of upcoming) {
+    const k = String(e.url || "");
+    if (!k) continue;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    uniq.push(e);
+  }
+
+  const toHydrate = uniq.slice(0, Math.max(0, Math.min(50, Number(hydrateLimit) || 0)));
+  const rest = uniq.slice(toHydrate.length);
+
+  const hydratedHead = await mapLimit(toHydrate, 6, async (ev) => {
+    const full = await tivoliHydrateEvent(ev).catch(() => null);
+    return full || ev;
+  });
+
+  const hydrated = hydratedHead.concat(rest);
+
+  hydrated.sort((a, b) => a.startTs - b.startTs);
+
+  return {
+    pagesFetched,
+    eventsParsed,
+    events: hydrated.slice(0, want),
+  };
+}
+
+function parseTivoliAgendaHtml(html) {
+  const out = [];
+
+  const monthMap = {
+    jan: 0, "jan.": 0,
+    feb: 1, "feb.": 1,
+    mrt: 2, "mrt.": 2,
+    apr: 3, "apr.": 3,
+    mei: 4,
+    jun: 5, "jun.": 5,
+    jul: 6, "jul.": 6,
+    aug: 7, "aug.": 7,
+    sep: 8, "sep.": 8,
+    okt: 9, "okt.": 9,
+    nov: 10, "nov.": 10,
+    dec: 11, "dec.": 11,
+  };
+
+  const re = /\b(ma|di|wo|do|vr|za|zo)\s+(\d{1,2})\s+([a-z]{3}\.?)\s+(\d{4})[\s\S]{0,900}?href="(https:\/\/www\.tivolivredenburg\.nl\/agenda\/[^"]+)"[^>]*>\s*([^<]{2,180})\s*<\/a>/gi;
+
+  let m;
+  while ((m = re.exec(String(html))) && out.length < 5000) {
+    const day = Number(m[2]);
+    const monRaw = String(m[3] || "").toLowerCase();
+    const year = Number(m[4]);
+    const url = String(m[5] || "").trim();
+    let title = String(m[6] || "").trim();
+
+    title = decodeHtmlEntities(title).replace(/\s+/g, " ").trim();
+
+    const monthIdx = monthMap[monRaw];
+    if (monthIdx == null) continue;
+    if (!title || !url) continue;
+
+    const startTs = epochFromAmsterdamLocal(year, monthIdx, day, 20, 0, 0);
+    const startLocal = formatAmsterdamLocal(new Date(startTs));
+
+    out.push({
+      id: `tv:${slugify(title)}:${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+      artist: title,
+      attractions: [title],
+      city: "Utrecht",
+      venue: "TivoliVredenburg",
+      startTs,
+      startLocal,
+      url,
+    });
+  }
+
+  return out;
+}
+
+async function tivoliHydrateEvent(ev) {
+  const url = String(ev?.url || "");
+  if (!url.startsWith("https://www.tivolivredenburg.nl/agenda/")) return ev;
+
+  const html = await fetchText(url).catch(() => "");
+  if (!html) return ev;
+
+  const jsonLdBlocks = [];
+  const reLd = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let m;
+  while ((m = reLd.exec(html))) {
+    const raw = String(m[1] || "").trim();
+    if (raw) jsonLdBlocks.push(raw);
+  }
+
+  let startTs = ev.startTs;
+  let startLocal = ev.startLocal;
+
+  for (const blk of jsonLdBlocks) {
+    const txt = blk.replace(/\n/g, " ").trim();
+    const sm = txt.match(/"startDate"\s*:\s*"([^"]+)"/i);
+    if (sm) {
+      const iso = String(sm[1] || "").trim();
+      const d = new Date(iso);
+      if (!Number.isNaN(d.getTime())) {
+        startTs = d.getTime();
+        startLocal = formatAmsterdamLocal(new Date(startTs));
+        break;
+      }
+    }
+  }
+
+  if (startTs === ev.startTs) {
+    const sm2 = html.match(/datetime=["'](\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(?:[+\-]\d{2}:\d{2}|Z))["']/i);
+    if (sm2) {
+      const iso = String(sm2[1] || "").trim();
+      const d = new Date(iso);
+      if (!Number.isNaN(d.getTime())) {
+        startTs = d.getTime();
+        startLocal = formatAmsterdamLocal(new Date(startTs));
+      }
+    }
+  }
+
+  let title = ev.artist;
+  const h1m = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+  if (h1m) {
+    const t = decodeHtmlEntities(htmlToText(h1m[1])).replace(/\s+/g, " ").trim();
+    if (t && t.length >= 2) title = t;
+  }
+
+  let zaal = "";
+  const zaalM = html.match(/\b(Zaal|Hall|Room)\b[\s\S]{0,80}?\b(Ronda|Pandora|Cloud Nine|Hertz|Grote Zaal|Kleine Zaal)\b/i);
+  if (zaalM) zaal = String(zaalM[2] || "").trim();
+
+  let attractions = [title];
+
+  return {
+    ...ev,
+    artist: title,
+    attractions,
+    venue: zaal ? `TivoliVredenburg (${zaal})` : "TivoliVredenburg",
+    startTs,
+    startLocal,
+  };
+}
+
+// ---------------- Podiuminfo (pi) — HTMLRewriter (robust) ----------------
+async function podiumInfoAgendaEvents({ maxEvents, countryCode, maxPages = 6 }) {
+  if (String(countryCode || "").toUpperCase() !== "NL") {
+    return { pagesFetched: 0, eventsParsed: 0, events: [] };
+  }
+
+  const want = Math.max(1, Math.min(1000, Number(maxEvents) || 50));
+  const pages = Math.max(1, Math.min(12, Number(maxPages) || 6));
+
+  const events = [];
+  let pagesFetched = 0;
+  let eventsParsed = 0;
+
+  // We parse the general agenda pages (upcoming list), paginated.
+  // Pattern observed: /concertagenda/?page=2 ... (also supports filters)
+  for (let page = 1; page <= pages && events.length < want; page++) {
+    const pageUrl = page === 1
+      ? "https://www.podiuminfo.nl/concertagenda/"
+      : `https://www.podiuminfo.nl/concertagenda/?page=${page}`;
+
+    const html = await fetchText(pageUrl).catch(() => "");
+    pagesFetched += 1;
+    if (!html) continue;
+
+    const parsed = await parsePodiuminfoAgendaHtmlWithRewriter(html).catch(() => []);
+    eventsParsed += parsed.length;
+
+    for (const ev of parsed) {
+      if (events.length >= want) break;
+      events.push(ev);
+    }
+  }
+
+  // Keep only upcoming-ish (allow a bit of past slack)
+  const cutoff = Date.now() - 12 * 60 * 60 * 1000;
+  const upcoming = events.filter((e) => Number(e?.startTs) >= cutoff);
+
+  upcoming.sort((a, b) => a.startTs - b.startTs);
+
+  return {
+    pagesFetched,
+    eventsParsed,
+    events: upcoming.slice(0, want),
+  };
+}
+
+/**
+ * Podiuminfo agenda pages are typically table-like.
+ * We avoid regex and instead read:
+ * - each <tr> row
+ * - in that row:
+ *   - the first time-like token "HH:MM"
+ *   - the <a href="/concert/..."> as the event link + artist
+ *   - venue + city from subsequent text cells
+ *
+ * This is intentionally tolerant: even if layout shifts, we still pick up concert links.
+ */
+async function parsePodiuminfoAgendaHtmlWithRewriter(html) {
+  const base = "https://www.podiuminfo.nl";
+  const rows = [];
+
+  // Row accumulator
+  let cur = null;
+  let inConcertLink = false;
+
+  const startRow = () => {
+    cur = {
+      time: "",
+      artist: "",
+      href: "",
+      venue: "",
+      city: "",
+      // rowText used as fallback
+      rowText: "",
+      // sequential cell texts (sometimes useful)
+      cellTexts: [],
+      _cellBuf: "",
+      _seenCells: 0,
+    };
+  };
+
+  const finishCell = () => {
+    if (!cur) return;
+    const t = decodeHtmlEntities(String(cur._cellBuf || "").replace(/\s+/g, " ").trim());
+    cur._cellBuf = "";
+    if (!t) return;
+    cur.cellTexts.push(t);
+    cur._seenCells += 1;
+  };
+
+  const finishRow = () => {
+    if (!cur) return;
+
+    // Extract time
+    if (!cur.time) {
+      const m = cur.rowText.match(/\b([01]\d|2[0-3]):([0-5]\d)\b/);
+      if (m) cur.time = `${m[1]}:${m[2]}`;
+    }
+
+    // If venue/city missing, try from cells around the link:
+    // Common pattern in your pasted text: time, venue, city, (image/link), venue, city ...
+    // We'll try: first venue-like token after time, then next token as city.
+    if ((!cur.venue || !cur.city) && cur.cellTexts.length) {
+      const cells = cur.cellTexts;
+
+      // heuristic: find index where time appears
+      let ti = -1;
+      for (let i = 0; i < cells.length; i++) {
+        if (/\b([01]\d|2[0-3]):([0-5]\d)\b/.test(cells[i])) { ti = i; break; }
+      }
+
+      if (ti >= 0) {
+        const v = cells[ti + 1] || "";
+        const c = cells[ti + 2] || "";
+        if (!cur.venue && v && v.length <= 60) cur.venue = v;
+        if (!cur.city && c && c.length <= 60) cur.city = c;
+      }
+    }
+
+    // Need at minimum: link + artist
+    if (cur.href && cur.artist) rows.push(cur);
+
+    cur = null;
+    inConcertLink = false;
+  };
+
+  const rewriter = new HTMLRewriter()
+    .on("tr", {
+      element() {
+        // close previous row if somehow open
+        if (cur) finishRow();
+        startRow();
+      },
+      end() {
+        finishCell();
+        finishRow();
+      },
+    })
+    .on("td, th", {
+      element() {
+        // new cell starts; close previous buffer
+        finishCell();
+      },
+      end() {
+        finishCell();
+      },
+      text(t) {
+        if (!cur) return;
+        const s = String(t.text || "");
+        cur._cellBuf += s;
+        cur.rowText += s + " ";
+      },
+    })
+    .on('a[href^="/concert/"]', {
+      element(el) {
+        if (!cur) startRow();
+        inConcertLink = true;
+        const href = el.getAttribute("href") || "";
+        if (href) cur.href = href;
+      },
+      text(t) {
+        if (!cur || !inConcertLink) return;
+        const s = decodeHtmlEntities(String(t.text || "").trim());
+        if (s) cur.artist += (cur.artist ? " " : "") + s;
+      },
+      end() {
+        inConcertLink = false;
+      },
+    });
+
+  const resp = await rewriter.transform(new Response(String(html || ""), {
+    headers: { "content-type": "text/html; charset=utf-8" },
+  })).text();
+
+  // The transform() output isn't used; the handlers collected rows.
+  void resp;
+
+  // Convert rows -> events
+  const out = [];
+  for (const r of rows) {
+    const artist = String(r.artist || "").replace(/\s+/g, " ").trim();
+    const href = String(r.href || "").trim();
+    if (!artist || !href) continue;
+
+    // Build absolute URL
+    const url = href.startsWith("http") ? href : (base + href);
+
+    // Get date from URL: /concert/438192/Blonde-Redhead/TivoliVredenburg/
+    // Agenda page itself includes date columns, but to avoid another request,
+    // we infer date by scanning rowText for patterns like "15 feb" is hard.
+    // So: as a safe baseline we set startTs = "today 20:00" if unknown.
+    // BUT: Podiuminfo agenda is ordered and usually near-future; to be accurate,
+    // we also attempt to read a yyyy-mm-dd token from rowText.
+    let year = null, monthIdx = null, day = null;
+
+    const isoM = String(r.rowText || "").match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
+    if (isoM) {
+      year = Number(isoM[1]);
+      monthIdx = Number(isoM[2]) - 1;
+      day = Number(isoM[3]);
+    }
+
+    // fallback: if no date, use "today" (Amsterdam) — not perfect but avoids NaN.
+    // In practice, the agenda page often contains the date in header/near row; if not,
+    // you can later improve by parsing the surrounding date group markup.
+    const now = new Date();
+    const localNow = formatAmsterdamLocal(now);
+    const yNow = Number(localNow.slice(0, 4));
+    const mNow = Number(localNow.slice(5, 7)) - 1;
+    const dNow = Number(localNow.slice(8, 10));
+
+    const hhmm = String(r.time || "").match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+    const hh = hhmm ? Number(hhmm[1]) : 20;
+    const mm = hhmm ? Number(hhmm[2]) : 0;
+
+    const startTs = epochFromAmsterdamLocal(
+      Number.isFinite(year) ? year : yNow,
+      Number.isFinite(monthIdx) ? monthIdx : mNow,
+      Number.isFinite(day) ? day : dNow,
+      hh,
+      mm,
+      0
+    );
+
+    const startLocal = formatAmsterdamLocal(new Date(startTs));
+
+    const venue = String(r.venue || "").trim();
+    const city = String(r.city || "").trim();
+
+    out.push({
+      id: `pi:${slugify(artist)}:${slugify(venue)}:${slugify(city)}:${startTs}:${slugify(href)}`,
+      artist,
+      attractions: [artist],
+      city: city || "",
+      venue: venue || "",
+      startTs,
+      startLocal,
+      url,
+    });
+  }
+
+  return out;
+}
+
+async function mapLimit(arr, limit, fn) {
+  const out = new Array(arr.length);
+  let i = 0;
+
+  const workers = Array.from({ length: Math.max(1, limit) }, async () => {
+    while (i < arr.length) {
+      const idx = i++;
+      out[idx] = await fn(arr[idx], idx);
+    }
+  });
+
+  await Promise.all(workers);
+  return out;
 }

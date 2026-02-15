@@ -1,11 +1,14 @@
-/* econcerts.js (FULL FILE REPLACE) — PART 1/3
-   TM + MetalAgenda • Premium/minimal • Better dedupe
+/* econcerts.js (FULL FILE REPLACE) — SINGLE PART
+   TM + MetalAgenda + Tivoli • Premium/minimal • Better dedupe
    + SPLIT VIEW:
-     - "Heard (Standard)" = plays >= 5
-     - "Suggestions" = plays < 5 AND score >= 40 (UI filter)
+     - "Heard (Standard)" = plays >= heardPlaysMin
+     - "Suggestions" = plays < heardPlaysMin AND finalScore >= uiScoreMin
    + IMPORTANT:
-     - We always call worker with scoreMin=0 (avoid worker-side scoreMin bugs)
-     - tasteArtists fixed to 1000 (your rule)
+     - We always call worker with scoreMin=0
+     - tasteArtists fixed to 1000
+   + FIXES FOR TIVOLI:
+     - allow sources: tm, ma, tv
+     - use startTs for Date (avoid parsing Amsterdam-local string without timezone)
 */
 (() => {
   "use strict";
@@ -106,16 +109,16 @@
     tasteArtists: 1000, // fixed
     city: "",           // empty => whole NL
     countryCode: "NL",
-    sources: "tm,ma",
+    sources: "tm,ma,tv", // ✅ include Tivoli
   };
 
   function normalizeSources(input) {
-    const raw = safeStr(input) || "tm,ma";
+    const raw = safeStr(input) || "tm,ma,tv";
     const parts = raw.split(",").map(s => lowerKey(s)).filter(Boolean);
-    const allowed = new Set(["tm", "ma"]);
+    const allowed = new Set(["tm", "ma", "tv"]); // ✅ allow tv
     const out = [];
     for (const p of parts) if (allowed.has(p) && !out.includes(p)) out.push(p);
-    return out.length ? out.join(",") : "tm,ma";
+    return out.length ? out.join(",") : "tm,ma,tv";
   }
 
   async function fetchConcertsFromWorker(overrides = {}) {
@@ -145,9 +148,12 @@
     }
 
     const events = Array.isArray(data.events) ? data.events : [];
+
     return events.map(ev => {
-      const startStr = safeStr(ev.start);
-      const startDate = new Date(startStr);
+      const startTs = Number(ev.startTs || 0);
+
+      // ✅ Always build Date from epoch (fixes Amsterdam-local string parsing issues)
+      const startDate = startTs ? new Date(startTs) : new Date(safeStr(ev.start));
 
       return {
         id: safeStr(ev.id),
@@ -160,9 +166,9 @@
 
         plays: Number(ev.plays || 0),
         tier: safeStr(ev.tier || "discovery"),
-        score: Number(ev.score || 0),                   // ✅ from worker (after patch)
+        score: Number(ev.score || 0),
         level: safeStr(ev.level || ""),
-        startTs: Number(ev.startTs || 0) || (isValidDate(startDate) ? startDate.getTime() : 0),
+        startTs: startTs || (isValidDate(startDate) ? startDate.getTime() : 0),
         source: safeStr(ev.source || ev.src || ""),
         star: Boolean(ev.star),
       };
@@ -226,7 +232,7 @@
   // UI final score = worker.score + Utrecht bonus (+4).
   function computeFinalScore(event) {
     let s = Number(event.score || 0);
-    if (lowerKey(event.city) === "utrecht") s += 4; // ✅ your only extra factor
+    if (lowerKey(event.city) === "utrecht") s += 4;
     s = Math.max(0, Math.min(100, Math.round(s)));
     return s;
   }
@@ -265,7 +271,6 @@
       store.baseApi = String(next || "").trim();
       saveStore(store);
     },
-    // ✅ These are SIMPLE toggles (no code knowledge needed)
     setUiScoreMin(n) {
       store.uiScoreMin = Math.max(0, Math.min(100, Number(n) || 0));
       saveStore(store);
@@ -308,7 +313,6 @@
     div.textContent = text;
     return div;
   }
-/* econcerts.js (FULL FILE REPLACE) — PART 2/3 */
 
   function buildCard(event, finalScore, sectionType) {
     const card = document.createElement("div");
@@ -330,7 +334,6 @@
 
     const meta2 = document.createElement("div");
     meta2.className = "eMeta2";
-    // Section label explanation (simple language)
     if (sectionType === "heard") {
       meta2.textContent = `You have listened to this artist (plays ≥ ${store.heardPlaysMin}).`;
     } else {
@@ -357,7 +360,6 @@
 
     const badgeEl = document.createElement("div");
     badgeEl.className = "eBadge";
-    // Simple badge only: HEARD / SUGGEST
     badgeEl.textContent = sectionType === "heard" ? "HEARD" : "SUGGEST";
 
     const actions = document.createElement("div");
@@ -439,7 +441,6 @@
     // Show planned always; hide dismissed unless planned
     const visible = events.filter(ev => (isPlanned(ev.id) ? true : !isDismissed(ev.id)));
 
-    // Split logic (your request)
     const heardMin = Number(store.heardPlaysMin || 5);
     const uiMin = Number(store.uiScoreMin || 40);
 
@@ -447,7 +448,7 @@
     const finalMap = new Map();
     for (const ev of visible) finalMap.set(ev.id, computeFinalScore(ev));
 
-    // Planned first (keep behavior)
+    // Planned first
     const planned = visible.filter(ev => isPlanned(ev.id));
 
     // Non-planned:
@@ -456,14 +457,9 @@
     // Heard (standard): plays >= heardMin
     const heard = rest.filter(ev => Number(ev.plays || 0) >= heardMin);
 
-    // Suggestions: plays < heardMin and score >= uiMin
-    // Note: use FINAL score for filtering (so Utrecht can push it over)
+    // Suggestions: plays < heardMin and finalScore >= uiMin
     const suggestions = rest.filter(ev => Number(ev.plays || 0) < heardMin && finalMap.get(ev.id) >= uiMin);
 
-    // Sort within each section:
-    // - Planned: by score desc, then date asc
-    // - Heard: by plays desc, then score desc, then date asc
-    // - Suggestions: by score desc, then date asc
     function sortByScoreThenDate(a, b) {
       const sa = finalMap.get(a.id);
       const sb = finalMap.get(b.id);
@@ -529,16 +525,14 @@
       listEl.appendChild(wrap);
     };
 
-    addSection("My Plan", planned, "heard"); // plan is always “important”
+    addSection("My Plan", planned, "heard");
     addSection(`Heard (Standard) • plays ≥ ${heardMin}`, heard, "heard");
     addSection(`Suggestions • score ≥ ${uiMin}`, suggestions, "suggest");
 
-    // If EVERYTHING empty
     if (!planned.length && !heard.length && !suggestions.length) {
       setEmpty("No events yet. Tap Refresh.");
     }
   }
-/* econcerts.js (FULL FILE REPLACE) — PART 3/3 */
 
   async function refresh(overrides = {}) {
     store.lastRefreshAt = Date.now();

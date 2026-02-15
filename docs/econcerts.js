@@ -1,16 +1,13 @@
-/* econcerts.js (FULL FILE REPLACE) — SINGLE PART
-   TM + MetalAgenda + Tivoli • Premium/minimal • Better dedupe
+/* econcerts.js (FULL FILE REPLACE) — PART 1/4
+   TM + MetalAgenda + Tivoli (+ optional venueUrls) • Premium/minimal • Better dedupe
    + SPLIT VIEW:
      - "Heard (Standard)" = plays >= heardPlaysMin
      - "Suggestions" = plays < heardPlaysMin AND finalScore >= uiScoreMin
    + IMPORTANT:
      - We always call worker with scoreMin=0
      - tasteArtists fixed to 1000
-   + FIXES FOR TIVOLI:
-     - allow sources: tm, ma, tv
-     - use startTs for Date (avoid parsing Amsterdam-local string without timezone)
-   + UI DATE FORMAT:
-     - display as DD.MM.YYYY • HH:mm (Europe/Amsterdam)
+   + Optional:
+     - venueUrls (comma-separated) sent to worker as `venueUrls=...`
 */
 (() => {
   "use strict";
@@ -18,8 +15,6 @@
   // ---------- Helpers ----------
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel)); // kept for future
-
-  const pad2 = (n) => String(n).padStart(2, "0");
 
   function isValidDate(d) {
     return d instanceof Date && !Number.isNaN(d.getTime());
@@ -56,8 +51,43 @@
   }
 
   // ---------- Storage ----------
-  // v7 (split view + UI filters + worker scoreMin forced 0)
-  const STORE_KEY = "lm_econcerts_v7";
+  // v8 (adds venueUrls support)
+  const STORE_KEY = "lm_econcerts_v8";
+
+  // Default NL venues (MetalAgenda venue pages)
+  const DEFAULT_VENUE_URLS = [
+    "https://www.metalagenda.nl/venues/tivoli-vredenburg",
+    "https://www.metalagenda.nl/venues/patronaat",
+    "https://www.metalagenda.nl/venues/doornroosje",
+    "https://www.metalagenda.nl/venues/effenaar",
+    "https://www.metalagenda.nl/venues/fluor",
+    "https://www.metalagenda.nl/venues/neushoorn",
+    "https://www.metalagenda.nl/venues/dbs",
+    "https://www.metalagenda.nl/venues/baroeg",
+    "https://www.metalagenda.nl/venues/013",
+    "https://www.metalagenda.nl/venues/dynamo",
+    "https://www.metalagenda.nl/venues/vera",
+    "https://www.metalagenda.nl/venues/rotown",
+    "https://www.metalagenda.nl/venues/merleyn",
+    "https://www.metalagenda.nl/venues/occii",
+  ];
+
+  function normalizeVenueUrls(input) {
+    // Accept: array or comma-separated string
+    let arr = [];
+    if (Array.isArray(input)) arr = input;
+    else if (typeof input === "string") arr = input.split(",").map(s => s.trim());
+
+    // keep only plausible URLs
+    const out = [];
+    for (const u of arr) {
+      const v = safeStr(u);
+      if (!v) continue;
+      if (!/^https?:\/\//i.test(v)) continue;
+      if (!out.includes(v)) out.push(v);
+    }
+    return out;
+  }
 
   function loadStore() {
     try {
@@ -71,6 +101,7 @@
           baseApi: "",
           uiScoreMin: 40,       // only applies to Suggestions
           heardPlaysMin: 5,     // "heard standard" threshold
+          venueUrls: [...DEFAULT_VENUE_URLS],
         };
       }
       const obj = JSON.parse(raw);
@@ -82,6 +113,7 @@
         baseApi: String(obj.baseApi || ""),
         uiScoreMin: Number.isFinite(Number(obj.uiScoreMin)) ? Number(obj.uiScoreMin) : 40,
         heardPlaysMin: Number.isFinite(Number(obj.heardPlaysMin)) ? Number(obj.heardPlaysMin) : 5,
+        venueUrls: normalizeVenueUrls(obj.venueUrls).length ? normalizeVenueUrls(obj.venueUrls) : [...DEFAULT_VENUE_URLS],
       };
     } catch {
       return {
@@ -92,6 +124,7 @@
         baseApi: "",
         uiScoreMin: 40,
         heardPlaysMin: 5,
+        venueUrls: [...DEFAULT_VENUE_URLS],
       };
     }
   }
@@ -122,17 +155,19 @@
     city: "",           // empty => whole NL
     countryCode: "NL",
     sources: "tm,ma,tv",
+    venueUrls: [],      // optional
   };
 
   function normalizeSources(input) {
     const raw = safeStr(input) || "tm,ma,tv";
     const parts = raw.split(",").map(s => lowerKey(s)).filter(Boolean);
-    const allowed = new Set(["tm", "ma", "tv"]);
+    // allow pi too, even if not used now
+    const allowed = new Set(["tm", "ma", "tv", "pi"]);
     const out = [];
     for (const p of parts) if (allowed.has(p) && !out.includes(p)) out.push(p);
     return out.length ? out.join(",") : "tm,ma,tv";
   }
-
+/* econcerts.js (FULL FILE REPLACE) — PART 2/4 */
   async function fetchConcertsFromWorker(overrides = {}) {
     const cfg = { ...ECONCERTS_DEFAULTS, ...overrides };
     const base = getBaseApi();
@@ -148,6 +183,14 @@
     if (city) {
       u.searchParams.set("city", city);
       u.searchParams.set("radiusKm", String(cfg.radiusKm));
+    }
+
+    // ✅ Optional venueUrls (comma-separated)
+    // If worker supports it, it will filter by these venues.
+    // If not, harmless.
+    const vlist = normalizeVenueUrls(cfg.venueUrls && cfg.venueUrls.length ? cfg.venueUrls : store.venueUrls);
+    if (vlist.length) {
+      u.searchParams.set("venueUrls", vlist.join(","));
     }
 
     const res = await fetch(u.toString(), { method: "GET" });
@@ -183,7 +226,8 @@
       };
     }).filter(x => x.id && x.artist && isValidDate(x.start));
   }
-// ---------- Dedupe ----------
+
+  // ---------- Dedupe ----------
   function isVipUrl(url) {
     const u = lowerKey(url);
     return u.includes("vip") || u.includes("package") || u.includes("packages") || u.includes("hospitality") || u.includes("comfort");
@@ -254,7 +298,7 @@
 
   groupBtn.setAttribute("aria-pressed", store.groupByCity ? "true" : "false");
   groupBtn.textContent = store.groupByCity ? "Group by city" : "Ungroup";
-
+/* econcerts.js (FULL FILE REPLACE) — PART 3/4 */
   // Add "Reset dismissed" button next to Refresh
   const resetBtn = document.createElement("button");
   resetBtn.className = "eBtn ghost";
@@ -273,19 +317,38 @@
   window.__LM_ECONCERTS__ = {
     get store() { return store; },
     get lastEvents() { return lastEvents; },
+
     setBaseApi(next) {
       store.baseApi = String(next || "").trim();
       saveStore(store);
     },
+
     setUiScoreMin(n) {
       store.uiScoreMin = Math.max(0, Math.min(100, Number(n) || 0));
       saveStore(store);
       render(lastEvents);
     },
+
     setHeardPlaysMin(n) {
       store.heardPlaysMin = Math.max(0, Math.min(999999, Number(n) || 0));
       saveStore(store);
       render(lastEvents);
+    },
+
+    // ✅ Set venue urls (array OR comma-separated string)
+    setVenueUrls(list) {
+      const v = normalizeVenueUrls(list);
+      store.venueUrls = v.length ? v : [...DEFAULT_VENUE_URLS];
+      saveStore(store);
+      render(lastEvents);
+      return store.venueUrls;
+    },
+
+    resetVenueUrls() {
+      store.venueUrls = [...DEFAULT_VENUE_URLS];
+      saveStore(store);
+      render(lastEvents);
+      return store.venueUrls;
     },
   };
 
@@ -319,7 +382,8 @@
     div.textContent = text;
     return div;
   }
-function buildCard(event, finalScore, sectionType) {
+
+  function buildCard(event, finalScore, sectionType) {
     const card = document.createElement("div");
     card.className = "eCard";
     card.dataset.id = event.id;
@@ -441,7 +505,7 @@ function buildCard(event, finalScore, sectionType) {
     }
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }
-
+/* econcerts.js (FULL FILE REPLACE) — PART 4/4 */
   function render(events) {
     // Show planned always; hide dismissed unless planned
     const visible = events.filter(ev => (isPlanned(ev.id) ? true : !isDismissed(ev.id)));
@@ -538,7 +602,8 @@ function buildCard(event, finalScore, sectionType) {
       setEmpty("No events yet. Tap Refresh.");
     }
   }
-async function refresh(overrides = {}) {
+
+  async function refresh(overrides = {}) {
     store.lastRefreshAt = Date.now();
     saveStore(store);
 

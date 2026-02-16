@@ -1,7 +1,14 @@
 /* live.js (FULL REPLACE) — SINGLE FILE
 ✅ TM + MA + TV
 ✅ MA: fetch by city pages (/p/) with CASE/slug variants until one works
-✅ Debug meta shows which MA URLs returned usable HTML
+✅ MA: parser supports BOTH:
+   - older “Bands:” blocks
+   - newer Hugo/Markdown style: date header → “### Artist” (or <h3>) → venue line
+✅ MA: NO venue whitelist. We return events found by city search.
+✅ MA: FIX city attribution:
+   - We do NOT trust the /p/<City> page name for the event city
+   - We try to detect the real city from the event’s nearby text (venue line / hint)
+✅ MA: REMOVE Haarlem from the NL-wide city list
 ✅ Artist cleanup + alias slstafir -> solstafir
 */
 
@@ -143,7 +150,12 @@ async function handleEconcerts(request, env, ctx, jsonRes, lowerKey, clampInt) {
   let maEventsParsed = 0;
   let maFetchMeta = [];
   if (sources.includes("ma")) {
-    const maRes = await metalAgendaEventsByCities({ maxEvents: size, countryCode, debug });
+    const maRes = await metalAgendaEventsByCities({
+      maxEvents: size,
+      countryCode,
+      city: city || "",
+      debug,
+    });
     maPagesFetched = maRes.pagesFetched;
     maEventsParsed = maRes.eventsParsed;
     maFetchMeta = maRes.fetchMeta || [];
@@ -736,46 +748,6 @@ async function ticketmasterEvents({ apiKey, countryCode, city, radiusKm, sizeReq
 }
 
 // ---------------- MetalAgenda (city pages) ----------------
-function normalizeMAUrl(u) {
-  return String(u || "").trim().replace(/\/+$/, "");
-}
-
-function isWhitelistedMAVenueUrl(url) {
-  const u = normalizeMAUrl(url);
-  if (!u) return false;
-
-  const whitelist = new Set([
-    "https://www.metalagenda.nl/venues/paradiso",
-    "https://www.metalagenda.nl/venues/melkweg",
-    "https://www.metalagenda.nl/venues/zonnehuis",
-    "https://www.metalagenda.nl/venues/tolhuistuin",
-    "https://www.metalagenda.nl/venues/occii",
-    "https://www.metalagenda.nl/venues/het-concertgebouw",
-    "https://www.metalagenda.nl/venues/koninklijk-theater-carre",
-    "https://www.metalagenda.nl/venues/tivoli-vredenburg",
-    "https://www.metalagenda.nl/venues/de-helling",
-    "https://www.metalagenda.nl/venues/db-s",
-    "https://www.metalagenda.nl/venues/dbs",
-    "https://www.metalagenda.nl/venues/ekko",
-    "https://www.metalagenda.nl/venues/baroeg",
-    "https://www.metalagenda.nl/venues/musicon",
-    "https://www.metalagenda.nl/venues/paard",
-    "https://www.metalagenda.nl/venues/patronaat",
-    "https://www.metalagenda.nl/venues/doornroosje",
-    "https://www.metalagenda.nl/venues/metropool",
-    "https://www.metalagenda.nl/venues/effenaar",
-    "https://www.metalagenda.nl/venues/dynamo",
-    "https://www.metalagenda.nl/venues/013",
-    "https://www.metalagenda.nl/venues/013-poppodium-",
-    "https://www.metalagenda.nl/venues/fluor",
-    "https://www.metalagenda.nl/venues/neushoorn",
-    "https://www.metalagenda.nl/venues/muziekgieterij",
-    "https://www.metalagenda.nl/venues/boerderij",
-  ]);
-
-  return whitelist.has(u);
-}
-
 function cityVariants(city) {
   const c = String(city || "").trim();
   const low = c.toLowerCase();
@@ -784,7 +756,6 @@ function cityVariants(city) {
   if (low === "amsterdam") return ["Amsterdam", "amsterdam"];
   if (low === "utrecht") return ["utrecht", "Utrecht"];
   if (low === "rotterdam") return ["Rotterdam", "rotterdam"];
-  if (low === "haarlem") return ["Haarlem", "haarlem"];
   if (low === "nijmegen") return ["Nijmegen", "nijmegen"];
   if (low === "eindhoven") return ["Eindhoven", "eindhoven"];
   if (low === "tilburg") return ["Tilburg", "tilburg"];
@@ -799,18 +770,108 @@ function cityVariants(city) {
   return [c, low, dash];
 }
 
-async function metalAgendaEventsByCities({ maxEvents, countryCode, debug }) {
+function stripHtmlToLines(html) {
+  let s = String(html || "");
+
+  s = s.replace(/<script[\s\S]*?<\/script>/gi, "\n");
+  s = s.replace(/<style[\s\S]*?<\/style>/gi, "\n");
+
+  s = s.replace(/<br\s*\/?>/gi, "\n");
+  s = s.replace(/<\/(p|div|li|ul|ol|section|article|header|footer)>/gi, "\n");
+  s = s.replace(/<\/h[1-6]>/gi, "\n");
+  s = s.replace(/<h[1-6][^>]*>/gi, "\n");
+  s = s.replace(/<\/tr>/gi, "\n");
+  s = s.replace(/<\/td>/gi, " ");
+
+  s = s.replace(/<[^>]+>/g, " ");
+
+  s = decodeHtmlEntities(s);
+  s = s.replace(/\r/g, "\n");
+
+  const lines = s
+    .split("\n")
+    .map((x) => x.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+
+  return lines;
+}
+
+function normalizeWeirdSpacedDateLine(line) {
+  const t = String(line || "").trim();
+  if (!t) return t;
+
+  const noSpaces = t.replace(/\s+/g, "");
+  if (!/^\d{1,2}[a-z]{3,}\d{4}/i.test(noSpaces)) return t;
+
+  const m = noSpaces.match(/^(\d{1,2})([a-z]{3,})(\d{4})(.*)$/i);
+  if (!m) return t;
+
+  const day = m[1];
+  const month = m[2];
+  const year = m[3];
+  const rest = String(m[4] || "");
+  const spaced = `${day} ${month} ${year}${rest ? " " + rest : ""}`.trim();
+  return spaced;
+}
+
+function parseMADateHeader(line, monthMap) {
+  const t0 = normalizeWeirdSpacedDateLine(line);
+  const m = t0.match(
+    /\b(\d{1,2})\s+(januari|februari|maart|april|mei|juni|juli|augustus|september|oktober|november|december)\s+(\d{4})\b/i
+  );
+  if (!m) return null;
+
+  const day = Number(m[1]);
+  const mon = String(m[2] || "").toLowerCase();
+  const year = Number(m[3]);
+  const monthIdx = monthMap[mon];
+  if (monthIdx == null) return null;
+
+  return { day, monthIdx, year };
+}
+
+// NEW: detect city from the event’s own text (venue line / hint).
+function detectCityFromText(text) {
+  const t = String(text || "").toLowerCase();
+
+  // order matters: match multi-words first
+  const rules = [
+    { re: /\bden\s*haag\b|\b's-?gravenhage\b/i, city: "Den Haag" },
+    { re: /\bamsterdam\b/i, city: "Amsterdam" },
+    { re: /\butrecht\b/i, city: "Utrecht" },
+    { re: /\brotterdam\b/i, city: "Rotterdam" },
+    { re: /\bzoetermeer\b/i, city: "Zoetermeer" },
+    { re: /\bnijmegen\b/i, city: "Nijmegen" },
+    { re: /\beindhoven\b/i, city: "Eindhoven" },
+    { re: /\btilburg\b/i, city: "Tilburg" },
+    { re: /\bmaastricht\b/i, city: "Maastricht" },
+    { re: /\bleeuwarden\b/i, city: "Leeuwarden" },
+    { re: /\bhengelo\b/i, city: "Hengelo" },
+    { re: /\bgroningen\b/i, city: "Groningen" },
+    // NOTE: Haarlem REMOVED from search list, but we can still detect it if it appears in venue text:
+    { re: /\bhaarlem\b/i, city: "Haarlem" },
+  ];
+
+  for (const r of rules) {
+    if (r.re.test(t)) return r.city;
+  }
+  return "";
+}
+
+async function metalAgendaEventsByCities({ maxEvents, countryCode, city, debug }) {
   if (String(countryCode || "").toUpperCase() !== "NL") {
     return { pagesFetched: 0, eventsParsed: 0, events: [], fetchMeta: [] };
   }
 
   const want = Math.max(1, Math.min(1000, Number(maxEvents) || 50));
-  const cities = [
+
+  // IMPORTANT CHANGE:
+  // - Haarlem REMOVED completely from NL-wide list (per your request)
+  const defaultCities = [
     "Amsterdam",
     "Utrecht",
     "Rotterdam",
     "Den Haag",
-    "Haarlem",
     "Nijmegen",
     "Eindhoven",
     "Tilburg",
@@ -820,18 +881,21 @@ async function metalAgendaEventsByCities({ maxEvents, countryCode, debug }) {
     "Hengelo",
   ];
 
+  const cityTrim = String(city || "").trim();
+  const cities = cityTrim ? [cityTrim] : defaultCities;
+
   const events = [];
   let pagesFetched = 0;
   let eventsParsed = 0;
 
   const fetchMeta = [];
-  const concurrency = 4;
+  const concurrency = Math.min(4, cities.length || 1);
   let idx = 0;
 
   const runner = async () => {
     while (idx < cities.length && events.length < want) {
-      const city = cities[idx++];
-      const vars = cityVariants(city);
+      const cityName = cities[idx++];
+      const vars = cityVariants(cityName);
 
       let best = null;
 
@@ -848,16 +912,19 @@ async function metalAgendaEventsByCities({ maxEvents, countryCode, debug }) {
         pagesFetched += 1;
 
         const bytes = (res.text || "").length;
+
         const looksOk =
           res.ok &&
-          bytes > 2000 &&
-          (res.text.includes("/venues/") ||
-            res.text.includes("Bands:") ||
-            res.text.includes("metalagenda"));
+          bytes > 500 &&
+          (res.text.includes("Bands:") ||
+            res.text.includes("###") ||
+            /<h3\b/i.test(res.text) ||
+            res.text.toLowerCase().includes("metal concerten") ||
+            res.text.toLowerCase().includes("metalagenda"));
 
         if (debug) {
           fetchMeta.push({
-            city,
+            city: cityName,
             tried: pageUrl,
             status: res.status,
             finalUrl: res.url,
@@ -874,11 +941,10 @@ async function metalAgendaEventsByCities({ maxEvents, countryCode, debug }) {
 
       if (!best) continue;
 
-      const parsed = parseMetalAgendaCityHtml(best.url, city, best.html);
+      const parsed = parseMetalAgendaCityContent(best.url, cityName, best.html);
       eventsParsed += parsed.length;
 
       for (const ev of parsed) {
-        if (!isWhitelistedMAVenueUrl(ev.url)) continue;
         events.push(ev);
         if (events.length >= want) break;
       }
@@ -899,7 +965,7 @@ async function metalAgendaEventsByCities({ maxEvents, countryCode, debug }) {
   };
 }
 
-function parseMetalAgendaCityHtml(pageUrl, cityName, html) {
+function parseMetalAgendaCityContent(pageUrl, cityName, html) {
   const monthMap = {
     januari: 0,
     februari: 1,
@@ -915,61 +981,158 @@ function parseMetalAgendaCityHtml(pageUrl, cityName, html) {
     december: 11,
   };
 
+  const lines = stripHtmlToLines(html);
+
   const out = [];
-  const src = String(html || "");
+  let cur = null; // {day,monthIdx,year}
+  let lastNonEmpty = "";
 
-  const re =
-    /\b(\d{1,2})\s+(januari|februari|maart|april|mei|juni|juli|augustus|september|oktober|november|december)\s+(\d{4})\b[\s\S]{0,1200}?href="(https:\/\/www\.metalagenda\.nl\/venues\/[^"]+)"[\s\S]{0,1200}?(?:Bands:\s*([^<\n]{2,500}))?/gi;
+  const isBandsLine = (s) => /^\s*Bands:\s*/i.test(String(s || ""));
+  const cleanBandsLine = (s) =>
+    String(s || "")
+      .replace(/^\s*Bands:\s*/i, "")
+      .trim();
 
-  let m;
-  while ((m = re.exec(src)) && out.length < 4000) {
-    const day = Number(m[1]);
-    const monthName = String(m[2] || "").toLowerCase();
-    const year = Number(m[3]);
-    const venueUrl = String(m[4] || "").trim();
-    const bandsRaw = String(m[5] || "").trim();
+  const isArtistHeadingLike = (s) => {
+    const t = String(s || "").trim();
+    if (!t) return false;
+    if (/^#{2,6}\s+/.test(t)) return true;
+    if (/^(postcode|top|favo|updates|inschrijven|aankomende)\b/i.test(t)) return false;
+    if (/^metal concerten/i.test(t)) return false;
+    if (isBandsLine(t)) return false;
+    if (parseMADateHeader(t, monthMap)) return false;
+    return t.length >= 2 && t.length <= 140;
+  };
 
-    const monthIdx = monthMap[monthName];
-    if (monthIdx == null) continue;
-    if (!venueUrl) continue;
+  const normalizeHeadingText = (s) =>
+    String(s || "")
+      .replace(/^#{2,6}\s+/, "")
+      .replace(/\s+/g, " ")
+      .trim();
 
-    let bands = [];
-    if (bandsRaw) {
-      bands = decodeHtmlEntities(bandsRaw)
-        .split("|")
-        .map((x) => insertSpacesInGluedWords(x).trim())
-        .filter(Boolean);
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    const line = normalizeWeirdSpacedDateLine(raw);
+
+    const d = parseMADateHeader(line, monthMap);
+    if (d) {
+      cur = d;
+      lastNonEmpty = line;
+      continue;
     }
 
-    const headliner = (bands[0] || "").trim();
-    if (!headliner) continue;
+    // Style A: "Bands:" line defines event
+    if (cur && isBandsLine(line)) {
+      const bandsRaw = cleanBandsLine(line);
+      const bands = bandsRaw
+        ? decodeHtmlEntities(bandsRaw)
+            .split("|")
+            .map((x) => insertSpacesInGluedWords(x).trim())
+            .filter(Boolean)
+        : [];
 
-    let hh = 20,
-      mm = 0;
-    const mt = String(m[0] || "").match(/\b([01]\d|2[0-3]):([0-5]\d)\b/);
-    if (mt) {
-      hh = Number(mt[1]);
-      mm = Number(mt[2]);
+      const headliner = String(bands[0] || "").trim();
+      if (!headliner) {
+        lastNonEmpty = line;
+        continue;
+      }
+
+      let hh = 20,
+        mm = 0;
+
+      const near = `${lastNonEmpty}\n${line}\n${lines[i + 1] || ""}`;
+      const mt = String(near).match(/\b([01]\d|2[0-3]):([0-5]\d)\b/);
+      if (mt) {
+        hh = Number(mt[1]);
+        mm = Number(mt[2]);
+      }
+
+      const startTs = epochFromAmsterdamLocal(cur.year, cur.monthIdx, cur.day, hh, mm, 0);
+      const startLocal = formatAmsterdamLocal(new Date(startTs));
+
+      const venueHint = String(lastNonEmpty || "").trim();
+      const detectedCity = detectCityFromText(venueHint);
+      const finalCity = detectedCity || cityName || "";
+
+      out.push({
+        id: `ma:${slugify(finalCity)}:${cur.year}-${String(cur.monthIdx + 1).padStart(2, "0")}-${String(
+          cur.day
+        ).padStart(2, "0")}:${slugify(headliner)}:${slugify(finalCity)}`,
+        artist: headliner,
+        attractions: bands.length ? bands : [headliner],
+        city: finalCity,
+        venue: "",
+        startTs,
+        startLocal,
+        url: pageUrl,
+        _maVenueHint: venueHint,
+      });
+
+      lastNonEmpty = line;
+      continue;
     }
 
-    const startTs = epochFromAmsterdamLocal(year, monthIdx, day, hh, mm, 0);
-    const startLocal = formatAmsterdamLocal(new Date(startTs));
+    // Style B: date → heading → venue line
+    if (cur && isArtistHeadingLike(line)) {
+      const artist = normalizeArtistCandidate(normalizeHeadingText(line));
+      const artistClean = String(artist || "").trim();
+      if (!artistClean) {
+        lastNonEmpty = line;
+        continue;
+      }
 
-    out.push({
-      id: `ma:${slugify(cityName)}:${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(
-        day
-      ).padStart(2, "0")}:${slugify(headliner)}:${slugify(cityName)}`,
-      artist: headliner,
-      attractions: bands.length ? bands : [headliner],
-      city: cityName || "",
-      venue: "",
-      startTs,
-      startLocal,
-      url: venueUrl,
-    });
+      const next = String(lines[i + 1] || "").trim();
+      const nextIsDate = !!parseMADateHeader(next, monthMap);
+      const nextIsBands = isBandsLine(next);
+      const venueLine = !nextIsDate && !nextIsBands ? next : "";
+
+      let hh = 20,
+        mm = 0;
+      const mt = `${line}\n${venueLine}`.match(/\b([01]\d|2[0-3]):([0-5]\d)\b/);
+      if (mt) {
+        hh = Number(mt[1]);
+        mm = Number(mt[2]);
+      }
+
+      const startTs = epochFromAmsterdamLocal(cur.year, cur.monthIdx, cur.day, hh, mm, 0);
+      const startLocal = formatAmsterdamLocal(new Date(startTs));
+
+      // IMPORTANT: city comes from inside event text if possible (venueLine),
+      // otherwise fall back to the page cityName.
+      const detectedCity = detectCityFromText(venueLine) || detectCityFromText(lastNonEmpty);
+      const finalCity = detectedCity || cityName || "";
+
+      out.push({
+        id: `ma:${slugify(finalCity)}:${cur.year}-${String(cur.monthIdx + 1).padStart(2, "0")}-${String(
+          cur.day
+        ).padStart(2, "0")}:${slugify(artistClean)}:${slugify(finalCity)}`,
+        artist: artistClean,
+        attractions: [artistClean],
+        city: finalCity,
+        venue: "",
+        startTs,
+        startLocal,
+        url: pageUrl,
+        _maVenueHint: venueLine || "",
+      });
+
+      lastNonEmpty = line;
+      continue;
+    }
+
+    if (line) lastNonEmpty = line;
   }
 
-  return out;
+  const seen = new Set();
+  const uniq = [];
+  for (const e of out) {
+    const k = `${String(e.city)}|${String(e.artist).toLowerCase()}|${Number(e.startTs)}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    uniq.push(e);
+  }
+
+  return uniq;
 }
 
 // ---------------- TivoliVredenburg ----------------

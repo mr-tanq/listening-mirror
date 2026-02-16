@@ -1,3 +1,544 @@
+/* live.js (FULL REPLACE) — PART 1/4
+   Model: music_only_ecosystem_no_distance_no_time
+
+   Goals:
+   - Keep existing TM/MA/TV parsing behavior (do not “break” sources).
+   - Filter OUT non-music events WITHOUT blacklist by requiring match to:
+       (A) taste artists (Last.fm top 1000), OR
+       (B) ecosystem artists (Last.fm artist.getSimilar from a small seed set)
+   - No distance/time boosts in scoring.
+   - Avoid Cloudflare "Too many subrequests":
+       * cap Tivoli hydrate
+       * cap Last.fm similar seeds
+       * cache similars in caches.default
+   - Optional debug=1 returns dropped[] with reasons.
+
+   Sources supported: tm, ma, tv
+*/
+
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+
+    // --- CORS (GitHub Pages + optional localhost) ---
+    const origin = request.headers.get("Origin") || "";
+    const allowed = new Set([
+      "https://mr-tanq.github.io",
+      "http://localhost:5173",
+      "http://localhost:4173",
+      "http://localhost:3000",
+    ]);
+    const allowOrigin = allowed.has(origin) ? origin : "https://mr-tanq.github.io";
+
+    const corsHeaders = {
+      "access-control-allow-origin": allowOrigin,
+      "access-control-allow-methods": "GET,POST,OPTIONS",
+      "access-control-allow-headers": "content-type, authorization",
+      "access-control-max-age": "86400",
+    };
+
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders });
+    }
+
+    const jsonRes = (obj, status = 200) =>
+      new Response(JSON.stringify(obj, null, 2), {
+        status,
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          ...corsHeaders,
+        },
+      });
+
+    const lowerKey = (s) => String(s || "").trim().toLowerCase();
+    const clamp01 = (x) => Math.max(0, Math.min(1, x));
+    const clampInt = (v, a, b, fallback) => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return fallback;
+      return Math.max(a, Math.min(b, Math.trunc(n)));
+    };
+
+    try {
+      if (url.pathname === "/health") {
+        return jsonRes({ ok: true, service: "live", time: new Date().toISOString() });
+      }
+
+      if (url.pathname === "/econcerts") {
+        return await handleEconcerts(request, env, ctx, jsonRes, lowerKey, clamp01, clampInt);
+      }
+
+      return jsonRes({ ok: false, error: "not_found", path: url.pathname }, 404);
+    } catch (err) {
+      return jsonRes(
+        {
+          ok: false,
+          error: "internal_error",
+          message: String(err && err.message ? err.message : err),
+        },
+        500
+      );
+    }
+  },
+};
+
+async function handleEconcerts(request, env, ctx, jsonRes, lowerKey, clamp01, clampInt) {
+  const url = new URL(request.url);
+
+  const TMASTER_API_KEY = String(env.TMASTER_API_KEY || "").trim();
+  const LASTFM_API_KEY = String(env.LASTFM_API_KEY || "").trim();
+  const LASTFM_USER = String(env.LASTFM_USER || "").trim();
+
+  const size = clampInt(url.searchParams.get("size"), 1, 1000, 50);
+  const radiusKm = clampInt(url.searchParams.get("radiusKm"), 1, 500, 30);
+  const scoreMin = clampInt(url.searchParams.get("scoreMin"), 0, 100, 0);
+
+  // ✅ tasteArtists ALWAYS 1000 (ignores query param)
+  const tasteArtists = 1000;
+
+  const cityRaw = String(url.searchParams.get("city") || "").trim();
+  const city = cityRaw;
+  const countryCode = String(url.searchParams.get("countryCode") || "NL").trim().toUpperCase();
+
+  const sources = parseSources(String(url.searchParams.get("sources") || "tm,ma,tv"));
+
+  const debug = String(url.searchParams.get("debug") || "").trim() === "1";
+
+  if (!LASTFM_API_KEY) return jsonRes({ ok: false, error: "missing_env", message: "Missing LASTFM_API_KEY" }, 500);
+  if (!LASTFM_USER) return jsonRes({ ok: false, error: "missing_env", message: "Missing LASTFM_USER" }, 500);
+
+  if (sources.includes("tm") && !TMASTER_API_KEY) {
+    return jsonRes({ ok: false, error: "missing_env", message: "Missing TMASTER_API_KEY" }, 500);
+  }
+
+  // ---------------- Taste (Last.fm top 1000) ----------------
+  const taste = await lastfmTopArtistsOverall(LASTFM_API_KEY, LASTFM_USER, tasteArtists);
+  const tasteMap = new Map(taste.map((x) => [lowerKey(x.name), x.playcount]));
+  const tasteSet = new Set(taste.map((x) => lowerKey(x.name)));
+
+  // ---------------- Ecosystem (small seed set, cached) ----------------
+  // Keep this LOW to avoid subrequest limits, because we ALSO fetch TM/MA/TV pages.
+  const SIMILAR_SEEDS = 8;   // safe default
+  const SIMILAR_LIMIT = 50; // per seed
+  const seeds = taste.slice(0, SIMILAR_SEEDS).map((x) => x.name).filter(Boolean);
+
+  const ecoBuild = await buildEcosystemCached(LASTFM_API_KEY, seeds, SIMILAR_LIMIT, lowerKey, ctx);
+  const ecosystemSet = ecoBuild.set;
+  const ecosystemWeight = ecoBuild.weightMap; // nameLower -> bestMatch (0..1)
+
+  // ---------------- Collect events from sources (existing behavior) ----------------
+  const collected = [];
+
+  let tmPagesFetched = null;
+  let tmEventsParsed = null;
+
+  if (sources.includes("tm")) {
+    const tmEvents = await ticketmasterEvents({
+      apiKey: TMASTER_API_KEY,
+      countryCode,
+      city: city || "",
+      radiusKm: city ? radiusKm : null,
+      sizeRequested: size,
+    });
+    tmEventsParsed = tmEvents.length;
+    tmPagesFetched = null; // helper internally pages
+    for (const ev of tmEvents) collected.push({ ...ev, source: "tm" });
+  }
+
+  let maPagesFetched = 0;
+  let maEventsParsed2 = 0;
+  if (sources.includes("ma")) {
+    const maRes = await metalAgendaEvents({
+      maxEvents: size,
+      countryCode,
+    });
+    maPagesFetched = maRes.pagesFetched;
+    maEventsParsed2 = maRes.eventsParsed;
+    for (const ev of maRes.events) collected.push({ ...ev, source: "ma" });
+  }
+
+  let tvPagesFetched = 0;
+  let tvEventsParsed = 0;
+  if (sources.includes("tv")) {
+    const tvRes = await tivoliAgendaEvents({
+      maxEvents: size,
+      countryCode,
+      hydrateLimit: 18,
+    });
+    tvPagesFetched = tvRes.pagesFetched;
+    tvEventsParsed = tvRes.eventsParsed;
+    for (const ev of tvRes.events) collected.push({ ...ev, source: "tv" });
+  }
+
+  const deduped = dedupeCollected(collected, lowerKey);
+
+  // ---------------- Music-only ecosystem filter + scoring ----------------
+  const dropped = [];
+  const eventsScored = [];
+
+  for (const ev of deduped) {
+    const pick = pickBestArtistMatch(ev, lowerKey, tasteSet, ecosystemSet);
+
+    if (!pick.ok) {
+      if (debug && dropped.length < 250) {
+        dropped.push({
+          id: ev.id,
+          source: ev.source || "",
+          title: ev.artist || "",
+          url: ev.url || "",
+          reason: pick.reason,
+        });
+      }
+      continue;
+    }
+
+    const artistLower = pick.artistLower;
+    const plays = tasteMap.get(artistLower) || 0;
+
+    const inTaste = tasteSet.has(artistLower);
+    const ecoMatch = ecosystemWeight.get(artistLower) || 0;
+
+    // Score model: ONLY music match (no time/distance)
+    let tier = "discovery";
+    if (inTaste) tier = tierFromPlays(plays);
+    else tier = tierFromEcosystemMatch(ecoMatch);
+
+    let score = baseScoreFromTier(tier);
+
+    // tiny boost for multiple attractions with taste hits
+    const attBoost = attractionBoost(ev, lowerKey, tasteSet);
+    score = Math.max(0, Math.min(100, Math.round(score + attBoost)));
+
+    const level = score >= 80 ? "strong" : score >= 65 ? "good" : score >= 50 ? "ok" : "weak";
+
+    const out = {
+      id: ev.id,
+      artist: pick.artistDisplay,
+      attractions: ev.attractions,
+      city: ev.city,
+      venue: ev.venue,
+      start: ev.startLocal,
+      url: ev.url,
+      plays,
+      tier,
+      score,
+      level,
+      startTs: ev.startTs,
+      source: ev.source || "tm",
+      star: false,
+    };
+
+    if (score >= scoreMin) eventsScored.push(out);
+  }
+
+  eventsScored.sort((a, b) => (b.score - a.score) || (a.startTs - b.startTs));
+  const finalEvents = eventsScored.slice(0, size);
+
+  return jsonRes({
+    ok: true,
+    meta: {
+      sizeRequested: size,
+      radiusKm: city ? radiusKm : null,
+      scoreMin,
+      tasteArtists,
+      eventsFetched: deduped.length,
+      eventsReturned: finalEvents.length,
+      city: city || null,
+      countryCode,
+      sources,
+      mode: city ? "near_city" : "nl_wide",
+      tmPagesFetched,
+      tmEventsParsed,
+      maPagesFetched: sources.includes("ma") ? maPagesFetched : null,
+      maEventsParsed: sources.includes("ma") ? maEventsParsed2 : null,
+      tvPagesFetched: sources.includes("tv") ? tvPagesFetched : null,
+      tvEventsParsed: sources.includes("tv") ? tvEventsParsed : null,
+      model: "music_only_ecosystem_no_distance_no_time",
+      ecosystem: {
+        tasteCount: taste.length,
+        ecosystemCount: ecosystemSet.size,
+        similarSeedsUsed: seeds.length,
+      },
+      droppedCount: debug ? dropped.length : undefined,
+    },
+    events: finalEvents,
+    dropped: debug ? dropped : undefined,
+  });
+}
+
+function parseSources(raw) {
+  const s = String(raw || "tm")
+    .split(",")
+    .map((x) => x.trim().toLowerCase())
+    .filter(Boolean);
+
+  const out = [];
+  for (const x of s) {
+    if (x === "tm" || x === "ticketmaster") out.push("tm");
+    if (x === "ma" || x === "metalagenda") out.push("ma");
+    if (x === "tv" || x === "tivoli" || x === "tivolivredenburg") out.push("tv");
+  }
+  return out.length ? Array.from(new Set(out)) : ["tm"];
+}
+/* live.js (FULL REPLACE) — PART 2/4 */
+
+// ---------------- Last.fm ----------------
+async function lastfmTopArtistsOverall(apiKey, user, limit) {
+  const u = new URL("https://ws.audioscrobbler.com/2.0/");
+  u.searchParams.set("method", "user.gettopartists");
+  u.searchParams.set("user", user);
+  u.searchParams.set("api_key", apiKey);
+  u.searchParams.set("format", "json");
+  u.searchParams.set("limit", String(limit));
+  u.searchParams.set("period", "overall");
+
+  const r = await fetch(u.toString(), { method: "GET" });
+  const j = await r.json().catch(() => ({}));
+
+  if (!r.ok) throw new Error(`Last.fm HTTP ${r.status}`);
+  if (j && j.error) throw new Error(`Last.fm: ${j.message || "error"}`);
+
+  const arr = j?.topartists?.artist;
+  if (!Array.isArray(arr)) return [];
+
+  const out = [];
+  for (const a of arr) {
+    const name = String(a?.name || "").trim();
+    const playcount = Number(a?.playcount || 0);
+    if (!name) continue;
+    out.push({ name, playcount: Number.isFinite(playcount) ? playcount : 0 });
+  }
+
+  out.sort((a, b) => (b.playcount - a.playcount));
+  return out;
+}
+
+async function lastfmGetSimilar(apiKey, artistName, limit) {
+  const u = new URL("https://ws.audioscrobbler.com/2.0/");
+  u.searchParams.set("method", "artist.getsimilar");
+  u.searchParams.set("artist", artistName);
+  u.searchParams.set("api_key", apiKey);
+  u.searchParams.set("format", "json");
+  u.searchParams.set("limit", String(limit || 50));
+  u.searchParams.set("autocorrect", "1");
+
+  const r = await fetch(u.toString(), { method: "GET" });
+  const j = await r.json().catch(() => ({}));
+
+  if (!r.ok) throw new Error(`Last.fm similar HTTP ${r.status}`);
+  if (j && j.error) throw new Error(`Last.fm similar: ${j.message || "error"}`);
+
+  const arr = j?.similarartists?.artist;
+  if (!Array.isArray(arr)) return [];
+
+  const out = [];
+  for (const a of arr) {
+    const name = String(a?.name || "").trim();
+    const match = Number(a?.match || a?.similarity || 0);
+    if (!name) continue;
+    out.push({ name, match: Number.isFinite(match) ? match : 0 });
+  }
+  return out;
+}
+
+async function buildEcosystemCached(apiKey, seeds, limit, lowerKey, ctx) {
+  const set = new Set();
+  const weightMap = new Map(); // nameLower -> bestMatch
+  const seedList = Array.isArray(seeds) ? seeds.slice(0, 20) : [];
+
+  for (const s of seedList) {
+    const lk = lowerKey(s);
+    if (!lk) continue;
+    set.add(lk);
+    weightMap.set(lk, Math.max(weightMap.get(lk) || 0, 1));
+  }
+
+  for (const seed of seedList) {
+    const cached = await cacheGetSimilar(apiKey, seed, limit).catch(() => null);
+    const arr = Array.isArray(cached) ? cached : [];
+
+    for (const it of arr) {
+      const name = String(it?.name || "").trim();
+      const lk = lowerKey(name);
+      if (!lk) continue;
+      set.add(lk);
+
+      const m = Number(it?.match || 0);
+      const prev = weightMap.get(lk) || 0;
+      if (m > prev) weightMap.set(lk, m);
+    }
+  }
+
+  return { set, weightMap };
+}
+
+async function cacheGetSimilar(apiKey, seed, limit) {
+  const key = `lm:lastfm:similar:v1:${encodeURIComponent(String(seed || "").trim().toLowerCase())}:L${Number(limit || 50)}`;
+  const cache = caches.default;
+
+  const req = new Request("https://cache.local/" + key, { method: "GET" });
+  const hit = await cache.match(req);
+  if (hit) {
+    const j = await hit.json().catch(() => null);
+    if (Array.isArray(j)) return j;
+  }
+
+  const fresh = await lastfmGetSimilar(apiKey, seed, limit);
+  const res = new Response(JSON.stringify(fresh), {
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "public, max-age=604800",
+    },
+  });
+  cache.put(req, res.clone()).catch(() => {});
+  return fresh;
+}
+
+// ---------------- fetch helpers ----------------
+async function fetchText(u) {
+  const r = await fetch(u, {
+    method: "GET",
+    headers: {
+      "accept": "text/html,*/*",
+      "user-agent": "ListeningMirror/1.0 (mr-tanq)",
+    },
+  });
+  if (!r.ok) return "";
+  return await r.text().catch(() => "");
+}
+
+function decodeHtmlEntities(s) {
+  let t = String(s || "");
+
+  t = t.replace(/&#(\d+);/g, (_, n) => {
+    const code = Number(n);
+    if (!Number.isFinite(code)) return _;
+    try { return String.fromCodePoint(code); } catch { return _; }
+  });
+
+  const map = {
+    "&eacute;": "é",
+    "&Eacute;": "É",
+    "&ouml;": "ö",
+    "&Ouml;": "Ö",
+    "&uuml;": "ü",
+    "&Uuml;": "Ü",
+    "&auml;": "ä",
+    "&Auml;": "Ä",
+    "&oslash;": "ø",
+    "&Oslash;": "Ø",
+    "&amp;": "&",
+    "&quot;": "\"",
+    "&#39;": "'",
+    "&lt;": "<",
+    "&gt;": ">",
+    "&nbsp;": " ",
+  };
+
+  for (const [k, v] of Object.entries(map)) {
+    t = t.split(k).join(v);
+  }
+  t = t.replace(/&[a-zA-Z]+;/g, "");
+  return t;
+}
+
+function htmlToText(html) {
+  let s = String(html || "");
+  s = s.replace(/<br\s*\/?>/gi, "\n");
+  s = s.replace(/<\/p>/gi, "\n");
+  s = s.replace(/<\/h\d>/gi, "\n");
+  s = s.replace(/<\/li>/gi, "\n");
+  s = s.replace(/<\/div>/gi, "\n");
+  s = s.replace(/<[^>]+>/g, " ");
+  s = s.replace(/\r/g, "\n");
+  s = s.replace(/\n{3,}/g, "\n\n");
+  return s.trim();
+}
+
+// ---------------- Time formatting: Europe/Amsterdam ----------------
+function formatAmsterdamLocal(dateObj) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Amsterdam",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(dateObj);
+
+  const get = (type) => parts.find((p) => p.type === type)?.value || "00";
+  const y = get("year");
+  const m = get("month");
+  const d = get("day");
+  const hh = get("hour");
+  const mm = get("minute");
+  const ss = get("second");
+
+  return `${y}-${m}-${d}T${hh}:${mm}:${ss}`;
+}
+
+function epochFromAmsterdamLocal(year, monthIdx, day, hh, mm, ss = 0) {
+  let guess = new Date(Date.UTC(year, monthIdx, day, hh, mm, ss));
+
+  for (let i = 0; i < 3; i++) {
+    const local = formatAmsterdamLocal(guess);
+    const y = Number(local.slice(0, 4));
+    const m = Number(local.slice(5, 7)) - 1;
+    const d = Number(local.slice(8, 10));
+    const H = Number(local.slice(11, 13));
+    const M = Number(local.slice(14, 16));
+    const S = Number(local.slice(17, 19));
+
+    const desiredMs = Date.UTC(year, monthIdx, day, hh, mm, ss);
+    const seenMs = Date.UTC(y, m, d, H, M, S);
+    const delta = desiredMs - seenMs;
+    if (delta === 0) break;
+    guess = new Date(guess.getTime() + delta);
+  }
+
+  return guess.getTime();
+}
+
+function slugify(s) {
+  return String(s || "")
+    .toLowerCase()
+    .trim()
+    .replace(/['’]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+// ---------------- Dedupe ----------------
+function dedupeCollected(items, lowerKey) {
+  const map = new Map();
+  for (const ev of items || []) {
+    const artist = lowerKey(ev?.artist || "");
+    const venue = lowerKey(ev?.venue || "");
+    const city = lowerKey(ev?.city || "");
+    const ts = Number(ev?.startTs || 0);
+    if (!artist || !ts) continue;
+
+    const key = `${artist}|${ts}|${city}|${venue}`;
+    const prev = map.get(key);
+    if (!prev) {
+      map.set(key, ev);
+      continue;
+    }
+
+    const prevUrl = String(prev?.url || "");
+    const curUrl = String(ev?.url || "");
+    const prevScore = (prev?.source === "tm" ? 2 : 1) + (prevUrl.startsWith("http") ? 1 : 0);
+    const curScore = (ev?.source === "tm" ? 2 : 1) + (curUrl.startsWith("http") ? 1 : 0);
+
+    if (curScore > prevScore) map.set(key, ev);
+  }
+  return Array.from(map.values());
+}
+
+
+
 /* live.js (FULL REPLACE) — PART 3/4 */
 
 // ---------------- Music-only matching ----------------

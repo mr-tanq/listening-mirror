@@ -1,8 +1,12 @@
 /* econcerts.js (FULL FILE REPLACE) — SINGLE PART
-   ✅ TM + MetalAgenda + Tivoli
-   ✅ Venue whitelist affects ONLY MetalAgenda (+ Venue Watch), NOT TM/TV
-   ✅ Keeps "Venue Watch" from dropped[] so you don't miss Patronaat etc
-   ✅ CHANGE: default fetch size = 600 (so TM pages go deep enough to include later 2026 events)
+   ✅ eConcerts UI rework:
+   - Tabs INSIDE eConcerts:
+       1) Announced
+       2) Plan
+       3) Dismissed
+   - Chronological order (no group-by-city)
+   - Removed "MA Venues: Only whitelist" + all whitelist logic
+   - Dismissed + Plan persist with snapshots (so they still show even if not in latest refresh)
 */
 (() => {
   "use strict";
@@ -44,20 +48,15 @@
     return String(s || "").trim();
   }
 
-  function uniq(arr) {
-    return Array.from(new Set(arr));
-  }
-
-  function looksLikeMA(ev) {
-    const src = lowerKey(ev?.source || ev?.src || "");
-    if (src === "ma") return true;
-    const id = safeStr(ev?.id);
-    return id.startsWith("ma:");
+  function clampInt(n, a, b, fallback) {
+    const x = Number(n);
+    if (!Number.isFinite(x)) return fallback;
+    return Math.max(a, Math.min(b, Math.trunc(x)));
   }
 
   // ---------- Storage ----------
-  // v9 (TM+TV back + whitelist only for MA)
-  const STORE_KEY = "lm_econcerts_v9";
+  // v10 (tabs + snapshots)
+  const STORE_KEY = "lm_econcerts_v10";
 
   function loadStore() {
     try {
@@ -66,35 +65,34 @@
         return {
           planIds: [],
           dismissedIds: [],
+          planItems: {},       // id -> snapshot
+          dismissedItems: {},  // id -> snapshot
           lastRefreshAt: 0,
-          groupByCity: true,
           baseApi: "",
-          uiScoreMin: 40,
-          heardPlaysMin: 5,
-          venueOnly: true, // only applies to MA + Venue Watch
+          activeTab: "announced", // announced | plan | dismissed
         };
       }
       const obj = JSON.parse(raw);
       return {
         planIds: Array.isArray(obj.planIds) ? obj.planIds : [],
         dismissedIds: Array.isArray(obj.dismissedIds) ? obj.dismissedIds : [],
+        planItems: obj && typeof obj.planItems === "object" && obj.planItems ? obj.planItems : {},
+        dismissedItems: obj && typeof obj.dismissedItems === "object" && obj.dismissedItems ? obj.dismissedItems : {},
         lastRefreshAt: Number(obj.lastRefreshAt || 0),
-        groupByCity: Boolean(obj.groupByCity ?? true),
         baseApi: String(obj.baseApi || ""),
-        uiScoreMin: Number.isFinite(Number(obj.uiScoreMin)) ? Number(obj.uiScoreMin) : 40,
-        heardPlaysMin: Number.isFinite(Number(obj.heardPlaysMin)) ? Number(obj.heardPlaysMin) : 5,
-        venueOnly: Boolean(obj.venueOnly ?? true),
+        activeTab: ["announced", "plan", "dismissed"].includes(String(obj.activeTab))
+          ? String(obj.activeTab)
+          : "announced",
       };
     } catch {
       return {
         planIds: [],
         dismissedIds: [],
+        planItems: {},
+        dismissedItems: {},
         lastRefreshAt: 0,
-        groupByCity: true,
         baseApi: "",
-        uiScoreMin: 40,
-        heardPlaysMin: 5,
-        venueOnly: true,
+        activeTab: "announced",
       };
     }
   }
@@ -109,53 +107,28 @@
   const FALLBACK_BASE_API = "https://live.errtanq9.workers.dev";
 
   function getBaseApi() {
-    const w = (typeof window !== "undefined") ? window : {};
+    const w = typeof window !== "undefined" ? window : {};
     const fromWindow = typeof w.BASE_API === "string" ? w.BASE_API : "";
-    const fromStore = (store && typeof store.baseApi === "string") ? store.baseApi : "";
+    const fromStore = store && typeof store.baseApi === "string" ? store.baseApi : "";
     const base = (fromWindow || fromStore || FALLBACK_BASE_API).trim();
     return base.replace(/\/+$/, "");
   }
 
-  // ---------- MA venue whitelist ----------
-  const MA_VENUE_WHITELIST = uniq([
-    "https://www.metalagenda.nl/venues/tivoli-vredenburg",
-    "https://www.metalagenda.nl/venues/de-helling",
-    "https://www.metalagenda.nl/venues/dbs",
-    "https://www.metalagenda.nl/venues/patronaat",
-    "https://www.metalagenda.nl/venues/doornroosje",
-    "https://www.metalagenda.nl/venues/effenaar",
-    "https://www.metalagenda.nl/venues/fluor",
-    "https://www.metalagenda.nl/venues/neushoorn",
-    "https://www.metalagenda.nl/venues/baroeg",
-    "https://www.metalagenda.nl/venues/013",
-    "https://www.metalagenda.nl/venues/dynamo",
-    "https://www.metalagenda.nl/venues/vera",
-    "https://www.metalagenda.nl/venues/rotown",
-    "https://www.metalagenda.nl/venues/merleyn",
-    "https://www.metalagenda.nl/venues/occii",
-  ]);
-
-  function isWhitelistedMAUrl(url) {
-    const u = safeStr(url);
-    if (!u) return false;
-    return MA_VENUE_WHITELIST.some(v => u === v || u === (v + "/") || u.startsWith(v + "?") || u.startsWith(v + "/"));
-  }
-
   // ---------- econcerts API defaults ----------
   const ECONCERTS_DEFAULTS = {
-    size: 600,           // ✅ CHANGED from 200 → 600
+    size: 250,
     radiusKm: 30,
-    scoreMin: 0,         // forced 0
-    tasteArtists: 1000,  // forced 1000
-    city: "",            // empty => whole NL
+    scoreMin: 0,
+    tasteArtists: 1000,
+    city: "",
     countryCode: "NL",
-    sources: "tm,ma,tv", // ✅ IMPORTANT: TM + MA + TV
+    sources: "tm,ma,tv",
   };
 
   function normalizeSources(input) {
     const raw = safeStr(input) || "tm,ma,tv";
-    const parts = raw.split(",").map(s => lowerKey(s)).filter(Boolean);
-    const allowed = new Set(["tm", "ma", "tv", "pi"]);
+    const parts = raw.split(",").map((s) => lowerKey(s)).filter(Boolean);
+    const allowed = new Set(["tm", "ma", "tv"]);
     const out = [];
     for (const p of parts) if (allowed.has(p) && !out.includes(p)) out.push(p);
     return out.length ? out.join(",") : "tm,ma,tv";
@@ -167,7 +140,7 @@
     const u = new URL(base + "/econcerts");
 
     u.searchParams.set("sources", normalizeSources(cfg.sources));
-    u.searchParams.set("size", String(cfg.size));
+    u.searchParams.set("size", String(clampInt(cfg.size, 1, 1000, 250)));
     u.searchParams.set("scoreMin", "0");
     u.searchParams.set("tasteArtists", "1000");
     u.searchParams.set("countryCode", String(cfg.countryCode || "NL"));
@@ -175,211 +148,247 @@
     const city = safeStr(cfg.city);
     if (city) {
       u.searchParams.set("city", city);
-      u.searchParams.set("radiusKm", String(cfg.radiusKm));
+      u.searchParams.set("radiusKm", String(clampInt(cfg.radiusKm, 1, 500, 30)));
     }
 
     const res = await fetch(u.toString(), { method: "GET" });
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok || !data || data.ok !== true) {
-      const msg = (data && (data.error || data.message)) ? String(data.error || data.message) : `HTTP ${res.status}`;
+      const msg = data && (data.error || data.message) ? String(data.error || data.message) : `HTTP ${res.status}`;
       throw new Error(msg);
     }
 
     const events = Array.isArray(data.events) ? data.events : [];
-    const dropped = Array.isArray(data.dropped) ? data.dropped : [];
 
-    const mappedEvents = events.map(ev => {
-      const startTs = Number(ev.startTs || 0);
-      const startDate = startTs ? new Date(startTs) : new Date(safeStr(ev.start));
-      return {
-        id: safeStr(ev.id),
-        artist: safeStr(ev.artist),
-        attractions: Array.isArray(ev.attractions) ? ev.attractions : [],
-        city: safeStr(ev.city),
-        venue: safeStr(ev.venue),
-        start: startDate,
-        url: safeStr(ev.url),
+    const mappedEvents = events
+      .map((ev) => {
+        const startTs = Number(ev.startTs || 0);
+        const startDate = startTs ? new Date(startTs) : new Date(safeStr(ev.start));
+        return {
+          id: safeStr(ev.id),
+          artist: safeStr(ev.artist),
+          attractions: Array.isArray(ev.attractions) ? ev.attractions : [],
+          city: safeStr(ev.city),
+          venue: safeStr(ev.venue),
+          start: startDate,
+          url: safeStr(ev.url),
 
-        plays: Number(ev.plays || 0),
-        tier: safeStr(ev.tier || "discovery"),
-        score: Number(ev.score || 0),
-        level: safeStr(ev.level || ""),
-        startTs: startTs || (isValidDate(startDate) ? startDate.getTime() : 0),
-        source: safeStr(ev.source || ev.src || ""),
-        star: Boolean(ev.star),
-        __kind: "event",
-      };
-    }).filter(x => x.id && x.artist && isValidDate(x.start));
+          plays: Number(ev.plays || 0),
+          tier: safeStr(ev.tier || "discovery"),
+          score: Number(ev.score || 0),
+          level: safeStr(ev.level || ""),
+          startTs: startTs || (isValidDate(startDate) ? startDate.getTime() : 0),
+          source: safeStr(ev.source || ev.src || ""),
+          star: Boolean(ev.star),
+          __kind: "event",
+        };
+      })
+      .filter((x) => x.id && x.artist && isValidDate(x.start));
 
-    // Venue Watch from dropped (usually MA)
-    const mappedDropped = dropped.map(d => ({
-      id: safeStr(d.id),
-      artist: safeStr(d.title || "Unknown"),
+    return { events: mappedEvents };
+  }
+
+  // ---------- Snapshot helpers (persist Plan/Dismissed cleanly) ----------
+  function toSnapshot(ev) {
+    if (!ev || !ev.id) return null;
+    return {
+      id: safeStr(ev.id),
+      artist: safeStr(ev.artist),
+      city: safeStr(ev.city),
+      venue: safeStr(ev.venue),
+      startTs: Number(ev.startTs || (ev.start ? ev.start.getTime() : 0)) || 0,
+      url: safeStr(ev.url),
+      source: safeStr(ev.source),
+      plays: Number(ev.plays || 0),
+      score: Number(ev.score || 0),
+      tier: safeStr(ev.tier || ""),
+    };
+  }
+
+  function snapshotToEvent(snap) {
+    const ts = Number(snap?.startTs || 0);
+    const d = ts ? new Date(ts) : new Date(0);
+    return {
+      id: safeStr(snap?.id),
+      artist: safeStr(snap?.artist),
       attractions: [],
-      city: "",
-      venue: "",
-      start: new Date(0),
-      url: safeStr(d.url),
-      plays: 0,
-      tier: "venue_watch",
-      score: 0,
-      level: safeStr(d.reason || "dropped"),
-      startTs: 0,
-      source: safeStr(d.source || "ma"),
+      city: safeStr(snap?.city),
+      venue: safeStr(snap?.venue),
+      start: d,
+      url: safeStr(snap?.url),
+      plays: Number(snap?.plays || 0),
+      tier: safeStr(snap?.tier || "discovery"),
+      score: Number(snap?.score || 0),
+      level: "",
+      startTs: ts,
+      source: safeStr(snap?.source || ""),
       star: false,
-      __kind: "dropped",
-    })).filter(x => x.id && x.artist && x.url);
-
-    return { events: mappedEvents, dropped: mappedDropped };
+      __kind: "snapshot",
+    };
   }
 
-  // ---------- Dedupe ----------
-  function isVipUrl(url) {
-    const u = lowerKey(url);
-    return u.includes("vip") || u.includes("package") || u.includes("packages") || u.includes("hospitality") || u.includes("comfort");
-  }
-  function venueLooksLikeSubRoom(venue) {
-    const v = lowerKey(venue);
-    return v.includes("club") || v.includes("room") || v.includes("lounge") || v.includes("vinyl") || v.includes("bar");
-  }
-  function timeBucket(ts) {
-    const step = 10 * 60 * 1000;
-    return Math.round(ts / step) * step;
-  }
-  function softKey(ev) {
-    const ts = Number(ev.startTs || 0) || (ev.start ? ev.start.getTime() : 0);
-    return [lowerKey(ev.artist), String(timeBucket(ts)), lowerKey(ev.city)].join("|");
-  }
-  function pickBetterEvent(a, b) {
-    const aVip = isVipUrl(a.url);
-    const bVip = isVipUrl(b.url);
-    if (aVip !== bVip) return aVip ? b : a;
-
-    const aSub = venueLooksLikeSubRoom(a.venue);
-    const bSub = venueLooksLikeSubRoom(b.venue);
-    if (aSub !== bSub) return aSub ? b : a;
-
-    const aMeta = (a.venue ? 1 : 0) + (a.city ? 1 : 0) + (a.attractions?.length ? 1 : 0);
-    const bMeta = (b.venue ? 1 : 0) + (b.city ? 1 : 0) + (b.attractions?.length ? 1 : 0);
-    if (aMeta !== bMeta) return bMeta > aMeta ? b : a;
-
-    const aScore = Number(a.score || 0);
-    const bScore = Number(b.score || 0);
-    if (aScore !== bScore) return bScore > aScore ? b : a;
-
-    return a;
-  }
-  function dedupeEvents(events) {
-    const byId = new Map();
-    for (const ev of events) {
+  // ---------- Dedupe (by id only; worker already dedupes well) ----------
+  function dedupeById(events) {
+    const map = new Map();
+    for (const ev of events || []) {
       if (!ev || !ev.id) continue;
-      if (!byId.has(ev.id)) byId.set(ev.id, ev);
-      else byId.set(ev.id, pickBetterEvent(byId.get(ev.id), ev));
+      if (!map.has(ev.id)) map.set(ev.id, ev);
+      else {
+        // keep the one with more metadata
+        const a = map.get(ev.id);
+        const aMeta = (a.city ? 1 : 0) + (a.venue ? 1 : 0) + (a.url ? 1 : 0);
+        const bMeta = (ev.city ? 1 : 0) + (ev.venue ? 1 : 0) + (ev.url ? 1 : 0);
+        map.set(ev.id, bMeta >= aMeta ? ev : a);
+      }
     }
-    const bySoft = new Map();
-    for (const ev of byId.values()) {
-      const k = softKey(ev);
-      if (!bySoft.has(k)) bySoft.set(k, ev);
-      else bySoft.set(k, pickBetterEvent(bySoft.get(k), ev));
-    }
-    return Array.from(bySoft.values());
+    return Array.from(map.values());
   }
 
-  // ---------- UI-side final score ----------
-  function computeFinalScore(event) {
-    let s = Number(event.score || 0);
-    if (lowerKey(event.city) === "utrecht") s += 4;
-    s = Math.max(0, Math.min(100, Math.round(s)));
-    return s;
+  function sortChrono(a, b) {
+    const ta = Number(a.startTs || (a.start ? a.start.getTime() : 0)) || 0;
+    const tb = Number(b.startTs || (b.start ? b.start.getTime() : 0)) || 0;
+    if (ta !== tb) return ta - tb;
+    return safeStr(a.artist).localeCompare(safeStr(b.artist));
   }
 
   // ---------- State + UI nodes ----------
   let lastEvents = [];
-  let lastDropped = [];
 
   const listEl = $("#econcertsList");
   const refreshBtn = $("#econcertsRefresh");
-  const groupBtn = $("#econcertsToggleGroup");
+  const groupBtn = $("#econcertsToggleGroup"); // will be hidden (chronological only)
 
-  if (!listEl || !refreshBtn || !groupBtn) return;
+  if (!listEl || !refreshBtn) return;
 
-  groupBtn.setAttribute("aria-pressed", store.groupByCity ? "true" : "false");
-  groupBtn.textContent = store.groupByCity ? "Group by city" : "Ungroup";
+  if (groupBtn) {
+    groupBtn.style.display = "none"; // 🔥 chronological only
+  }
 
-  // Add buttons next to Refresh
+  // --- Controls area ---
   const controlsWrap = refreshBtn.parentElement || refreshBtn;
 
-  const resetBtn = document.createElement("button");
-  resetBtn.className = "eBtn ghost";
-  resetBtn.type = "button";
-  resetBtn.textContent = "Reset dismissed";
-  resetBtn.title = "Bring back events you dismissed (does not affect My Plan)";
-  controlsWrap.appendChild(resetBtn);
+  const resetDismissedBtn = document.createElement("button");
+  resetDismissedBtn.className = "eBtn ghost";
+  resetDismissedBtn.type = "button";
+  resetDismissedBtn.textContent = "Reset dismissed";
+  resetDismissedBtn.title = "Clear your dismissed list";
+  controlsWrap.appendChild(resetDismissedBtn);
 
-  const venueBtn = document.createElement("button");
-  venueBtn.className = "eBtn ghost";
-  venueBtn.type = "button";
-  venueBtn.textContent = store.venueOnly ? "MA Venues: Only whitelist" : "MA Venues: All";
-  venueBtn.title = "This filters ONLY MetalAgenda (+ Venue Watch). TM/TV always show.";
-  controlsWrap.appendChild(venueBtn);
-
-  resetBtn.addEventListener("click", () => {
+  resetDismissedBtn.addEventListener("click", () => {
     store.dismissedIds = [];
+    store.dismissedItems = {};
     saveStore(store);
-    render(lastEvents, lastDropped);
+    render();
   });
 
-  venueBtn.addEventListener("click", () => {
-    store.venueOnly = !store.venueOnly;
-    saveStore(store);
-    venueBtn.textContent = store.venueOnly ? "MA Venues: Only whitelist" : "MA Venues: All";
-    render(lastEvents, lastDropped);
-  });
+  // --- Tabs ---
+  function makeTabBtn(id, label) {
+    const btn = document.createElement("button");
+    btn.className = "eBtn ghost";
+    btn.type = "button";
+    btn.dataset.tab = id;
+    btn.textContent = label;
+    btn.style.minWidth = "110px";
+    return btn;
+  }
 
-  // Debug helpers
+  const tabsRow = document.createElement("div");
+  tabsRow.style.display = "flex";
+  tabsRow.style.gap = "10px";
+  tabsRow.style.flexWrap = "wrap";
+  tabsRow.style.marginTop = "10px";
+  tabsRow.style.marginBottom = "10px";
+
+  const tabAnnounced = makeTabBtn("announced", "Announced");
+  const tabPlan = makeTabBtn("plan", "Plan");
+  const tabDismissed = makeTabBtn("dismissed", "Dismissed");
+
+  tabsRow.appendChild(tabAnnounced);
+  tabsRow.appendChild(tabPlan);
+  tabsRow.appendChild(tabDismissed);
+
+  // Insert tabs under existing controls
+  controlsWrap.appendChild(tabsRow);
+
+  function setActiveTab(next) {
+    store.activeTab = next;
+    saveStore(store);
+    syncTabs();
+    render();
+  }
+
+  function syncTabs() {
+    const active = store.activeTab || "announced";
+    const all = [tabAnnounced, tabPlan, tabDismissed];
+    for (const b of all) {
+      const isOn = b.dataset.tab === active;
+      b.className = isOn ? "eBtn" : "eBtn ghost";
+      b.setAttribute("aria-pressed", isOn ? "true" : "false");
+    }
+  }
+
+  tabAnnounced.addEventListener("click", () => setActiveTab("announced"));
+  tabPlan.addEventListener("click", () => setActiveTab("plan"));
+  tabDismissed.addEventListener("click", () => setActiveTab("dismissed"));
+
+  syncTabs();
+
+  // ---------- Debug helpers ----------
   window.__LM_ECONCERTS__ = {
     get store() { return store; },
     get lastEvents() { return lastEvents; },
-    get lastDropped() { return lastDropped; },
     setBaseApi(next) {
       store.baseApi = String(next || "").trim();
       saveStore(store);
     },
-    setUiScoreMin(n) {
-      store.uiScoreMin = Math.max(0, Math.min(100, Number(n) || 0));
-      saveStore(store);
-      render(lastEvents, lastDropped);
+    setTab(next) {
+      if (["announced", "plan", "dismissed"].includes(String(next))) setActiveTab(String(next));
     },
-    setHeardPlaysMin(n) {
-      store.heardPlaysMin = Math.max(0, Math.min(999999, Number(n) || 0));
-      saveStore(store);
-      render(lastEvents, lastDropped);
-    },
-    setVenueOnly(v) {
-      store.venueOnly = Boolean(v);
-      saveStore(store);
-      render(lastEvents, lastDropped);
-    }
   };
 
   const isPlanned = (id) => store.planIds.includes(id);
   const isDismissed = (id) => store.dismissedIds.includes(id);
 
-  async function addToPlan(id) {
-    if (!store.planIds.includes(id)) store.planIds.push(id);
-    store.dismissedIds = store.dismissedIds.filter(x => x !== id);
-    saveStore(store);
+  function rememberPlan(ev) {
+    const snap = toSnapshot(ev);
+    if (!snap) return;
+    store.planItems[snap.id] = snap;
+  }
+  function rememberDismissed(ev) {
+    const snap = toSnapshot(ev);
+    if (!snap) return;
+    store.dismissedItems[snap.id] = snap;
   }
 
-  async function dismiss(id) {
-    if (!store.dismissedIds.includes(id)) store.dismissedIds.push(id);
-    store.planIds = store.planIds.filter(x => x !== id);
+  async function addToPlan(ev) {
+    if (!store.planIds.includes(ev.id)) store.planIds.push(ev.id);
+    // if it was dismissed, undismiss it
+    store.dismissedIds = store.dismissedIds.filter((x) => x !== ev.id);
+    delete store.dismissedItems[ev.id];
+    rememberPlan(ev);
     saveStore(store);
   }
 
   async function removeFromPlan(id) {
-    store.planIds = store.planIds.filter(x => x !== id);
+    store.planIds = store.planIds.filter((x) => x !== id);
+    // keep snapshot around (optional); but cleaner to remove it too
+    delete store.planItems[id];
+    saveStore(store);
+  }
+
+  async function dismiss(ev) {
+    if (!store.dismissedIds.includes(ev.id)) store.dismissedIds.push(ev.id);
+    // remove from plan if present
+    store.planIds = store.planIds.filter((x) => x !== ev.id);
+    delete store.planItems[ev.id];
+    rememberDismissed(ev);
+    saveStore(store);
+  }
+
+  async function undismiss(id) {
+    store.dismissedIds = store.dismissedIds.filter((x) => x !== id);
+    delete store.dismissedItems[id];
     saveStore(store);
   }
 
@@ -394,129 +403,121 @@
     return div;
   }
 
-  function buildCard(event, finalScore, sectionType) {
+  function buildCard(ev, mode) {
     const card = document.createElement("div");
     card.className = "eCard";
-    card.dataset.id = event.id;
+    card.dataset.id = ev.id;
 
     const main = document.createElement("div");
     main.className = "eMain";
 
     const artist = document.createElement("div");
     artist.className = "eArtist";
-    artist.textContent = event.artist;
+    artist.textContent = ev.artist;
 
     const meta = document.createElement("div");
     meta.className = "eMeta";
-
-    if (event.__kind === "dropped") {
-      meta.textContent = `Venue Watch • Not matched to taste • Open venue page for details`;
-    } else {
-      const venuePart = event.venue ? ` • ${event.venue}` : "";
-      meta.textContent = `${formatDateTime(event.start)} • ${event.city}${venuePart}`;
-    }
-
-    const meta2 = document.createElement("div");
-    meta2.className = "eMeta2";
-    if (event.__kind === "dropped") {
-      meta2.textContent = `Reason: ${event.level || "no_match_to_taste_or_ecosystem"}`;
-    } else if (sectionType === "heard") {
-      meta2.textContent = `You have listened to this artist (plays ≥ ${store.heardPlaysMin}).`;
-    } else if (sectionType === "plan") {
-      meta2.textContent = `Saved in your plan.`;
-    } else {
-      meta2.textContent = `Suggestion based on your taste (score ≥ ${store.uiScoreMin}).`;
-    }
+    const venuePart = ev.venue ? ` • ${ev.venue}` : "";
+    meta.textContent = `${formatDateTime(ev.start)} • ${safeStr(ev.city)}${venuePart}`;
 
     const pills = document.createElement("div");
     pills.className = "ePills";
-
-    if (event.__kind !== "dropped") {
-      pills.appendChild(pill(`Plays: ${Number(event.plays || 0)}`));
-      if (event.source) pills.appendChild(pill(`Src: ${String(event.source).toUpperCase()}`));
-    } else {
-      pills.appendChild(pill(`Src: ${String(event.source || "MA").toUpperCase()}`));
-      pills.appendChild(pill(`Watchlist`));
-    }
+    pills.appendChild(pill(`Plays: ${Number(ev.plays || 0)}`));
+    if (ev.source) pills.appendChild(pill(`Src: ${String(ev.source).toUpperCase()}`));
+    if (Number.isFinite(Number(ev.score))) pills.appendChild(pill(`Score: ${Number(ev.score || 0)}`));
 
     main.appendChild(artist);
     main.appendChild(meta);
-    main.appendChild(meta2);
     main.appendChild(pills);
 
     const right = document.createElement("div");
     right.className = "eRight";
 
-    const scoreEl = document.createElement("div");
-    scoreEl.className = "eScore";
-    scoreEl.textContent = event.__kind === "dropped" ? "—" : `${finalScore}/100`;
-
     const badgeEl = document.createElement("div");
     badgeEl.className = "eBadge";
-    badgeEl.textContent =
-      event.__kind === "dropped" ? "WATCH" :
-      sectionType === "heard" ? "HEARD" :
-      sectionType === "plan" ? "PLAN" :
-      "SUGGEST";
+    badgeEl.textContent = mode === "plan" ? "PLAN" : mode === "dismissed" ? "DISMISSED" : "ANNOUNCED";
 
     const actions = document.createElement("div");
     actions.className = "eActions";
 
-    if (event.url) {
+    if (ev.url) {
       const btnLink = document.createElement("button");
       btnLink.className = "eBtn ghost";
       btnLink.type = "button";
       btnLink.textContent = "Link";
-      btnLink.addEventListener("click", () => {
-        window.open(event.url, "_blank", "noopener,noreferrer");
-      });
+      btnLink.addEventListener("click", () => window.open(ev.url, "_blank", "noopener,noreferrer"));
       actions.appendChild(btnLink);
     }
 
-    if (event.__kind !== "dropped") {
-      const btnPrimary = document.createElement("button");
-      btnPrimary.className = "eBtn";
-      btnPrimary.type = "button";
+    if (mode === "announced") {
+      const btnDismiss = document.createElement("button");
+      btnDismiss.className = "eBtn ghost";
+      btnDismiss.type = "button";
+      btnDismiss.textContent = "Dismiss";
+      btnDismiss.addEventListener("click", async () => {
+        await dismiss(ev);
+        render();
+      });
 
-      const btnSecondary = document.createElement("button");
-      btnSecondary.className = "eBtn ghost";
-      btnSecondary.type = "button";
+      const btnPlan = document.createElement("button");
+      btnPlan.className = "eBtn";
+      btnPlan.type = "button";
+      btnPlan.textContent = "Add to plan";
+      btnPlan.addEventListener("click", async () => {
+        await addToPlan(ev);
+        render();
+      });
 
-      const planned = isPlanned(event.id);
-
-      if (!planned) {
-        btnPrimary.textContent = "Add to plan";
-        btnSecondary.textContent = "Dismiss";
-
-        btnPrimary.addEventListener("click", async () => {
-          await addToPlan(event.id);
-          render(lastEvents, lastDropped);
-        });
-
-        btnSecondary.addEventListener("click", async () => {
-          await dismiss(event.id);
-          render(lastEvents, lastDropped);
-        });
-      } else {
-        btnPrimary.textContent = "Remove";
-        btnSecondary.textContent = "Dismiss";
-
-        btnPrimary.addEventListener("click", async () => {
-          await removeFromPlan(event.id);
-          render(lastEvents, lastDropped);
-        });
-
-        btnSecondary.addEventListener("click", async () => {
-          await dismiss(event.id);
-          render(lastEvents, lastDropped);
-        });
-      }
-
-      actions.appendChild(btnSecondary);
-      actions.appendChild(btnPrimary);
+      actions.appendChild(btnDismiss);
+      actions.appendChild(btnPlan);
     }
 
-    right.appendChild(scoreEl);
+    if (mode === "plan") {
+      const btnDismiss = document.createElement("button");
+      btnDismiss.className = "eBtn ghost";
+      btnDismiss.type = "button";
+      btnDismiss.textContent = "Dismiss";
+      btnDismiss.addEventListener("click", async () => {
+        await dismiss(ev);
+        render();
+      });
+
+      const btnRemove = document.createElement("button");
+      btnRemove.className = "eBtn";
+      btnRemove.type = "button";
+      btnRemove.textContent = "Remove";
+      btnRemove.addEventListener("click", async () => {
+        await removeFromPlan(ev.id);
+        render();
+      });
+
+      actions.appendChild(btnDismiss);
+      actions.appendChild(btnRemove);
+    }
+
+    if (mode === "dismissed") {
+      const btnUndismiss = document.createElement("button");
+      btnUndismiss.className = "eBtn";
+      btnUndismiss.type = "button";
+      btnUndismiss.textContent = "Undismiss";
+      btnUndismiss.addEventListener("click", async () => {
+        await undismiss(ev.id);
+        render();
+      });
+
+      const btnPlan = document.createElement("button");
+      btnPlan.className = "eBtn ghost";
+      btnPlan.type = "button";
+      btnPlan.textContent = "Add to plan";
+      btnPlan.addEventListener("click", async () => {
+        await addToPlan(ev);
+        render();
+      });
+
+      actions.appendChild(btnPlan);
+      actions.appendChild(btnUndismiss);
+    }
+
     right.appendChild(badgeEl);
     right.appendChild(actions);
 
@@ -526,124 +527,104 @@
     return card;
   }
 
-  function groupByCity(events) {
-    const map = new Map();
-    for (const ev of events) {
-      const key = ev.city || "Unknown";
-      if (!map.has(key)) map.set(key, []);
-      map.get(key).push(ev);
+  function sectionHeader(title, subtitle) {
+    const wrap = document.createElement("div");
+    wrap.style.display = "grid";
+    wrap.style.gap = "10px";
+
+    const h = document.createElement("div");
+    h.className = "ePill";
+    h.textContent = title;
+    h.style.justifyContent = "center";
+    h.style.fontWeight = "900";
+    h.style.opacity = ".95";
+    wrap.appendChild(h);
+
+    if (subtitle) {
+      const sub = document.createElement("div");
+      sub.className = "eEmpty";
+      sub.textContent = subtitle;
+      sub.style.opacity = ".9";
+      wrap.appendChild(sub);
     }
-    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+
+    return wrap;
   }
 
-  function render(events, dropped) {
-    const venueOnly = Boolean(store.venueOnly);
-
-    // ✅ Filter ONLY MA events when venueOnly = true.
-    // TM/TV always pass through.
-    let visibleBase = events.slice();
-    if (venueOnly) {
-      visibleBase = visibleBase.filter(ev => {
-        if (!looksLikeMA(ev)) return true; // keep TM/TV always
-        return isWhitelistedMAUrl(ev.url);
-      });
-    }
-
-    // Hide dismissed (unless planned)
-    const visible = visibleBase.filter(ev => (isPlanned(ev.id) ? true : !isDismissed(ev.id)));
-
-    const heardMin = Number(store.heardPlaysMin || 5);
-    const uiMin = Number(store.uiScoreMin || 40);
-
-    const finalMap = new Map();
-    for (const ev of visible) finalMap.set(ev.id, computeFinalScore(ev));
-
-    const planned = visible.filter(ev => isPlanned(ev.id));
-    const rest = visible.filter(ev => !isPlanned(ev.id));
-
-    const heard = rest.filter(ev => Number(ev.plays || 0) >= heardMin);
-    const suggestions = rest.filter(ev => Number(ev.plays || 0) < heardMin && finalMap.get(ev.id) >= uiMin);
-
-    // Venue Watch (dropped) — filter whitelist only if venueOnly
-    let watch = Array.isArray(dropped) ? dropped.slice() : [];
-    if (venueOnly) watch = watch.filter(ev => isWhitelistedMAUrl(ev.url));
-    watch = watch.filter(ev => !isDismissed(ev.id));
-
-    function sortByScoreThenDate(a, b) {
-      const sa = finalMap.get(a.id);
-      const sb = finalMap.get(b.id);
-      if (sb !== sa) return sb - sa;
-      return a.start.getTime() - b.start.getTime();
-    }
-
-    planned.sort(sortByScoreThenDate);
-
-    heard.sort((a, b) => {
-      const pa = Number(a.plays || 0);
-      const pb = Number(b.plays || 0);
-      if (pb !== pa) return pb - pa;
-      return sortByScoreThenDate(a, b);
-    });
-
-    suggestions.sort(sortByScoreThenDate);
-
+  function render() {
+    const active = store.activeTab || "announced";
     listEl.innerHTML = "";
 
-    const addSection = (title, arr, typeForCards) => {
-      const wrap = document.createElement("div");
-      wrap.style.display = "grid";
-      wrap.style.gap = "10px";
+    // Merge in snapshots so Plan/Dismissed show even if refresh doesn't include them
+    const byId = new Map();
+    for (const ev of lastEvents) byId.set(ev.id, ev);
 
-      const h = document.createElement("div");
-      h.className = "ePill";
-      h.textContent = title;
-      h.style.justifyContent = "center";
-      h.style.fontWeight = "800";
-      h.style.opacity = ".95";
-      wrap.appendChild(h);
+    // build lists
+    const planList = [];
+    for (const id of store.planIds) {
+      const ev = byId.get(id) || snapshotToEvent(store.planItems[id]);
+      if (ev && ev.id) planList.push(ev);
+    }
 
-      if (!arr.length) {
+    const dismissedList = [];
+    for (const id of store.dismissedIds) {
+      const ev = byId.get(id) || snapshotToEvent(store.dismissedItems[id]);
+      if (ev && ev.id) dismissedList.push(ev);
+    }
+
+    // Announced = everything upcoming EXCEPT planned and dismissed
+    const announced = lastEvents.filter((ev) => !isPlanned(ev.id) && !isDismissed(ev.id));
+
+    // sort all chrono
+    announced.sort(sortChrono);
+    planList.sort(sortChrono);
+    dismissedList.sort(sortChrono);
+
+    if (active === "announced") {
+      const head = sectionHeader("Announced", "All upcoming shows (chronological).");
+      listEl.appendChild(head);
+
+      if (!announced.length) {
         const empty = document.createElement("div");
         empty.className = "eEmpty";
-        empty.textContent = "Empty";
-        wrap.appendChild(empty);
-        listEl.appendChild(wrap);
+        empty.textContent = "No announced events right now. Tap Refresh.";
+        head.appendChild(empty);
         return;
       }
 
-      if (typeForCards === "watch") {
-        for (const ev of arr) wrap.appendChild(buildCard(ev, 0, "watch"));
-        listEl.appendChild(wrap);
-        return;
-      }
-
-      if (!store.groupByCity) {
-        for (const ev of arr) wrap.appendChild(buildCard(ev, finalMap.get(ev.id), typeForCards));
-      } else {
-        const grouped = groupByCity(arr);
-        for (const [city, items] of grouped) {
-          const cityPill = document.createElement("div");
-          cityPill.className = "ePill";
-          cityPill.textContent = `${city} • ${items.length} event(s)`;
-          cityPill.style.opacity = ".85";
-          wrap.appendChild(cityPill);
-
-          items.sort((a, b) => a.start.getTime() - b.start.getTime());
-          for (const ev of items) wrap.appendChild(buildCard(ev, finalMap.get(ev.id), typeForCards));
-        }
-      }
-
-      listEl.appendChild(wrap);
-    };
-
-    addSection("My Plan", planned, "plan");
-    addSection(`Heard (Standard) • plays ≥ ${heardMin}`, heard, "heard");
-    addSection(`Suggestions • score ≥ ${uiMin}`, suggestions, "suggest");
-    addSection("Venue Watch • on your venues but not matched to taste", watch, "watch");
-
-    if (!planned.length && !heard.length && !suggestions.length && !watch.length) {
-      setEmpty("No events yet. Tap Refresh.");
+      for (const ev of announced) head.appendChild(buildCard(ev, "announced"));
+      return;
     }
+
+    if (active === "plan") {
+      const head = sectionHeader("Plan", "Shows you saved (chronological).");
+      listEl.appendChild(head);
+
+      if (!planList.length) {
+        const empty = document.createElement("div");
+        empty.className = "eEmpty";
+        empty.textContent = "Your plan is empty.";
+        head.appendChild(empty);
+        return;
+      }
+
+      for (const ev of planList) head.appendChild(buildCard(ev, "plan"));
+      return;
+    }
+
+    // dismissed
+    const head = sectionHeader("Dismissed", "Shows you hid (chronological).");
+    listEl.appendChild(head);
+
+    if (!dismissedList.length) {
+      const empty = document.createElement("div");
+      empty.className = "eEmpty";
+      empty.textContent = "Nothing dismissed.";
+      head.appendChild(empty);
+      return;
+    }
+
+    for (const ev of dismissedList) head.appendChild(buildCard(ev, "dismissed"));
   }
 
   async function refresh(overrides = {}) {
@@ -653,31 +634,28 @@
     setEmpty("Refreshing…");
 
     try {
-      const { events: rawEvents, dropped: rawDropped } = await fetchConcertsFromWorker(overrides);
-      const events = dedupeEvents(rawEvents);
+      const { events: rawEvents } = await fetchConcertsFromWorker(overrides);
+      const events = dedupeById(rawEvents);
 
-      lastEvents = events;
-      lastDropped = rawDropped;
+      // keep only upcoming-ish (allow small tolerance)
+      const cutoff = Date.now() - 12 * 60 * 60 * 1000;
+      lastEvents = events.filter((e) => Number(e.startTs || 0) >= cutoff);
+      lastEvents.sort(sortChrono);
 
-      render(events, rawDropped);
+      // keep snapshots updated for planned/dismissed if we have the fresh event
+      for (const ev of lastEvents) {
+        if (isPlanned(ev.id)) rememberPlan(ev);
+        if (isDismissed(ev.id)) rememberDismissed(ev);
+      }
+      saveStore(store);
+
+      render();
     } catch (err) {
       console.warn("[eConcerts] worker fetch failed:", err);
       lastEvents = [];
-      lastDropped = [];
       setEmpty(`Worker error: ${String(err && err.message ? err.message : err)}`);
     }
   }
-
-  // Group toggle
-  groupBtn.addEventListener("click", async () => {
-    store.groupByCity = !store.groupByCity;
-    saveStore(store);
-
-    groupBtn.setAttribute("aria-pressed", store.groupByCity ? "true" : "false");
-    groupBtn.textContent = store.groupByCity ? "Group by city" : "Ungroup";
-
-    render(lastEvents, lastDropped);
-  });
 
   // Refresh button
   refreshBtn.addEventListener("click", async () => {
@@ -692,10 +670,14 @@
     const tabBtn = document.querySelector('.tabBtn[data-tab="econcerts"]');
     if (!tabBtn) return;
 
-    tabBtn.addEventListener("click", () => {
-      const hasCards = listEl.querySelector(".eCard");
-      if (!hasCards) refresh().catch(() => {});
-    }, { passive: true });
+    tabBtn.addEventListener(
+      "click",
+      () => {
+        const hasCards = listEl.querySelector(".eCard");
+        if (!hasCards) refresh().catch(() => {});
+      },
+      { passive: true }
+    );
   }
 
   wireTabAutoRefresh();

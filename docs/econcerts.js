@@ -1,13 +1,12 @@
 /* econcerts.js (FULL FILE REPLACE) — SINGLE PART
-   ✅ eConcerts UI rework:
-   - Tabs INSIDE eConcerts:
-       1) Announced
-       2) Plan
-       3) Dismissed
-   - Chronological order (no group-by-city)
-   - Removed "MA Venues: Only whitelist" + all whitelist logic
-   - Dismissed + Plan persist with snapshots (so they still show even if not in latest refresh)
+   UI revamp:
+   ✅ Internal tabs: Announced / Plan / Dismissed
+   ✅ Chronological order everywhere
+   ✅ Auto-refresh when clicking main eConcerts tab
+   ✅ Hide old controls: Refresh / Reset dismissed / Group by city (legacy)
+   ✅ No "ANNOUNCED/PLAN" labels inside cards
 */
+
 (() => {
   "use strict";
 
@@ -40,23 +39,11 @@
     return `${dd}.${mm}.${yyyy} • ${hh}:${min}`;
   }
 
-  function lowerKey(s) {
-    return String(s || "").trim().toLowerCase();
-  }
-
-  function safeStr(s) {
-    return String(s || "").trim();
-  }
-
-  function clampInt(n, a, b, fallback) {
-    const x = Number(n);
-    if (!Number.isFinite(x)) return fallback;
-    return Math.max(a, Math.min(b, Math.trunc(x)));
-  }
+  const lowerKey = (s) => String(s || "").trim().toLowerCase();
+  const safeStr = (s) => String(s || "").trim();
 
   // ---------- Storage ----------
-  // v10 (tabs + snapshots)
-  const STORE_KEY = "lm_econcerts_v10";
+  const STORE_KEY = "lm_econcerts_ui_v10_tabs";
 
   function loadStore() {
     try {
@@ -65,8 +52,6 @@
         return {
           planIds: [],
           dismissedIds: [],
-          planItems: {},       // id -> snapshot
-          dismissedItems: {},  // id -> snapshot
           lastRefreshAt: 0,
           baseApi: "",
           activeTab: "announced", // announced | plan | dismissed
@@ -76,8 +61,6 @@
       return {
         planIds: Array.isArray(obj.planIds) ? obj.planIds : [],
         dismissedIds: Array.isArray(obj.dismissedIds) ? obj.dismissedIds : [],
-        planItems: obj && typeof obj.planItems === "object" && obj.planItems ? obj.planItems : {},
-        dismissedItems: obj && typeof obj.dismissedItems === "object" && obj.dismissedItems ? obj.dismissedItems : {},
         lastRefreshAt: Number(obj.lastRefreshAt || 0),
         baseApi: String(obj.baseApi || ""),
         activeTab: ["announced", "plan", "dismissed"].includes(String(obj.activeTab))
@@ -88,8 +71,6 @@
       return {
         planIds: [],
         dismissedIds: [],
-        planItems: {},
-        dismissedItems: {},
         lastRefreshAt: 0,
         baseApi: "",
         activeTab: "announced",
@@ -107,16 +88,16 @@
   const FALLBACK_BASE_API = "https://live.errtanq9.workers.dev";
 
   function getBaseApi() {
-    const w = typeof window !== "undefined" ? window : {};
+    const w = (typeof window !== "undefined") ? window : {};
     const fromWindow = typeof w.BASE_API === "string" ? w.BASE_API : "";
-    const fromStore = store && typeof store.baseApi === "string" ? store.baseApi : "";
+    const fromStore = (store && typeof store.baseApi === "string") ? store.baseApi : "";
     const base = (fromWindow || fromStore || FALLBACK_BASE_API).trim();
     return base.replace(/\/+$/, "");
   }
 
   // ---------- econcerts API defaults ----------
   const ECONCERTS_DEFAULTS = {
-    size: 250,
+    size: 600,          // ✅ keep big
     radiusKm: 30,
     scoreMin: 0,
     tasteArtists: 1000,
@@ -127,7 +108,7 @@
 
   function normalizeSources(input) {
     const raw = safeStr(input) || "tm,ma,tv";
-    const parts = raw.split(",").map((s) => lowerKey(s)).filter(Boolean);
+    const parts = raw.split(",").map(s => lowerKey(s)).filter(Boolean);
     const allowed = new Set(["tm", "ma", "tv"]);
     const out = [];
     for (const p of parts) if (allowed.has(p) && !out.includes(p)) out.push(p);
@@ -140,7 +121,7 @@
     const u = new URL(base + "/econcerts");
 
     u.searchParams.set("sources", normalizeSources(cfg.sources));
-    u.searchParams.set("size", String(clampInt(cfg.size, 1, 1000, 250)));
+    u.searchParams.set("size", String(cfg.size));
     u.searchParams.set("scoreMin", "0");
     u.searchParams.set("tasteArtists", "1000");
     u.searchParams.set("countryCode", String(cfg.countryCode || "NL"));
@@ -148,247 +129,213 @@
     const city = safeStr(cfg.city);
     if (city) {
       u.searchParams.set("city", city);
-      u.searchParams.set("radiusKm", String(clampInt(cfg.radiusKm, 1, 500, 30)));
+      u.searchParams.set("radiusKm", String(cfg.radiusKm));
     }
 
     const res = await fetch(u.toString(), { method: "GET" });
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok || !data || data.ok !== true) {
-      const msg = data && (data.error || data.message) ? String(data.error || data.message) : `HTTP ${res.status}`;
+      const msg = (data && (data.error || data.message)) ? String(data.error || data.message) : `HTTP ${res.status}`;
       throw new Error(msg);
     }
 
     const events = Array.isArray(data.events) ? data.events : [];
 
-    const mappedEvents = events
-      .map((ev) => {
-        const startTs = Number(ev.startTs || 0);
-        const startDate = startTs ? new Date(startTs) : new Date(safeStr(ev.start));
-        return {
-          id: safeStr(ev.id),
-          artist: safeStr(ev.artist),
-          attractions: Array.isArray(ev.attractions) ? ev.attractions : [],
-          city: safeStr(ev.city),
-          venue: safeStr(ev.venue),
-          start: startDate,
-          url: safeStr(ev.url),
+    const mappedEvents = events.map(ev => {
+      const startTs = Number(ev.startTs || 0);
+      const startDate = startTs ? new Date(startTs) : new Date(safeStr(ev.start));
+      return {
+        id: safeStr(ev.id),
+        artist: safeStr(ev.artist),
+        attractions: Array.isArray(ev.attractions) ? ev.attractions : [],
+        city: safeStr(ev.city),
+        venue: safeStr(ev.venue),
+        start: startDate,
+        url: safeStr(ev.url),
 
-          plays: Number(ev.plays || 0),
-          tier: safeStr(ev.tier || "discovery"),
-          score: Number(ev.score || 0),
-          level: safeStr(ev.level || ""),
-          startTs: startTs || (isValidDate(startDate) ? startDate.getTime() : 0),
-          source: safeStr(ev.source || ev.src || ""),
-          star: Boolean(ev.star),
-          __kind: "event",
-        };
-      })
-      .filter((x) => x.id && x.artist && isValidDate(x.start));
+        plays: Number(ev.plays || 0),
+        score: Number(ev.score || 0),
+        startTs: startTs || (isValidDate(startDate) ? startDate.getTime() : 0),
+        source: safeStr(ev.source || ev.src || ""),
+        star: Boolean(ev.star),
+      };
+    }).filter(x => x.id && x.artist && isValidDate(x.start));
 
-    return { events: mappedEvents };
+    return { events: mappedEvents, meta: data.meta || null };
   }
 
-  // ---------- Snapshot helpers (persist Plan/Dismissed cleanly) ----------
-  function toSnapshot(ev) {
-    if (!ev || !ev.id) return null;
-    return {
-      id: safeStr(ev.id),
-      artist: safeStr(ev.artist),
-      city: safeStr(ev.city),
-      venue: safeStr(ev.venue),
-      startTs: Number(ev.startTs || (ev.start ? ev.start.getTime() : 0)) || 0,
-      url: safeStr(ev.url),
-      source: safeStr(ev.source),
-      plays: Number(ev.plays || 0),
-      score: Number(ev.score || 0),
-      tier: safeStr(ev.tier || ""),
-    };
+  // ---------- Dedupe ----------
+  function isVipUrl(url) {
+    const u = lowerKey(url);
+    return u.includes("vip") || u.includes("package") || u.includes("packages") || u.includes("hospitality") || u.includes("comfort");
   }
-
-  function snapshotToEvent(snap) {
-    const ts = Number(snap?.startTs || 0);
-    const d = ts ? new Date(ts) : new Date(0);
-    return {
-      id: safeStr(snap?.id),
-      artist: safeStr(snap?.artist),
-      attractions: [],
-      city: safeStr(snap?.city),
-      venue: safeStr(snap?.venue),
-      start: d,
-      url: safeStr(snap?.url),
-      plays: Number(snap?.plays || 0),
-      tier: safeStr(snap?.tier || "discovery"),
-      score: Number(snap?.score || 0),
-      level: "",
-      startTs: ts,
-      source: safeStr(snap?.source || ""),
-      star: false,
-      __kind: "snapshot",
-    };
+  function venueLooksLikeSubRoom(venue) {
+    const v = lowerKey(venue);
+    return v.includes("club") || v.includes("room") || v.includes("lounge") || v.includes("vinyl") || v.includes("bar");
   }
+  function timeBucket(ts) {
+    const step = 10 * 60 * 1000;
+    return Math.round(ts / step) * step;
+  }
+  function softKey(ev) {
+    const ts = Number(ev.startTs || 0) || (ev.start ? ev.start.getTime() : 0);
+    return [lowerKey(ev.artist), String(timeBucket(ts)), lowerKey(ev.city)].join("|");
+  }
+  function pickBetterEvent(a, b) {
+    const aVip = isVipUrl(a.url);
+    const bVip = isVipUrl(b.url);
+    if (aVip !== bVip) return aVip ? b : a;
 
-  // ---------- Dedupe (by id only; worker already dedupes well) ----------
-  function dedupeById(events) {
-    const map = new Map();
-    for (const ev of events || []) {
+    const aSub = venueLooksLikeSubRoom(a.venue);
+    const bSub = venueLooksLikeSubRoom(b.venue);
+    if (aSub !== bSub) return aSub ? b : a;
+
+    const aMeta = (a.venue ? 1 : 0) + (a.city ? 1 : 0) + (a.attractions?.length ? 1 : 0);
+    const bMeta = (b.venue ? 1 : 0) + (b.city ? 1 : 0) + (b.attractions?.length ? 1 : 0);
+    if (aMeta !== bMeta) return bMeta > aMeta ? b : a;
+
+    const aScore = Number(a.score || 0);
+    const bScore = Number(b.score || 0);
+    if (aScore !== bScore) return bScore > aScore ? b : a;
+
+    return a;
+  }
+  function dedupeEvents(events) {
+    const byId = new Map();
+    for (const ev of events) {
       if (!ev || !ev.id) continue;
-      if (!map.has(ev.id)) map.set(ev.id, ev);
-      else {
-        // keep the one with more metadata
-        const a = map.get(ev.id);
-        const aMeta = (a.city ? 1 : 0) + (a.venue ? 1 : 0) + (a.url ? 1 : 0);
-        const bMeta = (ev.city ? 1 : 0) + (ev.venue ? 1 : 0) + (ev.url ? 1 : 0);
-        map.set(ev.id, bMeta >= aMeta ? ev : a);
-      }
+      if (!byId.has(ev.id)) byId.set(ev.id, ev);
+      else byId.set(ev.id, pickBetterEvent(byId.get(ev.id), ev));
     }
-    return Array.from(map.values());
-  }
-
-  function sortChrono(a, b) {
-    const ta = Number(a.startTs || (a.start ? a.start.getTime() : 0)) || 0;
-    const tb = Number(b.startTs || (b.start ? b.start.getTime() : 0)) || 0;
-    if (ta !== tb) return ta - tb;
-    return safeStr(a.artist).localeCompare(safeStr(b.artist));
+    const bySoft = new Map();
+    for (const ev of byId.values()) {
+      const k = softKey(ev);
+      if (!bySoft.has(k)) bySoft.set(k, ev);
+      else bySoft.set(k, pickBetterEvent(bySoft.get(k), ev));
+    }
+    return Array.from(bySoft.values());
   }
 
   // ---------- State + UI nodes ----------
   let lastEvents = [];
+  let lastMeta = null;
 
   const listEl = $("#econcertsList");
-  const refreshBtn = $("#econcertsRefresh");
-  const groupBtn = $("#econcertsToggleGroup"); // will be hidden (chronological only)
+  const legacyRefreshBtn = $("#econcertsRefresh");
+  const legacyGroupBtn = $("#econcertsToggleGroup");
 
-  if (!listEl || !refreshBtn) return;
+  if (!listEl) return;
 
-  if (groupBtn) {
-    groupBtn.style.display = "none"; // 🔥 chronological only
+  // Hide legacy controls if present
+  if (legacyRefreshBtn) legacyRefreshBtn.style.display = "none";
+  if (legacyGroupBtn) legacyGroupBtn.style.display = "none";
+
+  // Also hide any legacy "Reset dismissed" button we previously injected (best-effort)
+  // We look near the eConcerts header controls and hide by text match.
+  try {
+    const root = listEl.closest(".tabPanel") || document;
+    const allBtns = Array.from(root.querySelectorAll("button"));
+    for (const b of allBtns) {
+      const t = safeStr(b.textContent).toLowerCase();
+      if (t === "reset dismissed" || t === "ma venues: only whitelist" || t === "ma venues: all") {
+        b.style.display = "none";
+      }
+    }
+  } catch {}
+
+  // Insert our internal tabs ABOVE the list
+  const tabsWrapId = "econcertsInnerTabs";
+  let tabsWrap = document.getElementById(tabsWrapId);
+
+  if (!tabsWrap) {
+    tabsWrap = document.createElement("div");
+    tabsWrap.id = tabsWrapId;
+    tabsWrap.style.display = "flex";
+    tabsWrap.style.gap = "10px";
+    tabsWrap.style.alignItems = "center";
+    tabsWrap.style.justifyContent = "flex-end";
+    tabsWrap.style.margin = "10px 0 14px";
+
+    // place it just before the list
+    listEl.parentElement?.insertBefore(tabsWrap, listEl);
+  } else {
+    tabsWrap.innerHTML = "";
   }
 
-  // --- Controls area ---
-  const controlsWrap = refreshBtn.parentElement || refreshBtn;
-
-  const resetDismissedBtn = document.createElement("button");
-  resetDismissedBtn.className = "eBtn ghost";
-  resetDismissedBtn.type = "button";
-  resetDismissedBtn.textContent = "Reset dismissed";
-  resetDismissedBtn.title = "Clear your dismissed list";
-  controlsWrap.appendChild(resetDismissedBtn);
-
-  resetDismissedBtn.addEventListener("click", () => {
-    store.dismissedIds = [];
-    store.dismissedItems = {};
-    saveStore(store);
-    render();
-  });
-
-  // --- Tabs ---
-  function makeTabBtn(id, label) {
+  function makeTabBtn(label, tabKey) {
     const btn = document.createElement("button");
-    btn.className = "eBtn ghost";
     btn.type = "button";
-    btn.dataset.tab = id;
+    btn.className = "eBtn ghost";
     btn.textContent = label;
-    btn.style.minWidth = "110px";
+    btn.dataset.tab = tabKey;
+    btn.style.borderRadius = "999px";
+
+    btn.addEventListener("click", () => {
+      store.activeTab = tabKey;
+      saveStore(store);
+      updateTabsUI();
+      render(lastEvents);
+    });
+
     return btn;
   }
 
-  const tabsRow = document.createElement("div");
-  tabsRow.style.display = "flex";
-  tabsRow.style.gap = "10px";
-  tabsRow.style.flexWrap = "wrap";
-  tabsRow.style.marginTop = "10px";
-  tabsRow.style.marginBottom = "10px";
+  const tabAnnounced = makeTabBtn("Announced", "announced");
+  const tabPlan = makeTabBtn("Plan", "plan");
+  const tabDismissed = makeTabBtn("Dismissed", "dismissed");
 
-  const tabAnnounced = makeTabBtn("announced", "Announced");
-  const tabPlan = makeTabBtn("plan", "Plan");
-  const tabDismissed = makeTabBtn("dismissed", "Dismissed");
+  tabsWrap.appendChild(tabAnnounced);
+  tabsWrap.appendChild(tabPlan);
+  tabsWrap.appendChild(tabDismissed);
 
-  tabsRow.appendChild(tabAnnounced);
-  tabsRow.appendChild(tabPlan);
-  tabsRow.appendChild(tabDismissed);
-
-  // Insert tabs under existing controls
-  controlsWrap.appendChild(tabsRow);
-
-  function setActiveTab(next) {
-    store.activeTab = next;
-    saveStore(store);
-    syncTabs();
-    render();
-  }
-
-  function syncTabs() {
+  function updateTabsUI() {
     const active = store.activeTab || "announced";
-    const all = [tabAnnounced, tabPlan, tabDismissed];
-    for (const b of all) {
-      const isOn = b.dataset.tab === active;
-      b.className = isOn ? "eBtn" : "eBtn ghost";
-      b.setAttribute("aria-pressed", isOn ? "true" : "false");
+    for (const btn of [tabAnnounced, tabPlan, tabDismissed]) {
+      const on = btn.dataset.tab === active;
+      btn.className = on ? "eBtn" : "eBtn ghost";
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
     }
   }
 
-  tabAnnounced.addEventListener("click", () => setActiveTab("announced"));
-  tabPlan.addEventListener("click", () => setActiveTab("plan"));
-  tabDismissed.addEventListener("click", () => setActiveTab("dismissed"));
+  updateTabsUI();
 
-  syncTabs();
-
-  // ---------- Debug helpers ----------
+  // Debug helpers (optional)
   window.__LM_ECONCERTS__ = {
     get store() { return store; },
     get lastEvents() { return lastEvents; },
+    get lastMeta() { return lastMeta; },
     setBaseApi(next) {
       store.baseApi = String(next || "").trim();
       saveStore(store);
     },
-    setTab(next) {
-      if (["announced", "plan", "dismissed"].includes(String(next))) setActiveTab(String(next));
-    },
+    forceRefresh() {
+      refresh().catch(() => {});
+    }
   };
 
   const isPlanned = (id) => store.planIds.includes(id);
   const isDismissed = (id) => store.dismissedIds.includes(id);
 
-  function rememberPlan(ev) {
-    const snap = toSnapshot(ev);
-    if (!snap) return;
-    store.planItems[snap.id] = snap;
-  }
-  function rememberDismissed(ev) {
-    const snap = toSnapshot(ev);
-    if (!snap) return;
-    store.dismissedItems[snap.id] = snap;
+  async function addToPlan(id) {
+    if (!store.planIds.includes(id)) store.planIds.push(id);
+    store.dismissedIds = store.dismissedIds.filter(x => x !== id);
+    saveStore(store);
   }
 
-  async function addToPlan(ev) {
-    if (!store.planIds.includes(ev.id)) store.planIds.push(ev.id);
-    // if it was dismissed, undismiss it
-    store.dismissedIds = store.dismissedIds.filter((x) => x !== ev.id);
-    delete store.dismissedItems[ev.id];
-    rememberPlan(ev);
+  async function dismiss(id) {
+    if (!store.dismissedIds.includes(id)) store.dismissedIds.push(id);
+    store.planIds = store.planIds.filter(x => x !== id);
     saveStore(store);
   }
 
   async function removeFromPlan(id) {
-    store.planIds = store.planIds.filter((x) => x !== id);
-    // keep snapshot around (optional); but cleaner to remove it too
-    delete store.planItems[id];
-    saveStore(store);
-  }
-
-  async function dismiss(ev) {
-    if (!store.dismissedIds.includes(ev.id)) store.dismissedIds.push(ev.id);
-    // remove from plan if present
-    store.planIds = store.planIds.filter((x) => x !== ev.id);
-    delete store.planItems[ev.id];
-    rememberDismissed(ev);
+    store.planIds = store.planIds.filter(x => x !== id);
     saveStore(store);
   }
 
   async function undismiss(id) {
-    store.dismissedIds = store.dismissedIds.filter((x) => x !== id);
-    delete store.dismissedItems[id];
+    store.dismissedIds = store.dismissedIds.filter(x => x !== id);
     saveStore(store);
   }
 
@@ -403,28 +350,28 @@
     return div;
   }
 
-  function buildCard(ev, mode) {
+  function buildCard(event) {
     const card = document.createElement("div");
     card.className = "eCard";
-    card.dataset.id = ev.id;
+    card.dataset.id = event.id;
 
     const main = document.createElement("div");
     main.className = "eMain";
 
     const artist = document.createElement("div");
     artist.className = "eArtist";
-    artist.textContent = ev.artist;
+    artist.textContent = event.artist;
 
     const meta = document.createElement("div");
     meta.className = "eMeta";
-    const venuePart = ev.venue ? ` • ${ev.venue}` : "";
-    meta.textContent = `${formatDateTime(ev.start)} • ${safeStr(ev.city)}${venuePart}`;
+    const venuePart = event.venue ? ` • ${event.venue}` : "";
+    meta.textContent = `${formatDateTime(event.start)} • ${event.city}${venuePart}`;
 
     const pills = document.createElement("div");
     pills.className = "ePills";
-    pills.appendChild(pill(`Plays: ${Number(ev.plays || 0)}`));
-    if (ev.source) pills.appendChild(pill(`Src: ${String(ev.source).toUpperCase()}`));
-    if (Number.isFinite(Number(ev.score))) pills.appendChild(pill(`Score: ${Number(ev.score || 0)}`));
+    pills.appendChild(pill(`Plays: ${Number(event.plays || 0)}`));
+    if (event.source) pills.appendChild(pill(`Src: ${String(event.source).toUpperCase()}`));
+    pills.appendChild(pill(`Score: ${Math.max(0, Math.min(100, Math.round(Number(event.score || 0))))}`));
 
     main.appendChild(artist);
     main.appendChild(meta);
@@ -433,92 +380,98 @@
     const right = document.createElement("div");
     right.className = "eRight";
 
-    const badgeEl = document.createElement("div");
-    badgeEl.className = "eBadge";
-    badgeEl.textContent = mode === "plan" ? "PLAN" : mode === "dismissed" ? "DISMISSED" : "ANNOUNCED";
-
     const actions = document.createElement("div");
     actions.className = "eActions";
 
-    if (ev.url) {
+    if (event.url) {
       const btnLink = document.createElement("button");
       btnLink.className = "eBtn ghost";
       btnLink.type = "button";
       btnLink.textContent = "Link";
-      btnLink.addEventListener("click", () => window.open(ev.url, "_blank", "noopener,noreferrer"));
+      btnLink.addEventListener("click", () => {
+        window.open(event.url, "_blank", "noopener,noreferrer");
+      });
       actions.appendChild(btnLink);
     }
 
-    if (mode === "announced") {
+    const planned = isPlanned(event.id);
+    const dismissed = isDismissed(event.id);
+
+    // Actions depend on active tab
+    const tab = store.activeTab || "announced";
+
+    if (tab === "announced") {
       const btnDismiss = document.createElement("button");
       btnDismiss.className = "eBtn ghost";
       btnDismiss.type = "button";
       btnDismiss.textContent = "Dismiss";
       btnDismiss.addEventListener("click", async () => {
-        await dismiss(ev);
-        render();
+        await dismiss(event.id);
+        render(lastEvents);
       });
 
       const btnPlan = document.createElement("button");
       btnPlan.className = "eBtn";
       btnPlan.type = "button";
-      btnPlan.textContent = "Add to plan";
+      btnPlan.textContent = planned ? "Remove from plan" : "Add to plan";
       btnPlan.addEventListener("click", async () => {
-        await addToPlan(ev);
-        render();
+        if (planned) await removeFromPlan(event.id);
+        else await addToPlan(event.id);
+        render(lastEvents);
       });
 
       actions.appendChild(btnDismiss);
       actions.appendChild(btnPlan);
     }
 
-    if (mode === "plan") {
-      const btnDismiss = document.createElement("button");
-      btnDismiss.className = "eBtn ghost";
-      btnDismiss.type = "button";
-      btnDismiss.textContent = "Dismiss";
-      btnDismiss.addEventListener("click", async () => {
-        await dismiss(ev);
-        render();
-      });
-
+    if (tab === "plan") {
       const btnRemove = document.createElement("button");
       btnRemove.className = "eBtn";
       btnRemove.type = "button";
       btnRemove.textContent = "Remove";
       btnRemove.addEventListener("click", async () => {
-        await removeFromPlan(ev.id);
-        render();
+        await removeFromPlan(event.id);
+        render(lastEvents);
+      });
+
+      const btnDismiss = document.createElement("button");
+      btnDismiss.className = "eBtn ghost";
+      btnDismiss.type = "button";
+      btnDismiss.textContent = "Dismiss";
+      btnDismiss.addEventListener("click", async () => {
+        await dismiss(event.id);
+        render(lastEvents);
       });
 
       actions.appendChild(btnDismiss);
       actions.appendChild(btnRemove);
     }
 
-    if (mode === "dismissed") {
-      const btnUndismiss = document.createElement("button");
-      btnUndismiss.className = "eBtn";
-      btnUndismiss.type = "button";
-      btnUndismiss.textContent = "Undismiss";
-      btnUndismiss.addEventListener("click", async () => {
-        await undismiss(ev.id);
-        render();
+    if (tab === "dismissed") {
+      const btnBack = document.createElement("button");
+      btnBack.className = "eBtn";
+      btnBack.type = "button";
+      btnBack.textContent = "Undo dismiss";
+      btnBack.addEventListener("click", async () => {
+        await undismiss(event.id);
+        render(lastEvents);
       });
 
+      // optional: allow plan directly from dismissed
       const btnPlan = document.createElement("button");
       btnPlan.className = "eBtn ghost";
       btnPlan.type = "button";
-      btnPlan.textContent = "Add to plan";
+      btnPlan.textContent = planned ? "Remove from plan" : "Add to plan";
       btnPlan.addEventListener("click", async () => {
-        await addToPlan(ev);
-        render();
+        if (planned) await removeFromPlan(event.id);
+        else await addToPlan(event.id);
+        render(lastEvents);
       });
 
       actions.appendChild(btnPlan);
-      actions.appendChild(btnUndismiss);
+      actions.appendChild(btnBack);
     }
 
-    right.appendChild(badgeEl);
     right.appendChild(actions);
 
     card.appendChild(main);
@@ -527,104 +480,81 @@
     return card;
   }
 
-  function sectionHeader(title, subtitle) {
-    const wrap = document.createElement("div");
-    wrap.style.display = "grid";
-    wrap.style.gap = "10px";
-
-    const h = document.createElement("div");
-    h.className = "ePill";
-    h.textContent = title;
-    h.style.justifyContent = "center";
-    h.style.fontWeight = "900";
-    h.style.opacity = ".95";
-    wrap.appendChild(h);
-
-    if (subtitle) {
-      const sub = document.createElement("div");
-      sub.className = "eEmpty";
-      sub.textContent = subtitle;
-      sub.style.opacity = ".9";
-      wrap.appendChild(sub);
-    }
-
-    return wrap;
+  function sortChronoAsc(a, b) {
+    return a.start.getTime() - b.start.getTime();
   }
 
-  function render() {
-    const active = store.activeTab || "announced";
+  function render(events) {
+    updateTabsUI();
+
+    const tab = store.activeTab || "announced";
+
+    // Split lists
+    const plannedIds = new Set(store.planIds);
+    const dismissedIds = new Set(store.dismissedIds);
+
+    const planned = [];
+    const dismissed = [];
+    const announced = [];
+
+    for (const ev of events) {
+      const id = ev.id;
+      if (dismissedIds.has(id)) {
+        dismissed.push(ev);
+        continue;
+      }
+      if (plannedIds.has(id)) {
+        planned.push(ev);
+        continue;
+      }
+      announced.push(ev);
+    }
+
+    planned.sort(sortChronoAsc);
+    dismissed.sort(sortChronoAsc);
+    announced.sort(sortChronoAsc);
+
+    let visible = announced;
+    let title = "Announced";
+    let subtitle = "All upcoming shows (chronological).";
+
+    if (tab === "plan") {
+      visible = planned;
+      title = "Plan";
+      subtitle = "Shows you saved.";
+    } else if (tab === "dismissed") {
+      visible = dismissed;
+      title = "Dismissed";
+      subtitle = "Shows you dismissed (chronological).";
+    }
+
     listEl.innerHTML = "";
 
-    // Merge in snapshots so Plan/Dismissed show even if refresh doesn't include them
-    const byId = new Map();
-    for (const ev of lastEvents) byId.set(ev.id, ev);
+    // Header pill
+    const header = document.createElement("div");
+    header.className = "ePill";
+    header.textContent = title;
+    header.style.justifyContent = "center";
+    header.style.fontWeight = "800";
+    header.style.opacity = ".95";
+    listEl.appendChild(header);
 
-    // build lists
-    const planList = [];
-    for (const id of store.planIds) {
-      const ev = byId.get(id) || snapshotToEvent(store.planItems[id]);
-      if (ev && ev.id) planList.push(ev);
-    }
+    const sub = document.createElement("div");
+    sub.className = "eEmpty";
+    sub.textContent = subtitle;
+    listEl.appendChild(sub);
 
-    const dismissedList = [];
-    for (const id of store.dismissedIds) {
-      const ev = byId.get(id) || snapshotToEvent(store.dismissedItems[id]);
-      if (ev && ev.id) dismissedList.push(ev);
-    }
-
-    // Announced = everything upcoming EXCEPT planned and dismissed
-    const announced = lastEvents.filter((ev) => !isPlanned(ev.id) && !isDismissed(ev.id));
-
-    // sort all chrono
-    announced.sort(sortChrono);
-    planList.sort(sortChrono);
-    dismissedList.sort(sortChrono);
-
-    if (active === "announced") {
-      const head = sectionHeader("Announced", "All upcoming shows (chronological).");
-      listEl.appendChild(head);
-
-      if (!announced.length) {
-        const empty = document.createElement("div");
-        empty.className = "eEmpty";
-        empty.textContent = "No announced events right now. Tap Refresh.";
-        head.appendChild(empty);
-        return;
-      }
-
-      for (const ev of announced) head.appendChild(buildCard(ev, "announced"));
-      return;
-    }
-
-    if (active === "plan") {
-      const head = sectionHeader("Plan", "Shows you saved (chronological).");
-      listEl.appendChild(head);
-
-      if (!planList.length) {
-        const empty = document.createElement("div");
-        empty.className = "eEmpty";
-        empty.textContent = "Your plan is empty.";
-        head.appendChild(empty);
-        return;
-      }
-
-      for (const ev of planList) head.appendChild(buildCard(ev, "plan"));
-      return;
-    }
-
-    // dismissed
-    const head = sectionHeader("Dismissed", "Shows you hid (chronological).");
-    listEl.appendChild(head);
-
-    if (!dismissedList.length) {
+    if (!visible.length) {
       const empty = document.createElement("div");
       empty.className = "eEmpty";
-      empty.textContent = "Nothing dismissed.";
-      head.appendChild(empty);
+      empty.textContent = "Empty";
+      listEl.appendChild(empty);
       return;
     }
 
-    for (const ev of dismissedList) head.appendChild(buildCard(ev, "dismissed"));
+    for (const ev of visible) {
+      listEl.appendChild(buildCard(ev));
+    }
   }
 
   async function refresh(overrides = {}) {
@@ -634,51 +564,33 @@
     setEmpty("Refreshing…");
 
     try {
-      const { events: rawEvents } = await fetchConcertsFromWorker(overrides);
-      const events = dedupeById(rawEvents);
+      const { events: rawEvents, meta } = await fetchConcertsFromWorker(overrides);
+      const events = dedupeEvents(rawEvents);
 
-      // keep only upcoming-ish (allow small tolerance)
-      const cutoff = Date.now() - 12 * 60 * 60 * 1000;
-      lastEvents = events.filter((e) => Number(e.startTs || 0) >= cutoff);
-      lastEvents.sort(sortChrono);
+      lastEvents = events;
+      lastMeta = meta;
 
-      // keep snapshots updated for planned/dismissed if we have the fresh event
-      for (const ev of lastEvents) {
-        if (isPlanned(ev.id)) rememberPlan(ev);
-        if (isDismissed(ev.id)) rememberDismissed(ev);
-      }
-      saveStore(store);
-
-      render();
+      render(events);
     } catch (err) {
       console.warn("[eConcerts] worker fetch failed:", err);
       lastEvents = [];
+      lastMeta = null;
       setEmpty(`Worker error: ${String(err && err.message ? err.message : err)}`);
     }
   }
 
-  // Refresh button
-  refreshBtn.addEventListener("click", async () => {
-    await refresh();
-  });
-
-  // initial load
-  refresh().catch(() => setEmpty("Failed to refresh."));
-
-  // optional: refresh when tab becomes active
-  function wireTabAutoRefresh() {
+  // Auto-refresh when main eConcerts tab is clicked
+  function wireMainTabAutoRefresh() {
     const tabBtn = document.querySelector('.tabBtn[data-tab="econcerts"]');
     if (!tabBtn) return;
 
-    tabBtn.addEventListener(
-      "click",
-      () => {
-        const hasCards = listEl.querySelector(".eCard");
-        if (!hasCards) refresh().catch(() => {});
-      },
-      { passive: true }
-    );
+    tabBtn.addEventListener("click", () => {
+      refresh().catch(() => {});
+    }, { passive: true });
   }
 
-  wireTabAutoRefresh();
+  wireMainTabAutoRefresh();
+
+  // Initial load
+  refresh().catch(() => setEmpty("Failed to refresh."));
 })();

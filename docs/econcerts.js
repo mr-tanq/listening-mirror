@@ -1,14 +1,14 @@
-/* econcerts.js (FULL FILE REPLACE) — SINGLE PART ✅
-UI revamp:
-✅ Internal tabs: Announced / Plan / Dismissed
-✅ Chronological order everywhere
-✅ Auto-refresh when clicking main eConcerts tab (guarded — no duplicate listeners)
-✅ Hide old controls: Refresh / Reset dismissed / Group by city (legacy)
-✅ No "ANNOUNCED/PLAN" labels inside cards
-✅ Fix: AbortController + latest-request-wins (no race overwrite)
-✅ Fix: Dedupe safer (don’t merge legit different shows too aggressively)
-✅ Better empty messages per tab
-✅ Softer refreshing UX (keeps list, shows subtle status line)
+/* econcerts.js (FULL FILE REPLACE) — SINGLE PART
+   UI revamp:
+   ✅ Internal tabs: Announced / Plan / Dismissed
+   ✅ Chronological order everywhere (or City sort via toggle)
+   ✅ Auto-refresh when clicking main eConcerts tab
+   ✅ Hide old controls: Refresh / Reset dismissed / Group by city (legacy)
+   ✅ No "ANNOUNCED/PLAN" labels inside cards
+   ✅ No Src pill
+   ✅ No numeric Score pill; show an icon based on score (with tooltip)
+   ✅ Tab counters: Announced (x) / Plan (y) / Dismissed (z)
+   ✅ Discreet Sort toggle: Date / City (persisted)
 */
 
 (() => {
@@ -46,6 +46,16 @@ UI revamp:
   const lowerKey = (s) => String(s || "").trim().toLowerCase();
   const safeStr = (s) => String(s || "").trim();
 
+  // Score icon (no numeric score shown; numeric only in tooltip)
+  function scoreIcon(score) {
+    const s = Math.max(0, Math.min(100, Math.round(Number(score || 0))));
+    if (s >= 85) return "🔥";
+    if (s >= 70) return "✨";
+    if (s >= 55) return "👍";
+    if (s >= 40) return "👀";
+    return "·";
+  }
+
   // ---------- Storage ----------
   const STORE_KEY = "lm_econcerts_ui_v10_tabs";
 
@@ -59,6 +69,7 @@ UI revamp:
           lastRefreshAt: 0,
           baseApi: "",
           activeTab: "announced", // announced | plan | dismissed
+          sortMode: "date",       // date | city
         };
       }
       const obj = JSON.parse(raw);
@@ -70,6 +81,9 @@ UI revamp:
         activeTab: ["announced", "plan", "dismissed"].includes(String(obj.activeTab))
           ? String(obj.activeTab)
           : "announced",
+        sortMode: (String(obj.sortMode) === "city" || String(obj.sortMode) === "date")
+          ? String(obj.sortMode)
+          : "date",
       };
     } catch {
       return {
@@ -78,6 +92,7 @@ UI revamp:
         lastRefreshAt: 0,
         baseApi: "",
         activeTab: "announced",
+        sortMode: "date",
       };
     }
   }
@@ -92,16 +107,16 @@ UI revamp:
   const FALLBACK_BASE_API = "https://live.errtanq9.workers.dev";
 
   function getBaseApi() {
-    const w = typeof window !== "undefined" ? window : {};
+    const w = (typeof window !== "undefined") ? window : {};
     const fromWindow = typeof w.BASE_API === "string" ? w.BASE_API : "";
-    const fromStore = store && typeof store.baseApi === "string" ? store.baseApi : "";
+    const fromStore = (store && typeof store.baseApi === "string") ? store.baseApi : "";
     const base = (fromWindow || fromStore || FALLBACK_BASE_API).trim();
     return base.replace(/\/+$/, "");
   }
 
   // ---------- econcerts API defaults ----------
   const ECONCERTS_DEFAULTS = {
-    size: 600, // ✅ keep big
+    size: 600,          // ✅ keep big
     radiusKm: 30,
     scoreMin: 0,
     tasteArtists: 1000,
@@ -112,16 +127,12 @@ UI revamp:
 
   function normalizeSources(input) {
     const raw = safeStr(input) || "tm,ma,tv";
-    const parts = raw.split(",").map((s) => lowerKey(s)).filter(Boolean);
+    const parts = raw.split(",").map(s => lowerKey(s)).filter(Boolean);
     const allowed = new Set(["tm", "ma", "tv"]);
     const out = [];
     for (const p of parts) if (allowed.has(p) && !out.includes(p)) out.push(p);
     return out.length ? out.join(",") : "tm,ma,tv";
   }
-
-  // ---------- Network: Abort + latest wins ----------
-  let activeCtrl = null;
-  let refreshSeq = 0;
 
   async function fetchConcertsFromWorker(overrides = {}) {
     const cfg = { ...ECONCERTS_DEFAULTS, ...overrides };
@@ -140,68 +151,49 @@ UI revamp:
       u.searchParams.set("radiusKm", String(cfg.radiusKm));
     }
 
-    // Abort previous request
-    if (activeCtrl) {
-      try { activeCtrl.abort(); } catch {}
-    }
-    activeCtrl = new AbortController();
-
-    const res = await fetch(u.toString(), { method: "GET", signal: activeCtrl.signal });
+    const res = await fetch(u.toString(), { method: "GET" });
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok || !data || data.ok !== true) {
-      const msg =
-        data && (data.error || data.message)
-          ? String(data.error || data.message)
-          : `HTTP ${res.status}`;
+      const msg = (data && (data.error || data.message)) ? String(data.error || data.message) : `HTTP ${res.status}`;
       throw new Error(msg);
     }
 
     const events = Array.isArray(data.events) ? data.events : [];
 
-    const mappedEvents = events
-      .map((ev) => {
-        const startTs = Number(ev.startTs || 0);
-        const startDate = startTs ? new Date(startTs) : new Date(safeStr(ev.start));
-        return {
-          id: safeStr(ev.id),
-          artist: safeStr(ev.artist),
-          attractions: Array.isArray(ev.attractions) ? ev.attractions : [],
-          city: safeStr(ev.city),
-          venue: safeStr(ev.venue),
-          start: startDate,
-          url: safeStr(ev.url),
+    const mappedEvents = events.map(ev => {
+      const startTs = Number(ev.startTs || 0);
+      const startDate = startTs ? new Date(startTs) : new Date(safeStr(ev.start));
+      return {
+        id: safeStr(ev.id),
+        artist: safeStr(ev.artist),
+        attractions: Array.isArray(ev.attractions) ? ev.attractions : [],
+        city: safeStr(ev.city),
+        venue: safeStr(ev.venue),
+        start: startDate,
+        url: safeStr(ev.url),
 
-          plays: Number(ev.plays || 0),
-          score: Number(ev.score || 0),
-          startTs: startTs || (isValidDate(startDate) ? startDate.getTime() : 0),
-          source: safeStr(ev.source || ev.src || ""),
-          star: Boolean(ev.star),
-        };
-      })
-      .filter((x) => x.id && x.artist && isValidDate(x.start));
+        plays: Number(ev.plays || 0),
+        score: Number(ev.score || 0),
+        startTs: startTs || (isValidDate(startDate) ? startDate.getTime() : 0),
+        source: safeStr(ev.source || ev.src || ""),
+        star: Boolean(ev.star),
+      };
+    }).filter(x => x.id && x.artist && isValidDate(x.start));
 
     return { events: mappedEvents, meta: data.meta || null };
   }
-
-  // ---------- Dedupe ----------
+// ---------- Dedupe ----------
   function isVipUrl(url) {
     const u = lowerKey(url);
-    return (
-      u.includes("vip") ||
-      u.includes("package") ||
-      u.includes("packages") ||
-      u.includes("hospitality") ||
-      u.includes("comfort")
-    );
+    return u.includes("vip") || u.includes("package") || u.includes("packages") || u.includes("hospitality") || u.includes("comfort");
   }
   function venueLooksLikeSubRoom(venue) {
     const v = lowerKey(venue);
     return v.includes("club") || v.includes("room") || v.includes("lounge") || v.includes("vinyl") || v.includes("bar");
   }
   function timeBucket(ts) {
-    // tighter bucket to reduce false merges
-    const step = 5 * 60 * 1000;
+    const step = 10 * 60 * 1000;
     return Math.round(ts / step) * step;
   }
   function softKey(ev) {
@@ -227,13 +219,6 @@ UI revamp:
 
     return a;
   }
-  function canSoftMerge(a, b) {
-    // Safer: if both have venue, require exact venue match.
-    const av = safeStr(a.venue);
-    const bv = safeStr(b.venue);
-    if (av && bv) return lowerKey(av) === lowerKey(bv);
-    return true; // if one lacks venue, allow merge
-  }
   function dedupeEvents(events) {
     const byId = new Map();
     for (const ev of events) {
@@ -244,16 +229,8 @@ UI revamp:
     const bySoft = new Map();
     for (const ev of byId.values()) {
       const k = softKey(ev);
-      if (!bySoft.has(k)) {
-        bySoft.set(k, ev);
-      } else {
-        const prev = bySoft.get(k);
-        if (canSoftMerge(prev, ev)) bySoft.set(k, pickBetterEvent(prev, ev));
-        else {
-          // keep both by making key unique
-          bySoft.set(k + "|" + (ev.id || Math.random()), ev);
-        }
-      }
+      if (!bySoft.has(k)) bySoft.set(k, ev);
+      else bySoft.set(k, pickBetterEvent(bySoft.get(k), ev));
     }
     return Array.from(bySoft.values());
   }
@@ -328,6 +305,28 @@ UI revamp:
   tabsWrap.appendChild(tabPlan);
   tabsWrap.appendChild(tabDismissed);
 
+  // Sort toggle (Date / City)
+  const sortBtn = document.createElement("button");
+  sortBtn.type = "button";
+  sortBtn.className = "eBtn ghost";
+  sortBtn.style.borderRadius = "999px";
+
+  function updateSortBtn() {
+    const mode = store.sortMode || "date";
+    sortBtn.textContent = mode === "city" ? "Sort: City" : "Sort: Date";
+    sortBtn.setAttribute("aria-pressed", mode === "city" ? "true" : "false");
+  }
+  updateSortBtn();
+
+  sortBtn.addEventListener("click", () => {
+    store.sortMode = (store.sortMode === "city") ? "date" : "city";
+    saveStore(store);
+    updateSortBtn();
+    render(lastEvents);
+  });
+
+  tabsWrap.appendChild(sortBtn);
+
   function updateTabsUI() {
     const active = store.activeTab || "announced";
     for (const btn of [tabAnnounced, tabPlan, tabDismissed]) {
@@ -335,26 +334,10 @@ UI revamp:
       btn.className = on ? "eBtn" : "eBtn ghost";
       btn.setAttribute("aria-pressed", on ? "true" : "false");
     }
+    updateSortBtn();
   }
 
   updateTabsUI();
-
-  // Status line (soft refresh UI)
-  const statusId = "econcertsStatusLine";
-  let statusLine = document.getElementById(statusId);
-  if (!statusLine) {
-    statusLine = document.createElement("div");
-    statusLine.id = statusId;
-    statusLine.className = "eEmpty";
-    statusLine.style.margin = "0 0 10px";
-    statusLine.style.opacity = ".85";
-    listEl.parentElement?.insertBefore(statusLine, listEl);
-  }
-
-  function setStatus(msg) {
-    if (!statusLine) return;
-    statusLine.textContent = msg || "";
-  }
 
   // Debug helpers (optional)
   window.__LM_ECONCERTS__ = {
@@ -371,27 +354,26 @@ UI revamp:
   };
 
   const isPlanned = (id) => store.planIds.includes(id);
-  const isDismissed = (id) => store.dismissedIds.includes(id);
 
   async function addToPlan(id) {
     if (!store.planIds.includes(id)) store.planIds.push(id);
-    store.dismissedIds = store.dismissedIds.filter((x) => x !== id);
+    store.dismissedIds = store.dismissedIds.filter(x => x !== id);
     saveStore(store);
   }
 
   async function dismiss(id) {
     if (!store.dismissedIds.includes(id)) store.dismissedIds.push(id);
-    store.planIds = store.planIds.filter((x) => x !== id);
+    store.planIds = store.planIds.filter(x => x !== id);
     saveStore(store);
   }
 
   async function removeFromPlan(id) {
-    store.planIds = store.planIds.filter((x) => x !== id);
+    store.planIds = store.planIds.filter(x => x !== id);
     saveStore(store);
   }
 
   async function undismiss(id) {
-    store.dismissedIds = store.dismissedIds.filter((x) => x !== id);
+    store.dismissedIds = store.dismissedIds.filter(x => x !== id);
     saveStore(store);
   }
 
@@ -399,10 +381,11 @@ UI revamp:
     listEl.innerHTML = `<div class="eEmpty">${msg}</div>`;
   }
 
-  function pill(text) {
+  function pill(text, opts = {}) {
     const div = document.createElement("div");
     div.className = "ePill";
     div.textContent = text;
+    if (opts.title) div.title = String(opts.title);
     return div;
   }
 
@@ -426,14 +409,16 @@ UI revamp:
     const pills = document.createElement("div");
     pills.className = "ePills";
     pills.appendChild(pill(`Plays: ${Number(event.plays || 0)}`));
-    if (event.source) pills.appendChild(pill(`Src: ${String(event.source).toUpperCase()}`));
-    pills.appendChild(pill(`Score: ${Math.max(0, Math.min(100, Math.round(Number(event.score || 0))))}`));
+
+    // No Src pill
+    // No "Score: NN" pill; icon only, numeric score in tooltip
+    const sRounded = Math.max(0, Math.min(100, Math.round(Number(event.score || 0))));
+    pills.appendChild(pill(`${scoreIcon(sRounded)}`, { title: `Score: ${sRounded}` }));
 
     main.appendChild(artist);
     main.appendChild(meta);
     main.appendChild(pills);
-
-    const right = document.createElement("div");
+const right = document.createElement("div");
     right.className = "eRight";
 
     const actions = document.createElement("div");
@@ -452,6 +437,7 @@ UI revamp:
 
     const planned = isPlanned(event.id);
 
+    // Actions depend on active tab
     const tab = store.activeTab || "announced";
 
     if (tab === "announced") {
@@ -502,15 +488,7 @@ UI revamp:
     }
 
     if (tab === "dismissed") {
-      const btnBack = document.createElement("button");
-      btnBack.className = "eBtn";
-      btnBack.type = "button";
-      btnBack.textContent = "Undo dismiss";
-      btnBack.addEventListener("click", async () => {
-        await undismiss(event.id);
-        render(lastEvents);
-      });
-
+      // optional: allow plan directly from dismissed
       const btnPlan = document.createElement("button");
       btnPlan.className = "eBtn ghost";
       btnPlan.type = "button";
@@ -518,6 +496,15 @@ UI revamp:
       btnPlan.addEventListener("click", async () => {
         if (planned) await removeFromPlan(event.id);
         else await addToPlan(event.id);
+        render(lastEvents);
+      });
+
+      const btnBack = document.createElement("button");
+      btnBack.className = "eBtn";
+      btnBack.type = "button";
+      btnBack.textContent = "Undo dismiss";
+      btnBack.addEventListener("click", async () => {
+        await undismiss(event.id);
         render(lastEvents);
       });
 
@@ -537,11 +524,20 @@ UI revamp:
     return a.start.getTime() - b.start.getTime();
   }
 
+  function sortCityThenTimeAsc(a, b) {
+    const ac = lowerKey(a.city);
+    const bc = lowerKey(b.city);
+    if (ac < bc) return -1;
+    if (ac > bc) return 1;
+    return a.start.getTime() - b.start.getTime();
+  }
+
   function render(events) {
     updateTabsUI();
 
     const tab = store.activeTab || "announced";
 
+    // Split lists
     const plannedIds = new Set(store.planIds);
     const dismissedIds = new Set(store.dismissedIds);
 
@@ -562,25 +558,37 @@ UI revamp:
       announced.push(ev);
     }
 
-    planned.sort(sortChronoAsc);
-    dismissed.sort(sortChronoAsc);
-    announced.sort(sortChronoAsc);
+    // Sorting (persisted)
+    const mode = store.sortMode || "date";
+    const sorter = (mode === "city") ? sortCityThenTimeAsc : sortChronoAsc;
+
+    planned.sort(sorter);
+    dismissed.sort(sorter);
+    announced.sort(sorter);
+
+    // Tab counters
+    tabAnnounced.textContent = `Announced (${announced.length})`;
+    tabPlan.textContent = `Plan (${planned.length})`;
+    tabDismissed.textContent = `Dismissed (${dismissed.length})`;
 
     let visible = announced;
     let title = "Announced";
-    let subtitle = "All upcoming shows (chronological).";
-    let emptyMsg = "No upcoming shows found.";
+    let subtitle = mode === "city"
+      ? "All upcoming shows (sorted by city, then date)."
+      : "All upcoming shows (chronological).";
 
     if (tab === "plan") {
       visible = planned;
       title = "Plan";
-      subtitle = "Shows you saved.";
-      emptyMsg = "No planned shows yet. Add some from Announced.";
+      subtitle = mode === "city"
+        ? "Shows you saved (sorted by city, then date)."
+        : "Shows you saved (chronological).";
     } else if (tab === "dismissed") {
       visible = dismissed;
       title = "Dismissed";
-      subtitle = "Shows you dismissed (chronological).";
-      emptyMsg = "Nothing dismissed.";
+      subtitle = mode === "city"
+        ? "Shows you dismissed (sorted by city, then date)."
+        : "Shows you dismissed (chronological).";
     }
 
     listEl.innerHTML = "";
@@ -602,7 +610,7 @@ UI revamp:
     if (!visible.length) {
       const empty = document.createElement("div");
       empty.className = "eEmpty";
-      empty.textContent = emptyMsg;
+      empty.textContent = "Empty";
       listEl.appendChild(empty);
       return;
     }
@@ -613,56 +621,35 @@ UI revamp:
   }
 
   async function refresh(overrides = {}) {
-    const mySeq = ++refreshSeq;
     store.lastRefreshAt = Date.now();
     saveStore(store);
 
-    // Soft refresh UI: keep list, show status
-    setStatus("Refreshing…");
+    setEmpty("Refreshing…");
 
     try {
       const { events: rawEvents, meta } = await fetchConcertsFromWorker(overrides);
-
-      // Only latest refresh may render
-      if (mySeq !== refreshSeq) return;
-
       const events = dedupeEvents(rawEvents);
 
       lastEvents = events;
       lastMeta = meta;
 
-      setStatus(`Updated • ${new Date().toLocaleTimeString("en-GB", { hour12: false })}`);
       render(events);
     } catch (err) {
-      if (err && err.name === "AbortError") return;
-
       console.warn("[eConcerts] worker fetch failed:", err);
-
-      // Only latest refresh may render
-      if (mySeq !== refreshSeq) return;
-
       lastEvents = [];
       lastMeta = null;
-      setStatus("");
       setEmpty(`Worker error: ${String(err && err.message ? err.message : err)}`);
     }
   }
 
-  // Auto-refresh when main eConcerts tab is clicked (guarded)
+  // Auto-refresh when main eConcerts tab is clicked
   function wireMainTabAutoRefresh() {
     const tabBtn = document.querySelector('.tabBtn[data-tab="econcerts"]');
     if (!tabBtn) return;
 
-    if (tabBtn.dataset.lmWired === "1") return;
-    tabBtn.dataset.lmWired = "1";
-
-    tabBtn.addEventListener(
-      "click",
-      () => {
-        refresh().catch(() => {});
-      },
-      { passive: true }
-    );
+    tabBtn.addEventListener("click", () => {
+      refresh().catch(() => {});
+    }, { passive: true });
   }
 
   wireMainTabAutoRefresh();

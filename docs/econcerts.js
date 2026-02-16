@@ -1,10 +1,14 @@
 /* econcerts.js (FULL FILE REPLACE) — SINGLE PART
    UI revamp:
    ✅ Internal tabs: Announced / Plan / Dismissed
-   ✅ Chronological order everywhere
+   ✅ Chronological order everywhere (or City sort via toggle)
    ✅ Auto-refresh when clicking main eConcerts tab
    ✅ Hide old controls: Refresh / Reset dismissed / Group by city (legacy)
    ✅ No "ANNOUNCED/PLAN" labels inside cards
+   ✅ No Src pill
+   ✅ No numeric Score pill; show an icon based on score (with tooltip)
+   ✅ Tab counters: Announced (x) / Plan (y) / Dismissed (z)
+   ✅ Discreet Sort toggle: Date / City (persisted)
 */
 
 (() => {
@@ -42,6 +46,16 @@
   const lowerKey = (s) => String(s || "").trim().toLowerCase();
   const safeStr = (s) => String(s || "").trim();
 
+  // Score icon (no numeric score shown; numeric only in tooltip)
+  function scoreIcon(score) {
+    const s = Math.max(0, Math.min(100, Math.round(Number(score || 0))));
+    if (s >= 85) return "🔥";
+    if (s >= 70) return "✨";
+    if (s >= 55) return "👍";
+    if (s >= 40) return "👀";
+    return "·";
+  }
+
   // ---------- Storage ----------
   const STORE_KEY = "lm_econcerts_ui_v10_tabs";
 
@@ -55,6 +69,7 @@
           lastRefreshAt: 0,
           baseApi: "",
           activeTab: "announced", // announced | plan | dismissed
+          sortMode: "date",       // date | city
         };
       }
       const obj = JSON.parse(raw);
@@ -66,6 +81,9 @@
         activeTab: ["announced", "plan", "dismissed"].includes(String(obj.activeTab))
           ? String(obj.activeTab)
           : "announced",
+        sortMode: (String(obj.sortMode) === "city" || String(obj.sortMode) === "date")
+          ? String(obj.sortMode)
+          : "date",
       };
     } catch {
       return {
@@ -74,6 +92,7 @@
         lastRefreshAt: 0,
         baseApi: "",
         activeTab: "announced",
+        sortMode: "date",
       };
     }
   }
@@ -232,7 +251,6 @@
   if (legacyGroupBtn) legacyGroupBtn.style.display = "none";
 
   // Also hide any legacy "Reset dismissed" button we previously injected (best-effort)
-  // We look near the eConcerts header controls and hide by text match.
   try {
     const root = listEl.closest(".tabPanel") || document;
     const allBtns = Array.from(root.querySelectorAll("button"));
@@ -257,7 +275,6 @@
     tabsWrap.style.justifyContent = "flex-end";
     tabsWrap.style.margin = "10px 0 14px";
 
-    // place it just before the list
     listEl.parentElement?.insertBefore(tabsWrap, listEl);
   } else {
     tabsWrap.innerHTML = "";
@@ -289,6 +306,28 @@
   tabsWrap.appendChild(tabPlan);
   tabsWrap.appendChild(tabDismissed);
 
+  // Sort toggle (Date / City)
+  const sortBtn = document.createElement("button");
+  sortBtn.type = "button";
+  sortBtn.className = "eBtn ghost";
+  sortBtn.style.borderRadius = "999px";
+
+  function updateSortBtn() {
+    const mode = store.sortMode || "date";
+    sortBtn.textContent = mode === "city" ? "Sort: City" : "Sort: Date";
+    sortBtn.setAttribute("aria-pressed", mode === "city" ? "true" : "false");
+  }
+  updateSortBtn();
+
+  sortBtn.addEventListener("click", () => {
+    store.sortMode = (store.sortMode === "city") ? "date" : "city";
+    saveStore(store);
+    updateSortBtn();
+    render(lastEvents);
+  });
+
+  tabsWrap.appendChild(sortBtn);
+
   function updateTabsUI() {
     const active = store.activeTab || "announced";
     for (const btn of [tabAnnounced, tabPlan, tabDismissed]) {
@@ -296,6 +335,7 @@
       btn.className = on ? "eBtn" : "eBtn ghost";
       btn.setAttribute("aria-pressed", on ? "true" : "false");
     }
+    updateSortBtn();
   }
 
   updateTabsUI();
@@ -343,10 +383,11 @@
     listEl.innerHTML = `<div class="eEmpty">${msg}</div>`;
   }
 
-  function pill(text) {
+  function pill(text, opts = {}) {
     const div = document.createElement("div");
     div.className = "ePill";
     div.textContent = text;
+    if (opts.title) div.title = String(opts.title);
     return div;
   }
 
@@ -370,8 +411,11 @@
     const pills = document.createElement("div");
     pills.className = "ePills";
     pills.appendChild(pill(`Plays: ${Number(event.plays || 0)}`));
-    if (event.source) pills.appendChild(pill(`Src: ${String(event.source).toUpperCase()}`));
-    pills.appendChild(pill(`Score: ${Math.max(0, Math.min(100, Math.round(Number(event.score || 0))))}`));
+
+    // No Src pill
+    // No "Score: NN" pill; icon only, numeric score in tooltip
+    const sRounded = Math.max(0, Math.min(100, Math.round(Number(event.score || 0))));
+    pills.appendChild(pill(`${scoreIcon(sRounded)}`, { title: `Score: ${sRounded}` }));
 
     main.appendChild(artist);
     main.appendChild(meta);
@@ -395,7 +439,6 @@
     }
 
     const planned = isPlanned(event.id);
-    const dismissed = isDismissed(event.id);
 
     // Actions depend on active tab
     const tab = store.activeTab || "announced";
@@ -448,15 +491,6 @@
     }
 
     if (tab === "dismissed") {
-      const btnBack = document.createElement("button");
-      btnBack.className = "eBtn";
-      btnBack.type = "button";
-      btnBack.textContent = "Undo dismiss";
-      btnBack.addEventListener("click", async () => {
-        await undismiss(event.id);
-        render(lastEvents);
-      });
-
       // optional: allow plan directly from dismissed
       const btnPlan = document.createElement("button");
       btnPlan.className = "eBtn ghost";
@@ -465,6 +499,15 @@
       btnPlan.addEventListener("click", async () => {
         if (planned) await removeFromPlan(event.id);
         else await addToPlan(event.id);
+        render(lastEvents);
+      });
+
+      const btnBack = document.createElement("button");
+      btnBack.className = "eBtn";
+      btnBack.type = "button";
+      btnBack.textContent = "Undo dismiss";
+      btnBack.addEventListener("click", async () => {
+        await undismiss(event.id);
         render(lastEvents);
       });
 
@@ -481,6 +524,14 @@
   }
 
   function sortChronoAsc(a, b) {
+    return a.start.getTime() - b.start.getTime();
+  }
+
+  function sortCityThenTimeAsc(a, b) {
+    const ac = lowerKey(a.city);
+    const bc = lowerKey(b.city);
+    if (ac < bc) return -1;
+    if (ac > bc) return 1;
     return a.start.getTime() - b.start.getTime();
   }
 
@@ -510,22 +561,37 @@
       announced.push(ev);
     }
 
-    planned.sort(sortChronoAsc);
-    dismissed.sort(sortChronoAsc);
-    announced.sort(sortChronoAsc);
+    // Sorting (persisted)
+    const mode = store.sortMode || "date";
+    const sorter = (mode === "city") ? sortCityThenTimeAsc : sortChronoAsc;
+
+    planned.sort(sorter);
+    dismissed.sort(sorter);
+    announced.sort(sorter);
+
+    // Tab counters
+    tabAnnounced.textContent = `Announced (${announced.length})`;
+    tabPlan.textContent = `Plan (${planned.length})`;
+    tabDismissed.textContent = `Dismissed (${dismissed.length})`;
 
     let visible = announced;
     let title = "Announced";
-    let subtitle = "All upcoming shows (chronological).";
+    let subtitle = mode === "city"
+      ? "All upcoming shows (sorted by city, then date)."
+      : "All upcoming shows (chronological).";
 
     if (tab === "plan") {
       visible = planned;
       title = "Plan";
-      subtitle = "Shows you saved.";
+      subtitle = mode === "city"
+        ? "Shows you saved (sorted by city, then date)."
+        : "Shows you saved (chronological).";
     } else if (tab === "dismissed") {
       visible = dismissed;
       title = "Dismissed";
-      subtitle = "Shows you dismissed (chronological).";
+      subtitle = mode === "city"
+        ? "Shows you dismissed (sorted by city, then date)."
+        : "Shows you dismissed (chronological).";
     }
 
     listEl.innerHTML = "";

@@ -1,13 +1,8 @@
 /* econcerts.js (FULL FILE REPLACE) — SINGLE PART
    ✅ TM + MetalAgenda + Tivoli
-   ✅ Bigger fetch size so “meta-only” events (e.g., Ibrahim) show in UI
-   ✅ MA venue whitelist affects ONLY MetalAgenda (+ Venue Watch), NOT TM/TV
-   ✅ Venue Watch keeps dropped[] so you don't miss Patronaat/013 etc
-   ✅ UI upgrades:
-      - Search filter (artist/city/venue)
-      - Toggle Venue Watch on/off
-      - Section headers show counts
-      - Venue Watch tries to show date + city parsed from dropped.id when possible
+   ✅ Venue whitelist affects ONLY MetalAgenda (+ Venue Watch), NOT TM/TV
+   ✅ Keeps "Venue Watch" from dropped[] so you don't miss Patronaat etc
+   ✅ CHANGE: default fetch size = 600 (so TM pages go deep enough to include later 2026 events)
 */
 (() => {
   "use strict";
@@ -60,44 +55,9 @@
     return id.startsWith("ma:");
   }
 
-  // Try parse dropped MA id format:
-  // ma:venueSlug:YYYY-MM-DD:artistSlug:citySlug
-  function parseMaId(id) {
-    const raw = safeStr(id);
-    if (!raw.startsWith("ma:")) return null;
-    const parts = raw.split(":");
-    if (parts.length < 5) return null;
-
-    const venueSlug = parts[1] || "";
-    const dateStr = parts[2] || "";
-    const citySlug = parts[parts.length - 1] || "";
-
-    const m = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    let dt = null;
-    if (m) {
-      // Assume 20:00 local (same assumption as MA parser in worker)
-      const y = Number(m[1]);
-      const mo = Number(m[2]) - 1;
-      const d = Number(m[3]);
-      dt = new Date(Date.UTC(y, mo, d, 19, 0, 0)); // rough -> UI formats to Amsterdam anyway
-      // (We don't have timezone-safe conversion here; it's just for display.)
-    }
-
-    const pretty = (slug) =>
-      String(slug || "")
-        .replace(/-/g, " ")
-        .replace(/\b\w/g, (c) => c.toUpperCase());
-
-    return {
-      venueSlug,
-      city: pretty(citySlug),
-      date: dt && isValidDate(dt) ? dt : null,
-    };
-  }
-
   // ---------- Storage ----------
-  // v10 (search + show/hide watch + counts + bigger size)
-  const STORE_KEY = "lm_econcerts_v10";
+  // v9 (TM+TV back + whitelist only for MA)
+  const STORE_KEY = "lm_econcerts_v9";
 
   function loadStore() {
     try {
@@ -111,9 +71,7 @@
           baseApi: "",
           uiScoreMin: 40,
           heardPlaysMin: 5,
-          venueOnly: true,   // only applies to MA + Venue Watch
-          showWatch: true,   // show Venue Watch section
-          q: "",             // search query
+          venueOnly: true, // only applies to MA + Venue Watch
         };
       }
       const obj = JSON.parse(raw);
@@ -126,8 +84,6 @@
         uiScoreMin: Number.isFinite(Number(obj.uiScoreMin)) ? Number(obj.uiScoreMin) : 40,
         heardPlaysMin: Number.isFinite(Number(obj.heardPlaysMin)) ? Number(obj.heardPlaysMin) : 5,
         venueOnly: Boolean(obj.venueOnly ?? true),
-        showWatch: Boolean(obj.showWatch ?? true),
-        q: String(obj.q || ""),
       };
     } catch {
       return {
@@ -139,8 +95,6 @@
         uiScoreMin: 40,
         heardPlaysMin: 5,
         venueOnly: true,
-        showWatch: true,
-        q: "",
       };
     }
   }
@@ -163,35 +117,21 @@
   }
 
   // ---------- MA venue whitelist ----------
-  // NOTE: This whitelist is ONLY for MA + Venue Watch.
-  // TM/TV are never filtered by this.
   const MA_VENUE_WHITELIST = uniq([
-    // Your “must have” list (only those that actually exist on MetalAgenda)
-    "https://www.metalagenda.nl/venues/paradiso",
-    "https://www.metalagenda.nl/venues/melkweg",
-    "https://www.metalagenda.nl/venues/paard",                 // Paard is Den Haag (MetalAgenda uses /paard)
+    "https://www.metalagenda.nl/venues/tivoli-vredenburg",
+    "https://www.metalagenda.nl/venues/de-helling",
+    "https://www.metalagenda.nl/venues/dbs",
     "https://www.metalagenda.nl/venues/patronaat",
     "https://www.metalagenda.nl/venues/doornroosje",
     "https://www.metalagenda.nl/venues/effenaar",
     "https://www.metalagenda.nl/venues/fluor",
     "https://www.metalagenda.nl/venues/neushoorn",
-    "https://www.metalagenda.nl/venues/db-s",                  // IMPORTANT: db’s is /db-s on MetalAgenda
-    "https://www.metalagenda.nl/venues/ekko",
-    "https://www.metalagenda.nl/venues/musicon",               // usually /musicon
     "https://www.metalagenda.nl/venues/baroeg",
-    "https://www.metalagenda.nl/venues/013",                   // old/short
-    "https://www.metalagenda.nl/venues/013-poppodium-",        // you pasted this variant
+    "https://www.metalagenda.nl/venues/013",
     "https://www.metalagenda.nl/venues/dynamo",
-    "https://www.metalagenda.nl/venues/de-helling",
-    "https://www.metalagenda.nl/venues/metropool",
-    "https://www.metalagenda.nl/venues/muziekgieterij",         // if it exists on MA
-    "https://www.metalagenda.nl/venues/boerderij",              // if it exists on MA
-    "https://www.metalagenda.nl/venues/tivoli-vredenburg",
-
-    // Optional extra NL metal venues you already had
-    "https://www.metalagenda.nl/venues/merleyn",
     "https://www.metalagenda.nl/venues/vera",
     "https://www.metalagenda.nl/venues/rotown",
+    "https://www.metalagenda.nl/venues/merleyn",
     "https://www.metalagenda.nl/venues/occii",
   ]);
 
@@ -203,19 +143,19 @@
 
   // ---------- econcerts API defaults ----------
   const ECONCERTS_DEFAULTS = {
-    size: 550,           // ✅ IMPORTANT: bigger so “meta-only” doesn’t happen (e.g., Ibrahim)
+    size: 600,           // ✅ CHANGED from 200 → 600
     radiusKm: 30,
     scoreMin: 0,         // forced 0
     tasteArtists: 1000,  // forced 1000
     city: "",            // empty => whole NL
     countryCode: "NL",
-    sources: "tm,ma,tv", // ✅ TM + MA + TV
+    sources: "tm,ma,tv", // ✅ IMPORTANT: TM + MA + TV
   };
 
   function normalizeSources(input) {
     const raw = safeStr(input) || "tm,ma,tv";
     const parts = raw.split(",").map(s => lowerKey(s)).filter(Boolean);
-    const allowed = new Set(["tm", "ma", "tv"]);
+    const allowed = new Set(["tm", "ma", "tv", "pi"]);
     const out = [];
     for (const p of parts) if (allowed.has(p) && !out.includes(p)) out.push(p);
     return out.length ? out.join(",") : "tm,ma,tv";
@@ -231,7 +171,6 @@
     u.searchParams.set("scoreMin", "0");
     u.searchParams.set("tasteArtists", "1000");
     u.searchParams.set("countryCode", String(cfg.countryCode || "NL"));
-    u.searchParams.set("debug", "1"); // ✅ we keep dropped[] so Venue Watch works
 
     const city = safeStr(cfg.city);
     if (city) {
@@ -274,29 +213,23 @@
     }).filter(x => x.id && x.artist && isValidDate(x.start));
 
     // Venue Watch from dropped (usually MA)
-    const mappedDropped = dropped.map(d => {
-      const pid = parseMaId(d.id);
-      const displayCity = pid?.city || "";
-      const displayDate = pid?.date || null;
-
-      return {
-        id: safeStr(d.id),
-        artist: safeStr(d.title || "Unknown"),
-        attractions: [],
-        city: displayCity,
-        venue: "",
-        start: displayDate || new Date(0),
-        url: safeStr(d.url),
-        plays: 0,
-        tier: "venue_watch",
-        score: 0,
-        level: safeStr(d.reason || "dropped"),
-        startTs: displayDate && isValidDate(displayDate) ? displayDate.getTime() : 0,
-        source: safeStr(d.source || "ma"),
-        star: false,
-        __kind: "dropped",
-      };
-    }).filter(x => x.id && x.artist && x.url);
+    const mappedDropped = dropped.map(d => ({
+      id: safeStr(d.id),
+      artist: safeStr(d.title || "Unknown"),
+      attractions: [],
+      city: "",
+      venue: "",
+      start: new Date(0),
+      url: safeStr(d.url),
+      plays: 0,
+      tier: "venue_watch",
+      score: 0,
+      level: safeStr(d.reason || "dropped"),
+      startTs: 0,
+      source: safeStr(d.source || "ma"),
+      star: false,
+      __kind: "dropped",
+    })).filter(x => x.id && x.artist && x.url);
 
     return { events: mappedEvents, dropped: mappedDropped };
   }
@@ -374,29 +307,8 @@
   groupBtn.setAttribute("aria-pressed", store.groupByCity ? "true" : "false");
   groupBtn.textContent = store.groupByCity ? "Group by city" : "Ungroup";
 
-  // Controls wrap
+  // Add buttons next to Refresh
   const controlsWrap = refreshBtn.parentElement || refreshBtn;
-
-  // Search input
-  const searchWrap = document.createElement("div");
-  searchWrap.style.display = "flex";
-  searchWrap.style.gap = "8px";
-  searchWrap.style.alignItems = "center";
-  searchWrap.style.flexWrap = "wrap";
-  searchWrap.style.marginTop = "8px";
-
-  const searchInput = document.createElement("input");
-  searchInput.type = "text";
-  searchInput.placeholder = "Search (artist / city / venue)…";
-  searchInput.value = store.q || "";
-  searchInput.className = "eInput";
-  searchInput.style.minWidth = "220px";
-  searchInput.style.padding = "10px 12px";
-  searchInput.style.borderRadius = "14px";
-  searchInput.style.border = "1px solid rgba(255,255,255,.10)";
-  searchInput.style.background = "rgba(255,255,255,.04)";
-  searchInput.style.color = "inherit";
-  searchWrap.appendChild(searchInput);
 
   const resetBtn = document.createElement("button");
   resetBtn.className = "eBtn ghost";
@@ -412,20 +324,6 @@
   venueBtn.title = "This filters ONLY MetalAgenda (+ Venue Watch). TM/TV always show.";
   controlsWrap.appendChild(venueBtn);
 
-  const watchBtn = document.createElement("button");
-  watchBtn.className = "eBtn ghost";
-  watchBtn.type = "button";
-  watchBtn.textContent = store.showWatch ? "Venue Watch: ON" : "Venue Watch: OFF";
-  watchBtn.title = "Show/hide dropped events from your venues (not matched to taste).";
-  controlsWrap.appendChild(watchBtn);
-
-  // Put search under buttons (nice)
-  if (controlsWrap && controlsWrap.parentElement) {
-    controlsWrap.parentElement.appendChild(searchWrap);
-  } else {
-    document.body.appendChild(searchWrap);
-  }
-
   resetBtn.addEventListener("click", () => {
     store.dismissedIds = [];
     saveStore(store);
@@ -437,22 +335,6 @@
     saveStore(store);
     venueBtn.textContent = store.venueOnly ? "MA Venues: Only whitelist" : "MA Venues: All";
     render(lastEvents, lastDropped);
-  });
-
-  watchBtn.addEventListener("click", () => {
-    store.showWatch = !store.showWatch;
-    saveStore(store);
-    watchBtn.textContent = store.showWatch ? "Venue Watch: ON" : "Venue Watch: OFF";
-    render(lastEvents, lastDropped);
-  });
-
-  let searchTimer = null;
-  searchInput.addEventListener("input", () => {
-    const v = String(searchInput.value || "");
-    store.q = v;
-    saveStore(store);
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => render(lastEvents, lastDropped), 80);
   });
 
   // Debug helpers
@@ -476,11 +358,6 @@
     },
     setVenueOnly(v) {
       store.venueOnly = Boolean(v);
-      saveStore(store);
-      render(lastEvents, lastDropped);
-    },
-    setShowWatch(v) {
-      store.showWatch = Boolean(v);
       saveStore(store);
       render(lastEvents, lastDropped);
     }
@@ -517,18 +394,6 @@
     return div;
   }
 
-  function matchesSearch(ev, qLower) {
-    if (!qLower) return true;
-    const hay = [
-      safeStr(ev.artist),
-      safeStr(ev.city),
-      safeStr(ev.venue),
-      safeStr(ev.url),
-      safeStr(ev.source),
-    ].join(" ").toLowerCase();
-    return hay.includes(qLower);
-  }
-
   function buildCard(event, finalScore, sectionType) {
     const card = document.createElement("div");
     card.className = "eCard";
@@ -545,11 +410,7 @@
     meta.className = "eMeta";
 
     if (event.__kind === "dropped") {
-      const when = (event.startTs && event.startTs > 0) ? formatDateTime(new Date(event.startTs)) : "";
-      const where = [safeStr(event.city), safeStr(event.url ? "" : "")].filter(Boolean).join(" • ");
-      meta.textContent = when
-        ? `${when}${event.city ? " • " + event.city : ""} • Venue Watch`
-        : `Venue Watch • Open venue page for details`;
+      meta.textContent = `Venue Watch • Not matched to taste • Open venue page for details`;
     } else {
       const venuePart = event.venue ? ` • ${event.venue}` : "";
       meta.textContent = `${formatDateTime(event.start)} • ${event.city}${venuePart}`;
@@ -575,7 +436,7 @@
       if (event.source) pills.appendChild(pill(`Src: ${String(event.source).toUpperCase()}`));
     } else {
       pills.appendChild(pill(`Src: ${String(event.source || "MA").toUpperCase()}`));
-      pills.appendChild(pill(`WATCH`));
+      pills.appendChild(pill(`Watchlist`));
     }
 
     main.appendChild(artist);
@@ -653,17 +514,6 @@
 
       actions.appendChild(btnSecondary);
       actions.appendChild(btnPrimary);
-    } else {
-      // Allow dismissing a watch item (so it doesn't annoy you)
-      const btnDismissWatch = document.createElement("button");
-      btnDismissWatch.className = "eBtn ghost";
-      btnDismissWatch.type = "button";
-      btnDismissWatch.textContent = "Dismiss";
-      btnDismissWatch.addEventListener("click", async () => {
-        await dismiss(event.id);
-        render(lastEvents, lastDropped);
-      });
-      actions.appendChild(btnDismissWatch);
     }
 
     right.appendChild(scoreEl);
@@ -688,7 +538,6 @@
 
   function render(events, dropped) {
     const venueOnly = Boolean(store.venueOnly);
-    const qLower = lowerKey(store.q || "");
 
     // ✅ Filter ONLY MA events when venueOnly = true.
     // TM/TV always pass through.
@@ -699,9 +548,6 @@
         return isWhitelistedMAUrl(ev.url);
       });
     }
-
-    // Search filter (applies to all)
-    visibleBase = visibleBase.filter(ev => matchesSearch(ev, qLower));
 
     // Hide dismissed (unless planned)
     const visible = visibleBase.filter(ev => (isPlanned(ev.id) ? true : !isDismissed(ev.id)));
@@ -722,7 +568,6 @@
     let watch = Array.isArray(dropped) ? dropped.slice() : [];
     if (venueOnly) watch = watch.filter(ev => isWhitelistedMAUrl(ev.url));
     watch = watch.filter(ev => !isDismissed(ev.id));
-    watch = watch.filter(ev => matchesSearch(ev, qLower));
 
     function sortByScoreThenDate(a, b) {
       const sa = finalMap.get(a.id);
@@ -741,9 +586,6 @@
     });
 
     suggestions.sort(sortByScoreThenDate);
-
-    // Watch: show newest first if we have date
-    watch.sort((a, b) => (Number(a.startTs || 0) - Number(b.startTs || 0)));
 
     listEl.innerHTML = "";
 
@@ -794,15 +636,12 @@
       listEl.appendChild(wrap);
     };
 
-    addSection(`My Plan • ${planned.length}`, planned, "plan");
-    addSection(`Heard (Standard) • ${heard.length} • plays ≥ ${heardMin}`, heard, "heard");
-    addSection(`Suggestions • ${suggestions.length} • score ≥ ${uiMin}`, suggestions, "suggest");
+    addSection("My Plan", planned, "plan");
+    addSection(`Heard (Standard) • plays ≥ ${heardMin}`, heard, "heard");
+    addSection(`Suggestions • score ≥ ${uiMin}`, suggestions, "suggest");
+    addSection("Venue Watch • on your venues but not matched to taste", watch, "watch");
 
-    if (store.showWatch) {
-      addSection(`Venue Watch • ${watch.length} • on your venues but not matched to taste`, watch, "watch");
-    }
-
-    if (!planned.length && !heard.length && !suggestions.length && (!store.showWatch || !watch.length)) {
+    if (!planned.length && !heard.length && !suggestions.length && !watch.length) {
       setEmpty("No events yet. Tap Refresh.");
     }
   }

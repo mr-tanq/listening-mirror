@@ -9,6 +9,7 @@
    ✅ No numeric Score pill; show an icon based on score (with tooltip)
    ✅ Tab counters: Announced (x) / Plan (y) / Dismissed (z)
    ✅ Discreet Sort toggle: Date / City (persisted)
+   ✅ NEW: Force Title Case artist display (each word capitalized)
 */
 
 (() => {
@@ -54,6 +55,46 @@
     if (s >= 55) return "👍";
     if (s >= 40) return "👀";
     return "·";
+  }
+
+  // -------- Title Case (strict) for artist display ----------
+  function titleCaseArtist(input) {
+    const s0 = safeStr(input);
+    if (!s0) return "";
+
+    // tokens we want to keep uppercase
+    const KEEP_UPPER = new Set([
+      "DJ","MC","II","III","IV","V","VI","VII","VIII","IX","X",
+      "USA","UK","EU","EP","LP","TV","DJ'S"
+    ]);
+
+    // Split but keep separators
+    const parts = s0.split(/(\s+|[-–—/&+])/);
+
+    const fixed = parts.map((tok) => {
+      if (!tok) return tok;
+      if (/^\s+$/.test(tok)) return tok;
+      if (/^[-–—/&+]$/.test(tok)) return tok;
+
+      const up = tok.toUpperCase();
+      if (KEEP_UPPER.has(up)) return up;
+
+      // If it's something like P.O.D. keep as-is
+      if (tok.includes(".") && tok === tok.toUpperCase()) return tok;
+
+      // Handle leading punctuation (quotes/brackets) + letters
+      // Also support diacritics (basic Latin-1)
+      const m = tok.match(/^([("'[\{]*)([A-Za-zÀ-ÖØ-öø-ÿ])([\s\S]*)$/u);
+      if (!m) return tok;
+
+      const lead = m[1] || "";
+      const first = m[2] || "";
+      const rest = (m[3] || "").toLowerCase();
+
+      return lead + first.toUpperCase() + rest;
+    });
+
+    return fixed.join("");
   }
 
   // ---------- Storage ----------
@@ -116,7 +157,7 @@
 
   // ---------- econcerts API defaults ----------
   const ECONCERTS_DEFAULTS = {
-    size: 600,          // ✅ keep big
+    size: 600,
     radiusKm: 30,
     scoreMin: 0,
     tasteArtists: 1000,
@@ -183,7 +224,8 @@
 
     return { events: mappedEvents, meta: data.meta || null };
   }
-// ---------- Dedupe ----------
+
+  // ---------- Dedupe ----------
   function isVipUrl(url) {
     const u = lowerKey(url);
     return u.includes("vip") || u.includes("package") || u.includes("packages") || u.includes("hospitality") || u.includes("comfort");
@@ -245,11 +287,9 @@
 
   if (!listEl) return;
 
-  // Hide legacy controls if present
   if (legacyRefreshBtn) legacyRefreshBtn.style.display = "none";
   if (legacyGroupBtn) legacyGroupBtn.style.display = "none";
 
-  // Also hide any legacy "Reset dismissed" button we previously injected (best-effort)
   try {
     const root = listEl.closest(".tabPanel") || document;
     const allBtns = Array.from(root.querySelectorAll("button"));
@@ -261,7 +301,6 @@
     }
   } catch {}
 
-  // Insert our internal tabs ABOVE the list
   const tabsWrapId = "econcertsInnerTabs";
   let tabsWrap = document.getElementById(tabsWrapId);
 
@@ -305,7 +344,6 @@
   tabsWrap.appendChild(tabPlan);
   tabsWrap.appendChild(tabDismissed);
 
-  // Sort toggle (Date / City)
   const sortBtn = document.createElement("button");
   sortBtn.type = "button";
   sortBtn.className = "eBtn ghost";
@@ -339,7 +377,6 @@
 
   updateTabsUI();
 
-  // Debug helpers (optional)
   window.__LM_ECONCERTS__ = {
     get store() { return store; },
     get lastEvents() { return lastEvents; },
@@ -354,6 +391,7 @@
   };
 
   const isPlanned = (id) => store.planIds.includes(id);
+  const isDismissed = (id) => store.dismissedIds.includes(id);
 
   async function addToPlan(id) {
     if (!store.planIds.includes(id)) store.planIds.push(id);
@@ -399,7 +437,8 @@
 
     const artist = document.createElement("div");
     artist.className = "eArtist";
-    artist.textContent = event.artist;
+    // ✅ Force Title Case display
+    artist.textContent = titleCaseArtist(event.artist);
 
     const meta = document.createElement("div");
     meta.className = "eMeta";
@@ -410,15 +449,14 @@
     pills.className = "ePills";
     pills.appendChild(pill(`Plays: ${Number(event.plays || 0)}`));
 
-    // No Src pill
-    // No "Score: NN" pill; icon only, numeric score in tooltip
     const sRounded = Math.max(0, Math.min(100, Math.round(Number(event.score || 0))));
     pills.appendChild(pill(`${scoreIcon(sRounded)}`, { title: `Score: ${sRounded}` }));
 
     main.appendChild(artist);
     main.appendChild(meta);
     main.appendChild(pills);
-const right = document.createElement("div");
+
+    const right = document.createElement("div");
     right.className = "eRight";
 
     const actions = document.createElement("div");
@@ -437,7 +475,6 @@ const right = document.createElement("div");
 
     const planned = isPlanned(event.id);
 
-    // Actions depend on active tab
     const tab = store.activeTab || "announced";
 
     if (tab === "announced") {
@@ -488,7 +525,6 @@ const right = document.createElement("div");
     }
 
     if (tab === "dismissed") {
-      // optional: allow plan directly from dismissed
       const btnPlan = document.createElement("button");
       btnPlan.className = "eBtn ghost";
       btnPlan.type = "button";
@@ -537,7 +573,6 @@ const right = document.createElement("div");
 
     const tab = store.activeTab || "announced";
 
-    // Split lists
     const plannedIds = new Set(store.planIds);
     const dismissedIds = new Set(store.dismissedIds);
 
@@ -558,7 +593,6 @@ const right = document.createElement("div");
       announced.push(ev);
     }
 
-    // Sorting (persisted)
     const mode = store.sortMode || "date";
     const sorter = (mode === "city") ? sortCityThenTimeAsc : sortChronoAsc;
 
@@ -566,7 +600,6 @@ const right = document.createElement("div");
     dismissed.sort(sorter);
     announced.sort(sorter);
 
-    // Tab counters
     tabAnnounced.textContent = `Announced (${announced.length})`;
     tabPlan.textContent = `Plan (${planned.length})`;
     tabDismissed.textContent = `Dismissed (${dismissed.length})`;
@@ -593,7 +626,6 @@ const right = document.createElement("div");
 
     listEl.innerHTML = "";
 
-    // Header pill
     const header = document.createElement("div");
     header.className = "ePill";
     header.textContent = title;
@@ -642,7 +674,6 @@ const right = document.createElement("div");
     }
   }
 
-  // Auto-refresh when main eConcerts tab is clicked
   function wireMainTabAutoRefresh() {
     const tabBtn = document.querySelector('.tabBtn[data-tab="econcerts"]');
     if (!tabBtn) return;
@@ -654,6 +685,5 @@ const right = document.createElement("div");
 
   wireMainTabAutoRefresh();
 
-  // Initial load
   refresh().catch(() => setEmpty("Failed to refresh."));
 })();

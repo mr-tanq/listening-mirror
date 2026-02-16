@@ -203,7 +203,7 @@
 
   // ---------- econcerts API defaults ----------
   const ECONCERTS_DEFAULTS = {
-    size: 250,           // ✅ IMPORTANT: bigger so “meta-only” doesn’t happen (e.g., Ibrahim)
+    size: 550,           // ✅ IMPORTANT: bigger so “meta-only” doesn’t happen (e.g., Ibrahim)
     radiusKm: 30,
     scoreMin: 0,         // forced 0
     tasteArtists: 1000,  // forced 1000

@@ -10,6 +10,11 @@
    ✅ Tab counters: Announced (x) / Plan (y) / Dismissed (z)
    ✅ Discreet Sort toggle: Date / City (persisted)
    ✅ NEW: Force Title Case artist display (each word capitalized)
+
+   🔧 IMPORTANT:
+   ✅ UI now ALWAYS calls: https://live.errtanq9.workers.dev
+   ✅ Any legacy BASE_API / stored baseApi is ignored (won’t break your UI again)
+   ✅ Adds request timeout so the UI won’t hang forever
 */
 
 (() => {
@@ -108,7 +113,6 @@
           planIds: [],
           dismissedIds: [],
           lastRefreshAt: 0,
-          baseApi: "",
           activeTab: "announced", // announced | plan | dismissed
           sortMode: "date",       // date | city
         };
@@ -118,7 +122,6 @@
         planIds: Array.isArray(obj.planIds) ? obj.planIds : [],
         dismissedIds: Array.isArray(obj.dismissedIds) ? obj.dismissedIds : [],
         lastRefreshAt: Number(obj.lastRefreshAt || 0),
-        baseApi: String(obj.baseApi || ""),
         activeTab: ["announced", "plan", "dismissed"].includes(String(obj.activeTab))
           ? String(obj.activeTab)
           : "announced",
@@ -131,7 +134,6 @@
         planIds: [],
         dismissedIds: [],
         lastRefreshAt: 0,
-        baseApi: "",
         activeTab: "announced",
         sortMode: "date",
       };
@@ -144,15 +146,27 @@
 
   let store = loadStore();
 
-  // ---------- Cloudflare Worker base ----------
-  const FALLBACK_BASE_API = "https://live.errtanq9.workers.dev";
+  // ---------- Cloudflare Worker base (LOCKED) ----------
+  // ✅ Always call your live worker endpoint
+  const BASE_API = "https://live.errtanq9.workers.dev";
 
   function getBaseApi() {
-    const w = (typeof window !== "undefined") ? window : {};
-    const fromWindow = typeof w.BASE_API === "string" ? w.BASE_API : "";
-    const fromStore = (store && typeof store.baseApi === "string") ? store.baseApi : "";
-    const base = (fromWindow || fromStore || FALLBACK_BASE_API).trim();
-    return base.replace(/\/+$/, "");
+    return BASE_API.replace(/\/+$/, "");
+  }
+
+  // ---------- fetch with timeout (prevents hanging UI) ----------
+  async function fetchJsonWithTimeout(url, timeoutMs = 15000) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), Math.max(1500, Number(timeoutMs) || 15000));
+    try {
+      const res = await fetch(url, { method: "GET", signal: ctrl.signal });
+      const text = await res.text().catch(() => "");
+      let data = null;
+      try { data = JSON.parse(text); } catch { data = null; }
+      return { ok: res.ok, status: res.status, data, text };
+    } finally {
+      clearTimeout(t);
+    }
   }
 
   // ---------- econcerts API defaults ----------
@@ -192,11 +206,13 @@
       u.searchParams.set("radiusKm", String(cfg.radiusKm));
     }
 
-    const res = await fetch(u.toString(), { method: "GET" });
-    const data = await res.json().catch(() => ({}));
+    const r = await fetchJsonWithTimeout(u.toString(), 20000);
+    const data = r.data || {};
 
-    if (!res.ok || !data || data.ok !== true) {
-      const msg = (data && (data.error || data.message)) ? String(data.error || data.message) : `HTTP ${res.status}`;
+    if (!r.ok || !data || data.ok !== true) {
+      const msg =
+        (data && (data.error || data.message)) ? String(data.error || data.message)
+        : (!r.ok ? `HTTP ${r.status}` : "Bad response");
       throw new Error(msg);
     }
 
@@ -381,13 +397,7 @@
     get store() { return store; },
     get lastEvents() { return lastEvents; },
     get lastMeta() { return lastMeta; },
-    setBaseApi(next) {
-      store.baseApi = String(next || "").trim();
-      saveStore(store);
-    },
-    forceRefresh() {
-      refresh().catch(() => {});
-    }
+    forceRefresh() { refresh().catch(() => {}); }
   };
 
   const isPlanned = (id) => store.planIds.includes(id);
@@ -670,7 +680,9 @@
       console.warn("[eConcerts] worker fetch failed:", err);
       lastEvents = [];
       lastMeta = null;
-      setEmpty(`Worker error: ${String(err && err.message ? err.message : err)}`);
+
+      const msg = String(err && err.message ? err.message : err);
+      setEmpty(`Worker error: ${msg}`);
     }
   }
 

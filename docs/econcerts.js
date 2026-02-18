@@ -1,20 +1,9 @@
-/* econcerts.js (FULL FILE REPLACE) — SINGLE PART
-   UI revamp:
-   ✅ Internal tabs: Announced / Plan / Dismissed
-   ✅ Chronological order everywhere (or City sort via toggle)
-   ✅ Auto-refresh when clicking main eConcerts tab
-   ✅ Hide old controls: Refresh / Reset dismissed / Group by city (legacy)
-   ✅ No "ANNOUNCED/PLAN" labels inside cards
-   ✅ No Src pill
-   ✅ No numeric Score pill; show an icon based on score (with tooltip)
-   ✅ Tab counters: Announced (x) / Plan (y) / Dismissed (z)
-   ✅ Discreet Sort toggle: Date / City (persisted)
-   ✅ NEW: Force Title Case artist display (each word capitalized)
-
-   🔧 IMPORTANT:
-   ✅ UI now ALWAYS calls: https://live.errtanq9.workers.dev
-   ✅ Any legacy BASE_API / stored baseApi is ignored (won’t break your UI again)
-   ✅ Adds request timeout so the UI won’t hang forever
+/* econcerts.js (FULL FILE REPLACE) — 3 PARTS (copy/paste in order)
+   ✅ Uses AICON worker (aicon.errtanq9.workers.dev) instead of live.errtanq9.workers.dev
+   ✅ Reads events: { artist, venue, city, date(YYYY-MM-DD), url }
+   ✅ Keeps UI revamp tabs: Announced / Plan / Dismissed
+   ✅ Sort: Date / City (persisted)
+   ✅ Title Case artist display
 */
 
 (() => {
@@ -67,13 +56,11 @@
     const s0 = safeStr(input);
     if (!s0) return "";
 
-    // tokens we want to keep uppercase
     const KEEP_UPPER = new Set([
       "DJ","MC","II","III","IV","V","VI","VII","VIII","IX","X",
       "USA","UK","EU","EP","LP","TV","DJ'S"
     ]);
 
-    // Split but keep separators
     const parts = s0.split(/(\s+|[-–—/&+])/);
 
     const fixed = parts.map((tok) => {
@@ -84,11 +71,8 @@
       const up = tok.toUpperCase();
       if (KEEP_UPPER.has(up)) return up;
 
-      // If it's something like P.O.D. keep as-is
       if (tok.includes(".") && tok === tok.toUpperCase()) return tok;
 
-      // Handle leading punctuation (quotes/brackets) + letters
-      // Also support diacritics (basic Latin-1)
       const m = tok.match(/^([("'[\{]*)([A-Za-zÀ-ÖØ-öø-ÿ])([\s\S]*)$/u);
       if (!m) return tok;
 
@@ -103,7 +87,7 @@
   }
 
   // ---------- Storage ----------
-  const STORE_KEY = "lm_econcerts_ui_v10_tabs";
+  const STORE_KEY = "lm_econcerts_ui_v10_tabs_aicon";
 
   function loadStore() {
     try {
@@ -113,8 +97,10 @@
           planIds: [],
           dismissedIds: [],
           lastRefreshAt: 0,
+          baseApi: "",
           activeTab: "announced", // announced | plan | dismissed
           sortMode: "date",       // date | city
+          city: "",               // optional default city
         };
       }
       const obj = JSON.parse(raw);
@@ -122,20 +108,24 @@
         planIds: Array.isArray(obj.planIds) ? obj.planIds : [],
         dismissedIds: Array.isArray(obj.dismissedIds) ? obj.dismissedIds : [],
         lastRefreshAt: Number(obj.lastRefreshAt || 0),
+        baseApi: String(obj.baseApi || ""),
         activeTab: ["announced", "plan", "dismissed"].includes(String(obj.activeTab))
           ? String(obj.activeTab)
           : "announced",
         sortMode: (String(obj.sortMode) === "city" || String(obj.sortMode) === "date")
           ? String(obj.sortMode)
           : "date",
+        city: String(obj.city || ""),
       };
     } catch {
       return {
         planIds: [],
         dismissedIds: [],
         lastRefreshAt: 0,
+        baseApi: "",
         activeTab: "announced",
         sortMode: "date",
+        city: "",
       };
     }
   }
@@ -146,99 +136,158 @@
 
   let store = loadStore();
 
-  // ---------- Cloudflare Worker base (LOCKED) ----------
-  // ✅ Always call your live worker endpoint
-  const BASE_API = "https://live.errtanq9.workers.dev";
+  // ---------- AICON Worker base ----------
+  const FALLBACK_BASE_API = "https://aicon.errtanq9.workers.dev";
 
   function getBaseApi() {
-    return BASE_API.replace(/\/+$/, "");
+    const w = (typeof window !== "undefined") ? window : {};
+    const fromWindow = typeof w.AICON_BASE_API === "string" ? w.AICON_BASE_API
+      : (typeof w.BASE_API === "string" ? w.BASE_API : "");
+    const fromStore = (store && typeof store.baseApi === "string") ? store.baseApi : "";
+    const base = (fromWindow || fromStore || FALLBACK_BASE_API).trim();
+    return base.replace(/\/+$/, "");
   }
 
-  // ---------- fetch with timeout (prevents hanging UI) ----------
-  async function fetchJsonWithTimeout(url, timeoutMs = 15000) {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), Math.max(1500, Number(timeoutMs) || 15000));
-    try {
-      const res = await fetch(url, { method: "GET", signal: ctrl.signal });
-      const text = await res.text().catch(() => "");
-      let data = null;
-      try { data = JSON.parse(text); } catch { data = null; }
-      return { ok: res.ok, status: res.status, data, text };
-    } finally {
-      clearTimeout(t);
-    }
-  }
-
-  // ---------- econcerts API defaults ----------
-  const ECONCERTS_DEFAULTS = {
-    size: 600,
-    radiusKm: 30,
-    scoreMin: 0,
-    tasteArtists: 1000,
+  // ---------- AICON fetch ----------
+  // We try a few common endpoint shapes to avoid “wrong path” issues.
+  // Expected response (one of these):
+  // 1) { ok:true, city:"utrecht", events:[...] }
+  // 2) { ok:true, events:[...] }
+  // 3) { ok:true, data:{ events:[...] } }
+  const AICON_DEFAULTS = {
     city: "",
-    countryCode: "NL",
-    sources: "tm,ma,tv",
+    // if UI doesn't pass a city, we default to stored city or Amsterdam
+    fallbackCity: "Amsterdam",
   };
 
-  function normalizeSources(input) {
-    const raw = safeStr(input) || "tm,ma,tv";
-    const parts = raw.split(",").map(s => lowerKey(s)).filter(Boolean);
-    const allowed = new Set(["tm", "ma", "tv"]);
-    const out = [];
-    for (const p of parts) if (allowed.has(p) && !out.includes(p)) out.push(p);
-    return out.length ? out.join(",") : "tm,ma,tv";
+  function parseYmdToDate(ymd) {
+    const s = safeStr(ymd);
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return null;
+    const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+    // set a stable time (20:00 local-ish) so UI has a time; keeps ordering stable
+    // (we store as UTC Date object; formatter renders in Europe/Amsterdam)
+    const dt = new Date(Date.UTC(y, mo - 1, d, 19, 0, 0)); // ~20:00 CET/CEST depending; good enough for display
+    return isValidDate(dt) ? dt : null;
+  }
+
+  // simple stable hash for IDs
+  function hashId(str) {
+    const s = String(str || "");
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    // unsigned
+    return (h >>> 0).toString(16);
+  }
+
+  async function fetchJson(url) {
+    const res = await fetch(url, { method: "GET" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = (data && (data.error || data.message)) ? String(data.error || data.message) : `HTTP ${res.status}`;
+      throw new Error(msg);
+    }
+    return data;
+  }
+
+  function extractEventsArray(payload) {
+    if (!payload || typeof payload !== "object") return [];
+    if (Array.isArray(payload.events)) return payload.events;
+    if (payload.data && Array.isArray(payload.data.events)) return payload.data.events;
+    return [];
   }
 
   async function fetchConcertsFromWorker(overrides = {}) {
-    const cfg = { ...ECONCERTS_DEFAULTS, ...overrides };
+    const cfg = { ...AICON_DEFAULTS, ...overrides };
     const base = getBaseApi();
-    const u = new URL(base + "/econcerts");
 
-    u.searchParams.set("sources", normalizeSources(cfg.sources));
-    u.searchParams.set("size", String(cfg.size));
-    u.searchParams.set("scoreMin", "0");
-    u.searchParams.set("tasteArtists", "1000");
-    u.searchParams.set("countryCode", String(cfg.countryCode || "NL"));
+    const cityCandidate =
+      safeStr(cfg.city) ||
+      safeStr(store.city) ||
+      safeStr((typeof window !== "undefined" && window.DEFAULT_CITY) ? window.DEFAULT_CITY : "") ||
+      AICON_DEFAULTS.fallbackCity;
 
-    const city = safeStr(cfg.city);
-    if (city) {
+    const city = cityCandidate || AICON_DEFAULTS.fallbackCity;
+
+    // Try endpoints in order
+    const tries = [];
+
+    // Most likely: /events?city=Utrecht
+    {
+      const u = new URL(base + "/events");
       u.searchParams.set("city", city);
-      u.searchParams.set("radiusKm", String(cfg.radiusKm));
+      tries.push(u.toString());
+    }
+    // Alternative: /city?city=Utrecht
+    {
+      const u = new URL(base + "/city");
+      u.searchParams.set("city", city);
+      tries.push(u.toString());
+    }
+    // Alternative: /events/Utrecht
+    tries.push(base + "/events/" + encodeURIComponent(city));
+    // Alternative: /city/Utrecht
+    tries.push(base + "/city/" + encodeURIComponent(city));
+    // If your aicon worker uses a single endpoint: /get?city=Utrecht
+    {
+      const u = new URL(base + "/get");
+      u.searchParams.set("city", city);
+      tries.push(u.toString());
     }
 
-    const r = await fetchJsonWithTimeout(u.toString(), 20000);
-    const data = r.data || {};
+    let lastErr = null;
+    for (const url of tries) {
+      try {
+        const data = await fetchJson(url);
+        if (data && data.ok === true) {
+          const arr = extractEventsArray(data);
+          const mapped = (Array.isArray(arr) ? arr : []).map((ev) => {
+            const artist = safeStr(ev.artist);
+            const venue = safeStr(ev.venue);
+            const evCity = safeStr(ev.city || city);
+            const dateStr = safeStr(ev.date);
+            const urlStr = safeStr(ev.url);
 
-    if (!r.ok || !data || data.ok !== true) {
-      const msg =
-        (data && (data.error || data.message)) ? String(data.error || data.message)
-        : (!r.ok ? `HTTP ${r.status}` : "Bad response");
-      throw new Error(msg);
+            const startDate = parseYmdToDate(dateStr) || new Date(dateStr);
+            const start = isValidDate(startDate) ? startDate : new Date(0);
+
+            const idBase = [artist, venue, evCity, dateStr, urlStr].join("|");
+            const id = safeStr(ev.id) || ("aicon_" + hashId(idBase));
+
+            return {
+              id,
+              artist,
+              attractions: [],
+              city: evCity,
+              venue,
+              start,
+              url: urlStr,
+
+              plays: 0,
+              score: 0,
+              startTs: isValidDate(start) ? start.getTime() : 0,
+              source: "aicon",
+              star: false,
+            };
+          }).filter(x => x.id && x.artist && isValidDate(x.start));
+
+          // remember chosen city so next refresh is consistent
+          store.city = city;
+          saveStore(store);
+
+          return { events: mapped, meta: { city, endpoint: url } };
+        }
+      } catch (e) {
+        lastErr = e;
+      }
     }
 
-    const events = Array.isArray(data.events) ? data.events : [];
-
-    const mappedEvents = events.map(ev => {
-      const startTs = Number(ev.startTs || 0);
-      const startDate = startTs ? new Date(startTs) : new Date(safeStr(ev.start));
-      return {
-        id: safeStr(ev.id),
-        artist: safeStr(ev.artist),
-        attractions: Array.isArray(ev.attractions) ? ev.attractions : [],
-        city: safeStr(ev.city),
-        venue: safeStr(ev.venue),
-        start: startDate,
-        url: safeStr(ev.url),
-
-        plays: Number(ev.plays || 0),
-        score: Number(ev.score || 0),
-        startTs: startTs || (isValidDate(startDate) ? startDate.getTime() : 0),
-        source: safeStr(ev.source || ev.src || ""),
-        star: Boolean(ev.star),
-      };
-    }).filter(x => x.id && x.artist && isValidDate(x.start));
-
-    return { events: mappedEvents, meta: data.meta || null };
+    const tried = tries.map(t => `- ${t}`).join("\n");
+    const msg = lastErr && lastErr.message ? lastErr.message : String(lastErr || "Unknown error");
+    throw new Error(`AICON fetch failed: ${msg}\nTried:\n${tried}`);
   }
 
   // ---------- Dedupe ----------
@@ -397,7 +446,17 @@
     get store() { return store; },
     get lastEvents() { return lastEvents; },
     get lastMeta() { return lastMeta; },
-    forceRefresh() { refresh().catch(() => {}); }
+    setBaseApi(next) {
+      store.baseApi = String(next || "").trim();
+      saveStore(store);
+    },
+    setCity(nextCity) {
+      store.city = String(nextCity || "").trim();
+      saveStore(store);
+    },
+    forceRefresh() {
+      refresh().catch(() => {});
+    }
   };
 
   const isPlanned = (id) => store.planIds.includes(id);
@@ -447,7 +506,6 @@
 
     const artist = document.createElement("div");
     artist.className = "eArtist";
-    // ✅ Force Title Case display
     artist.textContent = titleCaseArtist(event.artist);
 
     const meta = document.createElement("div");
@@ -484,7 +542,6 @@
     }
 
     const planned = isPlanned(event.id);
-
     const tab = store.activeTab || "announced";
 
     if (tab === "announced") {
@@ -677,12 +734,10 @@
 
       render(events);
     } catch (err) {
-      console.warn("[eConcerts] worker fetch failed:", err);
+      console.warn("[eConcerts] AICON fetch failed:", err);
       lastEvents = [];
       lastMeta = null;
-
-      const msg = String(err && err.message ? err.message : err);
-      setEmpty(`Worker error: ${msg}`);
+      setEmpty(`Worker error: ${String(err && err.message ? err.message : err)}`);
     }
   }
 

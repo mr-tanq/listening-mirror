@@ -1,15 +1,11 @@
-/* econcerts.js (FULL FILE REPLACE) — SINGLE PART
-   UI revamp:
-   ✅ Internal tabs: Announced / Plan / Dismissed
-   ✅ Chronological order everywhere (or City sort via toggle)
-   ✅ Auto-refresh when clicking main eConcerts tab
-   ✅ Hide old controls: Refresh / Reset dismissed / Group by city (legacy)
-   ✅ No "ANNOUNCED/PLAN" labels inside cards
-   ✅ No Src pill
-   ✅ No numeric Score pill; show an icon based on score (with tooltip)
-   ✅ Tab counters: Announced (x) / Plan (y) / Dismissed (z)
-   ✅ Discreet Sort toggle: Date / City (persisted)
-   ✅ NEW: Force Title Case artist display (each word capitalized)
+/* econcerts.js (FULL FILE REPLACE) — SINGLE PART ✅
+   ✅ NL-wide (no city input): queries multiple Dutch cities and merges results
+   ✅ Uses LIVE2 worker: https://live2.errtanq9.workers.dev/econcerts
+   ✅ Shows ONLY matches by default (scoreMin=10)
+   ✅ Optional: small recommendations bucket (low-score) based on your taste list
+   ✅ Keeps UI tabs: Announced / Plan / Dismissed
+   ✅ Sort: Date / City (persisted)
+   ✅ Title Case artist display
 */
 
 (() => {
@@ -62,13 +58,11 @@
     const s0 = safeStr(input);
     if (!s0) return "";
 
-    // tokens we want to keep uppercase
     const KEEP_UPPER = new Set([
       "DJ","MC","II","III","IV","V","VI","VII","VIII","IX","X",
       "USA","UK","EU","EP","LP","TV","DJ'S"
     ]);
 
-    // Split but keep separators
     const parts = s0.split(/(\s+|[-–—/&+])/);
 
     const fixed = parts.map((tok) => {
@@ -79,11 +73,8 @@
       const up = tok.toUpperCase();
       if (KEEP_UPPER.has(up)) return up;
 
-      // If it's something like P.O.D. keep as-is
       if (tok.includes(".") && tok === tok.toUpperCase()) return tok;
 
-      // Handle leading punctuation (quotes/brackets) + letters
-      // Also support diacritics (basic Latin-1)
       const m = tok.match(/^([("'[\{]*)([A-Za-zÀ-ÖØ-öø-ÿ])([\s\S]*)$/u);
       if (!m) return tok;
 
@@ -98,7 +89,7 @@
   }
 
   // ---------- Storage ----------
-  const STORE_KEY = "lm_econcerts_ui_v10_tabs";
+  const STORE_KEY = "lm_econcerts_ui_v11_live2_nlwide";
 
   function loadStore() {
     try {
@@ -111,6 +102,7 @@
           baseApi: "",
           activeTab: "announced", // announced | plan | dismissed
           sortMode: "date",       // date | city
+          onlyMatches: true,      // ✅ new: only matches vs matches+recs
         };
       }
       const obj = JSON.parse(raw);
@@ -125,6 +117,7 @@
         sortMode: (String(obj.sortMode) === "city" || String(obj.sortMode) === "date")
           ? String(obj.sortMode)
           : "date",
+        onlyMatches: (typeof obj.onlyMatches === "boolean") ? obj.onlyMatches : true,
       };
     } catch {
       return {
@@ -134,6 +127,7 @@
         baseApi: "",
         activeTab: "announced",
         sortMode: "date",
+        onlyMatches: true,
       };
     }
   }
@@ -144,88 +138,209 @@
 
   let store = loadStore();
 
-  // ---------- Cloudflare Worker base ----------
-  const FALLBACK_BASE_API = "https://live.errtanq9.workers.dev";
+  // ---------- LIVE2 Worker base ----------
+  const FALLBACK_BASE_API = "https://live2.errtanq9.workers.dev";
 
   function getBaseApi() {
     const w = (typeof window !== "undefined") ? window : {};
-    const fromWindow = typeof w.BASE_API === "string" ? w.BASE_API : "";
+    const fromWindow = typeof w.LIVE2_BASE_API === "string" ? w.LIVE2_BASE_API
+      : (typeof w.BASE_API === "string" ? w.BASE_API : "");
     const fromStore = (store && typeof store.baseApi === "string") ? store.baseApi : "";
     const base = (fromWindow || fromStore || FALLBACK_BASE_API).trim();
     return base.replace(/\/+$/, "");
   }
 
-  // ---------- econcerts API defaults ----------
-  const ECONCERTS_DEFAULTS = {
-    size: 600,
-    radiusKm: 30,
-    scoreMin: 0,
-    tasteArtists: 1000,
-    city: "",
-    countryCode: "NL",
-    sources: "tm,ma,tv",
+  // ---------- NL city list ----------
+  // You can add/remove cities any time. Keep it sane to stay fast.
+  // These are MetalAgenda slugs (lowercase).
+  const NL_CITIES = [
+    "amsterdam",
+    "utrecht",
+    "rotterdam",
+    "tilburg",
+    "eindhoven",
+    "nijmegen",
+    "groningen",
+    "denhaag",
+    "haarlem",
+    "zwolle",
+    "arnhem",
+    "maastricht",
+    "breda",
+    "leiden",
+    "amersfoort",
+    "enschede",
+  ];
+
+  // ---------- LIVE2 query defaults ----------
+  const LIVE2_DEFAULTS = {
+    sizePerCity: 60,
+    tasteArtists: 25, // ✅ user asked fast path
+    scoreMinMatches: 10, // only matches
+    scoreMinRecs: 1,     // show a few suggestions above 0 if available
+    recMax: 10,          // cap recommendations bucket size
+    concurrency: 5,      // be polite
   };
 
-  function normalizeSources(input) {
-    const raw = safeStr(input) || "tm,ma,tv";
-    const parts = raw.split(",").map(s => lowerKey(s)).filter(Boolean);
-    const allowed = new Set(["tm", "ma", "tv"]);
-    const out = [];
-    for (const p of parts) if (allowed.has(p) && !out.includes(p)) out.push(p);
-    return out.length ? out.join(",") : "tm,ma,tv";
-  }
-
-  async function fetchConcertsFromWorker(overrides = {}) {
-    const cfg = { ...ECONCERTS_DEFAULTS, ...overrides };
-    const base = getBaseApi();
-    const u = new URL(base + "/econcerts");
-
-    u.searchParams.set("sources", normalizeSources(cfg.sources));
-    u.searchParams.set("size", String(cfg.size));
-    u.searchParams.set("scoreMin", "0");
-    u.searchParams.set("tasteArtists", "1000");
-    u.searchParams.set("countryCode", String(cfg.countryCode || "NL"));
-
-    const city = safeStr(cfg.city);
-    if (city) {
-      u.searchParams.set("city", city);
-      u.searchParams.set("radiusKm", String(cfg.radiusKm));
-    }
-
-    const res = await fetch(u.toString(), { method: "GET" });
+  // ---------- Networking ----------
+  async function fetchJson(url) {
+    const res = await fetch(url, { method: "GET" });
     const data = await res.json().catch(() => ({}));
-
-    if (!res.ok || !data || data.ok !== true) {
+    if (!res.ok) {
       const msg = (data && (data.error || data.message)) ? String(data.error || data.message) : `HTTP ${res.status}`;
       throw new Error(msg);
     }
-
-    const events = Array.isArray(data.events) ? data.events : [];
-
-    const mappedEvents = events.map(ev => {
-      const startTs = Number(ev.startTs || 0);
-      const startDate = startTs ? new Date(startTs) : new Date(safeStr(ev.start));
-      return {
-        id: safeStr(ev.id),
-        artist: safeStr(ev.artist),
-        attractions: Array.isArray(ev.attractions) ? ev.attractions : [],
-        city: safeStr(ev.city),
-        venue: safeStr(ev.venue),
-        start: startDate,
-        url: safeStr(ev.url),
-
-        plays: Number(ev.plays || 0),
-        score: Number(ev.score || 0),
-        startTs: startTs || (isValidDate(startDate) ? startDate.getTime() : 0),
-        source: safeStr(ev.source || ev.src || ""),
-        star: Boolean(ev.star),
-      };
-    }).filter(x => x.id && x.artist && isValidDate(x.start));
-
-    return { events: mappedEvents, meta: data.meta || null };
+    return data;
   }
 
-  // ---------- Dedupe ----------
+  function parseIsoToDate(s) {
+    const t = safeStr(s);
+    if (!t) return null;
+    const d = new Date(t);
+    return isValidDate(d) ? d : null;
+  }
+
+  function normalizeLive2Event(ev) {
+    const id = safeStr(ev?.id);
+    const artist = safeStr(ev?.artist);
+    const venue = safeStr(ev?.venue);
+    const city = safeStr(ev?.city);
+    const startTs = Number(ev?.startTs || 0);
+    const startIso = safeStr(ev?.start);
+    const url = safeStr(ev?.url);
+
+    const start =
+      (Number.isFinite(startTs) && startTs > 0) ? new Date(startTs) :
+      parseIsoToDate(startIso) ||
+      new Date(0);
+
+    if (!id || !artist || !isValidDate(start) || start.getTime() <= 0) return null;
+
+    return {
+      id,
+      artist,
+      attractions: Array.isArray(ev?.attractions) ? ev.attractions : [],
+      city,
+      venue,
+      start,
+      startTs: start.getTime(),
+      url,
+      plays: Number(ev?.plays || 0) || 0,
+      score: Number(ev?.score || 0) || 0,
+      star: !!ev?.star,
+      matched: safeStr(ev?.matched || ""),
+      source: safeStr(ev?.source || "live2"),
+    };
+  }
+
+  function buildLive2Url(citySlug, opts) {
+    const base = getBaseApi();
+    const u = new URL(base + "/econcerts");
+    u.searchParams.set("city", citySlug);
+    u.searchParams.set("tasteArtists", String(opts.tasteArtists));
+    u.searchParams.set("size", String(opts.sizePerCity));
+    u.searchParams.set("scoreMin", String(opts.scoreMin));
+    return u.toString();
+  }
+
+  async function poolMap(items, concurrency, fn) {
+    const out = [];
+    let i = 0;
+
+    const workers = new Array(Math.max(1, concurrency)).fill(0).map(async () => {
+      while (i < items.length) {
+        const idx = i++;
+        try {
+          out[idx] = await fn(items[idx], idx);
+        } catch (e) {
+          out[idx] = { __error: e };
+        }
+      }
+    });
+
+    await Promise.all(workers);
+    return out;
+  }
+
+  async function fetchNlWideConcerts() {
+    const cfg = { ...LIVE2_DEFAULTS };
+    const onlyMatches = !!store.onlyMatches;
+
+    // If onlyMatches => scoreMin=10
+    // Else => pull scoreMin=1 and split into matches+recs client-side
+    const scoreMin = onlyMatches ? cfg.scoreMinMatches : cfg.scoreMinRecs;
+
+    const opts = {
+      sizePerCity: cfg.sizePerCity,
+      tasteArtists: cfg.tasteArtists,
+      scoreMin,
+    };
+
+    const results = await poolMap(NL_CITIES, cfg.concurrency, async (citySlug) => {
+      const url = buildLive2Url(citySlug, opts);
+      const payload = await fetchJson(url);
+
+      const arr = Array.isArray(payload?.events) ? payload.events : [];
+      const mapped = arr.map(normalizeLive2Event).filter(Boolean);
+
+      return {
+        city: citySlug,
+        events: mapped,
+        meta: payload?.meta || null,
+      };
+    });
+
+    const allEvents = [];
+    const errors = [];
+    const metaByCity = [];
+
+    for (const r of results) {
+      if (!r) continue;
+      if (r.__error) {
+        errors.push(String(r.__error?.message || r.__error));
+        continue;
+      }
+      if (Array.isArray(r.events)) allEvents.push(...r.events);
+      if (r.meta) metaByCity.push({ city: r.city, meta: r.meta });
+    }
+
+    // dedupe across cities
+    const byId = new Map();
+    for (const ev of allEvents) {
+      const prev = byId.get(ev.id);
+      if (!prev) byId.set(ev.id, ev);
+      else {
+        // keep higher score; if tie keep earlier date
+        if ((ev.score || 0) > (prev.score || 0)) byId.set(ev.id, ev);
+        else if ((ev.score || 0) === (prev.score || 0) && (ev.startTs || 0) < (prev.startTs || 0)) byId.set(ev.id, ev);
+      }
+    }
+
+    const merged = Array.from(byId.values());
+
+    // If onlyMatches: keep score>=10
+    // Else: allow score>=1 but we’ll render recs separately
+    const matches = merged.filter(ev => Number(ev.score || 0) >= cfg.scoreMinMatches);
+    const recs = merged
+      .filter(ev => Number(ev.score || 0) >= cfg.scoreMinRecs && Number(ev.score || 0) < cfg.scoreMinMatches)
+      .sort((a, b) => (b.score - a.score) || (a.startTs - b.startTs))
+      .slice(0, cfg.recMax);
+
+    return {
+      onlyMatches,
+      matches,
+      recs,
+      meta: {
+        citiesTried: NL_CITIES.slice(),
+        errors,
+        metaByCity,
+        tasteArtists: cfg.tasteArtists,
+        scoreMinMatches: cfg.scoreMinMatches,
+      }
+    };
+  }
+
+  // ---------- Dedupe helpers (soft) ----------
   function isVipUrl(url) {
     const u = lowerKey(url);
     return u.includes("vip") || u.includes("package") || u.includes("packages") || u.includes("hospitality") || u.includes("comfort");
@@ -277,7 +392,7 @@
     return Array.from(bySoft.values());
   }
 
-  // ---------- State + UI nodes ----------
+  // ---------- UI nodes ----------
   let lastEvents = [];
   let lastMeta = null;
 
@@ -308,6 +423,7 @@
     tabsWrap = document.createElement("div");
     tabsWrap.id = tabsWrapId;
     tabsWrap.style.display = "flex";
+    tabsWrap.style.flexWrap = "wrap";
     tabsWrap.style.gap = "10px";
     tabsWrap.style.alignItems = "center";
     tabsWrap.style.justifyContent = "flex-end";
@@ -330,7 +446,7 @@
       store.activeTab = tabKey;
       saveStore(store);
       updateTabsUI();
-      render(lastEvents);
+      render(lastEvents, lastMeta);
     });
 
     return btn;
@@ -360,10 +476,32 @@
     store.sortMode = (store.sortMode === "city") ? "date" : "city";
     saveStore(store);
     updateSortBtn();
-    render(lastEvents);
+    render(lastEvents, lastMeta);
   });
 
   tabsWrap.appendChild(sortBtn);
+
+  // ✅ Toggle: Only matches vs Matches + recs
+  const matchToggle = document.createElement("button");
+  matchToggle.type = "button";
+  matchToggle.className = "eBtn ghost";
+  matchToggle.style.borderRadius = "999px";
+
+  function updateMatchToggle() {
+    const on = !!store.onlyMatches;
+    matchToggle.textContent = on ? "Only Matches" : "Matches + Recs";
+    matchToggle.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+  updateMatchToggle();
+
+  matchToggle.addEventListener("click", () => {
+    store.onlyMatches = !store.onlyMatches;
+    saveStore(store);
+    updateMatchToggle();
+    refresh().catch(() => {});
+  });
+
+  tabsWrap.appendChild(matchToggle);
 
   function updateTabsUI() {
     const active = store.activeTab || "announced";
@@ -373,6 +511,7 @@
       btn.setAttribute("aria-pressed", on ? "true" : "false");
     }
     updateSortBtn();
+    updateMatchToggle();
   }
 
   updateTabsUI();
@@ -437,7 +576,6 @@
 
     const artist = document.createElement("div");
     artist.className = "eArtist";
-    // ✅ Force Title Case display
     artist.textContent = titleCaseArtist(event.artist);
 
     const meta = document.createElement("div");
@@ -450,7 +588,9 @@
     pills.appendChild(pill(`Plays: ${Number(event.plays || 0)}`));
 
     const sRounded = Math.max(0, Math.min(100, Math.round(Number(event.score || 0))));
-    pills.appendChild(pill(`${scoreIcon(sRounded)}`, { title: `Score: ${sRounded}` }));
+    pills.appendChild(pill(`${scoreIcon(sRounded)}`, {
+      title: `Score: ${sRounded}${event.matched ? ` (matched: ${event.matched})` : ""}`
+    }));
 
     main.appendChild(artist);
     main.appendChild(meta);
@@ -474,7 +614,6 @@
     }
 
     const planned = isPlanned(event.id);
-
     const tab = store.activeTab || "announced";
 
     if (tab === "announced") {
@@ -484,7 +623,7 @@
       btnDismiss.textContent = "Dismiss";
       btnDismiss.addEventListener("click", async () => {
         await dismiss(event.id);
-        render(lastEvents);
+        render(lastEvents, lastMeta);
       });
 
       const btnPlan = document.createElement("button");
@@ -494,7 +633,7 @@
       btnPlan.addEventListener("click", async () => {
         if (planned) await removeFromPlan(event.id);
         else await addToPlan(event.id);
-        render(lastEvents);
+        render(lastEvents, lastMeta);
       });
 
       actions.appendChild(btnDismiss);
@@ -508,7 +647,7 @@
       btnRemove.textContent = "Remove";
       btnRemove.addEventListener("click", async () => {
         await removeFromPlan(event.id);
-        render(lastEvents);
+        render(lastEvents, lastMeta);
       });
 
       const btnDismiss = document.createElement("button");
@@ -517,7 +656,7 @@
       btnDismiss.textContent = "Dismiss";
       btnDismiss.addEventListener("click", async () => {
         await dismiss(event.id);
-        render(lastEvents);
+        render(lastEvents, lastMeta);
       });
 
       actions.appendChild(btnDismiss);
@@ -532,7 +671,7 @@
       btnPlan.addEventListener("click", async () => {
         if (planned) await removeFromPlan(event.id);
         else await addToPlan(event.id);
-        render(lastEvents);
+        render(lastEvents, lastMeta);
       });
 
       const btnBack = document.createElement("button");
@@ -541,7 +680,7 @@
       btnBack.textContent = "Undo dismiss";
       btnBack.addEventListener("click", async () => {
         await undismiss(event.id);
-        render(lastEvents);
+        render(lastEvents, lastMeta);
       });
 
       actions.appendChild(btnPlan);
@@ -568,7 +707,7 @@
     return a.start.getTime() - b.start.getTime();
   }
 
-  function render(events) {
+  function render(events, meta) {
     updateTabsUI();
 
     const tab = store.activeTab || "announced";
@@ -605,23 +744,23 @@
     tabDismissed.textContent = `Dismissed (${dismissed.length})`;
 
     let visible = announced;
-    let title = "Announced";
+    let title = store.onlyMatches ? "Matches (NL)" : "Matches + Recs (NL)";
     let subtitle = mode === "city"
-      ? "All upcoming shows (sorted by city, then date)."
-      : "All upcoming shows (chronological).";
+      ? "Netherlands-wide, sorted by city then date."
+      : "Netherlands-wide, chronological.";
 
     if (tab === "plan") {
       visible = planned;
       title = "Plan";
       subtitle = mode === "city"
-        ? "Shows you saved (sorted by city, then date)."
-        : "Shows you saved (chronological).";
+        ? "Saved shows (sorted by city then date)."
+        : "Saved shows (chronological).";
     } else if (tab === "dismissed") {
       visible = dismissed;
       title = "Dismissed";
       subtitle = mode === "city"
-        ? "Shows you dismissed (sorted by city, then date)."
-        : "Shows you dismissed (chronological).";
+        ? "Dismissed shows (sorted by city then date)."
+        : "Dismissed shows (chronological).";
     }
 
     listEl.innerHTML = "";
@@ -639,6 +778,24 @@
     sub.textContent = subtitle;
     listEl.appendChild(sub);
 
+    if (meta && meta.__recs && Array.isArray(meta.__recs) && meta.__recs.length && tab === "announced" && !store.onlyMatches) {
+      const recHead = document.createElement("div");
+      recHead.className = "ePill";
+      recHead.textContent = `Recommendations (${meta.__recs.length})`;
+      recHead.style.marginTop = "10px";
+      listEl.appendChild(recHead);
+
+      for (const ev of meta.__recs) {
+        listEl.appendChild(buildCard(ev));
+      }
+
+      const sep = document.createElement("div");
+      sep.className = "eEmpty";
+      sep.textContent = "Matches";
+      sep.style.marginTop = "10px";
+      listEl.appendChild(sep);
+    }
+
     if (!visible.length) {
       const empty = document.createElement("div");
       empty.className = "eEmpty";
@@ -652,22 +809,27 @@
     }
   }
 
-  async function refresh(overrides = {}) {
+  async function refresh() {
     store.lastRefreshAt = Date.now();
     saveStore(store);
 
-    setEmpty("Refreshing…");
+    setEmpty("Refreshing NL…");
 
     try {
-      const { events: rawEvents, meta } = await fetchConcertsFromWorker(overrides);
-      const events = dedupeEvents(rawEvents);
+      const r = await fetchNlWideConcerts();
+
+      // Build final list:
+      // - if onlyMatches => use matches
+      // - else => show matches in main list and pass recs in meta
+      const merged = r.onlyMatches ? r.matches : r.matches;
+      const events = dedupeEvents(merged);
 
       lastEvents = events;
-      lastMeta = meta;
+      lastMeta = { ...r.meta, __recs: r.onlyMatches ? [] : dedupeEvents(r.recs) };
 
-      render(events);
+      render(events, lastMeta);
     } catch (err) {
-      console.warn("[eConcerts] worker fetch failed:", err);
+      console.warn("[eConcerts] NL-wide fetch failed:", err);
       lastEvents = [];
       lastMeta = null;
       setEmpty(`Worker error: ${String(err && err.message ? err.message : err)}`);
@@ -684,6 +846,5 @@
   }
 
   wireMainTabAutoRefresh();
-
   refresh().catch(() => setEmpty("Failed to refresh."));
 })();

@@ -1,7 +1,8 @@
 /* econcerts.js (FULL FILE REPLACE) — 3 PARTS (copy/paste in order)
-   ✅ Uses AICON worker (aicon.errtanq9.workers.dev) instead of live.errtanq9.workers.dev
-   ✅ Reads events: { artist, venue, city, date(YYYY-MM-DD), url }
-   ✅ Keeps UI revamp tabs: Announced / Plan / Dismissed
+   ✅ Uses LIVE2 taste worker (/econcerts) which pulls from AICON + scores by Last.fm
+   ✅ Shows ONLY: Matches (score>=scoreMin) + Recommendations (0<score<scoreMin)
+   ✅ Keeps Plan / Dismissed workflow
+   ✅ Controls: City / scoreMin / tasteArtists (persisted)
    ✅ Sort: Date / City (persisted)
    ✅ Title Case artist display
 */
@@ -87,7 +88,7 @@
   }
 
   // ---------- Storage ----------
-  const STORE_KEY = "lm_econcerts_ui_v10_tabs_aicon";
+  const STORE_KEY = "lm_econcerts_ui_v11_live2_matches_reco";
 
   function loadStore() {
     try {
@@ -98,9 +99,12 @@
           dismissedIds: [],
           lastRefreshAt: 0,
           baseApi: "",
-          activeTab: "announced", // announced | plan | dismissed
-          sortMode: "date",       // date | city
-          city: "",               // optional default city
+          activeTab: "matches",    // matches | reco | plan | dismissed
+          sortMode: "date",        // date | city
+          city: "Utrecht",         // default
+          scoreMin: 10,            // matches threshold
+          tasteArtists: 2000,      // Last.fm top artists fetch size
+          size: 400,               // how many events to request (server limits apply)
         };
       }
       const obj = JSON.parse(raw);
@@ -109,13 +113,16 @@
         dismissedIds: Array.isArray(obj.dismissedIds) ? obj.dismissedIds : [],
         lastRefreshAt: Number(obj.lastRefreshAt || 0),
         baseApi: String(obj.baseApi || ""),
-        activeTab: ["announced", "plan", "dismissed"].includes(String(obj.activeTab))
+        activeTab: ["matches", "reco", "plan", "dismissed"].includes(String(obj.activeTab))
           ? String(obj.activeTab)
-          : "announced",
+          : "matches",
         sortMode: (String(obj.sortMode) === "city" || String(obj.sortMode) === "date")
           ? String(obj.sortMode)
           : "date",
-        city: String(obj.city || ""),
+        city: String(obj.city || "Utrecht"),
+        scoreMin: clampInt(obj.scoreMin, 10, 0, 100),
+        tasteArtists: clampInt(obj.tasteArtists, 2000, 50, 3000),
+        size: clampInt(obj.size, 400, 50, 2000),
       };
     } catch {
       return {
@@ -123,9 +130,12 @@
         dismissedIds: [],
         lastRefreshAt: 0,
         baseApi: "",
-        activeTab: "announced",
+        activeTab: "matches",
         sortMode: "date",
-        city: "",
+        city: "Utrecht",
+        scoreMin: 10,
+        tasteArtists: 2000,
+        size: 400,
       };
     }
   }
@@ -136,58 +146,29 @@
 
   let store = loadStore();
 
-  // ---------- AICON Worker base ----------
-  const FALLBACK_BASE_API = "https://aicon.errtanq9.workers.dev";
+  // ---------- LIVE2 Worker base ----------
+  // Prefer window.LIVE2_BASE_API, else window.BASE_API, else fallback.
+  // Example: https://live2.errtanq9.workers.dev
+  const FALLBACK_BASE_API = "https://live2.errtanq9.workers.dev";
 
   function getBaseApi() {
     const w = (typeof window !== "undefined") ? window : {};
-    const fromWindow = typeof w.AICON_BASE_API === "string" ? w.AICON_BASE_API
-      : (typeof w.BASE_API === "string" ? w.BASE_API : "");
+    const fromWindow =
+      (typeof w.LIVE2_BASE_API === "string" ? w.LIVE2_BASE_API : "") ||
+      (typeof w.BASE_API === "string" ? w.BASE_API : "");
     const fromStore = (store && typeof store.baseApi === "string") ? store.baseApi : "";
     const base = (fromWindow || fromStore || FALLBACK_BASE_API).trim();
     return base.replace(/\/+$/, "");
   }
 
-  // ---------- AICON fetch ----------
-  // We try a few common endpoint shapes to avoid “wrong path” issues.
-  // Expected response (one of these):
-  // 1) { ok:true, city:"utrecht", events:[...] }
-  // 2) { ok:true, events:[...] }
-  // 3) { ok:true, data:{ events:[...] } }
-  const AICON_DEFAULTS = {
-    city: "",
-    // if UI doesn't pass a city, we default to stored city or Amsterdam
-    fallbackCity: "Amsterdam",
-  };
-
-  function parseYmdToDate(ymd) {
-    const s = safeStr(ymd);
-    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!m) return null;
-    const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
-    // set a stable time (20:00 local-ish) so UI has a time; keeps ordering stable
-    // (we store as UTC Date object; formatter renders in Europe/Amsterdam)
-    const dt = new Date(Date.UTC(y, mo - 1, d, 19, 0, 0)); // ~20:00 CET/CEST depending; good enough for display
-    return isValidDate(dt) ? dt : null;
-  }
-
-  // simple stable hash for IDs
-  function hashId(str) {
-    const s = String(str || "");
-    let h = 2166136261;
-    for (let i = 0; i < s.length; i++) {
-      h ^= s.charCodeAt(i);
-      h = Math.imul(h, 16777619);
-    }
-    // unsigned
-    return (h >>> 0).toString(16);
-  }
-
+  // ---------- LIVE2 fetch ----------
   async function fetchJson(url) {
     const res = await fetch(url, { method: "GET" });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const msg = (data && (data.error || data.message)) ? String(data.error || data.message) : `HTTP ${res.status}`;
+      const msg = (data && (data.error || data.message))
+        ? String(data.error || data.message)
+        : `HTTP ${res.status}`;
       throw new Error(msg);
     }
     return data;
@@ -200,97 +181,79 @@
     return [];
   }
 
-  async function fetchConcertsFromWorker(overrides = {}) {
-    const cfg = { ...AICON_DEFAULTS, ...overrides };
-    const base = getBaseApi();
-
-    const cityCandidate =
-      safeStr(cfg.city) ||
-      safeStr(store.city) ||
-      safeStr((typeof window !== "undefined" && window.DEFAULT_CITY) ? window.DEFAULT_CITY : "") ||
-      AICON_DEFAULTS.fallbackCity;
-
-    const city = cityCandidate || AICON_DEFAULTS.fallbackCity;
-
-    // Try endpoints in order
-    const tries = [];
-
-    // Most likely: /events?city=Utrecht
-    {
-      const u = new URL(base + "/events");
-      u.searchParams.set("city", city);
-      tries.push(u.toString());
-    }
-    // Alternative: /city?city=Utrecht
-    {
-      const u = new URL(base + "/city");
-      u.searchParams.set("city", city);
-      tries.push(u.toString());
-    }
-    // Alternative: /events/Utrecht
-    tries.push(base + "/events/" + encodeURIComponent(city));
-    // Alternative: /city/Utrecht
-    tries.push(base + "/city/" + encodeURIComponent(city));
-    // If your aicon worker uses a single endpoint: /get?city=Utrecht
-    {
-      const u = new URL(base + "/get");
-      u.searchParams.set("city", city);
-      tries.push(u.toString());
-    }
-
-    let lastErr = null;
-    for (const url of tries) {
-      try {
-        const data = await fetchJson(url);
-        if (data && data.ok === true) {
-          const arr = extractEventsArray(data);
-          const mapped = (Array.isArray(arr) ? arr : []).map((ev) => {
-            const artist = safeStr(ev.artist);
-            const venue = safeStr(ev.venue);
-            const evCity = safeStr(ev.city || city);
-            const dateStr = safeStr(ev.date);
-            const urlStr = safeStr(ev.url);
-
-            const startDate = parseYmdToDate(dateStr) || new Date(dateStr);
-            const start = isValidDate(startDate) ? startDate : new Date(0);
-
-            const idBase = [artist, venue, evCity, dateStr, urlStr].join("|");
-            const id = safeStr(ev.id) || ("aicon_" + hashId(idBase));
-
-            return {
-              id,
-              artist,
-              attractions: [],
-              city: evCity,
-              venue,
-              start,
-              url: urlStr,
-
-              plays: 0,
-              score: 0,
-              startTs: isValidDate(start) ? start.getTime() : 0,
-              source: "aicon",
-              star: false,
-            };
-          }).filter(x => x.id && x.artist && isValidDate(x.start));
-
-          // remember chosen city so next refresh is consistent
-          store.city = city;
-          saveStore(store);
-
-          return { events: mapped, meta: { city, endpoint: url } };
-        }
-      } catch (e) {
-        lastErr = e;
-      }
-    }
-
-    const tried = tries.map(t => `- ${t}`).join("\n");
-    const msg = lastErr && lastErr.message ? lastErr.message : String(lastErr || "Unknown error");
-    throw new Error(`AICON fetch failed: ${msg}\nTried:\n${tried}`);
+  function parseEventStart(ev) {
+    // LIVE2 typically returns start (ISO) + startTs
+    const ts = Number(ev?.startTs || 0);
+    if (Number.isFinite(ts) && ts > 0) return new Date(ts);
+    const iso = safeStr(ev?.start);
+    const d = iso ? new Date(iso) : null;
+    if (d && isValidDate(d)) return d;
+    const ymd = safeStr(ev?.date);
+    const d2 = ymd ? new Date(ymd) : null;
+    return (d2 && isValidDate(d2)) ? d2 : new Date(0);
   }
 
-  // ---------- Dedupe ----------
+  async function fetchConcertsFromWorker(overrides = {}) {
+    const base = getBaseApi();
+
+    const city = safeStr(overrides.city ?? store.city ?? "Utrecht") || "Utrecht";
+    const scoreMin = clampInt(overrides.scoreMin ?? store.scoreMin, 10, 0, 100);
+    const tasteArtists = clampInt(overrides.tasteArtists ?? store.tasteArtists, 2000, 50, 3000);
+    const size = clampInt(overrides.size ?? store.size, 400, 50, 2000);
+
+    const u = new URL(base + "/econcerts");
+    u.searchParams.set("city", city);
+    u.searchParams.set("scoreMin", String(scoreMin));
+    u.searchParams.set("tasteArtists", String(tasteArtists));
+    u.searchParams.set("size", String(size));
+
+    const data = await fetchJson(u.toString());
+    if (!data || data.ok !== true) {
+      throw new Error("LIVE2 returned invalid payload");
+    }
+
+    const arr = extractEventsArray(data);
+
+    const mapped = (Array.isArray(arr) ? arr : []).map((ev) => {
+      const artist = safeStr(ev?.artist);
+      const venue = safeStr(ev?.venue);
+      const cityOut = safeStr(ev?.city || city);
+      const urlStr = safeStr(ev?.url);
+      const start = parseEventStart(ev);
+
+      const id = safeStr(ev?.id) || ("live2_" + hashId([artist, venue, cityOut, String(start.getTime()), urlStr].join("|")));
+
+      return {
+        id,
+        artist,
+        attractions: Array.isArray(ev?.attractions) ? ev.attractions : [],
+        city: cityOut,
+        venue,
+        start,
+        url: urlStr,
+
+        plays: Number(ev?.plays || 0) || 0,
+        score: Number(ev?.score || 0) || 0,
+        matched: safeStr(ev?.matched || ""),   // LIVE2 may return "matched"
+        startTs: isValidDate(start) ? start.getTime() : 0,
+        source: safeStr(ev?.source || "live2"),
+        star: !!ev?.star,
+      };
+    }).filter(x => x.id && x.artist && isValidDate(x.start));
+
+    // persist controls
+    store.city = city;
+    store.scoreMin = scoreMin;
+    store.tasteArtists = tasteArtists;
+    store.size = size;
+    saveStore(store);
+
+    return { events: mapped, meta: data?.meta || { city, endpoint: u.toString() } };
+  }
+
+  // -------------------------
+  // Dedupe (kept)
+  // -------------------------
   function isVipUrl(url) {
     const u = lowerKey(url);
     return u.includes("vip") || u.includes("package") || u.includes("packages") || u.includes("hospitality") || u.includes("comfort");
@@ -323,6 +286,10 @@
     const aScore = Number(a.score || 0);
     const bScore = Number(b.score || 0);
     if (aScore !== bScore) return bScore > aScore ? b : a;
+
+    const aPlays = Number(a.plays || 0);
+    const bPlays = Number(b.plays || 0);
+    if (aPlays !== bPlays) return bPlays > aPlays ? b : a;
 
     return a;
   }
@@ -366,6 +333,7 @@
     }
   } catch {}
 
+  // ---------- Top bar (tabs + controls) ----------
   const tabsWrapId = "econcertsInnerTabs";
   let tabsWrap = document.getElementById(tabsWrapId);
 
@@ -375,13 +343,30 @@
     tabsWrap.style.display = "flex";
     tabsWrap.style.gap = "10px";
     tabsWrap.style.alignItems = "center";
-    tabsWrap.style.justifyContent = "flex-end";
+    tabsWrap.style.justifyContent = "space-between";
+    tabsWrap.style.flexWrap = "wrap";
     tabsWrap.style.margin = "10px 0 14px";
 
     listEl.parentElement?.insertBefore(tabsWrap, listEl);
   } else {
     tabsWrap.innerHTML = "";
   }
+
+  const leftTabs = document.createElement("div");
+  leftTabs.style.display = "flex";
+  leftTabs.style.gap = "10px";
+  leftTabs.style.alignItems = "center";
+  leftTabs.style.flexWrap = "wrap";
+
+  const rightControls = document.createElement("div");
+  rightControls.style.display = "flex";
+  rightControls.style.gap = "10px";
+  rightControls.style.alignItems = "center";
+  rightControls.style.flexWrap = "wrap";
+  rightControls.style.justifyContent = "flex-end";
+
+  tabsWrap.appendChild(leftTabs);
+  tabsWrap.appendChild(rightControls);
 
   function makeTabBtn(label, tabKey) {
     const btn = document.createElement("button");
@@ -401,13 +386,15 @@
     return btn;
   }
 
-  const tabAnnounced = makeTabBtn("Announced", "announced");
+  const tabMatches = makeTabBtn("Matches", "matches");
+  const tabReco = makeTabBtn("Recommendations", "reco");
   const tabPlan = makeTabBtn("Plan", "plan");
   const tabDismissed = makeTabBtn("Dismissed", "dismissed");
 
-  tabsWrap.appendChild(tabAnnounced);
-  tabsWrap.appendChild(tabPlan);
-  tabsWrap.appendChild(tabDismissed);
+  leftTabs.appendChild(tabMatches);
+  leftTabs.appendChild(tabReco);
+  leftTabs.appendChild(tabPlan);
+  leftTabs.appendChild(tabDismissed);
 
   const sortBtn = document.createElement("button");
   sortBtn.type = "button";
@@ -428,11 +415,55 @@
     render(lastEvents);
   });
 
-  tabsWrap.appendChild(sortBtn);
+  leftTabs.appendChild(sortBtn);
+
+  // ---------- Controls (City / scoreMin / tasteArtists) ----------
+  function makeMiniInput(placeholder, value, widthPx = 110) {
+    const inp = document.createElement("input");
+    inp.placeholder = placeholder;
+    inp.value = String(value ?? "");
+    inp.className = "eInput";
+    inp.style.width = widthPx + "px";
+    inp.style.maxWidth = "52vw";
+    inp.style.borderRadius = "999px";
+    inp.style.padding = "10px 12px";
+    inp.style.border = "1px solid var(--line, #242830)";
+    inp.style.background = "var(--pill2, #101216)";
+    inp.style.color = "var(--text, #e9e9ea)";
+    return inp;
+  }
+
+  const cityInput = makeMiniInput("City", store.city || "Utrecht", 130);
+  const scoreMinInput = makeMiniInput("scoreMin", store.scoreMin ?? 10, 90);
+  const tasteArtistsInput = makeMiniInput("tasteArtists", store.tasteArtists ?? 2000, 120);
+
+  const applyBtn = document.createElement("button");
+  applyBtn.type = "button";
+  applyBtn.className = "eBtn";
+  applyBtn.style.borderRadius = "999px";
+  applyBtn.textContent = "Apply";
+
+  applyBtn.addEventListener("click", () => {
+    const nextCity = safeStr(cityInput.value) || store.city || "Utrecht";
+    const nextScoreMin = clampInt(scoreMinInput.value, store.scoreMin ?? 10, 0, 100);
+    const nextTasteArtists = clampInt(tasteArtistsInput.value, store.tasteArtists ?? 2000, 50, 3000);
+
+    store.city = nextCity;
+    store.scoreMin = nextScoreMin;
+    store.tasteArtists = nextTasteArtists;
+    saveStore(store);
+
+    refresh({ city: nextCity, scoreMin: nextScoreMin, tasteArtists: nextTasteArtists }).catch(() => {});
+  });
+
+  rightControls.appendChild(cityInput);
+  rightControls.appendChild(scoreMinInput);
+  rightControls.appendChild(tasteArtistsInput);
+  rightControls.appendChild(applyBtn);
 
   function updateTabsUI() {
-    const active = store.activeTab || "announced";
-    for (const btn of [tabAnnounced, tabPlan, tabDismissed]) {
+    const active = store.activeTab || "matches";
+    for (const btn of [tabMatches, tabReco, tabPlan, tabDismissed]) {
       const on = btn.dataset.tab === active;
       btn.className = on ? "eBtn" : "eBtn ghost";
       btn.setAttribute("aria-pressed", on ? "true" : "false");
@@ -453,6 +484,7 @@
     setCity(nextCity) {
       store.city = String(nextCity || "").trim();
       saveStore(store);
+      cityInput.value = store.city;
     },
     forceRefresh() {
       refresh().catch(() => {});
@@ -515,10 +547,14 @@
 
     const pills = document.createElement("div");
     pills.className = "ePills";
-    pills.appendChild(pill(`Plays: ${Number(event.plays || 0)}`));
 
-    const sRounded = Math.max(0, Math.min(100, Math.round(Number(event.score || 0))));
-    pills.appendChild(pill(`${scoreIcon(sRounded)}`, { title: `Score: ${sRounded}` }));
+    const plays = Number(event.plays || 0);
+    const score = Math.max(0, Math.min(100, Math.round(Number(event.score || 0))));
+    pills.appendChild(pill(`Plays: ${plays}`));
+    pills.appendChild(pill(`${scoreIcon(score)}`, { title: `Score: ${score}` }));
+
+    if (event.star) pills.appendChild(pill("⭐", { title: "Star (very high plays)" }));
+    if (event.matched) pills.appendChild(pill(`Matched: ${event.matched}`, { title: "Best matched artist name" }));
 
     main.appendChild(artist);
     main.appendChild(meta);
@@ -542,9 +578,10 @@
     }
 
     const planned = isPlanned(event.id);
-    const tab = store.activeTab || "announced";
+    const tab = store.activeTab || "matches";
 
-    if (tab === "announced") {
+    // For Matches/Reco tabs: same controls as "Announced" had
+    if (tab === "matches" || tab === "reco") {
       const btnDismiss = document.createElement("button");
       btnDismiss.className = "eBtn ghost";
       btnDismiss.type = "button";
@@ -621,9 +658,8 @@
     card.appendChild(right);
 
     return card;
-  }
-
-  function sortChronoAsc(a, b) {
+       }
+   function sortChronoAsc(a, b) {
     return a.start.getTime() - b.start.getTime();
   }
 
@@ -635,17 +671,13 @@
     return a.start.getTime() - b.start.getTime();
   }
 
-  function render(events) {
-    updateTabsUI();
-
-    const tab = store.activeTab || "announced";
-
+  function classifyVisible(events) {
     const plannedIds = new Set(store.planIds);
     const dismissedIds = new Set(store.dismissedIds);
 
     const planned = [];
     const dismissed = [];
-    const announced = [];
+    const pool = [];
 
     for (const ev of events) {
       const id = ev.id;
@@ -657,39 +689,64 @@
         planned.push(ev);
         continue;
       }
-      announced.push(ev);
+      pool.push(ev);
     }
 
+    const scoreMin = clampInt(store.scoreMin, 10, 0, 100);
+
+    const matches = [];
+    const reco = [];
+
+    for (const ev of pool) {
+      const score = Number(ev.score || 0) || 0;
+      if (score >= scoreMin) matches.push(ev);
+      else if (score > 0 && score < scoreMin) reco.push(ev);
+    }
+
+    return { matches, reco, planned, dismissed };
+  }
+
+  function render(events) {
+    updateTabsUI();
+
+    const tab = store.activeTab || "matches";
     const mode = store.sortMode || "date";
     const sorter = (mode === "city") ? sortCityThenTimeAsc : sortChronoAsc;
 
+    const { matches, reco, planned, dismissed } = classifyVisible(events);
+
+    matches.sort(sorter);
+    reco.sort(sorter);
     planned.sort(sorter);
     dismissed.sort(sorter);
-    announced.sort(sorter);
 
-    tabAnnounced.textContent = `Announced (${announced.length})`;
+    tabMatches.textContent = `Matches (${matches.length})`;
+    tabReco.textContent = `Recommendations (${reco.length})`;
     tabPlan.textContent = `Plan (${planned.length})`;
     tabDismissed.textContent = `Dismissed (${dismissed.length})`;
 
-    let visible = announced;
-    let title = "Announced";
-    let subtitle = mode === "city"
-      ? "All upcoming shows (sorted by city, then date)."
-      : "All upcoming shows (chronological).";
+    let visible = matches;
+    let title = "Matches";
+    let subtitle = `Only shows that match your listening (score ≥ ${clampInt(store.scoreMin, 10, 0, 100)}).`;
 
-    if (tab === "plan") {
+    if (tab === "reco") {
+      visible = reco;
+      title = "Recommendations";
+      subtitle = `Near matches (0 < score < ${clampInt(store.scoreMin, 10, 0, 100)}).`;
+    } else if (tab === "plan") {
       visible = planned;
       title = "Plan";
-      subtitle = mode === "city"
-        ? "Shows you saved (sorted by city, then date)."
-        : "Shows you saved (chronological).";
+      subtitle = "Shows you saved.";
     } else if (tab === "dismissed") {
       visible = dismissed;
       title = "Dismissed";
-      subtitle = mode === "city"
-        ? "Shows you dismissed (sorted by city, then date)."
-        : "Shows you dismissed (chronological).";
+      subtitle = "Shows you dismissed.";
     }
+
+    // Sort subtitle hint
+    subtitle += (mode === "city")
+      ? " (Sorted by city, then date.)"
+      : " (Sorted by date.)";
 
     listEl.innerHTML = "";
 
@@ -706,10 +763,19 @@
     sub.textContent = subtitle;
     listEl.appendChild(sub);
 
+    // Helpful empty messages for Matches/Reco
     if (!visible.length) {
       const empty = document.createElement("div");
       empty.className = "eEmpty";
-      empty.textContent = "Empty";
+
+      if (tab === "matches") {
+        empty.textContent = "No matches found for your taste in this city (try lowering scoreMin or changing city).";
+      } else if (tab === "reco") {
+        empty.textContent = "No recommendations found (this tab only shows near-misses).";
+      } else {
+        empty.textContent = "Empty";
+      }
+
       listEl.appendChild(empty);
       return;
     }
@@ -734,7 +800,7 @@
 
       render(events);
     } catch (err) {
-      console.warn("[eConcerts] AICON fetch failed:", err);
+      console.warn("[eConcerts] LIVE2 fetch failed:", err);
       lastEvents = [];
       lastMeta = null;
       setEmpty(`Worker error: ${String(err && err.message ? err.message : err)}`);
@@ -752,5 +818,26 @@
 
   wireMainTabAutoRefresh();
 
+  // initial refresh
   refresh().catch(() => setEmpty("Failed to refresh."));
+   // -------------------------
+  // Utilities
+  // -------------------------
+  function clampInt(v, def, min, max) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return def;
+    const i = Math.trunc(n);
+    return Math.max(min, Math.min(max, i));
+  }
+
+  function hashId(str) {
+    const s = String(str || "");
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return (h >>> 0).toString(16);
+  }
+
 })();

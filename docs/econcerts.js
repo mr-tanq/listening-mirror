@@ -1,9 +1,11 @@
 /* econcerts.js (FULL FILE REPLACE) — SINGLE PART ✅
-   ✅ NL-wide (no city input): uses LIVE2 NL mode (omit city)
-   ✅ Adds 1 button: "Refresh NL (AICON)" to pre-index cities in AICON
+   ✅ Default: LIVE2 NL-wide matches (/econcerts, omit city)
+   ✅ Adds mode toggle: Matches (LIVE2) / All (AICON)
+   ✅ AICON view: dropdown city + loads /events?city=...
    ✅ Keeps UI tabs: Announced / Plan / Dismissed
    ✅ Sort: Date / City (persisted)
    ✅ Title Case artist display
+   ✅ Button: "Refresh NL (AICON)" to pre-index cities in AICON
 */
 
 (() => {
@@ -87,7 +89,7 @@
   }
 
   // ---------- Storage ----------
-  const STORE_KEY = "lm_econcerts_ui_v12_live2_nlwide_refreshbtn";
+  const STORE_KEY = "lm_econcerts_ui_v13_live2_aicon_modes";
 
   function loadStore() {
     try {
@@ -101,6 +103,8 @@
           activeTab: "announced", // announced | plan | dismissed
           sortMode: "date",       // date | city
           onlyMatches: true,
+          mode: "live2",          // live2 | aicon
+          aiconCity: "utrecht",   // default city
         };
       }
       const obj = JSON.parse(raw);
@@ -116,6 +120,10 @@
           ? String(obj.sortMode)
           : "date",
         onlyMatches: (typeof obj.onlyMatches === "boolean") ? obj.onlyMatches : true,
+        mode: (String(obj.mode) === "aicon" || String(obj.mode) === "live2")
+          ? String(obj.mode)
+          : "live2",
+        aiconCity: safeStr(obj.aiconCity) ? String(obj.aiconCity) : "utrecht",
       };
     } catch {
       return {
@@ -126,6 +134,8 @@
         activeTab: "announced",
         sortMode: "date",
         onlyMatches: true,
+        mode: "live2",
+        aiconCity: "utrecht",
       };
     }
   }
@@ -158,29 +168,27 @@
   }
 
   // ---------- NL city list for AICON refresh ----------
-  // Keep them lowercase (MetalAgenda slugs)
-  // You can expand to 25 if you want. Start with 15 for speed.
+  // Keep them lowercase (MetalAgenda slugs). Avoid Haarlem + "den haag" for now.
   const NL_CITIES = [
     "amsterdam",
     "utrecht",
     "rotterdam",
-    "den haag",
     "eindhoven",
     "tilburg",
     "groningen",
     "nijmegen",
-    "haarlem",
     "arnhem",
     "zwolle",
     "breda",
     "leiden",
     "maastricht",
     "enschede",
+    "apeldoorn",
+    "alkmaar",
   ];
 
   function metalAgendaUrlForCity(citySlug) {
     // Metalagenda uses Title Case in URL path, with spaces as-is.
-    // encodeURI keeps spaces as %20 which is fine.
     const title = citySlug.split(" ").map(p => p ? (p[0].toUpperCase() + p.slice(1)) : p).join(" ");
     return `https://www.metalagenda.nl/p/${encodeURI(title)}`;
   }
@@ -190,6 +198,10 @@
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       const msg = (data && (data.error || data.message)) ? String(data.error || data.message) : `HTTP ${res.status}`;
+      throw new Error(msg);
+    }
+    if (data && data.ok === false) {
+      const msg = (data.error || data.message) ? String(data.error || data.message) : "Unknown error";
       throw new Error(msg);
     }
     return data;
@@ -210,7 +222,6 @@
     u.searchParams.set("size", String(LIVE2_DEFAULTS.size));
     u.searchParams.set("tasteArtists", String(LIVE2_DEFAULTS.tasteArtists));
     u.searchParams.set("scoreMin", String(LIVE2_DEFAULTS.scoreMin));
-    // If you later want recs: u.searchParams.set("reco","1");
     return u.toString();
   }
 
@@ -238,7 +249,7 @@
     if (!id || !artist || !isValidDate(start) || start.getTime() <= 0) return null;
 
     return {
-      id,
+      id: `live2:${id}`,
       artist,
       attractions: Array.isArray(ev?.attractions) ? ev.attractions : [],
       city,
@@ -251,6 +262,52 @@
       star: !!ev?.star,
       matched: safeStr(ev?.matched || ""),
       source: safeStr(ev?.source || "live2"),
+      mode: "live2",
+    };
+  }
+
+  // ---------- AICON fetch ----------
+  function buildAiconCityUrl(city) {
+    const base = getAiconBase();
+    const u = new URL(base + "/events");
+    u.searchParams.set("city", String(city || "").trim().toLowerCase());
+    return u.toString();
+  }
+
+  function normalizeAiconEvent(ev, fallbackCity) {
+    // AICON schema can vary; best-effort mapping:
+    const rawId = safeStr(ev?.id || ev?.key || ev?.uid || "");
+    const artist = safeStr(ev?.artist || ev?.title || ev?.name || "");
+    const venue = safeStr(ev?.venue || ev?.location || ev?.place || "");
+    const city = safeStr(ev?.city || fallbackCity || "");
+    const url = safeStr(ev?.url || ev?.link || "");
+    const source = safeStr(ev?.source || ev?.provider || "aicon");
+
+    const startTs =
+      Number(ev?.startTs || ev?.ts || ev?.time || 0) ||
+      (parseIsoToDate(ev?.start || ev?.date || ev?.datetime || "")?.getTime() || 0);
+
+    const start = (startTs > 0) ? new Date(startTs) : null;
+
+    // Stable-ish id:
+    const idBase = rawId || `${lowerKey(artist)}|${startTs}|${lowerKey(venue)}|${lowerKey(city)}|${lowerKey(source)}`;
+    if (!artist || !start || !isValidDate(start) || start.getTime() <= 0) return null;
+
+    return {
+      id: `aicon:${idBase}`,
+      artist,
+      attractions: Array.isArray(ev?.attractions) ? ev.attractions : [],
+      city,
+      venue,
+      start,
+      startTs: start.getTime(),
+      url,
+      plays: Number(ev?.plays || 0) || 0,
+      score: Number(ev?.score || 0) || 0,
+      star: !!ev?.star,
+      matched: safeStr(ev?.matched || ""),
+      source,
+      mode: "aicon",
     };
   }
 
@@ -269,7 +326,8 @@
   }
   function softKey(ev) {
     const ts = Number(ev.startTs || 0) || (ev.start ? ev.start.getTime() : 0);
-    return [lowerKey(ev.artist), String(timeBucket(ts)), lowerKey(ev.city)].join("|");
+    // include venue too to reduce collisions in big cities
+    return [lowerKey(ev.artist), String(timeBucket(ts)), lowerKey(ev.city), lowerKey(ev.venue)].join("|");
   }
   function pickBetterEvent(a, b) {
     const aVip = isVipUrl(a.url);
@@ -280,8 +338,8 @@
     const bSub = venueLooksLikeSubRoom(b.venue);
     if (aSub !== bSub) return aSub ? b : a;
 
-    const aMeta = (a.venue ? 1 : 0) + (a.city ? 1 : 0) + (a.attractions?.length ? 1 : 0);
-    const bMeta = (b.venue ? 1 : 0) + (b.city ? 1 : 0) + (b.attractions?.length ? 1 : 0);
+    const aMeta = (a.venue ? 1 : 0) + (a.city ? 1 : 0) + (a.attractions?.length ? 1 : 0) + (a.url ? 1 : 0);
+    const bMeta = (b.venue ? 1 : 0) + (b.city ? 1 : 0) + (b.attractions?.length ? 1 : 0) + (b.url ? 1 : 0);
     if (aMeta !== bMeta) return bMeta > aMeta ? b : a;
 
     const aScore = Number(a.score || 0);
@@ -367,9 +425,70 @@
     return btn;
   }
 
+  // ----- Mode toggle (LIVE2 / AICON) -----
+  const modeLive2Btn = document.createElement("button");
+  modeLive2Btn.type = "button";
+  modeLive2Btn.style.borderRadius = "999px";
+  modeLive2Btn.className = "eBtn";
+  modeLive2Btn.textContent = "Matches (LIVE2)";
+
+  const modeAiconBtn = document.createElement("button");
+  modeAiconBtn.type = "button";
+  modeAiconBtn.style.borderRadius = "999px";
+  modeAiconBtn.className = "eBtn ghost";
+  modeAiconBtn.textContent = "All (AICON)";
+
+  function setMode(nextMode) {
+    store.mode = (nextMode === "aicon") ? "aicon" : "live2";
+    saveStore(store);
+    updateModeUI();
+    refresh().catch(() => setEmpty("Failed to refresh."));
+  }
+
+  modeLive2Btn.addEventListener("click", () => setMode("live2"));
+  modeAiconBtn.addEventListener("click", () => setMode("aicon"));
+
+  // City dropdown (only for AICON mode)
+  const aiconCitySelect = document.createElement("select");
+  aiconCitySelect.className = "eBtn ghost";
+  aiconCitySelect.style.borderRadius = "999px";
+  aiconCitySelect.style.padding = "10px 12px";
+  aiconCitySelect.style.background = "transparent";
+  aiconCitySelect.style.color = "inherit";
+  aiconCitySelect.style.border = "1px solid rgba(255,255,255,.12)";
+
+  function rebuildCityOptions() {
+    aiconCitySelect.innerHTML = "";
+    const cities = Array.from(new Set(NL_CITIES.concat([store.aiconCity || "utrecht"])))
+      .map(c => String(c || "").trim().toLowerCase())
+      .filter(Boolean)
+      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+
+    for (const c of cities) {
+      const opt = document.createElement("option");
+      opt.value = c;
+      opt.textContent = c;
+      aiconCitySelect.appendChild(opt);
+    }
+    aiconCitySelect.value = (store.aiconCity || "utrecht").toLowerCase();
+  }
+  rebuildCityOptions();
+
+  aiconCitySelect.addEventListener("change", () => {
+    store.aiconCity = String(aiconCitySelect.value || "utrecht").trim().toLowerCase();
+    saveStore(store);
+    if (store.mode === "aicon") refresh().catch(() => setEmpty("Failed to refresh."));
+  });
+
+  // Main tabs
   const tabAnnounced = makeTabBtn("Announced", "announced");
   const tabPlan = makeTabBtn("Plan", "plan");
   const tabDismissed = makeTabBtn("Dismissed", "dismissed");
+
+  // Render controls (top row)
+  tabsWrap.appendChild(modeLive2Btn);
+  tabsWrap.appendChild(modeAiconBtn);
+  tabsWrap.appendChild(aiconCitySelect);
 
   tabsWrap.appendChild(tabAnnounced);
   tabsWrap.appendChild(tabPlan);
@@ -420,7 +539,22 @@
     statusPill.style.display = show ? "flex" : "none";
   }
 
+  function updateModeUI() {
+    const mode = store.mode || "live2";
+    const live2On = mode === "live2";
+    modeLive2Btn.className = live2On ? "eBtn" : "eBtn ghost";
+    modeLive2Btn.setAttribute("aria-pressed", live2On ? "true" : "false");
+    modeAiconBtn.className = !live2On ? "eBtn" : "eBtn ghost";
+    modeAiconBtn.setAttribute("aria-pressed", !live2On ? "true" : "false");
+
+    // Show city dropdown only for AICON
+    aiconCitySelect.style.display = live2On ? "none" : "inline-flex";
+
+    // Refresh NL (AICON) button is useful in both modes, keep visible.
+  }
+
   function updateTabsUI() {
+    updateModeUI();
     const active = store.activeTab || "announced";
     for (const btn of [tabAnnounced, tabPlan, tabDismissed]) {
       const on = btn.dataset.tab === active;
@@ -493,16 +627,23 @@
     const meta = document.createElement("div");
     meta.className = "eMeta";
     const venuePart = event.venue ? ` • ${event.venue}` : "";
-    meta.textContent = `${formatDateTime(event.start)} • ${event.city}${venuePart}`;
+    const cityPart = event.city ? event.city : "";
+    meta.textContent = `${formatDateTime(event.start)} • ${cityPart}${venuePart}`;
 
     const pills = document.createElement("div");
     pills.className = "ePills";
+
+    // Plays only meaningful in LIVE2; show for both but it'll be 0 for AICON
     pills.appendChild(pill(`Plays: ${Number(event.plays || 0)}`));
 
-    const sRounded = Math.max(0, Math.min(100, Math.round(Number(event.score || 0))));
-    pills.appendChild(pill(`${scoreIcon(sRounded)}`, {
-      title: `Score: ${sRounded}${event.matched ? ` (matched: ${event.matched})` : ""}`
-    }));
+    if (event.mode === "live2") {
+      const sRounded = Math.max(0, Math.min(100, Math.round(Number(event.score || 0))));
+      pills.appendChild(pill(`${scoreIcon(sRounded)}`, {
+        title: `Score: ${sRounded}${event.matched ? ` (matched: ${event.matched})` : ""}`
+      }));
+    } else {
+      pills.appendChild(pill(`🧾`, { title: `Source: ${safeStr(event.source || "aicon")}` }));
+    }
 
     main.appendChild(artist);
     main.appendChild(meta);
@@ -655,22 +796,24 @@
     tabPlan.textContent = `Plan (${planned.length})`;
     tabDismissed.textContent = `Dismissed (${dismissed.length})`;
 
+    const uiMode = store.mode || "live2";
+    const headline = uiMode === "live2"
+      ? "Netherlands (LIVE2 matches)"
+      : `AICON (All events) — ${store.aiconCity || ""}`;
+
     let visible = announced;
-    let title = "Netherlands (LIVE2 matches)";
-    let subtitle = mode === "city"
-      ? "NL-wide, sorted by city then date."
-      : "NL-wide, chronological.";
+    let subtitle = (uiMode === "live2")
+      ? (mode === "city" ? "NL-wide matches, sorted by city then date." : "NL-wide matches, chronological.")
+      : (mode === "city" ? "AICON city feed, sorted by city then date." : "AICON city feed, chronological.");
 
     if (tab === "plan") {
       visible = planned;
-      title = "Plan";
-      subtitle = mode === "city"
+      subtitle = (mode === "city")
         ? "Saved shows (sorted by city then date)."
         : "Saved shows (chronological).";
     } else if (tab === "dismissed") {
       visible = dismissed;
-      title = "Dismissed";
-      subtitle = mode === "city"
+      subtitle = (mode === "city")
         ? "Dismissed shows (sorted by city then date)."
         : "Dismissed shows (chronological).";
     }
@@ -679,7 +822,7 @@
 
     const header = document.createElement("div");
     header.className = "ePill";
-    header.textContent = title;
+    header.textContent = headline;
     header.style.justifyContent = "center";
     header.style.fontWeight = "800";
     header.style.opacity = ".95";
@@ -724,14 +867,14 @@
       let ok = 0;
       let fail = 0;
 
-      // Sequential on purpose: safer and avoids “too many subrequests” on AICON side
+      // Sequential on purpose: safer and avoids “too many subrequests”
       for (let i = 0; i < NL_CITIES.length; i++) {
         const c = NL_CITIES[i];
         setStatus(`AICON refresh: ${i + 1}/${NL_CITIES.length} — ${c}…`, true);
 
         try {
           const r = await aiconRefreshCity(c);
-          if (r && r.ok) ok++;
+          if (r && r.ok !== false) ok++;
           else fail++;
         } catch {
           fail++;
@@ -739,9 +882,9 @@
       }
 
       const secs = Math.round((Date.now() - startedAt) / 1000);
-      setStatus(`AICON refresh done ✅ ok=${ok} fail=${fail} (${secs}s). Now loading LIVE2…`, true);
+      setStatus(`AICON refresh done ✅ ok=${ok} fail=${fail} (${secs}s). Reloading…`, true);
 
-      // After refresh, load LIVE2 NL results
+      // After refresh, reload current mode
       await refresh();
 
       setStatus(`Ready ✅ (AICON ok=${ok} fail=${fail})`, true);
@@ -760,12 +903,34 @@
     });
   });
 
-  // ---------- Main refresh (LIVE2 NL) ----------
+  // ---------- Main refresh (LIVE2 NL or AICON city) ----------
   async function refresh() {
     store.lastRefreshAt = Date.now();
     saveStore(store);
 
-    setEmpty("Refreshing NL…");
+    const uiMode = store.mode || "live2";
+
+    if (uiMode === "aicon") {
+      const c = (store.aiconCity || "utrecht").trim().toLowerCase();
+      setEmpty(`Refreshing AICON: ${c}…`);
+
+      const url = buildAiconCityUrl(c);
+      const payload = await fetchJson(url);
+
+      // AICON payload typically: { ok:true, city:"...", events:[...] }
+      const arr = Array.isArray(payload?.events) ? payload.events : (Array.isArray(payload) ? payload : []);
+      const mapped = arr.map(ev => normalizeAiconEvent(ev, c)).filter(Boolean);
+      const events = dedupeEvents(mapped);
+
+      lastEvents = events;
+      lastMeta = payload?.meta || null;
+
+      render(events);
+      return;
+    }
+
+    // LIVE2 mode
+    setEmpty("Refreshing NL (LIVE2)…");
 
     const url = buildLive2NlUrl();
     const payload = await fetchJson(url);
@@ -790,5 +955,13 @@
   }
 
   wireMainTabAutoRefresh();
+
+  // Ensure city dropdown matches stored value
+  try {
+    rebuildCityOptions();
+    aiconCitySelect.value = (store.aiconCity || "utrecht").toLowerCase();
+  } catch {}
+
+  // Initial load
   refresh().catch(() => setEmpty("Failed to refresh."));
 })();

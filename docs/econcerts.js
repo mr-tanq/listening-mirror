@@ -6,6 +6,7 @@
    ✅ Sort: Date / City (persisted)
    ✅ Title Case artist display
    ✅ Button: "Refresh NL (AICON)" to pre-index cities in AICON
+   ✅ NL_CITIES includes: haarlem, zoetermeer, leeuwarden
 */
 
 (() => {
@@ -168,23 +169,25 @@
   }
 
   // ---------- NL city list for AICON refresh ----------
-  // Keep them lowercase (MetalAgenda slugs). Avoid Haarlem + "den haag" for now.
+  // Keep them lowercase (MetalAgenda slugs). (You requested: haarlem, zoetermeer, leeuwarden)
   const NL_CITIES = [
     "amsterdam",
     "utrecht",
     "rotterdam",
+    "den haag",
     "eindhoven",
     "tilburg",
     "groningen",
     "nijmegen",
+    "haarlem",
     "arnhem",
     "zwolle",
     "breda",
     "leiden",
     "maastricht",
     "enschede",
-    "apeldoorn",
-    "alkmaar",
+    "zoetermeer",
+    "leeuwarden",
   ];
 
   function metalAgendaUrlForCity(citySlug) {
@@ -549,8 +552,6 @@
 
     // Show city dropdown only for AICON
     aiconCitySelect.style.display = live2On ? "none" : "inline-flex";
-
-    // Refresh NL (AICON) button is useful in both modes, keep visible.
   }
 
   function updateTabsUI() {
@@ -633,7 +634,6 @@
     const pills = document.createElement("div");
     pills.className = "ePills";
 
-    // Plays only meaningful in LIVE2; show for both but it'll be 0 for AICON
     pills.appendChild(pill(`Plays: ${Number(event.plays || 0)}`));
 
     if (event.mode === "live2") {

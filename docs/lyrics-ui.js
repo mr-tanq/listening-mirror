@@ -1,53 +1,133 @@
-/* lyrics-ui.js
+/* lyrics-ui.js (FULL FILE REPLACE)
    Listening Mirror — Lyrics UI (inject-only)
-   - Injects a Lyrics card under the Mirror card on the NOW panel
-   - Fetches lyrics from your Cloudflare Worker
-   - Shows ONLY lyric text (no timestamps)
-   - Hidden when no lyrics found
+   ✅ Injects Lyrics card under Mirror on NOW panel
+   ✅ Fetches from Cloudflare Worker
+   ✅ Shows ONLY lyric text (no timestamps)
+   ✅ Karaoke highlight + auto-scroll (uses Spotify Web API /me/player progress_ms)
+   ✅ Hidden when no lyrics, EXCEPT strong instrumental keyword -> show small message
 */
 
 (() => {
+  "use strict";
+
   const LYRICS_ENDPOINT = "https://lyrics.errtanq9.workers.dev/lyrics";
-  const POLL_MS = 2500;
+  const SPOTIFY_API = "https://api.spotify.com/v1";
 
-  let lastKey = "";
-  let aborter = null;
+  // Polling intervals
+  const NOW_POLL_MS = 2000;      // detect song change via DOM
+  const PLAYER_POLL_MS = 900;    // get progress_ms
+  const HILITE_THROTTLE_MS = 180;
 
-  function $(id) { return document.getElementById(id); }
+  // UI / behavior
+  const MIN_TEXT_LEN = 20;       // too short -> treat as no lyrics
+  const AUTOSCROLL_PADDING = 0.32; // where to keep active line (0=top, 0.5=center)
 
-  function safeText(el) {
-    return (el?.textContent || "").trim();
-  }
+  let lastSongKey = "";
+  let lastLyricsKey = "";
+  let lyricsAbort = null;
 
-  // Light cleanup — keeps titles readable for matching
-  function cleanTitle(s) {
+  let currentLines = null;      // [{timeMs, text}]
+  let currentPlain = "";        // plain text
+  let currentTrackId = "";      // spotify item id (best)
+  let currentDurationMs = 0;
+  let lastActiveIndex = -1;
+
+  let lastHiliteTs = 0;
+
+  function $(id){ return document.getElementById(id); }
+
+  function safeText(el){ return (el?.textContent || "").trim(); }
+
+  function cleanTitle(s){
     s = (s || "").toString().trim();
-    if (!s) return "";
+    if(!s) return "";
     return s
       .replace(/\s+/g, " ")
       .replace(/[’‘]/g, "'")
       .replace(/[–—]/g, "-")
+      // remove (feat...) blocks
       .replace(/\s*[\(\[]\s*(feat\.?|ft\.?)\s+[^)\]]+[\)\]]\s*/gi, " ")
+      // remove remaster/live/etc blocks
       .replace(/\s*[\(\[]\s*(remaster(ed)?|live|radio edit|edit|version|mix|demo|bonus track|deluxe|expanded|anniversary)\b[^)\]]*[\)\]]\s*/gi, " ")
+      // remove trailing "- remastered ..." etc
       .replace(/\s*-\s*(remaster(ed)?|live|radio edit|edit|version|mix|demo|bonus track|deluxe|expanded|anniversary)\b.*$/i, " ")
       .replace(/\s+/g, " ")
       .trim();
   }
 
-  function ensureCardInjected() {
+  function isNowPanelActive(){
+    const nowPanel = document.querySelector('.panel[data-panel="now"]');
+    if(!nowPanel) return true;
+    return !nowPanel.classList.contains("hidden");
+  }
+
+  function getToken(){
+    if (window.SpotifyAuth && typeof window.SpotifyAuth.getAccessToken === "function") {
+      return window.SpotifyAuth.getAccessToken();
+    }
+    // fallback: spotify-player.js exposed getAccessToken too
+    if (window.SpotifyPlayer && typeof window.SpotifyPlayer.getAccessToken === "function") {
+      return window.SpotifyPlayer.getAccessToken();
+    }
+    return null;
+  }
+
+  function strongInstrumentalGuess(track){
+    const t = (track || "").toLowerCase();
+    if(!t) return false;
+    const kws = [
+      "instrumental",
+      "intro",
+      "interlude",
+      "overture",
+      "theme",
+      "ost",
+      "score",
+      "ambient mix"
+    ];
+    return kws.some(k => t.includes(k));
+  }
+
+  function injectStylesOnce(){
+    if (document.getElementById("lyricsUiStyles")) return;
+    const st = document.createElement("style");
+    st.id = "lyricsUiStyles";
+    st.textContent = `
+      #lyricsText .lyLine{
+        padding: 2px 0;
+        transition: opacity .12s ease, transform .12s ease;
+        opacity: .84;
+      }
+      #lyricsText .lyLine.active{
+        opacity: 1;
+        transform: translateX(0);
+        text-shadow: 0 10px 30px rgba(0,0,0,.25);
+      }
+      #lyricsText .lyLine.dim{
+        opacity: .55;
+      }
+      #lyricsHint{
+        font-size: 12.5px;
+        color: rgba(255,255,255,.70);
+        line-height: 1.45;
+      }
+    `;
+    document.head.appendChild(st);
+  }
+
+  function ensureCardInjected(){
     if ($("lyricsCard")) return;
 
-    const nowPanel = document.querySelector('.panel[data-panel="now"]');
-    if (!nowPanel) return;
+    injectStylesOnce();
 
     const mirrorCard = $("mirrorCard");
-    if (!mirrorCard) return;
+    if(!mirrorCard) return;
 
     const card = document.createElement("div");
     card.id = "lyricsCard";
     card.className = "card";
     card.style.marginTop = "16px";
-    card.style.display = "none"; // hidden until we have lyrics
+    card.style.display = "none"; // hidden until needed
 
     card.innerHTML = `
       <div style="padding:16px 18px 18px 18px;">
@@ -65,6 +145,8 @@
           Lyrics
         </div>
 
+        <div id="lyricsHint" style="display:none; margin-bottom:10px;"></div>
+
         <div id="lyricsText" style="
           white-space:pre-line;
           font-size:14px;
@@ -77,147 +159,364 @@
       </div>
     `;
 
-    // Insert right after Mirror card (as in your screenshot)
     mirrorCard.insertAdjacentElement("afterend", card);
   }
 
-  function hideCard() {
+  function hideCard(){
     const card = $("lyricsCard");
-    if (card) card.style.display = "none";
+    if(card) card.style.display = "none";
   }
 
-  function showLyrics(text) {
+  function showCard(){
     const card = $("lyricsCard");
+    if(card) card.style.display = "block";
+  }
+
+  function setHint(text){
+    const h = $("lyricsHint");
+    if(!h) return;
+    if(!text){
+      h.style.display = "none";
+      h.textContent = "";
+      return;
+    }
+    h.textContent = text;
+    h.style.display = "block";
+  }
+
+  function clearLyrics(){
+    currentLines = null;
+    currentPlain = "";
+    lastActiveIndex = -1;
     const box = $("lyricsText");
-    if (!card || !box) return;
+    if(box) box.innerHTML = "";
+    setHint("");
+  }
 
+  function renderPlain(text){
+    const box = $("lyricsText");
+    if(!box) return;
+
+    // display as plain (no karaoke)
     box.textContent = text;
-    card.style.display = "block";
   }
 
-  function renderFromResponse(payload) {
-    // Your worker returns: { ok:true, found, synced, lrc, lines, plain, ... }
-    if (!payload || !payload.ok || !payload.found) {
-      hideCard();
-      return;
+  function renderSynced(lines){
+    const box = $("lyricsText");
+    if(!box) return;
+
+    box.innerHTML = "";
+    const frag = document.createDocumentFragment();
+
+    for(let i=0;i<lines.length;i++){
+      const d = document.createElement("div");
+      d.className = "lyLine";
+      d.dataset.i = String(i);
+      d.textContent = lines[i].text;
+      frag.appendChild(d);
     }
 
-    // Prefer synced lines (but display only the text)
-    let text = "";
+    box.appendChild(frag);
+  }
 
-    if (Array.isArray(payload.lines) && payload.lines.length) {
-      const out = [];
-      let lastLine = "";
+  function normalizeLines(payloadLines){
+    // payload.lines expected: [{ timeMs, text }]
+    const out = [];
+    let last = "";
 
-      for (const ln of payload.lines) {
-        const t = (ln?.text || "").trim();
-        if (!t) continue;
-        // de-dupe consecutive duplicates (common in LRC)
-        if (t === lastLine) continue;
-        lastLine = t;
-        out.push(t);
+    for(const ln of payloadLines || []){
+      const t = (ln?.text || "").trim();
+      const ms = Number(ln?.timeMs);
+      if(!t) continue;
+      if(!Number.isFinite(ms) || ms < 0) continue;
+
+      // dedupe consecutive duplicates
+      if(t === last) continue;
+      last = t;
+
+      out.push({ timeMs: ms, text: t });
+    }
+
+    // ensure sorted by time
+    out.sort((a,b)=>a.timeMs - b.timeMs);
+    return out;
+  }
+
+  function findActiveIndex(positionMs){
+    const lines = currentLines;
+    if(!lines || !lines.length) return -1;
+
+    // Binary search: last line with timeMs <= positionMs
+    let lo = 0, hi = lines.length - 1, ans = -1;
+    while(lo <= hi){
+      const mid = (lo + hi) >> 1;
+      if(lines[mid].timeMs <= positionMs){
+        ans = mid;
+        lo = mid + 1;
+      }else{
+        hi = mid - 1;
       }
-
-      text = out.join("\n");
-    } else if (payload.plain) {
-      text = String(payload.plain).trim();
-    } else if (payload.lrc) {
-      // last resort: strip timestamps from raw lrc
-      const raw = String(payload.lrc);
-      text = raw
-        .split("\n")
-        .map(l => l.replace(/\[[0-9:.]+\]/g, "").trim())
-        .filter(Boolean)
-        .join("\n");
     }
-
-    // If it’s too short, treat as “no lyrics”
-    if (!text || text.length < 20) {
-      hideCard();
-      return;
-    }
-
-    showLyrics(text);
+    return ans;
   }
 
-  async function fetchLyrics(artist, track, album) {
+  function scrollToActive(index){
+    const box = $("lyricsText");
+    if(!box) return;
+
+    const el = box.querySelector(`.lyLine[data-i="${index}"]`);
+    if(!el) return;
+
+    const boxRect = box.getBoundingClientRect();
+    const elRect  = el.getBoundingClientRect();
+
+    // target offset inside scroll container
+    const targetY =
+      (elRect.top - boxRect.top) + box.scrollTop
+      - (box.clientHeight * AUTOSCROLL_PADDING);
+
+    // smooth-ish but safe on mobile
+    box.scrollTo({ top: Math.max(0, targetY), behavior: "smooth" });
+  }
+
+  function applyHighlight(index){
+    const box = $("lyricsText");
+    if(!box) return;
+
+    if(index === lastActiveIndex) return;
+    lastActiveIndex = index;
+
+    const nodes = box.querySelectorAll(".lyLine");
+    if(!nodes || !nodes.length) return;
+
+    nodes.forEach(n => {
+      n.classList.remove("active");
+      n.classList.remove("dim");
+    });
+
+    if(index < 0) return;
+
+    // make neighbors slightly dim for focus
+    for(let i=0;i<nodes.length;i++){
+      if(i === index) continue;
+      // dim far lines more
+      if(Math.abs(i - index) >= 6) nodes[i].classList.add("dim");
+    }
+
+    const active = box.querySelector(`.lyLine[data-i="${index}"]`);
+    if(active){
+      active.classList.add("active");
+      scrollToActive(index);
+    }
+  }
+
+  async function spotifyMePlayer(){
+    const token = getToken();
+    if(!token) return null;
+
+    try{
+      const res = await fetch(`${SPOTIFY_API}/me/player`, {
+        headers: { "Authorization": "Bearer " + token }
+      });
+
+      // 204: no active player
+      if(res.status === 204) return null;
+
+      const json = await res.json().catch(()=>null);
+      if(!res.ok) return null;
+      return json;
+    }catch{
+      return null;
+    }
+  }
+
+  async function progressTick(){
+    if(!isNowPanelActive()) return;
+    if(!currentLines || !currentLines.length) return; // karaoke only when synced
+
+    const now = Date.now();
+    if(now - lastHiliteTs < HILITE_THROTTLE_MS) return;
+    lastHiliteTs = now;
+
+    const st = await spotifyMePlayer();
+    if(!st || !st.item) return;
+
+    const id = st.item.id || "";
+    const pos = Number(st.progress_ms || 0);
+
+    // If Spotify reports different track than what lyrics are for, don't highlight
+    if(currentTrackId && id && currentTrackId !== id) return;
+
+    const idx = findActiveIndex(pos);
+    applyHighlight(idx);
+  }
+
+  function readNowDom(){
+    const track = cleanTitle(safeText($("nowTrack")));
+    const artist = cleanTitle(safeText($("nowArtist")));
+    const album = cleanTitle(safeText($("nowAlbum")));
+    return { track, artist, album };
+  }
+
+  async function fetchLyrics(artist, track, album){
     ensureCardInjected();
 
     const a = cleanTitle(artist);
     const t = cleanTitle(track);
     const al = cleanTitle(album || "");
 
-    if (!a || !t || t === "—" || a === "—") {
+    if(!a || !t || a === "—" || t === "—"){
       hideCard();
       return;
     }
 
-    const key = `${a}::${t}::${al}`;
-    if (key === lastKey) return;
-    lastKey = key;
+    // Unique key for "song intent"
+    const songKey = `${a}::${t}::${al}`;
+    if(songKey === lastSongKey) return;
+    lastSongKey = songKey;
 
-    if (aborter) aborter.abort();
-    aborter = new AbortController();
+    // Reset UI state immediately
+    clearLyrics();
+    hideCard();
 
-    try {
+    // Instrumental hint: ONLY show if strong keyword
+    if(strongInstrumentalGuess(t)){
+      ensureCardInjected();
+      setHint("Instrumental / No lyrics available.");
+      // show small card even if no lyrics (only for strong keyword)
+      showCard();
+      return;
+    }
+
+    // Abort previous lyrics request
+    if(lyricsAbort) lyricsAbort.abort();
+    lyricsAbort = new AbortController();
+
+    try{
+      // Query worker
       const qs = new URLSearchParams({ artist: a, track: t });
-      if (al) qs.set("album", al);
+      if(al) qs.set("album", al);
 
       const url = `${LYRICS_ENDPOINT}?${qs.toString()}`;
-      const res = await fetch(url, { signal: aborter.signal });
+      const res = await fetch(url, { signal: lyricsAbort.signal });
       const data = await res.json();
 
-      renderFromResponse(data);
-    } catch (e) {
+      if(!data || !data.ok || !data.found){
+        hideCard();
+        return;
+      }
+
+      // Track identity (best effort) for karaoke safety
+      // worker might not return spotify id; we'll get it from /me/player on highlight tick
+      currentTrackId = "";
+      currentDurationMs = 0;
+
+      // Prefer synced lines array
+      if(Array.isArray(data.lines) && data.lines.length){
+        const lines = normalizeLines(data.lines);
+        if(lines.length){
+          currentLines = lines;
+          renderSynced(lines);
+          setHint(""); // no hint
+          showCard();
+          lastLyricsKey = songKey;
+          // One immediate highlight attempt
+          progressTick();
+          return;
+        }
+      }
+
+      // fallback plain
+      const plain = (data.plain || data.plainLyrics || "").toString().trim();
+      if(plain && plain.length >= MIN_TEXT_LEN){
+        currentPlain = plain;
+        renderPlain(plain);
+        setHint(""); // no hint
+        showCard();
+        lastLyricsKey = songKey;
+        return;
+      }
+
+      // last fallback: raw lrc -> strip timestamps
+      const lrc = (data.lrc || data.syncedLyrics || "").toString();
+      if(lrc){
+        const text = lrc
+          .split("\n")
+          .map(line => line.replace(/\[[0-9:.]+\]/g, "").trim())
+          .filter(Boolean)
+          .join("\n")
+          .trim();
+
+        if(text && text.length >= MIN_TEXT_LEN){
+          currentPlain = text;
+          renderPlain(text);
+          setHint(""); // no hint
+          showCard();
+          lastLyricsKey = songKey;
+          return;
+        }
+      }
+
+      hideCard();
+    }catch{
       hideCard();
     }
   }
 
-  function readNow() {
-    const track = safeText($("nowTrack"));
-    const artist = safeText($("nowArtist"));
-    const album = safeText($("nowAlbum"));
-    return { track, artist, album };
+  async function syncTrackIdFromSpotify(){
+    // Optional: align lyrics session with spotify item id to avoid mismatches on rapid switching
+    const st = await spotifyMePlayer();
+    if(!st || !st.item) return;
+
+    currentTrackId = st.item.id || "";
+    currentDurationMs = Number(st.item.duration_ms || 0);
   }
 
-  function isNowPanelActive() {
-    const nowPanel = document.querySelector('.panel[data-panel="now"]');
-    if (!nowPanel) return true;
-    return !nowPanel.classList.contains("hidden");
-  }
-
-  function tick() {
-    if (!isNowPanelActive()) return;
-
-    const { track, artist, album } = readNow();
-    if (track && artist && track !== "—" && artist !== "—") {
-      fetchLyrics(artist, track, album);
-    } else {
-      hideCard();
-    }
-  }
-
-  // Boot
-  function boot() {
+  function boot(){
     ensureCardInjected();
-    tick();
 
-    // Poll (simple + reliable with your existing UI updates)
-    setInterval(tick, POLL_MS);
+    // song detector loop (DOM)
+    setInterval(async () => {
+      if(!isNowPanelActive()) return;
 
-    // Extra: react faster on DOM updates
-    const nt = $("nowTrack");
-    const na = $("nowArtist");
-    if (nt && na && window.MutationObserver) {
-      const mo = new MutationObserver(() => tick());
-      mo.observe(nt, { childList: true, characterData: true, subtree: true });
-      mo.observe(na, { childList: true, characterData: true, subtree: true });
+      const { track, artist, album } = readNowDom();
+      if(!track || !artist || track === "—" || artist === "—"){
+        hideCard();
+        return;
+      }
+
+      // fetch lyrics if song changed
+      const key = `${artist}::${track}::${album}`;
+      if(key !== lastLyricsKey){
+        await fetchLyrics(artist, track, album);
+        // after lyrics render, capture spotify id (best effort)
+        await syncTrackIdFromSpotify();
+      }
+    }, NOW_POLL_MS);
+
+    // karaoke loop (Spotify progress)
+    setInterval(() => {
+      progressTick();
+    }, PLAYER_POLL_MS);
+
+    // also react fast to DOM changes
+    if(window.MutationObserver){
+      const nt = $("nowTrack");
+      const na = $("nowArtist");
+      if(nt && na){
+        const mo = new MutationObserver(() => {
+          // force faster refresh on changes
+          lastLyricsKey = ""; // allow fetchLyrics to run on next poll
+        });
+        mo.observe(nt, { childList:true, characterData:true, subtree:true });
+        mo.observe(na, { childList:true, characterData:true, subtree:true });
+      }
     }
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", boot, { once: true });
-  } else {
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", boot, { once:true });
+  }else{
     boot();
   }
 })();

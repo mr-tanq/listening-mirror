@@ -1,0 +1,423 @@
+/* lyrics.js (FULL FILE REPLACE) — PART 1/4 ✅
+   Listening Mirror — Lyrics Microservice
+   ✅ Routes:
+      - GET  /diag
+      - GET  /lyrics?artist=&track=&album=&duration=
+   ✅ Provider: LRCLIB (search -> get)
+   ✅ Prefers SYNCED LRC + also returns parsed lines[]
+   ✅ KV caching (LYRICS_KV)
+*/
+
+const CORS_HEADERS = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET,POST,OPTIONS",
+  "access-control-allow-headers": "content-type,authorization",
+  "access-control-max-age": "86400",
+};
+
+const JSON_HEADERS = {
+  "content-type": "application/json; charset=utf-8",
+};
+
+function json(res, status = 200, extraHeaders = {}) {
+  return new Response(JSON.stringify(res, null, 2), {
+    status,
+    headers: { ...JSON_HEADERS, ...CORS_HEADERS, ...extraHeaders },
+  });
+}
+
+function badRequest(msg, extra = {}) {
+  return json({ ok: false, error: msg, ...extra }, 400);
+}
+
+function ok(res) {
+  return json({ ok: true, ...res }, 200);
+}
+
+function clamp(n, a, b) {
+  return Math.max(a, Math.min(b, n));
+}
+
+function safeTrim(s) {
+  return (s ?? "").toString().trim();
+}
+
+function normalizeSpaces(s) {
+  return safeTrim(s).replace(/\s+/g, " ");
+}
+
+// Aggressive cleanup for Last.fm-ish titles:
+// - remove "(feat ...)" / "[feat ...]" / "ft."
+// - remove "(remaster...)" / "(live ...)" / "(radio edit)" etc.
+// - remove trailing "- remaster" / "- live" / "- edit" segments
+// Keep it conservative enough to not destroy actual titles.
+function normalizeTrackTitle(input) {
+  let s = normalizeSpaces(input);
+
+  // Replace fancy quotes/dashes
+  s = s.replace(/[’‘]/g, "'").replace(/[–—]/g, "-");
+
+  // Remove common "feat" patterns (parentheses or brackets)
+  s = s.replace(/\s*[\(\[\{]\s*(feat\.?|ft\.?)\s+[^)\]\}]+[\)\]\}]\s*/gi, " ");
+  s = s.replace(/\s+(feat\.?|ft\.?)\s+.+$/i, " "); // if it's appended without parentheses
+
+  // Remove bracketed qualifiers often unrelated to title matching
+  s = s.replace(/\s*[\(\[]\s*(remaster(ed)?|mono|stereo|live|radio edit|edit|version|mix|demo|bonus track|deluxe|expanded|anniversary|reissue|single|explicit|clean|acoustic|instrumental|ost|soundtrack)\b[^)\]]*[\)\]]\s*/gi, " ");
+
+  // Remove trailing dash qualifiers
+  s = s.replace(/\s*-\s*(remaster(ed)?|live|radio edit|edit|version|mix|demo|bonus track|deluxe|expanded|anniversary|reissue|single)\b.*$/i, " ");
+
+  // Cleanup leftover punctuation & spaces
+  s = normalizeSpaces(s);
+  s = s.replace(/\s*\/\s*/g, " / ");
+  return s;
+}
+
+function normalizeArtistName(input) {
+  let s = normalizeSpaces(input);
+  s = s.replace(/[’‘]/g, "'").replace(/[–—]/g, "-");
+  // "Artist & Artist" / "Artist x Artist" variants are kept (can matter)
+  return s;
+}
+
+function makeKey(artist, track, album) {
+  const a = normalizeArtistName(artist).toLowerCase();
+  const t = normalizeTrackTitle(track).toLowerCase();
+  const al = normalizeSpaces(album || "").toLowerCase();
+  return `v1:${a}::${t}::${al}`;
+}
+
+function parseIntMaybe(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function parseLRC(lrcText) {
+  const lrc = (lrcText ?? "").toString();
+  const lines = [];
+  // Supports multiple timestamps per line: [mm:ss.xx][mm:ss.xx]text
+  const re = /\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]/g;
+
+  for (const rawLine of lrc.split(/\r?\n/)) {
+    const line = rawLine.trimEnd();
+    if (!line) continue;
+
+    let match;
+    const stamps = [];
+    while ((match = re.exec(line)) !== null) {
+      const mm = Number(match[1]);
+      const ss = Number(match[2]);
+      const frac = match[3] ? match[3].padEnd(3, "0") : "000";
+      const ms = Number(frac);
+      if (Number.isFinite(mm) && Number.isFinite(ss) && Number.isFinite(ms)) {
+        stamps.push((mm * 60 + ss) * 1000 + ms);
+      }
+    }
+
+    // remove all timestamps to get text
+    const text = line.replace(re, "").trim();
+    if (!stamps.length) continue;
+
+    for (const timeMs of stamps) {
+      lines.push({ timeMs, text });
+    }
+  }
+
+  // Sort by time, stable-ish
+  lines.sort((a, b) => a.timeMs - b.timeMs);
+  return lines;
+}
+/* lyrics.js — PART 2/4 ✅ */
+
+async function fetchJson(url, init = {}) {
+  const res = await fetch(url, {
+    ...init,
+    headers: {
+      "accept": "application/json",
+      ...(init.headers || {}),
+    },
+  });
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch (e) {
+    // non-json
+  }
+  return { res, data, text };
+}
+
+function scoreCandidate({
+  reqArtist,
+  reqTrack,
+  reqAlbum,
+  reqDurationMs,
+  cand,
+}) {
+  // cand fields we might see: artistName/trackName/albumName/duration/syncedLyrics/plainLyrics/id
+  const candArtist = normalizeArtistName(cand.artistName || cand.artist_name || "");
+  const candTrack = normalizeTrackTitle(cand.trackName || cand.track_name || "");
+  const candAlbum = normalizeSpaces(cand.albumName || cand.album_name || "");
+
+  let score = 0;
+
+  if (candArtist && reqArtist && candArtist.toLowerCase() === reqArtist.toLowerCase()) score += 60;
+  else if (candArtist && reqArtist && candArtist.toLowerCase().includes(reqArtist.toLowerCase())) score += 30;
+
+  if (candTrack && reqTrack && candTrack.toLowerCase() === reqTrack.toLowerCase()) score += 80;
+  else if (candTrack && reqTrack && candTrack.toLowerCase().includes(reqTrack.toLowerCase())) score += 35;
+
+  if (reqAlbum && candAlbum) {
+    if (candAlbum.toLowerCase() === reqAlbum.toLowerCase()) score += 25;
+    else if (candAlbum.toLowerCase().includes(reqAlbum.toLowerCase())) score += 10;
+  }
+
+  // Prefer synced if present
+  const hasSynced = !!(cand.syncedLyrics || cand.synced_lyrics);
+  const hasPlain = !!(cand.plainLyrics || cand.plain_lyrics);
+  if (hasSynced) score += 40;
+  else if (hasPlain) score += 10;
+
+  // Duration closeness if available (LRCLIB often stores duration in seconds)
+  const candDur = cand.duration ?? cand.trackDuration ?? cand.track_duration ?? null;
+  if (reqDurationMs && candDur != null) {
+    const candMs = candDur > 1000 ? Number(candDur) : Number(candDur) * 1000; // guess seconds if small
+    if (Number.isFinite(candMs)) {
+      const diff = Math.abs(reqDurationMs - candMs);
+      // 0 diff => +25, 5s => +20, 15s => +10, 30s => +0
+      const bonus = clamp(25 - diff / 1200, 0, 25); // 1200ms step ≈ 1.2s
+      score += bonus;
+    }
+  }
+
+  return score;
+}
+
+async function lrclibSearch({ artist, track, album, durationMs }) {
+  const params = new URLSearchParams();
+  if (artist) params.set("artist_name", artist);
+  if (track) params.set("track_name", track);
+  if (album) params.set("album_name", album);
+  if (durationMs != null) params.set("duration", String(durationMs));
+
+  // Some clients also pass q; we keep it minimal and explicit.
+  const url = `https://lrclib.net/api/search?${params.toString()}`;
+  const { res, data, text } = await fetchJson(url);
+
+  if (!res.ok) {
+    return { ok: false, status: res.status, data, text, url };
+  }
+  if (!Array.isArray(data)) {
+    return { ok: true, list: [], url, raw: data };
+  }
+  return { ok: true, list: data, url };
+}
+
+async function lrclibGetById(id) {
+  const url = `https://lrclib.net/api/get/${encodeURIComponent(String(id))}`;
+  const { res, data, text } = await fetchJson(url);
+
+  if (!res.ok) {
+    return { ok: false, status: res.status, data, text, url };
+  }
+  // Expect object with syncedLyrics/plainLyrics, etc.
+  return { ok: true, item: data, url };
+}
+/* lyrics.js — PART 3/4 ✅ */
+
+async function getLyricsCore({ artist, track, album, durationMs }, env) {
+  const reqArtist = normalizeArtistName(artist);
+  const reqTrack = normalizeTrackTitle(track);
+  const reqAlbum = normalizeSpaces(album || "");
+  const reqDurationMs = durationMs ?? null;
+
+  if (!reqArtist || !reqTrack) {
+    return { found: false, reason: "missing_artist_or_track" };
+  }
+
+  const cacheKey = makeKey(reqArtist, reqTrack, reqAlbum);
+
+  // KV cache (store the final response object)
+  if (env?.LYRICS_KV) {
+    const cached = await env.LYRICS_KV.get(cacheKey, "json");
+    if (cached && cached.found != null) {
+      return { ...cached, cached: true };
+    }
+  }
+
+  // 1) search
+  const search = await lrclibSearch({
+    artist: reqArtist,
+    track: reqTrack,
+    album: reqAlbum || undefined,
+    durationMs: reqDurationMs || undefined,
+  });
+
+  if (!search.ok) {
+    return {
+      found: false,
+      reason: "lrclib_search_failed",
+      status: search.status,
+    };
+  }
+
+  if (!search.list.length) {
+    const out = {
+      found: false,
+      reason: "no_results",
+      artist: reqArtist,
+      track: reqTrack,
+      album: reqAlbum || undefined,
+      source: "lrclib",
+    };
+    if (env?.LYRICS_KV) {
+      // cache misses briefly to reduce spam
+      await env.LYRICS_KV.put(cacheKey, JSON.stringify(out), {
+        expirationTtl: 6 * 60 * 60, // 6 hours for misses
+      });
+    }
+    return out;
+  }
+
+  // 2) choose best candidate
+  let best = null;
+  let bestScore = -1;
+
+  for (const cand of search.list) {
+    const score = scoreCandidate({
+      reqArtist,
+      reqTrack,
+      reqAlbum,
+      reqDurationMs,
+      cand,
+    });
+    if (score > bestScore) {
+      bestScore = score;
+      best = cand;
+    }
+  }
+
+  const bestId = best?.id ?? best?.trackId ?? best?.track_id ?? null;
+
+  // 3) if we have an id, use /get/{id} for full payload
+  let item = best;
+  let getUrl = null;
+
+  if (bestId != null) {
+    const got = await lrclibGetById(bestId);
+    if (got.ok && got.item) {
+      item = got.item;
+      getUrl = got.url;
+    }
+  }
+
+  const synced = (item.syncedLyrics || item.synced_lyrics || "").toString().trim();
+  const plain = (item.plainLyrics || item.plain_lyrics || "").toString().trim();
+
+  const lrc = synced || "";
+  const lines = lrc ? parseLRC(lrc) : [];
+
+  const out = {
+    found: !!(synced || plain),
+    artist: normalizeArtistName(item.artistName || item.artist_name || reqArtist),
+    track: normalizeTrackTitle(item.trackName || item.track_name || reqTrack),
+    album: normalizeSpaces(item.albumName || item.album_name || reqAlbum) || undefined,
+    id: item.id ?? bestId ?? undefined,
+    source: "lrclib",
+    synced: !!synced,
+    lrc: synced || null,
+    lines: synced ? lines : [],
+    plain: plain || null,
+
+    // debug-ish helpful fields (harmless)
+    matchScore: bestScore,
+    cached: false,
+    provider: {
+      searchCount: search.list.length,
+      gotById: !!getUrl,
+    },
+  };
+
+  if (env?.LYRICS_KV) {
+    // Cache hits for 30 days
+    await env.LYRICS_KV.put(cacheKey, JSON.stringify(out), {
+      expirationTtl: 30 * 24 * 60 * 60,
+    });
+  }
+
+  return out;
+}
+/* lyrics.js — PART 4/4 ✅ */
+
+function withCorsHeaders(resp) {
+  const h = new Headers(resp.headers);
+  for (const [k, v] of Object.entries(CORS_HEADERS)) h.set(k, v);
+  return new Response(resp.body, { status: resp.status, headers: h });
+}
+
+export default {
+  async fetch(request, env, ctx) {
+    try {
+      const url = new URL(request.url);
+      const path = url.pathname;
+
+      // CORS preflight
+      if (request.method === "OPTIONS") {
+        return new Response(null, { status: 204, headers: { ...CORS_HEADERS } });
+      }
+
+      if (path === "/diag") {
+        const hasKV = !!env?.LYRICS_KV;
+        return ok({
+          service: "listening-mirror-lyrics",
+          hasKV,
+          now: new Date().toISOString(),
+          routes: ["/diag", "/lyrics?artist=&track=&album=&duration="],
+        });
+      }
+
+      if (path === "/lyrics") {
+        if (request.method !== "GET") {
+          return badRequest("method_not_allowed");
+        }
+
+        const artist = safeTrim(url.searchParams.get("artist"));
+        const track = safeTrim(url.searchParams.get("track"));
+        const album = safeTrim(url.searchParams.get("album"));
+        const durationMs = parseIntMaybe(url.searchParams.get("duration"));
+
+        if (!artist || !track) {
+          return badRequest("missing_params", {
+            need: ["artist", "track"],
+            got: { artist: !!artist, track: !!track },
+          });
+        }
+
+        const out = await getLyricsCore(
+          {
+            artist,
+            track,
+            album: album || undefined,
+            durationMs: durationMs != null ? durationMs : undefined,
+          },
+          env
+        );
+
+        // Don’t leak huge payloads? We already return the lyrics if present,
+        // which is the point. The UI can show it.
+        return ok(out);
+      }
+
+      return json({ ok: false, error: "not_found", path }, 404);
+    } catch (err) {
+      return json(
+        {
+          ok: false,
+          error: "internal_error",
+          message: err?.message || String(err),
+        },
+        500
+      );
+    }
+  },
+};

@@ -92,46 +92,39 @@
     if (document.getElementById("lyricsUiStyles")) return;
     const st = document.createElement("style");
     st.id = "lyricsUiStyles";
-    st.textContent = `
+st.textContent = `
+  /* base lyrics lines */
   #lyricsText .lyLine{
-    padding: 4px 0;
-    transition: opacity .14s ease, transform .14s ease, background .18s ease, box-shadow .18s ease, color .18s ease;
-    opacity: .78;
+    padding: 5px 0;
+    font-size: 18.5px;
+    line-height: 1.6;
+    letter-spacing: .2px;
+    transition: color .18s ease, opacity .18s ease, transform .16s ease;
+    color: rgba(255,255,255,.55);
+    opacity: .7;
+    font-weight: 500;
   }
 
   #lyricsText .lyLine.dim{
-    opacity: .48;
+    opacity: .35;
+    color: rgba(255,255,255,.35);
   }
 
-  /* ✅ TURQUOISE HIGHLIGHT */
+  /* ACTIVE LINE — TEXT COLOR ONLY */
   #lyricsText .lyLine.active{
+    color: #35e0d2; /* turquoise text */
     opacity: 1;
-    color: rgba(255,255,255,.98);
+    font-weight: 600;
+    transform: translateY(-1px);
 
-    background: linear-gradient(90deg,
-      rgba(53,224,210,.22),
-      rgba(53,224,210,.10) 55%,
-      rgba(53,224,210,.00)
-    );
-
-    border-left: 3px solid rgba(53,224,210,.85);
-    padding-left: 10px;
-    margin-left: -10px;
-
-    border-radius: 10px;
-
-    box-shadow:
-      0 0 0 1px rgba(53,224,210,.18),
-      0 10px 30px rgba(53,224,210,.10),
-      0 0 26px rgba(53,224,210,.16);
-
+    /* very soft text glow (not box glow) */
     text-shadow:
-      0 0 18px rgba(53,224,210,.22),
-      0 10px 30px rgba(0,0,0,.25);
+      0 0 6px rgba(53,224,210,.35),
+      0 0 16px rgba(53,224,210,.18);
   }
 
   #lyricsHint{
-    font-size: 12.5px;
+    font-size: 13px;
     color: rgba(255,255,255,.70);
     line-height: 1.45;
   }

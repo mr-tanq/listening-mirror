@@ -258,8 +258,21 @@
     .nowMain{ display:grid; grid-template-columns: 1fr; gap: 0; align-items:center; position:relative; z-index:2; }
     .coverWrap{ display:none !important; }
 
-    .nowText{ min-width:0; padding-left: 2px; }
-    .line1{ font-size: 15.5px; font-weight: 720; letter-spacing: .15px; }
+.nowText{
+  min-width:0;
+  padding: 6px 10px;
+  border-radius: 14px;
+
+  /* subtle scrim */
+  background: linear-gradient(
+    180deg,
+    rgba(8,9,11,.18),
+    rgba(8,9,11,.35)
+  );
+
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}    .line1{ font-size: 15.5px; font-weight: 720; letter-spacing: .15px; }
     .line2{ margin-top: 6px; font-size: 13.5px; color: rgba(255,255,255,.72); }
     .line3{ margin-top: 6px; font-size: 12px; color: var(--muted2); }
 

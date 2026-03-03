@@ -1,4 +1,4 @@
-/* lyrics-ui.js (FULL FILE REPLACE)
+/* lyrics-ui.js (FULL FILE REPLACE) — PART 1/3
    Listening Mirror — Lyrics UI (inject-only)
    ✅ Injects Lyrics card under Mirror (NOW panel)
    ✅ Works with worker schema:
@@ -74,8 +74,11 @@
 
   function injectStylesOnce(){
     if (document.getElementById("lyricsUiStyles")) return;
+
     const st = document.createElement("style");
     st.id = "lyricsUiStyles";
+
+    // IMPORTANT: keep CSS valid (balanced braces). If this breaks, highlight breaks.
     st.textContent = `
       #lyricsText .lyLine{
         padding: 5px 0;
@@ -86,30 +89,32 @@
         color: rgba(255,255,255,.55);
         opacity: .7;
         font-weight: 500;
-      #lyricsText .lyLine.active{
-  color: #8fd3ff; /* ice blue */
-  opacity: 1;
-  font-weight: 600;
-  transform: translateY(-1px);
+      }
 
-  text-shadow:
-    0 0 6px rgba(143,211,255,.55),
-    0 0 18px rgba(143,211,255,.35),
-    0 0 36px rgba(143,211,255,.18);
-}
+      #lyricsText .lyLine.dim{
+        opacity: .35;
+        color: rgba(255,255,255,.35);
+      }
+
+      /* ACTIVE LINE — ICE BLUE */
       #lyricsText .lyLine.active{
-        color: #35e0d2;
+        color: #8fd3ff; /* ice blue */
         opacity: 1;
         font-weight: 600;
         transform: translateY(-1px);
-        text-shadow: 0 0 6px rgba(53,224,210,.35), 0 0 16px rgba(53,224,210,.18);
+        text-shadow:
+          0 0 6px rgba(143,211,255,.55),
+          0 0 18px rgba(143,211,255,.35),
+          0 0 36px rgba(143,211,255,.18);
       }
+
       #lyricsHint{
         font-size: 13px;
         color: rgba(255,255,255,.70);
         line-height: 1.45;
       }
     `;
+
     document.head.appendChild(st);
   }
 
@@ -162,6 +167,7 @@
     const card = $("lyricsCard");
     if(card) card.style.display = "none";
   }
+
   function showCard(){
     const card = $("lyricsCard");
     if(card) card.style.display = "block";
@@ -187,6 +193,7 @@
     if(box) box.innerHTML = "";
     setHint("");
   }
+   /* lyrics-ui.js (FULL FILE REPLACE) — PART 2/3 */
 
   function renderPlainText(text){
     const box = $("lyricsText");
@@ -227,8 +234,11 @@
       const ms = Number(it?.timeMs ?? it?.t ?? it?.time);
       if(!text) continue;
       if(!Number.isFinite(ms) || ms < 0) continue;
+
+      // dedupe consecutive duplicates
       if(text === last) continue;
       last = text;
+
       out.push({ timeMs: ms, text });
     }
 
@@ -270,6 +280,7 @@
   function applyHighlight(index){
     const box = $("lyricsText");
     if(!box) return;
+
     if(index === lastActiveIndex) return;
     lastActiveIndex = index;
 
@@ -301,6 +312,7 @@
         headers: { "Authorization": "Bearer " + token }
       });
       if(res.status === 204) return null;
+
       const json = await res.json().catch(()=>null);
       if(!res.ok) return null;
       return json;
@@ -340,7 +352,8 @@
     const st = await spotifyMePlayer();
     if(!st || !st.item) return;
     currentTrackId = st.item.id || "";
-  }
+                                 }
+   /* lyrics-ui.js (FULL FILE REPLACE) — PART 3/3 */
 
   async function fetchLyrics(artist, track, album){
     // Ensure card exists (retry if mirrorCard not yet on DOM)
@@ -384,17 +397,20 @@
         return;
       }
 
-      // 1) TIMED SYNC (karaoke) — prefer data.sync if it exists and has timing
+      // 1) TIMED SYNC (karaoke): prefer data.sync
       const syncArr = Array.isArray(data.sync) ? data.sync : null;
       if(syncArr && syncArr.length){
         const norm = normalizeTimedSync(syncArr);
         if(norm.length){
           timedLines = norm;
-          // render only text lines, no timestamps
+
+          // Render text-only lines (divs) so .active works
           renderPlainLines(norm.map(x => x.text));
+
           showCard();
           await syncTrackIdFromSpotify();
           progressTick();
+
           lastRenderedKey = songKey;
           return;
         }

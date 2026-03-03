@@ -86,11 +86,17 @@
         color: rgba(255,255,255,.55);
         opacity: .7;
         font-weight: 500;
-      }
-      #lyricsText .lyLine.dim{
-        opacity: .35;
-        color: rgba(255,255,255,.35);
-      }
+      #lyricsText .lyLine.active{
+  color: #8fd3ff; /* ice blue */
+  opacity: 1;
+  font-weight: 600;
+  transform: translateY(-1px);
+
+  text-shadow:
+    0 0 6px rgba(143,211,255,.55),
+    0 0 18px rgba(143,211,255,.35),
+    0 0 36px rgba(143,211,255,.18);
+}
       #lyricsText .lyLine.active{
         color: #35e0d2;
         opacity: 1;

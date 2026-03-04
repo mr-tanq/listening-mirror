@@ -27,7 +27,6 @@
       --safeT: max(14px, env(safe-area-inset-top));
       --safeB: max(14px, env(safe-area-inset-bottom));
 
-      /* ✅ axis now driven by scroll (JS below) */
       --axis: .50;
       --axisInv: calc(1 - var(--axis));
 
@@ -45,7 +44,6 @@
     *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
     html,body{ height:100%; }
 
-    /* ✅ body never scrolls */
     body{
       margin:0;
       overflow:hidden;
@@ -147,7 +145,6 @@
       opacity: .62;
     }
 
-    /* ✅ app is the ONLY scroller */
     .app{
       height: 100dvh;
       overflow-y: auto;
@@ -165,19 +162,20 @@
     header{ display:flex; align-items:flex-start; gap:14px; margin-bottom: 14px; }
     .brand{ display:flex; align-items:center; gap:10px; padding-left: 2px; }
 
-    /* ✅ bigger so the orb is readable */
     .glyph{
-      width: 22px; height: 22px; border-radius: 999px; position:relative;
+      width: 18px; height: 18px; border-radius: 999px; position:relative;
       background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.22), rgba(255,255,255,.05) 55%, rgba(255,255,255,.03) 70%);
       outline: 1px solid rgba(255,255,255,.10);
       box-shadow: 0 10px 35px rgba(0,0,0,.45);
       flex: 0 0 auto;
+      overflow:hidden; /* for orb canvas injection */
     }
     .glyph:before{
-      content:""; position:absolute; inset:4px; border-radius: 999px;
+      content:""; position:absolute; inset:3px; border-radius: 999px;
       outline: 1px solid rgba(255,255,255,.10);
       background: radial-gradient(circle at 65% 35%, rgba(255,255,255,.10), transparent 60%);
       opacity:.9;
+      pointer-events:none;
     }
 
     .wordmark{ display:flex; flex-direction:column; line-height: 1.15; }
@@ -398,7 +396,15 @@
     .eBadge{ font-size: 12px; font-weight: 750; color: rgba(255,255,255,.85); padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,.04); outline: 1px solid rgba(255,255,255,.08); }
     .eEmpty{ padding: 14px; color: rgba(255,255,255,.70); font-size: 13px; }
 
-    /* ✅ BRUTAL mobile perf mode */
+    /* ✅ hidden stubs to prevent JS crashes */
+    .stubs{
+      position:absolute;
+      width:0;height:0;
+      overflow:hidden;
+      opacity:0;
+      pointer-events:none;
+    }
+
     @media (max-width: 720px){
       body:before{ display:none !important; }
       .doodles{ display:none !important; }
@@ -435,13 +441,15 @@
     </header>
 
     <div class="tabs" role="tablist" aria-label="Main tabs">
-      <button class="tabBtn" data-tab="now" aria-selected="true" role="tab">Now</button>
-      <button class="tabBtn" data-tab="recent" aria-selected="false" role="tab">Recent</button>
-      <button class="tabBtn" data-tab="top" aria-selected="false" role="tab">Top</button>
-      <button class="tabBtn" data-tab="econcerts" aria-selected="false" role="tab">eConcerts</button>
+      <!-- ✅ IDs added so any JS using getElementById(...).classList won’t crash -->
+      <button id="tab-now" class="tabBtn" data-tab="now" aria-selected="true" role="tab">Now</button>
+      <button id="tab-recent" class="tabBtn" data-tab="recent" aria-selected="false" role="tab">Recent</button>
+      <button id="tab-top" class="tabBtn" data-tab="top" aria-selected="false" role="tab">Top</button>
+      <button id="tab-econcerts" class="tabBtn" data-tab="econcerts" aria-selected="false" role="tab">eConcerts</button>
     </div>
 
-    <section class="panel" data-panel="now">
+    <!-- ✅ IDs added on panels too -->
+    <section id="panel-now" class="panel" data-panel="now">
       <div class="card">
         <div id="nowAmbient" class="nowAmbient"></div>
 
@@ -475,13 +483,14 @@
         </div>
       </div>
 
+      <!-- keep doodleZone (optional) -->
       <div class="doodleZone" aria-hidden="true">
         <div class="doodleFloor bright"></div>
         <div class="doodleFloor dark"></div>
       </div>
     </section>
 
-    <section class="panel hidden" data-panel="top">
+    <section id="panel-top" class="panel hidden" data-panel="top">
       <div class="card">
         <div class="controls">
           <div class="seg" aria-label="Top type">
@@ -501,13 +510,13 @@
       </div>
     </section>
 
-    <section class="panel hidden" data-panel="recent">
+    <section id="panel-recent" class="panel hidden" data-panel="recent">
       <div class="card">
         <div class="list" id="recentList" aria-live="polite"></div>
       </div>
     </section>
 
-    <section class="panel hidden" data-panel="econcerts">
+    <section id="panel-econcerts" class="panel hidden" data-panel="econcerts">
       <div class="card">
         <div class="econcertsHead">
           <div class="econcertsTitle">
@@ -528,43 +537,46 @@
     </section>
   </div>
 
+  <!-- ✅ Hidden Mirror stubs: prevent crashes if any script still expects these IDs -->
+  <div class="stubs" aria-hidden="true">
+    <details id="orbDetails"><summary><span id="mirrorOrb"></span></summary></details>
+    <div id="mirrorCard"></div>
+    <div id="mirrorPill"></div>
+    <div id="mirrorPillText"></div>
+    <div id="mirrorState">IDLE</div>
+
+    <div id="mDot" style="left:50%"></div>
+
+    <i id="mEnergy" style="width:0%"></i>
+    <i id="mMood" style="width:0%"></i>
+    <i id="mReplay" style="width:0%"></i>
+
+    <div id="mEnergyNum">—</div>
+    <div id="mMoodNum">—</div>
+    <div id="mReplayNum">—</div>
+
+    <i id="pEnergy" style="width:0%"></i>
+    <i id="pMood" style="width:0%"></i>
+    <i id="pReplay" style="width:0%"></i>
+
+    <div id="pEnergyNum">—</div>
+    <div id="pMoodNum">—</div>
+    <div id="pReplayNum">—</div>
+
+    <div id="mCovers"></div>
+  </div>
+
   <script src="./spotify-auth.js?v=20260213a"></script>
   <script src="./spotify-player.js?v=20260213a"></script>
   <script src="./spotify-ui.js?v=20260213a"></script>
   <script src="./app.js?v=20260213a"></script>
 
-  <!-- ✅ Header Glyph Orb -->
-  <script src="./orb.js?v=20260304b"></script>
+  <!-- header orb -->
+  <script src="./orb.js?v=20260304a"></script>
 
   <script src="./econcerts.js?v=20260213a"></script>
 
-  <!-- ✅ drive --axis from scroll progress (cheap, no Mirror dependency) -->
-  <script>
-    (function(){
-      const root = document.documentElement;
-      const scroller = document.querySelector('.app');
-      if(!scroller) return;
-
-      let raf = 0;
-      function clamp01(x){ return Math.max(0, Math.min(1, x)); }
-
-      function update(){
-        raf = 0;
-        const max = Math.max(1, scroller.scrollHeight - scroller.clientHeight);
-        const t = clamp01(scroller.scrollTop / max);
-        root.style.setProperty('--axis', t.toFixed(4));
-      }
-
-      scroller.addEventListener('scroll', () => {
-        if(raf) return;
-        raf = requestAnimationFrame(update);
-      }, { passive:true });
-
-      update();
-    })();
-  </script>
-
-  <!-- ✅ Adaptive overlay sampler (text-zone) -->
+  <!-- ✅ keep your adaptive overlay sampler -->
   <script>
   (() => {
     const imgEl = document.getElementById("nowImg");

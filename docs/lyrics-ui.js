@@ -1,6 +1,6 @@
-/* lyrics-ui.js (FULL FILE REPLACE) — PART 1/3
+/* lyrics-ui.js (FULL FILE REPLACE) — 1 PART
    Listening Mirror — Lyrics UI (inject-only)
-   ✅ Injects Lyrics card under Mirror (NOW panel)
+   ✅ Injects Lyrics card under NOW card (no dependency on Mirror)
    ✅ Works with worker schema:
       - type:"plain" + plain (string)
       - type:"plain" + lines (string[])
@@ -78,7 +78,6 @@
     const st = document.createElement("style");
     st.id = "lyricsUiStyles";
 
-    // IMPORTANT: keep CSS valid (balanced braces). If this breaks, highlight breaks.
     st.textContent = `
       #lyricsText .lyLine{
         padding: 5px 0;
@@ -98,7 +97,7 @@
 
       /* ACTIVE LINE — ICE BLUE */
       #lyricsText .lyLine.active{
-        color: #8fd3ff; /* ice blue */
+        color: #8fd3ff;
         opacity: 1;
         font-weight: 600;
         transform: translateY(-1px);
@@ -123,8 +122,10 @@
 
     injectStylesOnce();
 
-    const mirrorCard = $("mirrorCard");
-    if(!mirrorCard) return false;
+    // ✅ anchor: the NOW card (first .card inside NOW panel)
+    const nowPanel = document.querySelector('.panel[data-panel="now"]');
+    const nowCard = nowPanel ? nowPanel.querySelector('.card') : null;
+    if(!nowPanel || !nowCard) return false;
 
     const card = document.createElement("div");
     card.id = "lyricsCard";
@@ -159,7 +160,7 @@
       </div>
     `;
 
-    mirrorCard.insertAdjacentElement("afterend", card);
+    nowCard.insertAdjacentElement("afterend", card);
     return true;
   }
 
@@ -193,7 +194,6 @@
     if(box) box.innerHTML = "";
     setHint("");
   }
-   /* lyrics-ui.js (FULL FILE REPLACE) — PART 2/3 */
 
   function renderPlainText(text){
     const box = $("lyricsText");
@@ -222,10 +222,6 @@
   }
 
   function normalizeTimedSync(sync){
-    // Accept:
-    //  - {timeMs, text}
-    //  - {t, text}
-    //  - {time, line}
     const out = [];
     let last = "";
 
@@ -235,7 +231,6 @@
       if(!text) continue;
       if(!Number.isFinite(ms) || ms < 0) continue;
 
-      // dedupe consecutive duplicates
       if(text === last) continue;
       last = text;
 
@@ -352,11 +347,9 @@
     const st = await spotifyMePlayer();
     if(!st || !st.item) return;
     currentTrackId = st.item.id || "";
-                                 }
-   /* lyrics-ui.js (FULL FILE REPLACE) — PART 3/3 */
+  }
 
   async function fetchLyrics(artist, track, album){
-    // Ensure card exists (retry if mirrorCard not yet on DOM)
     if(!ensureCardInjected()) return;
 
     const a = cleanTitle(artist);
@@ -404,7 +397,6 @@
         if(norm.length){
           timedLines = norm;
 
-          // Render text-only lines (divs) so .active works
           renderPlainLines(norm.map(x => x.text));
 
           showCard();
@@ -443,7 +435,7 @@
   }
 
   function boot(){
-    // In case scripts run before mirrorCard exists, retry a few times
+    // retry inject a bit (DOM order / slow scripts)
     let tries = 0;
     const injectTimer = setInterval(() => {
       tries++;

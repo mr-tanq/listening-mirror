@@ -1,12 +1,11 @@
-/* aura-tab.js (FULL FILE REPLACE) — PART 1/4
-   Listening Mirror — Aura Popup (title portal)
-   ✅ Makes wordmark title lowercase: "listening mirror"
-   ✅ Premium "sacred" styling (tracking + subtle halo)
-   ✅ Tap title opens Aura popup (modal card)
-   ✅ Uses Spotify /me/player + /audio-features to drive aura
-   ✅ Big orb + 4 signals: heat, focus, depth, flux
-   ✅ Robust: if Spotify unavailable => graceful fallback + still looks alive
-   ✅ FIX: ensure Spotify connect icon exists on the right of tabs (if missing)
+/* aura-tab.js (FULL FILE REPLACE) — 1 PART ✅
+   Listening Mirror — Aura Popup + Spotify icon pinned right
+   ✅ Title: "listening mirror" (lowercase, premium)
+   ✅ Tap title opens Aura modal (orb works)
+   ✅ Spotify icon ALWAYS visible (pinned right of tabs, not clipped)
+   ✅ NO circle/outline around Spotify icon
+   ✅ Connected = black icon, Disconnected = gray icon
+   ✅ Tap icon toggles connect / disconnect (best-effort)
 */
 
 (() => {
@@ -14,15 +13,12 @@
 
   const SPOTIFY_API = "https://api.spotify.com/v1";
 
-  // Polling
   const OPEN_POLL_MS = 12_000;
   const CLOSED_POLL_MS = 45_000;
 
-  // Perf caps
   const MAX_DPR = 2.25;
   const FPS_CAP = 60;
 
-  // Helpers
   const clamp01 = (x) => Math.max(0, Math.min(1, x));
   const lerp = (a,b,t) => a + (b-a)*t;
   const $ = (sel, root=document) => root.querySelector(sel);
@@ -34,7 +30,22 @@
     if (window.SpotifyPlayer && typeof window.SpotifyPlayer.getAccessToken === "function") {
       return window.SpotifyPlayer.getAccessToken();
     }
+    try{
+      // last resort: common keys (won’t break if none)
+      const keys = Object.keys(localStorage || {});
+      for (const k of keys){
+        if(/spotify.*access.*token|access.*token.*spotify/i.test(k)){
+          const v = localStorage.getItem(k);
+          if(v && v.length > 10) return v;
+        }
+      }
+    }catch{}
     return null;
+  }
+
+  function isConnected(){
+    const t = getToken();
+    return !!(t && String(t).length > 10);
   }
 
   async function spotifyGet(path){
@@ -49,30 +60,24 @@
     return json;
   }
 
-  async function getPlayer(){
-    return await spotifyGet("/me/player");
-  }
-
+  async function getPlayer(){ return await spotifyGet("/me/player"); }
   async function getAudioFeatures(trackId){
     return await spotifyGet(`/audio-features/${encodeURIComponent(trackId)}`);
   }
 
-  // ---------- Find title ----------
+  // ----------------- Find title -----------------
   const titleEl = $(".wordmark .title");
   const brandEl = $(".brand");
   if(!titleEl || !brandEl) return;
 
-  // Force lowercase label (your chosen option 1)
   titleEl.textContent = "listening mirror";
-
-  // Make it the portal button (but subtle)
   titleEl.style.cursor = "pointer";
   titleEl.style.userSelect = "none";
   titleEl.setAttribute("role", "button");
   titleEl.setAttribute("tabindex", "0");
   titleEl.setAttribute("aria-label", "Open aura");
 
-  // Inject premium styling (no index edits needed)
+  // ----------------- Styles -----------------
   const style = document.createElement("style");
   style.id = "auraTabStyles";
   style.textContent = `
@@ -102,35 +107,51 @@
       transform: translateY(0px);
       pointer-events:none;
     }
-    .wordmark .title:active:after{
-      opacity: .85;
-      transform: translateY(1px);
+    .wordmark .title:active:after{ opacity:.85; transform: translateY(1px); }
+    .wordmark .title.auraHover:after{ opacity:.55; }
+
+    /* ✅ Spotify icon pinned right (not clipped) */
+    .tabs{
+      position: relative !important;
+      padding-right: 46px !important; /* reserve space */
     }
-    .wordmark .title.auraHover:after{
-      opacity: .55;
+    #lmSpotifyIconBtn{
+      position: absolute !important;
+      right: 10px !important;
+      top: 50% !important;
+      transform: translateY(-50%) !important;
+      z-index: 5 !important;
     }
 
-    /* Spotify connect icon (tabs right) */
-    .lmSpotifyBtn{
-      margin-left: auto;
-      width: 40px;
-      height: 40px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      border: 0;
-      cursor: pointer;
-      border-radius: 999px;
-      background: rgba(255,255,255,.04);
-      outline: 1px solid rgba(255,255,255,.10);
-      box-shadow: 0 12px 34px rgba(0,0,0,.30);
-      color: rgba(255,255,255,.86);
-      flex: 0 0 auto;
+    /* ✅ Icon only — NO circle, NO outline */
+    .lmSpotifyIconBtn{
+      border: 0 !important;
+      outline: 0 !important;
+      background: transparent !important;
+      padding: 6px !important;
+      border-radius: 0 !important;
+      cursor: pointer !important;
+      line-height: 0 !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      -webkit-tap-highlight-color: transparent !important;
     }
-    .lmSpotifyBtn:active{ transform: translateY(1px); }
-    .lmSpotifyBtn svg{ width: 18px; height: 18px; display:block; opacity:.92; }
-    .lmSpotifyBtn[data-state="off"]{ opacity: .78; }
-    .lmSpotifyBtn[data-state="on"]{ opacity: 1; outline-color: rgba(49,208,124,.35); }
+    .lmSpotifyIconBtn svg{
+      width: 20px !important;
+      height: 20px !important;
+      display:block !important;
+      transition: opacity .15s ease, transform .15s ease !important;
+    }
+    .lmSpotifyIconBtn:active svg{ transform: translateY(1px); }
+
+    /* Disconnected = gray */
+    .lmSpotifyIconBtn[data-state="off"]{ color: rgba(170,175,184,.70) !important; }
+    .lmSpotifyIconBtn[data-state="off"] svg{ opacity: .90 !important; }
+
+    /* Connected = black */
+    .lmSpotifyIconBtn[data-state="on"]{ color: rgba(0,0,0,.92) !important; }
+    .lmSpotifyIconBtn[data-state="on"] svg{ opacity: 1 !important; filter: drop-shadow(0 0 6px rgba(255,255,255,.16)); }
 
     /* Modal overlay */
     .auraOverlay{
@@ -149,7 +170,6 @@
       backdrop-filter: blur(10px);
       -webkit-backdrop-filter: blur(10px);
     }
-
     .auraCard{
       width: min(420px, calc(100vw - 26px));
       border-radius: 22px;
@@ -162,12 +182,8 @@
       transition: transform .18s ease, opacity .18s ease;
       will-change: transform, opacity;
     }
-
     .auraOverlay.on{ display:flex; }
-    .auraOverlay.on .auraCard{
-      transform: translateY(0) scale(1);
-      opacity: 1;
-    }
+    .auraOverlay.on .auraCard{ transform: translateY(0) scale(1); opacity: 1; }
 
     .auraTop{
       padding: 14px 16px 10px 16px;
@@ -207,7 +223,6 @@
       color: rgba(255,255,255,.90);
     }
     .auraClose:active{ transform: translateY(1px); }
-
     .auraBody{ padding: 16px; }
 
     .auraOrbWrap{
@@ -251,7 +266,6 @@
       overflow:hidden;
     }
     .auraBoxWide{ grid-column: 1/-1; }
-
     .auraK{
       font-size: 10px;
       letter-spacing: .30px;
@@ -297,63 +311,96 @@
     }
   `;
   document.head.appendChild(style);
-   /* aura-tab.js (FULL FILE REPLACE) — PART 2/4 */
 
-  // ---------- Ensure Spotify connect icon (right of tabs) ----------
-  function ensureSpotifyConnectButton(){
+  // ----------------- Spotify connect / disconnect (best-effort) -----------------
+  async function connectSpotify(){
+    if (window.SpotifyAuth && typeof window.SpotifyAuth.connect === "function") {
+      await window.SpotifyAuth.connect();
+      return;
+    }
+    if (window.SpotifyAuth && typeof window.SpotifyAuth.login === "function") {
+      await window.SpotifyAuth.login();
+      return;
+    }
+    window.dispatchEvent(new CustomEvent("spotify:connect"));
+  }
+
+  function nukeLocalSpotifyTokens(){
+    try{
+      const keys = Object.keys(localStorage || {});
+      for (const k of keys){
+        if(/spotify|spoti|access[_-]?token|refresh[_-]?token|oauth/i.test(k)) {
+          try{ localStorage.removeItem(k); }catch{}
+        }
+      }
+      const skeys = Object.keys(sessionStorage || {});
+      for (const k of skeys){
+        if(/spotify|spoti|access[_-]?token|refresh[_-]?token|oauth/i.test(k)) {
+          try{ sessionStorage.removeItem(k); }catch{}
+        }
+      }
+    }catch{}
+  }
+
+  async function disconnectSpotify(){
+    if (window.SpotifyAuth && typeof window.SpotifyAuth.disconnect === "function") {
+      await window.SpotifyAuth.disconnect(); return;
+    }
+    if (window.SpotifyAuth && typeof window.SpotifyAuth.logout === "function") {
+      await window.SpotifyAuth.logout(); return;
+    }
+    if (window.SpotifyPlayer && typeof window.SpotifyPlayer.disconnect === "function") {
+      await window.SpotifyPlayer.disconnect(); return;
+    }
+    nukeLocalSpotifyTokens();
+    window.dispatchEvent(new CustomEvent("spotify:disconnect"));
+  }
+
+  function ensureSpotifyIconButton(){
     const tabs = $(".tabs");
     if(!tabs) return;
 
-    // If you already have one, keep it.
-    if ($("#lmSpotifyConnectBtn")) return;
+    let btn = document.getElementById("lmSpotifyIconBtn");
+    if(!btn){
+      btn = document.createElement("button");
+      btn.id = "lmSpotifyIconBtn";
+      btn.className = "lmSpotifyIconBtn";
+      btn.type = "button";
 
-    // Try to detect an existing spotify button by common hints
-    const existing =
-      tabs.querySelector('[aria-label*="Spotify" i]') ||
-      tabs.querySelector('[data-spotify]') ||
-      tabs.querySelector('#spotifyBtn') ||
-      tabs.querySelector('.spotifyBtn');
-    if (existing) return;
+      btn.innerHTML = `
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path fill="currentColor" d="M12 2C6.48 2 2 6.477 2 12s4.48 10 10 10 10-4.477 10-10S17.52 2 12 2zm4.588 14.384a.75.75 0 0 1-1.03.248c-2.82-1.724-6.372-2.114-10.56-1.157a.75.75 0 1 1-.335-1.462c4.57-1.046 8.502-.597 11.676 1.345a.75.75 0 0 1 .249 1.026zm1.472-3.095a.9.9 0 0 1-1.236.298c-3.23-1.985-8.155-2.56-11.973-1.4a.9.9 0 0 1-.523-1.722c4.37-1.329 9.79-.68 13.5 1.6a.9.9 0 0 1 .232 1.224zm.126-3.21C14.38 7.82 8.03 7.633 4.57 8.68a1.05 1.05 0 0 1-.61-2.01c3.98-1.206 10.93-0.976 15.35 1.67a1.05 1.05 0 0 1-1.124 1.738z"/>
+        </svg>
+      `;
 
-    const btn = document.createElement("button");
-    btn.id = "lmSpotifyConnectBtn";
-    btn.className = "lmSpotifyBtn";
-    btn.type = "button";
-    btn.setAttribute("aria-label", "Spotify connect");
-    btn.setAttribute("title", "Spotify connect");
-    btn.dataset.state = getToken() ? "on" : "off";
-
-    btn.innerHTML = `
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-        <path fill="currentColor" d="M12 2C6.48 2 2 6.477 2 12s4.48 10 10 10 10-4.477 10-10S17.52 2 12 2zm4.588 14.384a.75.75 0 0 1-1.03.248c-2.82-1.724-6.372-2.114-10.56-1.157a.75.75 0 1 1-.335-1.462c4.57-1.046 8.502-.597 11.676 1.345a.75.75 0 0 1 .249 1.026zm1.472-3.095a.9.9 0 0 1-1.236.298c-3.23-1.985-8.155-2.56-11.973-1.4a.9.9 0 0 1-.523-1.722c4.37-1.329 9.79-.68 13.5 1.6a.9.9 0 0 1 .232 1.224zm.126-3.21C14.38 7.82 8.03 7.633 4.57 8.68a1.05 1.05 0 0 1-.61-2.01c3.98-1.206 10.93-0.976 15.35 1.67a1.05 1.05 0 0 1-1.124 1.738z"/>
-      </svg>
-    `;
-
-    btn.addEventListener("click", async () => {
-      // Best effort: trigger whatever your auth layer exposes.
-      try{
-        // If you have a direct connect method, use it.
-        if (window.SpotifyAuth && typeof window.SpotifyAuth.connect === "function") {
-          await window.SpotifyAuth.connect();
-          btn.dataset.state = getToken() ? "on" : "off";
-          return;
+      btn.addEventListener("click", async () => {
+        try{
+          if (isConnected()) await disconnectSpotify();
+          else await connectSpotify();
+        }finally{
+          // update state after auth flow / storage changes
+          setTimeout(syncBtn, 150);
+          setTimeout(syncBtn, 700);
+          setTimeout(syncBtn, 1400);
         }
+      }, { passive:true });
 
-        // Otherwise, dispatch an event your other scripts can catch.
-        window.dispatchEvent(new CustomEvent("spotify:connect"));
+      tabs.appendChild(btn);
+    }
 
-        // Small optimistic UI refresh
-        setTimeout(() => { btn.dataset.state = getToken() ? "on" : "off"; }, 600);
-      }catch{
-        // Keep silent; it’s just a button.
-      }
-    }, { passive: true });
+    function syncBtn(){
+      const on = isConnected();
+      btn.dataset.state = on ? "on" : "off";
+      btn.setAttribute("aria-label", on ? "Spotify disconnect" : "Spotify connect");
+      btn.setAttribute("title", on ? "Spotify disconnect" : "Spotify connect");
+    }
 
-    // Put it as the last item in the pills row, and push it to the far right
-    tabs.appendChild(btn);
+    syncBtn();
+    window.addEventListener("spotify:connected", syncBtn, { passive:true });
+    window.addEventListener("spotify:disconnected", syncBtn, { passive:true });
   }
 
-  // ---------- Build modal ----------
+  // ----------------- Build modal -----------------
   const overlay = document.createElement("div");
   overlay.className = "auraOverlay";
   overlay.setAttribute("role", "dialog");
@@ -434,22 +481,19 @@
   const fluxNum = $("#auraFluxNum", overlay);
 
   const auraLine = $("#auraLine", overlay);
-   /* aura-tab.js (FULL FILE REPLACE) — PART 3/4 */
 
-  // ---------- State (0..1) ----------
+  // ----------------- State -----------------
   let open = false;
   let rafId = 0;
   let lastFrame = 0;
   let lastTrackId = "";
   let pollTimer = 0;
 
-  // Signals
-  let heat = 0.55;   // energy
-  let focus = 0.55;  // instrumentalness + low danceability => “focus”
-  let depth = 0.55;  // low valence + acousticness => “depth”
-  let flux = 0.50;   // danceability + tempo => “flux”
+  let heat = 0.55;
+  let focus = 0.55;
+  let depth = 0.55;
+  let flux = 0.50;
 
-  // Color driver
   let hue = 210;
   let sat = 88;
   let light = 62;
@@ -467,41 +511,25 @@
       startPolling(false);
     }
   }
+  function toggle(){ setOverlay(!open); }
 
-  function toggle(){
-    setOverlay(!open);
-  }
-
-  // Close handlers
   closeBtn?.addEventListener("click", () => setOverlay(false), { passive:true });
-
-  // Click outside card closes
   overlay.addEventListener("pointerdown", (e) => {
     if(!open) return;
     if(card && card.contains(e.target)) return;
     setOverlay(false);
   }, { passive:true });
-
-  // ESC closes
   document.addEventListener("keydown", (e) => {
     if(!open) return;
     if(e.key === "Escape") setOverlay(false);
   });
 
-  // Title handlers
-  titleEl.addEventListener("click", (e) => {
-    e.preventDefault();
-    toggle();
-  });
-
+  titleEl.addEventListener("click", (e) => { e.preventDefault(); toggle(); });
   titleEl.addEventListener("keydown", (e) => {
-    if(e.key === "Enter" || e.key === " "){
-      e.preventDefault();
-      toggle();
-    }
+    if(e.key === "Enter" || e.key === " "){ e.preventDefault(); toggle(); }
   });
 
-  // ---------- UI update ----------
+  // ----------------- UI -----------------
   function setBars(){
     const H = clamp01(heat);
     const F = clamp01(focus);
@@ -530,11 +558,9 @@
   }
 
   function setHintText(txt){
-    if(!hint) return;
-    hint.textContent = txt || "—";
+    if(hint) hint.textContent = txt || "—";
   }
 
-  // ---------- Spotify-driven aura ----------
   function normalizePercent01(n, fallback){
     const v = Number(n);
     if(!Number.isFinite(v)) return fallback;
@@ -559,22 +585,17 @@
       setHintText(`${artist} — ${track}`);
 
       if(!id){
-        driftFallback();
-        setBars();
-        return;
+        driftFallback(); setBars(); return;
       }
 
       if(id === lastTrackId){
-        setBars();
-        return;
+        setBars(); return;
       }
       lastTrackId = id;
 
       const af = await getAudioFeatures(id);
       if(!af){
-        driftFallback();
-        setBars();
-        return;
+        driftFallback(); setBars(); return;
       }
 
       const e = normalizePercent01(af.energy, heat);
@@ -584,15 +605,15 @@
       const ins = normalizePercent01(af.instrumentalness, focus);
       const tempo = Number(af.tempo || 0);
 
-      const heatT = clamp01(e*0.82 + clamp01((tempo-70)/120)*0.18);
+      const heatT  = clamp01(e*0.82 + clamp01((tempo-70)/120)*0.18);
       const focusT = clamp01(ins*0.70 + (1-da)*0.30);
       const depthT = clamp01((1-v)*0.70 + ac*0.30);
-      const fluxT = clamp01(da*0.68 + clamp01((tempo-60)/140)*0.32);
+      const fluxT  = clamp01(da*0.68 + clamp01((tempo-60)/140)*0.32);
 
-      heat = lerp(heat, heatT, 0.32);
+      heat  = lerp(heat,  heatT,  0.32);
       focus = lerp(focus, focusT, 0.32);
       depth = lerp(depth, depthT, 0.32);
-      flux = lerp(flux, fluxT, 0.32);
+      flux  = lerp(flux,  fluxT,  0.32);
 
       const warm = v;
       const deep = depthT;
@@ -616,7 +637,6 @@
     focus = clamp01(focus + d());
     depth = clamp01(depth + d());
     flux = clamp01(flux + d());
-
     hue = (hue + (Math.random()-0.5)*6 + 360) % 360;
     sat = clamp01(sat/100 + d())*100;
     light = clamp01(light/100 + d())*100;
@@ -625,10 +645,9 @@
   function startPolling(isOpen){
     if(pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(pollSpotify, isOpen ? OPEN_POLL_MS : CLOSED_POLL_MS);
- }
-   /* aura-tab.js (FULL FILE REPLACE) — PART 4/4 */
+  }
 
-  // ---------- Orb draw ----------
+  // ----------------- Orb draw -----------------
   function resizeCanvas(){
     if(!c || !ctx) return;
     const dpr = Math.min(MAX_DPR, window.devicePixelRatio || 1);
@@ -642,10 +661,7 @@
   }
 
   function draw(ts){
-    if(!ctx || !c){
-      rafId = 0;
-      return;
-    }
+    if(!ctx || !c){ rafId = 0; return; }
 
     if(FPS_CAP > 0){
       const minFrame = 1000 / FPS_CAP;
@@ -715,12 +731,11 @@
     rafId = requestAnimationFrame(draw);
   }
 
-  // ---------- Boot ----------
+  // ----------------- Boot -----------------
   function boot(){
-    // Ensure spotify icon exists (and keep it alive even if other scripts re-render)
-    ensureSpotifyConnectButton();
-    setTimeout(ensureSpotifyConnectButton, 350);
-    setTimeout(ensureSpotifyConnectButton, 1100);
+    ensureSpotifyIconButton();
+    setTimeout(ensureSpotifyIconButton, 250);
+    setTimeout(ensureSpotifyIconButton, 900);
 
     setBars();
     pollSpotify();

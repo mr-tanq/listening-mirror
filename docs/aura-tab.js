@@ -1,4 +1,4 @@
-/* aura-tab.js (FULL FILE REPLACE)
+/* aura-tab.js (FULL FILE REPLACE) — PART 1/4
    Listening Mirror — Aura Popup (title portal)
    ✅ Makes wordmark title lowercase: "listening mirror"
    ✅ Premium "sacred" styling (tracking + subtle halo)
@@ -6,6 +6,7 @@
    ✅ Uses Spotify /me/player + /audio-features to drive aura
    ✅ Big orb + 4 signals: heat, focus, depth, flux
    ✅ Robust: if Spotify unavailable => graceful fallback + still looks alive
+   ✅ FIX: ensure Spotify connect icon exists on the right of tabs (if missing)
 */
 
 (() => {
@@ -109,6 +110,28 @@
       opacity: .55;
     }
 
+    /* Spotify connect icon (tabs right) */
+    .lmSpotifyBtn{
+      margin-left: auto;
+      width: 40px;
+      height: 40px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      cursor: pointer;
+      border-radius: 999px;
+      background: rgba(255,255,255,.04);
+      outline: 1px solid rgba(255,255,255,.10);
+      box-shadow: 0 12px 34px rgba(0,0,0,.30);
+      color: rgba(255,255,255,.86);
+      flex: 0 0 auto;
+    }
+    .lmSpotifyBtn:active{ transform: translateY(1px); }
+    .lmSpotifyBtn svg{ width: 18px; height: 18px; display:block; opacity:.92; }
+    .lmSpotifyBtn[data-state="off"]{ opacity: .78; }
+    .lmSpotifyBtn[data-state="on"]{ opacity: 1; outline-color: rgba(49,208,124,.35); }
+
     /* Modal overlay */
     .auraOverlay{
       position: fixed;
@@ -185,9 +208,7 @@
     }
     .auraClose:active{ transform: translateY(1px); }
 
-    .auraBody{
-      padding: 16px;
-    }
+    .auraBody{ padding: 16px; }
 
     .auraOrbWrap{
       border-radius: 20px;
@@ -276,6 +297,61 @@
     }
   `;
   document.head.appendChild(style);
+   /* aura-tab.js (FULL FILE REPLACE) — PART 2/4 */
+
+  // ---------- Ensure Spotify connect icon (right of tabs) ----------
+  function ensureSpotifyConnectButton(){
+    const tabs = $(".tabs");
+    if(!tabs) return;
+
+    // If you already have one, keep it.
+    if ($("#lmSpotifyConnectBtn")) return;
+
+    // Try to detect an existing spotify button by common hints
+    const existing =
+      tabs.querySelector('[aria-label*="Spotify" i]') ||
+      tabs.querySelector('[data-spotify]') ||
+      tabs.querySelector('#spotifyBtn') ||
+      tabs.querySelector('.spotifyBtn');
+    if (existing) return;
+
+    const btn = document.createElement("button");
+    btn.id = "lmSpotifyConnectBtn";
+    btn.className = "lmSpotifyBtn";
+    btn.type = "button";
+    btn.setAttribute("aria-label", "Spotify connect");
+    btn.setAttribute("title", "Spotify connect");
+    btn.dataset.state = getToken() ? "on" : "off";
+
+    btn.innerHTML = `
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path fill="currentColor" d="M12 2C6.48 2 2 6.477 2 12s4.48 10 10 10 10-4.477 10-10S17.52 2 12 2zm4.588 14.384a.75.75 0 0 1-1.03.248c-2.82-1.724-6.372-2.114-10.56-1.157a.75.75 0 1 1-.335-1.462c4.57-1.046 8.502-.597 11.676 1.345a.75.75 0 0 1 .249 1.026zm1.472-3.095a.9.9 0 0 1-1.236.298c-3.23-1.985-8.155-2.56-11.973-1.4a.9.9 0 0 1-.523-1.722c4.37-1.329 9.79-.68 13.5 1.6a.9.9 0 0 1 .232 1.224zm.126-3.21C14.38 7.82 8.03 7.633 4.57 8.68a1.05 1.05 0 0 1-.61-2.01c3.98-1.206 10.93-0.976 15.35 1.67a1.05 1.05 0 0 1-1.124 1.738z"/>
+      </svg>
+    `;
+
+    btn.addEventListener("click", async () => {
+      // Best effort: trigger whatever your auth layer exposes.
+      try{
+        // If you have a direct connect method, use it.
+        if (window.SpotifyAuth && typeof window.SpotifyAuth.connect === "function") {
+          await window.SpotifyAuth.connect();
+          btn.dataset.state = getToken() ? "on" : "off";
+          return;
+        }
+
+        // Otherwise, dispatch an event your other scripts can catch.
+        window.dispatchEvent(new CustomEvent("spotify:connect"));
+
+        // Small optimistic UI refresh
+        setTimeout(() => { btn.dataset.state = getToken() ? "on" : "off"; }, 600);
+      }catch{
+        // Keep silent; it’s just a button.
+      }
+    }, { passive: true });
+
+    // Put it as the last item in the pills row, and push it to the far right
+    tabs.appendChild(btn);
+  }
 
   // ---------- Build modal ----------
   const overlay = document.createElement("div");
@@ -358,6 +434,7 @@
   const fluxNum = $("#auraFluxNum", overlay);
 
   const auraLine = $("#auraLine", overlay);
+   /* aura-tab.js (FULL FILE REPLACE) — PART 3/4 */
 
   // ---------- State (0..1) ----------
   let open = false;
@@ -368,12 +445,12 @@
 
   // Signals
   let heat = 0.55;   // energy
-  let focus = 0.55;  // instrumentalness + low speechiness-ish (we don't have speechiness in audio-features)
-  let depth = 0.55;  // low valence + acousticness blend
-  let flux = 0.50;   // danceability + tempo blend
+  let focus = 0.55;  // instrumentalness + low danceability => “focus”
+  let depth = 0.55;  // low valence + acousticness => “depth”
+  let flux = 0.50;   // danceability + tempo => “flux”
 
   // Color driver
-  let hue = 210;     // will shift per track
+  let hue = 210;
   let sat = 88;
   let light = 62;
 
@@ -442,7 +519,6 @@
     if(fluxNum) fluxNum.textContent = `${Math.round(X*100)}`;
 
     if(auraLine){
-      // Minimal, premium wording
       const line =
         (H > .72 && X > .62) ? "Kinetic. Bright edges." :
         (D > .72 && H < .52) ? "Deep. Slow gravity." :
@@ -471,7 +547,6 @@
       const st = await getPlayer();
       if(!st || !st.item){
         setHintText("No active playback.");
-        // gentle drift
         driftFallback();
         setBars();
         return;
@@ -481,7 +556,6 @@
       const artist = st.item?.artists?.[0]?.name || "—";
       const id = st.item?.id || "";
 
-      // Update hint always (feels alive even if features fail)
       setHintText(`${artist} — ${track}`);
 
       if(!id){
@@ -490,10 +564,7 @@
         return;
       }
 
-      // Only refetch audio-features when track changes
       if(id === lastTrackId){
-        // small time-based breathing even when same track
-        breatheFromTempo(null);
         setBars();
         return;
       }
@@ -506,7 +577,6 @@
         return;
       }
 
-      // Audio-features (0..1): energy, valence, danceability, acousticness, instrumentalness
       const e = normalizePercent01(af.energy, heat);
       const v = normalizePercent01(af.valence, 0.5);
       const da = normalizePercent01(af.danceability, flux);
@@ -514,44 +584,26 @@
       const ins = normalizePercent01(af.instrumentalness, focus);
       const tempo = Number(af.tempo || 0);
 
-      // Map to our “mystical” signals (still grounded in Spotify data)
-      // Heat: mostly energy, slightly tempo
       const heatT = clamp01(e*0.82 + clamp01((tempo-70)/120)*0.18);
-
-      // Focus: instrumentalness + lower danceability (less “party”) gives more “focus”
       const focusT = clamp01(ins*0.70 + (1-da)*0.30);
-
-      // Depth: low valence + some acousticness gives “depth/weight”
       const depthT = clamp01((1-v)*0.70 + ac*0.30);
-
-      // Flux: danceability + tempo (movement)
       const fluxT = clamp01(da*0.68 + clamp01((tempo-60)/140)*0.32);
 
-      // Smooth transitions (premium feel)
       heat = lerp(heat, heatT, 0.32);
       focus = lerp(focus, focusT, 0.32);
       depth = lerp(depth, depthT, 0.32);
       flux = lerp(flux, fluxT, 0.32);
 
-      // Color: hue depends on valence + depth.
-      // - Higher valence => warmer
-      // - Higher depth => shift to violet/indigo
-      const warm = v;         // 0..1
-      const deep = depthT;    // 0..1
-
-      const targetHue =
-        lerp(205, 32, warm) + lerp(0, 55, deep); // blue -> warm, then pull into violet when deep
+      const warm = v;
+      const deep = depthT;
+      const targetHue = lerp(205, 32, warm) + lerp(0, 55, deep);
       hue = (targetHue % 360 + 360) % 360;
 
       sat = lerp(72, 96, clamp01(heatT*0.65 + fluxT*0.35));
       light = lerp(56, 70, clamp01(0.55 + heatT*0.25 - depthT*0.18));
 
-      // Also “breathe” based on tempo
-      breatheFromTempo(tempo);
-
       setBars();
     }catch{
-      // Spotify not ready / token missing / CORS etc.
       setHintText("Aura waiting for Spotify…");
       driftFallback();
       setBars();
@@ -565,30 +617,22 @@
     depth = clamp01(depth + d());
     flux = clamp01(flux + d());
 
-    // slow hue drift
     hue = (hue + (Math.random()-0.5)*6 + 360) % 360;
     sat = clamp01(sat/100 + d())*100;
     light = clamp01(light/100 + d())*100;
   }
 
-  function breatheFromTempo(tempo){
-    // tempo influences internal “pulse speed” used in draw()
-    // we store as a derived factor (cheap)
-    // If tempo missing, keep stable.
-    if(!Number.isFinite(tempo) || tempo <= 0) return;
-    // no-op here; draw() uses current signals anyway
-  }
-
   function startPolling(isOpen){
     if(pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(pollSpotify, isOpen ? OPEN_POLL_MS : CLOSED_POLL_MS);
-  }
+ }
+   /* aura-tab.js (FULL FILE REPLACE) — PART 4/4 */
 
-  // ---------- Orb draw (big, premium, not neon-cheap) ----------
+  // ---------- Orb draw ----------
   function resizeCanvas(){
     if(!c || !ctx) return;
     const dpr = Math.min(MAX_DPR, window.devicePixelRatio || 1);
-    const css = 240; // matches style width/height
+    const css = 240;
     const px = Math.round(css * dpr);
     if(c.width !== px || c.height !== px){
       c.width = px;
@@ -603,7 +647,6 @@
       return;
     }
 
-    // FPS cap
     if(FPS_CAP > 0){
       const minFrame = 1000 / FPS_CAP;
       if(ts - lastFrame < minFrame){
@@ -621,12 +664,10 @@
 
     ctx.clearRect(0,0,W,H);
 
-    // Convert css-space feel into px-space
     const baseR = (Math.min(W,H) * 0.26);
     const pulse = 0.5 + 0.5*Math.sin(ts*0.0022 + flux*2.3);
     const r = baseR * (0.92 + pulse*0.08 + heat*0.06);
 
-    // Background aura field
     const field = ctx.createRadialGradient(cx, cy, r*0.2, cx, cy, r*2.6);
     field.addColorStop(0, `hsla(${hue}, ${sat}%, ${light+10}%, ${0.20 + heat*0.20})`);
     field.addColorStop(0.55, `hsla(${(hue+28)%360}, ${sat}%, ${light}%, ${0.10 + depth*0.16})`);
@@ -636,14 +677,12 @@
     ctx.arc(cx, cy, r*2.6, 0, Math.PI*2);
     ctx.fill();
 
-    // Outer veil ring
     ctx.strokeStyle = `hsla(${(hue+12)%360}, ${sat}%, ${light+6}%, ${0.10 + focus*0.14})`;
     ctx.lineWidth = Math.max(1, Math.round(1.6*dpr));
     ctx.beginPath();
     ctx.arc(cx, cy, r*1.38, 0, Math.PI*2);
     ctx.stroke();
 
-    // Core glass
     const core = ctx.createRadialGradient(cx - r*0.22, cy - r*0.28, r*0.18, cx, cy, r);
     core.addColorStop(0, `hsla(${hue}, ${sat}%, ${light+18}%, 0.72)`);
     core.addColorStop(0.62, `hsla(${(hue+18)%360}, ${sat}%, ${light+2}%, ${0.18 + heat*0.20})`);
@@ -653,13 +692,11 @@
     ctx.arc(cx, cy, r, 0, Math.PI*2);
     ctx.fill();
 
-    // Specular highlight (premium glass)
     ctx.fillStyle = `rgba(255,255,255,${0.12 + heat*0.08})`;
     ctx.beginPath();
     ctx.ellipse(cx - r*0.20, cy - r*0.30, r*0.45, r*0.30, -0.55, 0, Math.PI*2);
     ctx.fill();
 
-    // Micro particles (controlled, not noisy)
     const pCount = Math.round(10 + flux*14 + heat*6);
     for(let i=0;i<pCount;i++){
       const ang = (ts*0.00025 + i*0.43) * (0.9 + flux*0.8);
@@ -675,20 +712,22 @@
       ctx.fill();
     }
 
-    // If modal closed, keep rendering slower? (we just keep running; cheap)
     rafId = requestAnimationFrame(draw);
   }
 
   // ---------- Boot ----------
   function boot(){
+    // Ensure spotify icon exists (and keep it alive even if other scripts re-render)
+    ensureSpotifyConnectButton();
+    setTimeout(ensureSpotifyConnectButton, 350);
+    setTimeout(ensureSpotifyConnectButton, 1100);
+
     setBars();
     pollSpotify();
     startPolling(false);
 
-    // Keep it CLOSED by default
     setOverlay(false);
 
-    // Gentle “invite” pulse once (1.2s) to hint it opens (not spammy)
     let t = 0;
     const invite = setInterval(() => {
       t += 1;
@@ -697,7 +736,6 @@
     }, 200);
     setTimeout(() => { titleEl.classList.remove("auraHover"); clearInterval(invite); }, 1200);
 
-    // If user scrolls / rotates, keep canvas crisp
     window.addEventListener("resize", () => { if(open) resizeCanvas(); }, { passive:true });
   }
 

@@ -1,38 +1,37 @@
-/* Listening Mirror — orb.js (FULL FILE REPLACE)
-   - Injects a "Listening Soul" Orb inside .glyph (Canvas 2D)
-   - Subtle color mood (no Spotify needed): derived from intensity/energy/focus/discovery
-   - Tap/press shows a tiny popup (minimal words)
-     • Quick tap => stays briefly (grace) then auto-hides
-     • Press/hold => stays while holding, hides on release/outside
-   - No changes to app.js behavior
+/* orb.js (FULL FILE REPLACE) — PART 1/3
+   Listening Mirror — Header Glyph Orb
+   ✅ Injects animated orb canvas inside .glyph
+   ✅ Tap toggles popup open/close
+   ✅ Tap outside closes (Option 2)
+   ✅ Robust: API errors won't break UI (fallback values)
 */
 
 (() => {
   "use strict";
 
+  // ==== CONFIG ====
   const API_BASE = "https://i.errtanq9.workers.dev";
 
-  const POLL_MS = 15_000;
-  const TOP_POLL_MS = 60_000;
+  const POLL_MS = 15000;      // refresh mood numbers
+  const ANIM_FPS_CAP = 60;
 
-  const RECENT_LIMIT = 20;
-  const TOP_ARTISTS_LIMIT = 10;
-
-  // Popup timings (mobile-friendly)
-  const TAP_GRACE_MS = 900;  // quick tap keeps popup visible a moment
-  const PRESS_THRESHOLD_MS = 180; // treat as press if held beyond this
-
-  // Motion / perf caps
   const MAX_DPR = 2.25;
-  const MAX_PARTICLES = 28;
+  const ORB_SIZE = 16;        // visual canvas size inside .glyph (CSS px)
+  const HIT_PAD = 10;         // bigger tap target feel
+
+  // Popup sizing
+  const POP_W = 280;
+
+  const clamp01 = (x) => Math.max(0, Math.min(1, x));
+  const lerp = (a, b, t) => a + (b - a) * t;
 
   const $ = (sel, root = document) => root.querySelector(sel);
 
-  function absApi(urlOrPath) {
-    if (!urlOrPath) return "";
-    if (/^https?:\/\//i.test(urlOrPath)) return urlOrPath;
-    if (urlOrPath.startsWith("/")) return API_BASE + urlOrPath;
-    return API_BASE + "/" + urlOrPath;
+  function absApi(path) {
+    if (!path) return "";
+    if (/^https?:\/\//i.test(path)) return path;
+    if (path.startsWith("/")) return API_BASE + path;
+    return API_BASE + "/" + path;
   }
 
   async function apiGet(path) {
@@ -42,715 +41,385 @@
     return await r.json();
   }
 
-  const clamp01 = (x) => Math.max(0, Math.min(1, x));
-  const s = (v) => (v == null ? "" : String(v));
-
-  // ---------- Target ----------
+  // ==== Target ====
   const glyph = $(".glyph");
   if (!glyph) return;
 
-  // Style safety (no CSS file edits needed)
+  // Make glyph reliable anchor
   glyph.style.position = "relative";
-  glyph.style.overflow = "hidden";
+  glyph.style.overflow = "visible";
   glyph.style.cursor = "pointer";
   glyph.style.touchAction = "manipulation";
+  glyph.setAttribute("role", "button");
+  glyph.setAttribute("aria-label", "Open Listening orb");
+
+  // Make tap target effectively bigger (without changing layout)
+  const hit = document.createElement("div");
+  hit.style.position = "absolute";
+  hit.style.inset = `${-HIT_PAD}px`;
+  hit.style.borderRadius = "999px";
+  hit.style.background = "transparent";
+  hit.style.zIndex = "2";
+  glyph.appendChild(hit);
 
   // Canvas
-  const c = document.createElement("canvas");
-  c.setAttribute("aria-hidden", "true");
-  c.style.position = "absolute";
-  c.style.inset = "0";
-  c.style.width = "100%";
-  c.style.height = "100%";
-  c.style.display = "block";
-  c.style.pointerEvents = "none";
-  glyph.appendChild(c);
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 64;
+  canvas.style.width = `${ORB_SIZE}px`;
+  canvas.style.height = `${ORB_SIZE}px`;
+  canvas.style.position = "absolute";
+  canvas.style.left = "50%";
+  canvas.style.top = "50%";
+  canvas.style.transform = "translate(-50%, -50%)";
+  canvas.style.zIndex = "1";
+  canvas.style.pointerEvents = "none"; // click handled by hit/glyph
+  glyph.appendChild(canvas);
 
-  const ctx = c.getContext("2d", { alpha: true });
-  if (!ctx) return;
+  const ctx = canvas.getContext("2d");
 
-  // Reduced motion
-  const prefersReducedMotion = (() => {
-    try { return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches; }
-    catch { return false; }
-  })();
+  // Popup
+  const popup = document.createElement("div");
+  popup.setAttribute("role", "dialog");
+  popup.setAttribute("aria-label", "Listening orb popup");
+  popup.style.position = "absolute";
+  popup.style.left = "0";
+  popup.style.top = "calc(100% + 10px)";
+  popup.style.width = `min(${POP_W}px, calc(100vw - 40px))`;
+  popup.style.padding = "12px";
+  popup.style.borderRadius = "18px";
+  popup.style.background = "linear-gradient(180deg, rgba(22,24,28,.92), rgba(14,16,19,.92))";
+  popup.style.outline = "1px solid rgba(255,255,255,.10)";
+  popup.style.boxShadow = "0 22px 70px rgba(0,0,0,.62)";
+  popup.style.backdropFilter = "blur(10px)";
+  popup.style.webkitBackdropFilter = "blur(10px)";
+  popup.style.transformOrigin = "12px 0";
+  popup.style.transform = "translateY(-4px) scale(.98)";
+  popup.style.opacity = "0";
+  popup.style.pointerEvents = "none";
+  popup.style.transition = "opacity .16s ease, transform .16s ease";
+  popup.style.zIndex = "9999";
 
-  // HiDPI + resize tracking (window resize + element resize)
-  let _dpr = 1;
-  function resizeCanvas() {
-    const r = glyph.getBoundingClientRect();
-    const dpr = Math.max(1, Math.min(MAX_DPR, window.devicePixelRatio || 1));
-    _dpr = dpr;
+  // little arrow
+  const arrow = document.createElement("div");
+  arrow.style.position = "absolute";
+  arrow.style.top = "-7px";
+  arrow.style.left = "16px";
+  arrow.style.width = "14px";
+  arrow.style.height = "14px";
+  arrow.style.transform = "rotate(45deg)";
+  arrow.style.background = "rgba(22,24,28,.92)";
+  arrow.style.outline = "1px solid rgba(255,255,255,.10)";
+  arrow.style.borderRadius = "4px";
+  popup.appendChild(arrow);
 
-    c.width = Math.max(1, Math.round(r.width * dpr));
-    c.height = Math.max(1, Math.round(r.height * dpr));
-
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.scale(dpr, dpr);
-  }
-  resizeCanvas();
-  window.addEventListener("resize", resizeCanvas, { passive: true });
-
-  let ro = null;
-  try {
-    ro = new ResizeObserver(() => resizeCanvas());
-    ro.observe(glyph);
-  } catch {
-    // ok: ResizeObserver not available
-  }
-
-  // ---------- Popup (injected) ----------
-  const style = document.createElement("style");
-  style.textContent = `
-    .lmOrbPop{
-      position: fixed;
-      z-index: 9999;
-      min-width: 210px;
-      max-width: 260px;
-      padding: 10px 11px;
-      border-radius: 14px;
-      background: rgba(20,22,26,.88);
-      outline: 1px solid rgba(255,255,255,.12);
-      box-shadow: 0 18px 55px rgba(0,0,0,.55);
-      color: rgba(255,255,255,.92);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      transform: translateY(6px);
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity .14s ease, transform .14s ease;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-    }
-    .lmOrbPop.on{
-      opacity: 1;
-      transform: translateY(0);
-      pointer-events: auto;
-    }
-    .lmOrbPop .t{
-      font-size: 12px;
-      font-weight: 750;
-      letter-spacing: .3px;
-      margin: 0 0 6px 0;
-      color: rgba(255,255,255,.92);
+  const inner = document.createElement("div");
+  inner.innerHTML = `
+    <div style="
+      font-size:11px;
+      letter-spacing:.34px;
+      color:rgba(255,255,255,.62);
+      text-transform:uppercase;
       display:flex;
       align-items:center;
-      justify-content:space-between;
-      gap:10px;
-    }
-    .lmOrbPop .dot{
-      width:10px;height:10px;border-radius:999px;
-      outline:1px solid rgba(255,255,255,.18);
-      box-shadow: 0 10px 22px rgba(0,0,0,.35);
-      flex:0 0 auto;
-    }
-    .lmOrbPop .r{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      font-size: 11px;
-      letter-spacing: .2px;
-      color: rgba(255,255,255,.70);
-      padding: 4px 0;
-      border-top: 1px solid rgba(255,255,255,.06);
-    }
-    .lmOrbPop .r:first-of-type{ border-top: 0; padding-top: 2px; }
-    .lmOrbPop .k{ color: rgba(255,255,255,.82); }
-    .lmOrbPop .v{ color: rgba(255,255,255,.92); font-weight: 700; }
-    .lmOrbPop .hint{
-      margin-top: 7px;
-      font-size: 10.5px;
-      color: rgba(255,255,255,.55);
-      letter-spacing: .25px;
-    }
-  `;
-  document.head.appendChild(style);
-
-  const pop = document.createElement("div");
-  pop.className = "lmOrbPop";
-  pop.innerHTML = `
-    <div class="t">
-      <span>Orb</span>
-      <span class="dot" data-dot="1"></span>
+      gap:8px;
+      margin-bottom:10px;
+    ">
+      <span style="width:7px;height:7px;border-radius:999px;background:rgba(49,208,124,.85);box-shadow:0 0 0 3px rgba(49,208,124,.10);"></span>
+      Listening Soul
     </div>
-    <div class="r"><span class="k">Intensity</span><span class="v" data-v="i">—</span></div>
-    <div class="r"><span class="k">Energy</span><span class="v" data-v="e">—</span></div>
-    <div class="r"><span class="k">Focus</span><span class="v" data-v="f">—</span></div>
-    <div class="r"><span class="k">Discovery</span><span class="v" data-v="d">—</span></div>
-    <div class="hint">Tap = peek • Hold = stay</div>
+
+    <div id="orbMiniGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <div style="border-radius:14px;background:rgba(255,255,255,.03);outline:1px solid rgba(255,255,255,.07);padding:10px;overflow:hidden;">
+        <div style="font-size:10px;letter-spacing:.28px;color:rgba(255,255,255,.60);text-transform:uppercase;">Energy</div>
+        <div style="margin-top:8px;display:flex;align-items:center;gap:10px;">
+          <span style="flex:1 1 auto;height:6px;border-radius:999px;background:rgba(255,255,255,.06);overflow:hidden;outline:1px solid rgba(255,255,255,.06);">
+            <i id="orbEnergyBar" style="display:block;height:100%;width:40%;border-radius:999px;background:linear-gradient(180deg, rgba(255,255,255,.62), rgba(255,255,255,.38));box-shadow:inset 0 1px 0 rgba(255,255,255,.28);"></i>
+          </span>
+          <span id="orbEnergyNum" style="font-size:12px;font-weight:750;color:rgba(255,255,255,.82);white-space:nowrap;">—</span>
+        </div>
+      </div>
+
+      <div style="border-radius:14px;background:rgba(255,255,255,.03);outline:1px solid rgba(255,255,255,.07);padding:10px;overflow:hidden;">
+        <div style="font-size:10px;letter-spacing:.28px;color:rgba(255,255,255,.60);text-transform:uppercase;">Focus</div>
+        <div style="margin-top:8px;display:flex;align-items:center;gap:10px;">
+          <span style="flex:1 1 auto;height:6px;border-radius:999px;background:rgba(255,255,255,.06);overflow:hidden;outline:1px solid rgba(255,255,255,.06);">
+            <i id="orbFocusBar" style="display:block;height:100%;width:40%;border-radius:999px;background:linear-gradient(180deg, rgba(255,255,255,.62), rgba(255,255,255,.38));box-shadow:inset 0 1px 0 rgba(255,255,255,.28);"></i>
+          </span>
+          <span id="orbFocusNum" style="font-size:12px;font-weight:750;color:rgba(255,255,255,.82);white-space:nowrap;">—</span>
+        </div>
+      </div>
+
+      <div style="grid-column:1/-1;border-radius:14px;background:rgba(255,255,255,.03);outline:1px solid rgba(255,255,255,.07);padding:10px;overflow:hidden;">
+        <div style="font-size:10px;letter-spacing:.28px;color:rgba(255,255,255,.60);text-transform:uppercase;">Discovery</div>
+        <div style="margin-top:8px;display:flex;align-items:center;gap:10px;">
+          <span style="flex:1 1 auto;height:6px;border-radius:999px;background:rgba(255,255,255,.06);overflow:hidden;outline:1px solid rgba(255,255,255,.06);">
+            <i id="orbDiscBar" style="display:block;height:100%;width:40%;border-radius:999px;background:linear-gradient(180deg, rgba(255,255,255,.62), rgba(255,255,255,.38));box-shadow:inset 0 1px 0 rgba(255,255,255,.28);"></i>
+          </span>
+          <span id="orbDiscNum" style="font-size:12px;font-weight:750;color:rgba(255,255,255,.82);white-space:nowrap;">—</span>
+        </div>
+      </div>
+
+      <div style="grid-column:1/-1;margin-top:2px;color:rgba(255,255,255,.60);font-size:12px;line-height:1.45;">
+        <span id="orbTinyLine">—</span>
+      </div>
+    </div>
   `;
-  document.body.appendChild(pop);
+  popup.appendChild(inner);
 
-  const vI = pop.querySelector('[data-v="i"]');
-  const vE = pop.querySelector('[data-v="e"]');
-  const vF = pop.querySelector('[data-v="f"]');
-  const vD = pop.querySelector('[data-v="d"]');
-  const dot = pop.querySelector('[data-dot="1"]');
+  glyph.appendChild(popup);
 
-  function pct(x) {
-    return `${Math.round(clamp01(x) * 100)}%`;
-  }
+  const energyBar = $("#orbEnergyBar", popup);
+  const focusBar  = $("#orbFocusBar", popup);
+  const discBar   = $("#orbDiscBar", popup);
+  const energyNum = $("#orbEnergyNum", popup);
+  const focusNum  = $("#orbFocusNum", popup);
+  const discNum   = $("#orbDiscNum", popup);
+  const tinyLine  = $("#orbTinyLine", popup);
 
-  function positionPop() {
-    const r = glyph.getBoundingClientRect();
-    const pad = 10;
-    const w = pop.offsetWidth || 240;
-    const h = pop.offsetHeight || 120;
+  // ==== State ====
+  let open = false;
 
-    // Prefer below-right, but keep inside viewport
-    let left = r.left + r.width + 10;
-    let top = r.top + (r.height * 0.5) - (h * 0.5);
+  // Mood signals (0..1)
+  let energy = 0.55;
+  let focus = 0.55;
+  let discovery = 0.45;
 
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
+  // Visual dynamics
+  let t0 = performance.now();
+  let rafId = 0;
+  let lastFrame = 0;
 
-    if (left + w + pad > vw) left = r.left - w - 10;
-    left = Math.max(pad, Math.min(vw - w - pad, left));
-
-    if (top + h + pad > vh) top = vh - h - pad;
-    if (top < pad) top = pad;
-
-    pop.style.left = `${Math.round(left)}px`;
-    pop.style.top = `${Math.round(top)}px`;
-  }
-
-  let popTapTimer = null;
-  let pressTimer = null;
-  let isPress = false;
-  let pointerDownAt = 0;
-
-  function showPop() {
-    positionPop();
-    pop.classList.add("on");
-  }
-
-  function hidePop() {
-    pop.classList.remove("on");
-    if (popTapTimer) { clearTimeout(popTapTimer); popTapTimer = null; }
-  }
-
-  // Hide when click outside
-  document.addEventListener("pointerdown", (e) => {
-    if (!pop.classList.contains("on")) return;
-    const t = e.target;
-    if (t === glyph || glyph.contains(t)) return;
-    if (t === pop || pop.contains(t)) return;
-    hidePop();
-  }, { passive: true });
-
-  // Press behavior:
-  // - On pointerdown: show immediately, start press timer
-  // - On pointerup quickly: keep for TAP_GRACE_MS then hide
-  // - On press/hold: hide on release
-  glyph.addEventListener("pointerdown", (e) => {
-    pointerDownAt = performance.now();
-    isPress = false;
-
-    if (pressTimer) clearTimeout(pressTimer);
-    pressTimer = setTimeout(() => { isPress = true; }, PRESS_THRESHOLD_MS);
-
-    showPop();
-
-    // Avoid accidental text selection on long press
-    try { glyph.setPointerCapture(e.pointerId); } catch {}
-  }, { passive: true });
-
-  glyph.addEventListener("pointerup", () => {
-    if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-
-    const held = performance.now() - pointerDownAt;
-    if (!isPress && held < PRESS_THRESHOLD_MS + 40) {
-      // quick tap: grace peek
-      if (popTapTimer) clearTimeout(popTapTimer);
-      popTapTimer = setTimeout(() => hidePop(), TAP_GRACE_MS);
+  function setOpen(next) {
+    open = !!next;
+    if (open) {
+      popup.style.opacity = "1";
+      popup.style.transform = "translateY(0) scale(1)";
+      popup.style.pointerEvents = "auto";
+      glyph.setAttribute("aria-expanded", "true");
     } else {
-      hidePop();
-    }
-  }, { passive: true });
-
-  glyph.addEventListener("pointercancel", () => {
-    if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-    hidePop();
-  }, { passive: true });
-
-  glyph.addEventListener("pointerleave", () => {
-    if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-    // Only hide if holding/press; for tap-peek let grace finish
-    if (isPress) hidePop();
-  }, { passive: true });
-
-  // ---------- Orb State ----------
-  const orb = {
-    intensity: 0.35, energy: 0.25, focus: 0.45, discovery: 0.25,
-    tIntensity: 0.35, tEnergy: 0.25, tFocus: 0.45, tDiscovery: 0.25,
-
-    topArtists: [],
-    nowLive: false,
-    lastFetchOk: true,
-
-    // visual dynamics
-    hue: 220,      // current hue
-    tHue: 220,     // target hue
-    flare: 0,      // micro beat flare
-    tFlare: 0,
-  };
-
-  function easeTo(current, target, k) {
-    return current + (target - current) * k;
-  }
-
-  function computeFromHistory(items, topArtists) {
-    const n = Array.isArray(items) ? items.length : 0;
-    if (!n) {
-      return { intensity: 0.18, energy: 0.18, focus: 0.25, discovery: 0.18 };
-    }
-
-    const trackKeys = new Set();
-    const artists = [];
-    for (const it of items) {
-      const a = s(it.artist).trim();
-      const name = s(it.name).trim();
-      trackKeys.add((a + " — " + name).toLowerCase());
-      if (a) artists.push(a);
-    }
-
-    const uniqueTrackRatio = clamp01(trackKeys.size / Math.min(RECENT_LIMIT, Math.max(1, n)));
-
-    let changes = 0;
-    for (let i = 1; i < artists.length; i++) {
-      if (artists[i] && artists[i - 1] && artists[i] !== artists[i - 1]) changes++;
-    }
-    const changeRatio = artists.length > 1 ? clamp01(changes / (artists.length - 1)) : 0;
-
-    let longestRun = 1;
-    let run = 1;
-    for (let i = 1; i < artists.length; i++) {
-      if (artists[i] && artists[i - 1] && artists[i] === artists[i - 1]) {
-        run++;
-        longestRun = Math.max(longestRun, run);
-      } else {
-        run = 1;
-      }
-    }
-    const focusRatio = clamp01(longestRun / Math.min(6, Math.max(1, artists.length)));
-
-    const topSet = new Set((topArtists || []).map(x => x.toLowerCase()));
-    const recentArtistSet = new Set(artists.map(x => x.toLowerCase()));
-    let overlap = 0;
-    for (const a of recentArtistSet) if (topSet.has(a)) overlap++;
-
-    const overlapRatio = recentArtistSet.size ? clamp01(overlap / recentArtistSet.size) : 0;
-    const discoveryRatio = clamp01(1 - overlapRatio);
-
-    const intensity = clamp01(0.22 + uniqueTrackRatio * 0.65);
-    const energy = clamp01(0.18 + changeRatio * 0.70);
-    const focus = clamp01(0.22 + focusRatio * 0.70);
-    const discovery = clamp01(0.15 + discoveryRatio * 0.80);
-
-    return { intensity, energy, focus, discovery };
-  }
-
-  // Mood hue mapping (subtle, stable, no Spotify)
-  // - energy -> warmer (red/orange)
-  // - focus  -> cooler (blue/indigo)
-  // - discovery -> cosmic (violet/cyan)
-  // - intensity -> brightness handled separately
-  function computeHue(intensity, energy, focus, discovery, nowLive) {
-    // anchor hues
-    const H_FOCUS = 218;     // deep blue
-    const H_DISCOVERY = 285; // cosmic violet
-    const H_ENERGY = 18;     // warm ember
-    const H_NEUTRAL = 210;   // steel blue
-
-    // weights: keep subtle, avoid wild jumping
-    const wFocus = 0.42 + focus * 0.25;
-    const wDisc  = 0.24 + discovery * 0.18;
-    const wEner  = 0.18 + energy * 0.28;
-    const wNeut  = 0.22;
-
-    const sum = (wFocus + wDisc + wEner + wNeut) || 1;
-
-    // circular hue blend via vector sum
-    function v(h, w) {
-      const a = (h % 360) * Math.PI / 180;
-      return { x: Math.cos(a) * w, y: Math.sin(a) * w };
-    }
-    const a = v(H_FOCUS, wFocus);
-    const b = v(H_DISCOVERY, wDisc);
-    const d = v(H_ENERGY, wEner);
-    const n = v(H_NEUTRAL, wNeut);
-
-    const x = (a.x + b.x + d.x + n.x) / sum;
-    const y = (a.y + b.y + d.y + n.y) / sum;
-
-    let hue = (Math.atan2(y, x) * 180 / Math.PI);
-    if (hue < 0) hue += 360;
-
-    // live nudges slightly toward vibrant
-    if (nowLive) hue = (hue + 6) % 360;
-
-    // clamp to a tasteful range that fits your UI (avoid green-ish)
-    // Wrap-safe clamp: if hue in (90..165) push toward 170 (teal/blue)
-    if (hue > 90 && hue < 165) hue = 170;
-
-    return hue;
-  }
-
-  async function refreshTopArtists() {
-    try {
-      const j = await apiGet(`/api/top?type=artists&period=week&limit=${TOP_ARTISTS_LIMIT}`);
-      if (j?.ok && Array.isArray(j.items)) {
-        orb.topArtists = j.items.map(it => s(it.name).trim()).filter(Boolean);
-      }
-      orb.lastFetchOk = true;
-    } catch {
-      orb.lastFetchOk = false;
+      popup.style.opacity = "0";
+      popup.style.transform = "translateY(-4px) scale(.98)";
+      popup.style.pointerEvents = "none";
+      glyph.setAttribute("aria-expanded", "false");
     }
   }
 
-  async function refreshNowAndHistory() {
-    try {
-      const [nowJ, histJ] = await Promise.all([
-        apiGet("/api/now"),
-        apiGet(`/api/history?limit=${RECENT_LIMIT}`),
-      ]);
-
-      orb.lastFetchOk = true;
-
-      const nowItem = nowJ?.ok ? (nowJ.item || null) : null;
-      orb.nowLive = !!nowItem;
-
-      const items =
-        (histJ?.ok && Array.isArray(histJ.items) && histJ.items) ||
-        (histJ?.ok && Array.isArray(histJ.history) && histJ.history) ||
-        [];
-
-      const m = computeFromHistory(items, orb.topArtists);
-
-      const liveBoost = orb.nowLive ? 0.10 : 0.0;
-
-      orb.tIntensity = clamp01(m.intensity + liveBoost);
-      orb.tEnergy = clamp01(m.energy + (orb.nowLive ? 0.12 : 0.0));
-      orb.tFocus = clamp01(m.focus + (orb.nowLive ? 0.05 : 0.0));
-      orb.tDiscovery = clamp01(m.discovery);
-
-      // update mood hue target
-      orb.tHue = computeHue(orb.tIntensity, orb.tEnergy, orb.tFocus, orb.tDiscovery, orb.nowLive);
-
-      // micro flare target: feels like "beat ticks" without audio
-      // (More energy => more frequent / slightly stronger ticks)
-      orb.tFlare = clamp01(0.08 + orb.tEnergy * 0.32 + (orb.nowLive ? 0.06 : 0.0));
-
-      // Update popup values
-      if (vI) vI.textContent = pct(orb.tIntensity);
-      if (vE) vE.textContent = pct(orb.tEnergy);
-      if (vF) vF.textContent = pct(orb.tFocus);
-      if (vD) vD.textContent = pct(orb.tDiscovery);
-
-    } catch {
-      orb.lastFetchOk = false;
-      orb.nowLive = false;
-      orb.tIntensity = 0.18;
-      orb.tEnergy = 0.16;
-      orb.tFocus = 0.22;
-      orb.tDiscovery = 0.12;
-      orb.tHue = computeHue(orb.tIntensity, orb.tEnergy, orb.tFocus, orb.tDiscovery, false);
-      orb.tFlare = 0.10;
-
-      if (vI) vI.textContent = pct(orb.tIntensity);
-      if (vE) vE.textContent = pct(orb.tEnergy);
-      if (vF) vF.textContent = pct(orb.tFocus);
-      if (vD) vD.textContent = pct(orb.tDiscovery);
-    }
+  function toggle() {
+    setOpen(!open);
   }
+   /* orb.js (FULL FILE REPLACE) — PART 2/3 */
 
-  // ---------- Visual ----------
-  const particles = [];
-  function spawnParticle(hue, r, cx, cy) {
-    const w = glyph.clientWidth || 22;
-    const h = glyph.clientHeight || 22;
+  // ==== Outside click close (Option 2) ====
+  // Use CAPTURE so we catch it before other handlers. Also avoids the “open then instantly close” bug.
+  document.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (!open) return;
+      if (glyph.contains(e.target)) return; // inside -> keep open
+      setOpen(false);
+    },
+    { capture: true, passive: true }
+  );
 
-    const ang = Math.random() * Math.PI * 2;
-    const rr = (Math.random() * 0.48 + 0.12) * Math.min(w, h) * 0.5;
-
-    const x = cx + Math.cos(ang) * rr;
-    const y = cy + Math.sin(ang) * rr;
-
-    // orbit-ish velocity around center
-    const tang = ang + Math.PI * 0.5;
-    const spin = (0.35 + orb.energy * 0.65) * (Math.random() < 0.5 ? -1 : 1);
-    const vx = Math.cos(tang) * spin * 0.55 + (Math.random() - 0.5) * 0.12;
-    const vy = Math.sin(tang) * spin * 0.55 + (Math.random() - 0.5) * 0.12;
-
-    particles.push({
-      x, y,
-      vx, vy,
-      life: 1,
-      size: Math.random() * 0.85 + 0.55,
-      hue: hue,
-      // slight outward drift for "nebula dust"
-      drift: (Math.random() * 0.18 + 0.06) * (Math.random() < 0.5 ? -1 : 1),
-    });
-
-    if (particles.length > MAX_PARTICLES) particles.shift();
-  }
-
-  function hsla(h, s, l, a) {
-    return `hsla(${Math.round(h)}, ${Math.round(s)}%, ${Math.round(l)}%, ${a})`;
-  }
-
-  // Micro-tick oscillator (beat feel)
-  let lastTickAt = performance.now();
-  function tickValue(now) {
-    const e = orb.energy;
-    const baseBpm = 46 + e * 96; // 46..142
-    const period = 60_000 / baseBpm;
-
-    // fire a tick roughly each period, with slight random wobble
-    if (now - lastTickAt > period * (0.85 + Math.random() * 0.30)) {
-      lastTickAt = now;
-      return 1;
-    }
-    return 0;
-  }
-
-  function draw(now) {
-    const w = glyph.clientWidth || 22;
-    const h = glyph.clientHeight || 22;
-
-    // Smooth state
-    orb.intensity = easeTo(orb.intensity, orb.tIntensity, 0.08);
-    orb.energy = easeTo(orb.energy, orb.tEnergy, 0.08);
-    orb.focus = easeTo(orb.focus, orb.tFocus, 0.08);
-    orb.discovery = easeTo(orb.discovery, orb.tDiscovery, 0.08);
-    orb.hue = easeTo(orb.hue, orb.tHue, 0.06);
-
-    // flare: decays, spikes on tick
-    orb.flare = easeTo(orb.flare, 0, 0.11);
-    const tick = prefersReducedMotion ? 0 : tickValue(now);
-    if (tick) orb.flare = clamp01(orb.flare + orb.tFlare * 0.85);
-
-    // dimensions
-    const cx = w * 0.5;
-    const cy = h * 0.5;
-
-    // Orb size (bigger fill)
-    const baseR = Math.min(w, h) * 0.355;
-    const breatheSpd = 0.72 + orb.energy * 1.9;
-    const breatheAmt = (prefersReducedMotion ? 0.02 : (0.05 + orb.intensity * 0.10));
-    const breathe = 1 + Math.sin(now * 0.001 * breatheSpd) * breatheAmt;
-
-    // micro flare bump
-    const flareBump = 1 + orb.flare * (0.06 + orb.energy * 0.06);
-    const r = baseR * (0.86 + orb.intensity * 0.62) * breathe * flareBump;
-
-    // tastefully subtle saturation/lightness
-    const sat = 18 + orb.discovery * 22 + orb.energy * 10;
-    const coreLight = 58 + orb.intensity * 12;
-    const rimLight = 66 + orb.focus * 10;
-
-    // blur: less blur when focused
-    const blur = Math.max(0, Math.min(1.7, (1.55 - orb.focus * 1.25)));
-    const flowBlur = prefersReducedMotion ? 0.2 : blur;
-
-    ctx.clearRect(0, 0, w, h);
-
-    // ---------- LAYER 0: faint outer halo (ambient) ----------
-    ctx.save();
-    const haloR = r * (1.28 + orb.energy * 0.12);
-    const halo = ctx.createRadialGradient(cx, cy, r * 0.35, cx, cy, haloR);
-    halo.addColorStop(0.0, hsla(orb.hue, sat, 62, 0.08 + orb.intensity * 0.08));
-    halo.addColorStop(0.55, hsla(orb.hue, sat, 55, 0.04 + orb.discovery * 0.06));
-    halo.addColorStop(1.0, hsla(orb.hue, sat, 50, 0.0));
-    ctx.fillStyle = halo;
-    ctx.beginPath();
-    ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-
-    // ---------- LAYER 1: orb body (glass + colored core) ----------
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.closePath();
-    ctx.clip();
-
-    // core gradient (subtle color)
-    const core = ctx.createRadialGradient(cx - r * 0.16, cy - r * 0.18, r * 0.10, cx, cy, r * 1.06);
-    core.addColorStop(0.00, hsla(orb.hue, sat + 6, coreLight + 10, 0.42 + orb.intensity * 0.18));
-    core.addColorStop(0.36, hsla(orb.hue, sat, coreLight, 0.18 + orb.intensity * 0.12));
-    core.addColorStop(0.72, "rgba(255,255,255," + (0.05 + orb.intensity * 0.06) + ")");
-    core.addColorStop(1.00, hsla(orb.hue, sat - 2, 50, 0.02));
-    ctx.fillStyle = core;
-    ctx.fillRect(0, 0, w, h);
-
-    // glass sheen (white)
-    const glass = ctx.createRadialGradient(cx - r * 0.30, cy - r * 0.32, r * 0.12, cx, cy, r * 1.10);
-    const ga = 0.16 + orb.intensity * 0.20;
-    glass.addColorStop(0.00, `rgba(255,255,255,${0.16 + ga})`);
-    glass.addColorStop(0.48, `rgba(255,255,255,${0.06 + ga * 0.35})`);
-    glass.addColorStop(1.00, `rgba(255,255,255,${0.02 + ga * 0.10})`);
-    ctx.globalAlpha = 0.9;
-    ctx.fillStyle = glass;
-    ctx.fillRect(0, 0, w, h);
-    ctx.globalAlpha = 1;
-
-    // ---------- LAYER 2: flow field (swirl lines) ----------
-    const lines = 3 + Math.round(orb.focus * 5);
-    ctx.globalAlpha = 0.10 + orb.focus * 0.16;
-    ctx.lineWidth = 1;
-    ctx.filter = `blur(${flowBlur}px)`;
-
-    // swirl amount grows with discovery
-    const swirl = 0.12 + orb.discovery * 0.42;
-    const speed = (0.0010 + orb.energy * 0.0012) * (prefersReducedMotion ? 0.5 : 1);
-
-    for (let i = 0; i < lines; i++) {
-      const t = now * speed + i * 1.35;
-      const wave = Math.sin(t * (1.25 + i * 0.12));
-      const wave2 = Math.cos(t * (0.95 + i * 0.08));
-
-      const y0 = cy + wave * r * (0.22 + i * 0.045);
-      const x0 = cx + wave2 * r * 0.10;
-
-      // rotate-ish by "swirl"
-      const k = swirl * r;
-      const dy = (y0 - cy);
-      const dx = (x0 - cx);
-      const rx = x0 + (-dy) * (swirl * 0.35);
-      const ry = y0 + (dx) * (swirl * 0.35);
-
-      const colA = hsla(orb.hue, sat + 10, 70, 1);
-      ctx.strokeStyle = colA;
-
-      ctx.beginPath();
-      ctx.moveTo(cx - r * 1.18, ry);
-      ctx.bezierCurveTo(
-        rx - k * 0.42, ry - k * 0.28,
-        rx + k * 0.42, ry + k * 0.28,
-        cx + r * 1.18, ry
-      );
-      ctx.stroke();
-    }
-
-    ctx.filter = "none";
-    ctx.globalAlpha = 1;
-
-    // ---------- LAYER 3: rim + specular ----------
-    // rim
-    ctx.globalAlpha = 0.18 + orb.intensity * 0.20 + orb.flare * 0.10;
-    ctx.strokeStyle = hsla(orb.hue, sat - 2, rimLight, 1);
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r - 0.5, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // inner rim (adds depth)
-    ctx.globalAlpha = 0.10 + orb.focus * 0.12;
-    ctx.strokeStyle = "rgba(255,255,255,1)";
-    ctx.beginPath();
-    ctx.arc(cx, cy, r * 0.78, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // specular highlight (white)
-    ctx.globalAlpha = 0.20 + orb.focus * 0.30;
-    ctx.fillStyle = "rgba(255,255,255,1)";
-    ctx.beginPath();
-    ctx.arc(cx - r * 0.30, cy - r * 0.32, Math.max(0.9, r * (0.13 + orb.flare * 0.02)), 0, Math.PI * 2);
-    ctx.fill();
-
-    // tiny second highlight (color)
-    ctx.globalAlpha = 0.10 + orb.discovery * 0.12;
-    ctx.fillStyle = hsla(orb.hue, sat + 18, 72, 1);
-    ctx.beginPath();
-    ctx.arc(cx - r * 0.08, cy - r * 0.14, Math.max(0.6, r * 0.06), 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.restore();
-
-    // ---------- Star dust / sparks (orbiting) ----------
-    // spawn rate tied to discovery + live
-    const sparkRate = (prefersReducedMotion ? 0.02 : (0.06 + orb.discovery * 0.16)) * (orb.nowLive ? 1.25 : 1);
-    if (Math.random() < sparkRate) spawnParticle(orb.hue, r, cx, cy);
-
-    // animate particles
-    for (let i = particles.length - 1; i >= 0; i--) {
-      const pt = particles[i];
-
-      const decay = 0.030 + orb.energy * 0.020 + (prefersReducedMotion ? 0.010 : 0.0);
-      pt.life -= decay;
-
-      // orbit-ish attraction
-      const dx = pt.x - cx;
-      const dy = pt.y - cy;
-      const dist = Math.max(1, Math.sqrt(dx * dx + dy * dy));
-      const pull = (0.002 + orb.focus * 0.003) * (r / dist);
-
-      pt.vx += (-dx / dist) * pull + (-dy / dist) * (pt.drift * 0.0006);
-      pt.vy += (-dy / dist) * pull + ( dx / dist) * (pt.drift * 0.0006);
-
-      pt.x += pt.vx;
-      pt.y += pt.vy;
-
-      if (pt.life <= 0) {
-        particles.splice(i, 1);
-        continue;
-      }
-
-      const a = pt.life * (0.14 + orb.discovery * 0.28) + orb.flare * 0.06;
-      ctx.globalAlpha = a;
-
-      // subtle colored dust + white sparkle core
-      ctx.fillStyle = hsla(pt.hue, 22 + orb.discovery * 24, 70, 1);
-      ctx.beginPath();
-      ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.globalAlpha = a * 0.65;
-      ctx.fillStyle = "rgba(255,255,255,1)";
-      ctx.beginPath();
-      ctx.arc(pt.x + 0.25, pt.y - 0.15, Math.max(0.5, pt.size * 0.55), 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-
-    // ---------- Offline dim ----------
-    if (!orb.lastFetchOk) {
-      ctx.globalAlpha = 0.40;
-      ctx.fillStyle = "rgba(0,0,0,0.30)";
-      ctx.fillRect(0, 0, w, h);
-      ctx.globalAlpha = 1;
-    }
-
-    // Update popup dot color (subtle)
-    if (dot) {
-      dot.style.background = hsla(orb.hue, 28 + orb.discovery * 18, 62 + orb.intensity * 8, 1);
-    }
-
-    requestAnimationFrame(draw);
-  }
-
-  // ---------- Start ----------
-  refreshTopArtists().finally(() => {
-    refreshNowAndHistory().finally(() => {
-      requestAnimationFrame(draw);
-    });
+  // Also allow ESC close (nice on desktop)
+  document.addEventListener("keydown", (e) => {
+    if (!open) return;
+    if (e.key === "Escape") setOpen(false);
   });
 
-  let pollTimer = setInterval(refreshNowAndHistory, POLL_MS);
-  let topTimer = setInterval(refreshTopArtists, TOP_POLL_MS);
+  // Toggle on tap/click
+  // Stop propagation so it doesn’t fight with document listeners in some browsers.
+  glyph.addEventListener(
+    "pointerdown",
+    (e) => {
+      // If user taps directly inside popup, don't toggle/close; let popup be interactive.
+      if (popup.contains(e.target)) return;
+      e.stopPropagation();
+      toggle();
+    },
+    { passive: false }
+  );
 
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden) {
-      clearInterval(pollTimer);
-      clearInterval(topTimer);
-      hidePop();
-    } else {
-      refreshTopArtists();
-      refreshNowAndHistory();
-      pollTimer = setInterval(refreshNowAndHistory, POLL_MS);
-      topTimer = setInterval(refreshTopArtists, TOP_POLL_MS);
+  // ==== UI update ====
+  function setBars() {
+    const e = clamp01(energy);
+    const f = clamp01(focus);
+    const d = clamp01(discovery);
+
+    if (energyBar) energyBar.style.width = `${Math.round(e * 100)}%`;
+    if (focusBar)  focusBar.style.width  = `${Math.round(f * 100)}%`;
+    if (discBar)   discBar.style.width   = `${Math.round(d * 100)}%`;
+
+    if (energyNum) energyNum.textContent = `${Math.round(e * 100)}`;
+    if (focusNum)  focusNum.textContent  = `${Math.round(f * 100)}`;
+    if (discNum)   discNum.textContent   = `${Math.round(d * 100)}`;
+
+    if (tinyLine) {
+      // minimal words
+      const vibe =
+        (e > 0.72 && f > 0.62) ? "Locked in." :
+        (d > 0.68) ? "Exploring." :
+        (e < 0.38) ? "Slow & deep." :
+        "Steady.";
+      tinyLine.textContent = vibe;
     }
-  }, { passive: true });
+  }
 
+  // ==== API sampling (robust fallback) ====
+  // We accept ANY of these shapes if your worker returns them:
+  //  - { energy, focus, discovery }  (0..1 or 0..100)
+  //  - { mood: {energy, focus, discovery} }
+  //  - { signals: { ... } }
+  function normalizeMaybePercent(x, fallback) {
+    const n = Number(x);
+    if (!Number.isFinite(n)) return fallback;
+    if (n > 1.001) return clamp01(n / 100);
+    return clamp01(n);
+  }
+
+  function pick(obj, path, fallback) {
+    try {
+      const parts = path.split(".");
+      let cur = obj;
+      for (const p of parts) cur = cur?.[p];
+      return cur == null ? fallback : cur;
+    } catch {
+      return fallback;
+    }
+  }
+
+  async function poll() {
+    try {
+      // Try a few plausible endpoints, first one that works wins.
+      // If you already have a known endpoint, tell me and I'll hard-wire it.
+      const candidates = ["/diag", "/signals", "/orb", "/status"];
+      let data = null;
+
+      for (const p of candidates) {
+        try {
+          data = await apiGet(p);
+          if (data) break;
+        } catch {}
+      }
+      if (!data) throw new Error("No endpoint");
+
+      const eRaw =
+        pick(data, "energy", null) ??
+        pick(data, "mood.energy", null) ??
+        pick(data, "signals.energy", null);
+
+      const fRaw =
+        pick(data, "focus", null) ??
+        pick(data, "mood.focus", null) ??
+        pick(data, "signals.focus", null);
+
+      const dRaw =
+        pick(data, "discovery", null) ??
+        pick(data, "mood.discovery", null) ??
+        pick(data, "signals.discovery", null);
+
+      // smooth so it feels organic
+      const e = normalizeMaybePercent(eRaw, energy);
+      const f = normalizeMaybePercent(fRaw, focus);
+      const d = normalizeMaybePercent(dRaw, discovery);
+
+      energy = lerp(energy, e, 0.35);
+      focus = lerp(focus, f, 0.35);
+      discovery = lerp(discovery, d, 0.35);
+
+      setBars();
+    } catch {
+      // Fallback micro-drift so orb still feels alive
+      const drift = () => (Math.random() - 0.5) * 0.05;
+      energy = clamp01(energy + drift());
+      focus = clamp01(focus + drift());
+      discovery = clamp01(discovery + drift());
+      setBars();
+    }
+  }
+
+  // ==== Orb drawing ====
+  function drawOrb(ts) {
+    const dt = ts - t0;
+    t0 = ts;
+
+    // Cap FPS for mobile
+    if (ANIM_FPS_CAP > 0) {
+      const minFrame = 1000 / ANIM_FPS_CAP;
+      if (ts - lastFrame < minFrame) {
+        rafId = requestAnimationFrame(drawOrb);
+        return;
+      }
+      lastFrame = ts;
+    }
+
+    const dpr = Math.min(MAX_DPR, window.devicePixelRatio || 1);
+    const W = 64, H = 64;
+    if (canvas.width !== Math.round(W * dpr) || canvas.height !== Math.round(H * dpr)) {
+      canvas.width = Math.round(W * dpr);
+      canvas.height = Math.round(H * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    ctx.clearRect(0, 0, W, H);
+
+    // hue based on discovery, brightness based on energy, tightness based on focus
+    const hue = lerp(190, 320, discovery);           // blue -> violet
+    const glow = lerp(0.20, 0.55, energy);
+    const tight = lerp(0.85, 0.65, focus);           // higher focus = tighter core
+    const pulse = 0.5 + 0.5 * Math.sin(ts * 0.003 + discovery * 2);
+
+    const cx = W / 2, cy = H / 2;
+    const r = lerp(10.5, 12.8, energy) * (0.98 + pulse * 0.05);
+
+    // Outer glow
+    const g1 = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r * 2.0);
+    g1.addColorStop(0, `hsla(${hue}, 90%, 70%, ${glow})`);
+    g1.addColorStop(0.55, `hsla(${hue}, 90%, 60%, ${glow * 0.35})`);
+    g1.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g1;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 2.0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Core
+    const g2 = ctx.createRadialGradient(cx - r * 0.25, cy - r * 0.25, r * 0.15, cx, cy, r);
+    g2.addColorStop(0, `hsla(${hue}, 95%, 85%, ${0.65})`);
+    g2.addColorStop(tight, `hsla(${hue}, 95%, 65%, ${0.22 + energy * 0.22})`);
+    g2.addColorStop(1, `hsla(${hue}, 90%, 40%, ${0.12})`);
+
+    ctx.fillStyle = g2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Specular highlight
+    ctx.fillStyle = `rgba(255,255,255,${0.10 + energy * 0.10})`;
+    ctx.beginPath();
+    ctx.ellipse(cx - r * 0.25, cy - r * 0.35, r * 0.35, r * 0.25, -0.6, 0, Math.PI * 2);
+    ctx.fill();
+
+    rafId = requestAnimationFrame(drawOrb);
+         }
+   /* orb.js (FULL FILE REPLACE) — PART 3/3 */
+
+  // ==== Boot ====
+  function boot() {
+    setBars();
+    poll();
+    setInterval(poll, POLL_MS);
+
+    if (!rafId) rafId = requestAnimationFrame(drawOrb);
+
+    // Start closed
+    setOpen(false);
+  }
+
+  // DOM ready safety
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot, { once: true });
+  } else {
+    boot();
+  }
 })();

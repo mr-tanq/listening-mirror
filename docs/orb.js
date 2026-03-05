@@ -16,8 +16,8 @@
   const ANIM_FPS_CAP = 60;
 
   const MAX_DPR = 2.25;
-  const ORB_SIZE = 35;        // visual canvas size inside .glyph (CSS px)
-  const HIT_PAD = 28;         // bigger tap target feel
+  const ORB_SIZE = 55;        // visual canvas size inside .glyph (CSS px)
+  const HIT_PAD = 38;         // bigger tap target feel
 
   // Popup sizing
   const POP_W = 280;

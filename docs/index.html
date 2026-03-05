@@ -1,647 +1,785 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <meta name="theme-color" content="#0b0c0e" />
-  <title>Listening Mirror</title>
+/* aura-tab.js (FULL FILE REPLACE) — PART 1/4
+   Listening Mirror — Aura Popup (title portal)
+   ✅ Title: "listening mirror" (lowercase) + premium styling
+   ✅ Tap title opens Aura modal (orb + signals)
+   ✅ Spotify-driven aura via /me/player + /audio-features
+   ✅ FIX: Spotify icon only (no circle). Connected=black, Disconnected=gray.
+   ✅ Tap icon toggles connect/disconnect (best-effort).
+*/
 
-  <style>
-    :root{
-      --bg:#0b0c0e;
-      --bg2:#090a0c;
-      --card: rgba(255,255,255,.055);
-      --card2: rgba(255,255,255,.035);
-      --text:#ececee;
-      --muted:#a7abb4;
-      --muted2:#7d828d;
-      --shadow: 0 18px 55px rgba(0,0,0,.55);
-      --r: 22px;
+(() => {
+  "use strict";
 
-      --live:#ff3b3b;
-      --liveBg: rgba(255,59,59,.10);
-      --liveBd: rgba(255,59,59,.30);
+  const SPOTIFY_API = "https://api.spotify.com/v1";
 
-      --safeL: max(14px, env(safe-area-inset-left));
-      --safeR: max(14px, env(safe-area-inset-right));
-      --safeT: max(14px, env(safe-area-inset-top));
-      --safeB: max(14px, env(safe-area-inset-bottom));
+  // Polling
+  const OPEN_POLL_MS = 12_000;
+  const CLOSED_POLL_MS = 45_000;
 
-      --axis: .50;
-      --axisInv: calc(1 - var(--axis));
+  // Perf caps
+  const MAX_DPR = 2.25;
+  const FPS_CAP = 60;
 
-      --doodleBright: calc(.14 + (var(--axis) * .26));
-      --doodleDark:   calc(.12 + (var(--axisInv) * .22));
+  // Helpers
+  const clamp01 = (x) => Math.max(0, Math.min(1, x));
+  const lerp = (a,b,t) => a + (b-a)*t;
+  const $ = (sel, root=document) => root.querySelector(sel);
 
-      --floorBright:  calc(.46 + (var(--axis) * .44));
-      --floorDark:    calc(.38 + (var(--axisInv) * .42));
-
-      /* ✅ adaptive overlay (JS updates these per cover) */
-      --ovTop: .10;
-      --ovBot: .30;
+  function getToken(){
+    if (window.SpotifyAuth && typeof window.SpotifyAuth.getAccessToken === "function") {
+      return window.SpotifyAuth.getAccessToken();
     }
-
-    *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
-    html,body{ height:100%; }
-
-    body{
-      margin:0;
-      overflow:hidden;
-      color: var(--text);
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-
-      background:
-        radial-gradient(1200px 700px at 22% -10%, rgba(255,255,255, calc(.04 + var(--axis)*.12)), transparent 60%),
-        radial-gradient(900px 600px at 92% 0%, rgba(255,255,255, calc(.03 + var(--axis)*.10)), transparent 55%),
-        radial-gradient(900px 600px at 50% 110%, rgba(255,255,255, calc(.02 + var(--axis)*.08)), transparent 60%),
-        linear-gradient(180deg,
-          color-mix(in srgb, var(--bg)  calc(92% - var(--axis)*26%), #1a1f26 calc(8% + var(--axis)*26%)),
-          color-mix(in srgb, var(--bg2) calc(92% - var(--axis)*22%), #1d232b calc(8% + var(--axis)*22%))
-        );
+    if (window.SpotifyPlayer && typeof window.SpotifyPlayer.getAccessToken === "function") {
+      return window.SpotifyPlayer.getAccessToken();
     }
+    return null;
+  }
 
-    body:before{
-      content:"";
-      position:fixed;
-      inset:-2px;
-      pointer-events:none;
-      background:
-        radial-gradient(820px 520px at 18% 18%, rgba(255,255,255, calc(.015 + var(--axis)*.06)), transparent 60%),
-        radial-gradient(720px 450px at 86% 22%, rgba(255,255,255, calc(.012 + var(--axis)*.05)), transparent 62%),
-        radial-gradient(900px 520px at 50% 85%, rgba(0,0,0, calc(.22 + var(--axisInv)*.20)), transparent 62%),
-        linear-gradient(180deg, rgba(0,0,0, calc(.22 + var(--axisInv)*.14)), rgba(0,0,0, calc(.42 + var(--axisInv)*.18)));
-      opacity:1;
-      z-index:-3;
-    }
+  function isConnected(){
+    const t = getToken();
+    return !!(t && String(t).length > 10);
+  }
 
-    .doodles{
-      position:fixed;
-      inset:0;
-      pointer-events:none;
-      z-index:-2;
-      opacity:0;
-      transition: opacity .25s ease;
-      background-attachment: fixed;
-      background-position: center;
-    }
-    .doodles.bright{ opacity: var(--doodleBright); mix-blend-mode: soft-light; }
-    .doodles.dark{ opacity: var(--doodleDark); mix-blend-mode: screen; }
+  async function spotifyGet(path){
+    const token = getToken();
+    if(!token) throw new Error("No Spotify token");
+    const res = await fetch(`${SPOTIFY_API}${path}`, {
+      headers: { "Authorization": "Bearer " + token }
+    });
+    if(res.status === 204) return null;
+    const json = await res.json().catch(()=>null);
+    if(!res.ok) throw new Error(`Spotify HTTP ${res.status}`);
+    return json;
+  }
 
-    .doodles.bright,
-    .doodleFloor.bright{
-      background-image:
-        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='1200' viewBox='0 0 1200 1200'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='.48' stroke-width='1.55' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg stroke-opacity='.36'%3E%3Cpath d='M140 170 l26 -15 26 15 0 30 -26 15 -26 -15z'/%3E%3Cpath d='M192 200 l26 -15 26 15 0 30 -26 15 -26 -15z'/%3E%3Cpath d='M244 170 l26 -15 26 15 0 30 -26 15 -26 -15z'/%3E%3Cpath d='M192 140 l26 -15 26 15 0 30 -26 15 -26 -15z'/%3E%3C/g%3E%3Cpath d='M980 180 C940 210, 920 250, 960 290 C1000 330, 1060 310, 1100 270' stroke-opacity='.34'/%3E%3Cpath d='M995 205 C980 240, 980 265, 1005 292' stroke-opacity='.28'/%3E%3Cpath d='M1038 214 C1012 248, 1010 270, 1030 300' stroke-opacity='.28'/%3E%3Cpath d='M120 920 C170 870, 230 870, 280 920' stroke-opacity='.34'/%3E%3Cpath d='M135 920 C175 885, 225 885, 265 920' stroke-opacity='.24'/%3E%3Cpath d='M150 920 C182 900, 218 900, 250 920' stroke-opacity='.20'/%3E%3Cg stroke-opacity='.28'%3E%3Cpath d='M620 980 m0 -8 c8 0 8 16 0 16 c-8 0 -8 -16 0 -16z'/%3E%3Cpath d='M620 972 m-8 0 c0 8 16 8 16 0 c0 -8 -16 -8 -16 0z'/%3E%3C/g%3E%3Ccircle cx='610' cy='320' r='1.4' stroke-opacity='.34'/%3E%3Ccircle cx='640' cy='340' r='1.2' stroke-opacity='.28'/%3E%3Ccircle cx='670' cy='315' r='1.3' stroke-opacity='.28'/%3E%3C/g%3E%3C/svg%3E");
-      background-size: 720px 720px;
-      background-repeat: repeat;
-      background-position: center;
-    }
+  async function getPlayer(){
+    return await spotifyGet("/me/player");
+  }
 
-    .doodles.dark,
-    .doodleFloor.dark{
-      background-image:
-        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='1200' viewBox='0 0 1200 1200'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='.42' stroke-width='1.45' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M180 260 C230 220, 270 220, 320 260 C350 285, 380 280, 410 250'/%3E%3Cpath d='M410 250 C380 310, 340 330, 300 300 C260 330, 220 310, 190 250' stroke-opacity='.30'/%3E%3Cpath d='M880 880 C930 840, 980 840, 1030 880 C1060 905, 1090 900, 1120 870'/%3E%3Cpath d='M1120 870 C1090 930, 1045 950, 1005 920 C965 950, 920 930, 890 870' stroke-opacity='.30'/%3E%3Cg stroke-opacity='.26'%3E%3Ccircle cx='640' cy='160' r='1.3'/%3E%3Ccircle cx='675' cy='180' r='1.2'/%3E%3Ccircle cx='710' cy='155' r='1.2'/%3E%3Ccircle cx='745' cy='175' r='1.3'/%3E%3Cpath d='M640 160 L675 180 L710 155 L745 175'/%3E%3C/g%3E%3Cg stroke-opacity='.24'%3E%3Ccircle cx='220' cy='1020' r='1.2'/%3E%3Ccircle cx='250' cy='1040' r='1.2'/%3E%3Ccircle cx='290' cy='1015' r='1.2'/%3E%3Cpath d='M220 1020 L250 1040 L290 1015'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
-      background-size: 760px 760px;
-      background-repeat: repeat;
-      background-position: center;
-    }
+  async function getAudioFeatures(trackId){
+    return await spotifyGet(`/audio-features/${encodeURIComponent(trackId)}`);
+  }
 
-    .doodleZone{
-      position: relative;
-      margin-top: 14px;
-      height: min(42vh, 420px);
-      min-height: 280px;
-      border-radius: var(--r);
-      overflow:hidden;
-      outline: 1px solid rgba(255,255,255,.06);
-      background: rgba(255,255,255,.015);
-      box-shadow: 0 18px 55px rgba(0,0,0,.35);
-    }
+  // ---------- Find title ----------
+  const titleEl = $(".wordmark .title");
+  const brandEl = $(".brand");
+  if(!titleEl || !brandEl) return;
 
-    .doodleFloor{
-      position:absolute;
-      inset:0;
-      pointer-events:none;
-      opacity: 0;
-      transition: opacity .25s ease;
-      background-position: center;
-      z-index: 1;
-    }
-    .doodleFloor.bright{ opacity: var(--floorBright); mix-blend-mode: soft-light; filter: contrast(1.08) saturate(1.06); }
-    .doodleFloor.dark{ opacity: var(--floorDark); mix-blend-mode: screen; filter: contrast(1.08) saturate(1.06); }
+  // Force lowercase label
+  titleEl.textContent = "listening mirror";
 
-    .doodleZone:after{
-      content:"";
-      position:absolute;
-      inset:0;
-      z-index: 2;
-      background:
-        radial-gradient(900px 520px at 20% 15%, rgba(255,255,255, calc(.03 + var(--axis)*.06)), transparent 62%),
-        radial-gradient(900px 520px at 80% 10%, rgba(255,255,255, calc(.02 + var(--axis)*.05)), transparent 64%),
-        linear-gradient(180deg,
-          rgba(0,0,0, calc(.10 + var(--axisInv)*.10)),
-          rgba(0,0,0, calc(.26 + var(--axisInv)*.18))
-        );
-      pointer-events:none;
-      opacity: .62;
-    }
+  // Make it the portal button (subtle)
+  titleEl.style.cursor = "pointer";
+  titleEl.style.userSelect = "none";
+  titleEl.setAttribute("role", "button");
+  titleEl.setAttribute("tabindex", "0");
+  titleEl.setAttribute("aria-label", "Open aura");
 
-    .app{
-      height: 100dvh;
-      overflow-y: auto;
-      -webkit-overflow-scrolling: touch;
-      touch-action: pan-y;
-      overscroll-behavior: contain;
-
-      padding: calc(var(--safeT) + 14px) var(--safeR) calc(var(--safeB) + 18px) var(--safeL);
-      max-width: 920px;
-      margin: 0 auto;
-      position:relative;
-      z-index:1;
-    }
-
-    header{ display:flex; align-items:flex-start; gap:14px; margin-bottom: 14px; }
-    .brand{ display:flex; align-items:center; gap:10px; padding-left: 2px; }
-
-    .glyph{
-      width: 18px; height: 18px; border-radius: 999px; position:relative;
-      background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.22), rgba(255,255,255,.05) 55%, rgba(255,255,255,.03) 70%);
-      outline: 1px solid rgba(255,255,255,.10);
-      box-shadow: 0 10px 35px rgba(0,0,0,.45);
-      flex: 0 0 auto;
-      overflow:hidden; /* for orb canvas injection */
-    }
-    .glyph:before{
-      content:""; position:absolute; inset:3px; border-radius: 999px;
-      outline: 1px solid rgba(255,255,255,.10);
-      background: radial-gradient(circle at 65% 35%, rgba(255,255,255,.10), transparent 60%);
-      opacity:.9;
-      pointer-events:none;
-    }
-
-    .wordmark{ display:flex; flex-direction:column; line-height: 1.15; }
+  // Inject premium styling
+  const style = document.createElement("style");
+  style.id = "auraTabStyles";
+  style.textContent = `
     .wordmark .title{
-      font-size: 18px; font-weight: 720; letter-spacing: .35px; margin:0;
-      background: linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.70));
-      -webkit-background-clip: text; background-clip: text; color: transparent;
+      letter-spacing: 1.15px !important;
+      font-weight: 680 !important;
+      text-transform: none !important;
+      background: linear-gradient(180deg, rgba(255,255,255,.90), rgba(220,225,234,.62)) !important;
+      -webkit-background-clip: text !important;
+      background-clip: text !important;
+      color: transparent !important;
+      position: relative !important;
+      display: inline-block !important;
+      padding: 2px 2px 3px 2px !important;
+      transform: translateZ(0);
     }
-    .wordmark .sub{
-      margin-top: 6px; display:flex; align-items:center; gap:8px;
-      color: var(--muted2); font-size: 12px; letter-spacing: .2px;
-    }
-
-    .dot{ width: 7px; height: 7px; border-radius: 99px; background: rgba(255,255,255,.14); outline: 1px solid rgba(255,255,255,.10); }
-    .dot.on{ background: rgba(49,208,124,.75); outline-color: rgba(49,208,124,.35); box-shadow: 0 0 0 3px rgba(49,208,124,.10); }
-
-    .tabs{
-      display:flex; gap:10px; padding: 8px; border-radius: 999px;
-      background: rgba(255,255,255,.04);
-      outline: 1px solid rgba(255,255,255,.08);
-      box-shadow: 0 16px 45px rgba(0,0,0,.35);
-      width: 100%; margin: 12px 0 16px 0;
-      justify-content:flex-start; overflow:hidden;
-    }
-    .tabBtn{
-      border:0; background: transparent; color: rgba(255,255,255,.72);
-      padding: 10px 14px; border-radius: 999px; font-size: 13px;
-      letter-spacing: .2px; cursor:pointer; flex: 0 0 auto;
-    }
-    .tabBtn[aria-selected="true"]{
-      background: rgba(255,255,255,.085);
-      outline: 1px solid rgba(255,255,255,.10);
-      color: rgba(255,255,255,.95);
-    }
-
-    .panel{ display:block; }
-    .hidden{ display:none; }
-
-    .card{
-      border-radius: var(--r);
-      background: linear-gradient(180deg, var(--card), var(--card2));
-      outline: 1px solid rgba(255,255,255,.08);
-      box-shadow: var(--shadow);
-      overflow:hidden;
-      position:relative;
-      backdrop-filter: blur(calc(6px + var(--axis)*6px));
-      -webkit-backdrop-filter: blur(calc(6px + var(--axis)*6px));
-    }
-
-    .nowAmbient{ position:absolute; inset:-1px; opacity: 0; pointer-events:none; transition: opacity .22s ease; }
-    .nowAmbient.on{ opacity: 1; }
-    .nowAmbient:before{
-      content:""; position:absolute; inset:0;
-      background-image: var(--ambient-url, none);
-      background-size: cover; background-position: center; background-repeat: no-repeat;
-      transform: scale(1.02);
-      opacity: .95;
-      filter: saturate(1.02) contrast(1.02);
-    }
-    .nowAmbient:after{
-      content:""; position:absolute; inset:0;
+    .wordmark .title:after{
+      content:"";
+      position:absolute;
+      inset:-8px -10px -10px -10px;
+      border-radius: 16px;
       background:
-        radial-gradient(900px 520px at 18% 8%, rgba(255,255,255,.10), transparent 55%),
-        radial-gradient(700px 420px at 85% 10%, rgba(255,255,255,.06), transparent 60%),
-        linear-gradient(
-          180deg,
-          rgba(8,9,11, var(--ovTop, .10)),
-          rgba(8,9,11, var(--ovBot, .30))
-        );
+        radial-gradient(120px 44px at 35% 40%, rgba(150,190,255,.10), transparent 60%),
+        radial-gradient(120px 44px at 70% 55%, rgba(255,215,140,.06), transparent 62%);
+      opacity: .0;
+      transition: opacity .18s ease, transform .18s ease;
+      transform: translateY(0px);
+      pointer-events:none;
+    }
+    .wordmark .title:active:after{ opacity:.85; transform: translateY(1px); }
+    .wordmark .title.auraHover:after{ opacity:.55; }
+
+    /* Spotify icon only (NO circle / NO outline) */
+    .lmSpotifyIconBtn{
+      margin-left: auto;
+      border: 0;
+      background: transparent;
+      padding: 6px;
+      cursor: pointer;
+      line-height: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .lmSpotifyIconBtn svg{
+      width: 20px;
+      height: 20px;
+      display:block;
+      transition: opacity .15s ease, transform .15s ease;
+    }
+    .lmSpotifyIconBtn:active svg{ transform: translateY(1px); }
+
+    /* Disconnected = gray */
+    .lmSpotifyIconBtn[data-state="off"]{ color: rgba(170,175,184,.70); }
+    .lmSpotifyIconBtn[data-state="off"] svg{ opacity: .85; }
+
+    /* Connected = black (with tiny halo so you can still see it on dark UI) */
+    .lmSpotifyIconBtn[data-state="on"]{ color: rgba(0,0,0,.92); }
+    .lmSpotifyIconBtn[data-state="on"] svg{
+      opacity: 1;
+      filter: drop-shadow(0 0 6px rgba(255,255,255,.16));
     }
 
-    .nowWrap{ position:relative; padding: 18px; }
-    .nowTop{ display:flex; align-items:center; justify-content:flex-end; gap:12px; margin-bottom: 14px; position:relative; z-index:2; min-height: 24px; }
-
-    .chip{
-      display:inline-flex; align-items:center; gap:8px; padding: 7px 10px;
-      border-radius: 999px;
-      background: rgba(255,255,255,.045);
-      outline: 1px solid rgba(255,255,255,.085);
-      color: rgba(255,255,255,.78);
-      font-size: 12px; letter-spacing:.25px; white-space:nowrap;
+    /* Modal overlay */
+    .auraOverlay{
+      position: fixed;
+      inset: 0;
+      z-index: 999999;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: max(14px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right))
+               max(14px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+      background:
+        radial-gradient(900px 600px at 30% 20%, rgba(255,255,255,.06), transparent 60%),
+        radial-gradient(900px 600px at 70% 80%, rgba(255,255,255,.04), transparent 62%),
+        rgba(0,0,0,.52);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
     }
-    .chip .miniDot{ width:6px;height:6px;border-radius:999px; background: rgba(255,255,255,.18); }
-    .chip.live{ color: rgba(255,255,255,.95); outline-color: var(--liveBd); background: var(--liveBg); }
-    .chip.live .miniDot{ background: var(--live); box-shadow: 0 0 0 3px rgba(255,59,59,.12); }
-
-    .nowMain{ display:grid; grid-template-columns: 1fr; gap: 0; align-items:center; position:relative; z-index:2; }
-    .coverWrap{ display:none !important; }
-
-    .nowText{ min-width:0; padding-left: 2px; }
-
-    .line1{ font-size: 15.5px; font-weight: 720; letter-spacing: .15px; }
-    .line2{ margin-top: 6px; font-size: 13.5px; color: rgba(255,255,255,.72); }
-    .line3{ margin-top: 6px; font-size: 12px; color: var(--muted2); }
-
-    .marq{ display:inline-block; white-space:nowrap; }
-    .marqWrap{
-      position:relative; overflow:hidden; padding-left: 3px;
-      -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 86%, transparent 100%);
-      mask-image: linear-gradient(90deg, #000 0%, #000 86%, transparent 100%);
+    .auraCard{
+      width: min(420px, calc(100vw - 26px));
+      border-radius: 22px;
+      background: linear-gradient(180deg, rgba(18,20,24,.92), rgba(12,13,16,.92));
+      outline: 1px solid rgba(255,255,255,.10);
+      box-shadow: 0 30px 90px rgba(0,0,0,.68);
+      overflow: hidden;
+      transform: translateY(6px) scale(.985);
+      opacity: 0;
+      transition: transform .18s ease, opacity .18s ease;
+      will-change: transform, opacity;
     }
-    .marqOn .marq{ animation: marqMove var(--marqDur, 10s) linear infinite; }
-    @keyframes marqMove{
-      0%{ transform: translateX(0); }
-      100%{ transform: translateX(calc(-1 * var(--marqShift, 60px))); }
-    }
+    .auraOverlay.on{ display:flex; }
+    .auraOverlay.on .auraCard{ transform: translateY(0) scale(1); opacity: 1; }
 
-    .controls{
-      padding: 14px;
+    .auraTop{
+      padding: 14px 16px 10px 16px;
       display:flex;
-      gap:10px;
-      flex-wrap:wrap;
+      align-items:center;
+      justify-content:space-between;
+      gap: 10px;
       border-bottom: 1px solid rgba(255,255,255,.07);
     }
-    .seg{
+    .auraLabel{
+      font-size: 11px;
+      letter-spacing: .34px;
+      text-transform: uppercase;
+      color: rgba(255,255,255,.62);
       display:flex;
-      gap:8px;
-      padding: 7px;
-      border-radius: 999px;
-      background: rgba(255,255,255,.04);
-      outline: 1px solid rgba(255,255,255,.08);
-      width: fit-content;
-    }
-    .seg button{
-      border:0;
-      background: transparent;
-      color: rgba(255,255,255,.74);
-      padding: 9px 12px;
-      border-radius: 999px;
-      font-size: 12.5px;
-      cursor:pointer;
-      letter-spacing:.2px;
-    }
-    .seg button[aria-selected="true"]{
-      background: rgba(255,255,255,.085);
-      outline: 1px solid rgba(255,255,255,.10);
-      color: rgba(255,255,255,.95);
-    }
-
-    .list{ padding: 10px; }
-    .list, #econcertsList{ contain: paint; }
-
-    .row{
-      display:grid;
-      grid-template-columns: 52px minmax(0,1fr) max-content;
-      gap: 12px;
-      padding: 12px 12px 12px 16px;
-      border-radius: 16px;
       align-items:center;
-      user-select:none;
-      contain: layout paint;
+      gap:10px;
+      min-width:0;
     }
-    .row:hover{ background: rgba(255,255,255,.035); }
-    .row:active{ background: rgba(255,255,255,.045); }
-
-    .thumb{
-      width: 44px; height: 44px;
-      border-radius: 14px;
-      overflow:hidden;
-      position:relative;
+    .auraDot{
+      width: 8px; height: 8px;
+      border-radius: 999px;
+      background: rgba(160,190,255,.65);
+      box-shadow: 0 0 0 3px rgba(160,190,255,.10);
       outline: 1px solid rgba(255,255,255,.10);
-      background: rgba(255,255,255,.03);
-      box-shadow: 0 10px 30px rgba(0,0,0,.40);
       flex: 0 0 auto;
     }
-    .thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
-    .thumbFallback{
-      position:absolute; inset:0; display:grid; place-items:center;
-      color: rgba(255,255,255,.35); font-size: 18px;
-    }
-
-    .mid{ min-width:0; padding-left: 3px; }
-    .title{
-      font-size: 13.5px;
-      font-weight: 650;
-      color: rgba(255,255,255,.92);
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-    }
-    .sub{
-      margin-top: 6px;
+    .auraClose{
+      border:0;
+      cursor:pointer;
+      padding: 8px 10px;
+      border-radius: 999px;
       font-size: 12px;
-      color: var(--muted2);
-      white-space:nowrap;
+      letter-spacing:.2px;
+      background: rgba(255,255,255,.06);
+      outline: 1px solid rgba(255,255,255,.10);
+      color: rgba(255,255,255,.90);
+    }
+    .auraClose:active{ transform: translateY(1px); }
+
+    .auraBody{ padding: 16px; }
+    .auraOrbWrap{
+      border-radius: 20px;
+      outline: 1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.02);
       overflow:hidden;
-      text-overflow:ellipsis;
+      position: relative;
+      height: 260px;
+      display:grid;
+      place-items:center;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
     }
-
-    .right{
-      justify-self:end;
-      text-align:right;
-      font-size: 12.5px;
-      font-weight: 700;
-      color: rgba(255,255,255,.80);
-      padding-left: 8px;
-      white-space:nowrap;
-    }
-    .right.count{ color: rgba(255,214,102,.92); }
-
-    /* eConcerts */
-    .econcertsHead{ padding: 14px; display:flex; align-items:center; justify-content:space-between; gap:10px; border-bottom: 1px solid rgba(255,255,255,.07); }
-    .econcertsTitle{ font-size: 12px; letter-spacing: .34px; color: rgba(255,255,255,.62); text-transform: uppercase; display:flex; align-items:center; gap:10px; min-width: 0; }
-    .eBtn{ border:0; cursor:pointer; padding: 9px 12px; border-radius: 999px; font-size: 12.5px; letter-spacing:.2px; background: rgba(255,255,255,.06); outline: 1px solid rgba(255,255,255,.10); color: rgba(255,255,255,.90); }
-    .eBtn:active{ transform: translateY(1px); }
-    .eBtn.ghost{ background: transparent; color: rgba(255,255,255,.78); }
-    .econcertsGrid{ padding: 10px; display:grid; gap:10px; }
-    .eCard{ border-radius: 16px; outline: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.03); padding: 12px 12px 12px 14px; display:grid; grid-template-columns: minmax(0,1fr) max-content; gap:12px; align-items:start; contain: layout paint; }
-    .eMain{ min-width:0; }
-    .eArtist{ font-size: 14px; font-weight: 760; color: rgba(255,255,255,.94); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .eMeta{ margin-top: 6px; font-size: 12px; color: rgba(255,255,255,.72); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .eMeta2{ margin-top: 6px; font-size: 12px; color: var(--muted2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .ePills{ margin-top: 10px; display:flex; flex-wrap:wrap; gap:8px; }
-    .ePill{ display:inline-flex; align-items:center; gap:8px; padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,.04); outline: 1px solid rgba(255,255,255,.08); color: rgba(255,255,255,.80); font-size: 12px; letter-spacing: .2px; white-space:nowrap; }
-    .eRight{ display:flex; flex-direction:column; align-items:flex-end; gap:8px; white-space:nowrap; }
-    .eScore{ font-size: 12px; font-weight: 800; color: rgba(255,214,102,.92); }
-    .eActions{ display:flex; gap:8px; }
-    .eBadge{ font-size: 12px; font-weight: 750; color: rgba(255,255,255,.85); padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,.04); outline: 1px solid rgba(255,255,255,.08); }
-    .eEmpty{ padding: 14px; color: rgba(255,255,255,.70); font-size: 13px; }
-
-    /* ✅ hidden stubs to prevent JS crashes */
-    .stubs{
+    .auraOrbHint{
       position:absolute;
-      width:0;height:0;
+      left: 14px;
+      bottom: 12px;
+      right: 14px;
+      font-size: 12px;
+      line-height: 1.4;
+      color: rgba(255,255,255,.66);
+      letter-spacing: .15px;
+      text-shadow: 0 6px 18px rgba(0,0,0,.55);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      opacity: .92;
+    }
+
+    .auraGrid{
+      margin-top: 14px;
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .auraBox{
+      border-radius: 16px;
+      background: rgba(255,255,255,.03);
+      outline: 1px solid rgba(255,255,255,.07);
+      padding: 12px;
       overflow:hidden;
-      opacity:0;
-      pointer-events:none;
+    }
+    .auraBoxWide{ grid-column: 1/-1; }
+
+    .auraK{
+      font-size: 10px;
+      letter-spacing: .30px;
+      color: rgba(255,255,255,.58);
+      text-transform: uppercase;
+    }
+    .auraRow{
+      margin-top: 9px;
+      display:flex;
+      align-items:center;
+      gap: 10px;
+    }
+    .auraBar{
+      flex: 1 1 auto;
+      height: 7px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.06);
+      outline: 1px solid rgba(255,255,255,.06);
+      overflow:hidden;
+    }
+    .auraFill{
+      display:block;
+      height:100%;
+      width: 50%;
+      border-radius: 999px;
+      background: linear-gradient(180deg, rgba(255,255,255,.62), rgba(255,255,255,.34));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.26);
+    }
+    .auraN{
+      font-size: 12px;
+      font-weight: 780;
+      color: rgba(255,255,255,.84);
+      white-space: nowrap;
+      min-width: 28px;
+      text-align:right;
+    }
+    .auraLine{
+      margin-top: 12px;
+      color: rgba(255,255,255,.62);
+      font-size: 12.5px;
+      line-height: 1.45;
+      letter-spacing: .12px;
+    }
+  `;
+  document.head.appendChild(style);
+  /* aura-tab.js (FULL FILE REPLACE) — PART 2/4 */
+
+  // ---------- Connect / Disconnect (best-effort) ----------
+  async function connectSpotify(){
+    if (window.SpotifyAuth && typeof window.SpotifyAuth.connect === "function") {
+      await window.SpotifyAuth.connect();
+      return;
+    }
+    window.dispatchEvent(new CustomEvent("spotify:connect"));
+  }
+
+  function nukeLocalSpotifyTokens(){
+    // Best-effort local sign-out (does NOT revoke at Spotify; just removes local auth)
+    const keys = Object.keys(localStorage || {});
+    const hit = keys.filter(k => /spotify|spoti|access[_-]?token|refresh[_-]?token|oauth/i.test(k));
+    for (const k of hit){
+      try{ localStorage.removeItem(k); }catch{}
+    }
+    // Some apps store in sessionStorage too
+    const skeys = Object.keys(sessionStorage || {});
+    const shit = skeys.filter(k => /spotify|spoti|access[_-]?token|refresh[_-]?token|oauth/i.test(k));
+    for (const k of shit){
+      try{ sessionStorage.removeItem(k); }catch{}
+    }
+  }
+
+  async function disconnectSpotify(){
+    // If your auth layer supports it, use it.
+    if (window.SpotifyAuth && typeof window.SpotifyAuth.disconnect === "function") {
+      await window.SpotifyAuth.disconnect();
+      return;
+    }
+    if (window.SpotifyAuth && typeof window.SpotifyAuth.logout === "function") {
+      await window.SpotifyAuth.logout();
+      return;
+    }
+    if (window.SpotifyPlayer && typeof window.SpotifyPlayer.disconnect === "function") {
+      await window.SpotifyPlayer.disconnect();
+      return;
     }
 
-    @media (max-width: 720px){
-      body:before{ display:none !important; }
-      .doodles{ display:none !important; }
-      .doodleZone{ display:none !important; }
+    // Fallback: local sign-out + tell the app
+    nukeLocalSpotifyTokens();
+    window.dispatchEvent(new CustomEvent("spotify:disconnect"));
+  }
 
-      .card{ backdrop-filter:none !important; -webkit-backdrop-filter:none !important; box-shadow:none !important; }
-      .thumb{ box-shadow:none !important; }
-    }
+  // ---------- Ensure Spotify icon (right of tabs) ----------
+  function ensureSpotifyIconButton(){
+    const tabs = $(".tabs");
+    if(!tabs) return;
 
-    @media (max-width: 520px){
-      .line1{ font-size: 15px; }
-      .eCard{ grid-template-columns: 1fr; }
-      .eRight{ align-items:flex-start; }
-    }
-  </style>
-</head>
+    if ($("#lmSpotifyIconBtn")) return;
 
-<body>
-  <div class="doodles bright" aria-hidden="true"></div>
-  <div class="doodles dark" aria-hidden="true"></div>
+    const existing =
+      tabs.querySelector('[aria-label*="Spotify" i]') ||
+      tabs.querySelector('[data-spotify]') ||
+      tabs.querySelector('#spotifyBtn') ||
+      tabs.querySelector('.spotifyBtn');
+    if (existing) return;
 
-  <div class="app">
-    <header>
-      <div class="brand">
-        <div class="glyph" aria-hidden="true"></div>
-        <div class="wordmark">
-          <div class="title">Listening Mirror</div>
-          <div class="sub">
-            <span id="statusDot" class="dot" aria-hidden="true"></span>
-            <span id="statusLine">Offline</span>
-          </div>
-        </div>
-      </div>
-    </header>
+    const btn = document.createElement("button");
+    btn.id = "lmSpotifyIconBtn";
+    btn.className = "lmSpotifyIconBtn";
+    btn.type = "button";
+    btn.setAttribute("aria-label", "Spotify connect");
+    btn.setAttribute("title", "Spotify connect");
+    btn.dataset.state = isConnected() ? "on" : "off";
 
-    <div class="tabs" role="tablist" aria-label="Main tabs">
-      <!-- ✅ IDs added so any JS using getElementById(...).classList won’t crash -->
-      <button id="tab-now" class="tabBtn" data-tab="now" aria-selected="true" role="tab">Now</button>
-      <button id="tab-recent" class="tabBtn" data-tab="recent" aria-selected="false" role="tab">Recent</button>
-      <button id="tab-top" class="tabBtn" data-tab="top" aria-selected="false" role="tab">Top</button>
-      <button id="tab-econcerts" class="tabBtn" data-tab="econcerts" aria-selected="false" role="tab">eConcerts</button>
-    </div>
+    btn.innerHTML = `
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path fill="currentColor" d="M12 2C6.48 2 2 6.477 2 12s4.48 10 10 10 10-4.477 10-10S17.52 2 12 2zm4.588 14.384a.75.75 0 0 1-1.03.248c-2.82-1.724-6.372-2.114-10.56-1.157a.75.75 0 1 1-.335-1.462c4.57-1.046 8.502-.597 11.676 1.345a.75.75 0 0 1 .249 1.026zm1.472-3.095a.9.9 0 0 1-1.236.298c-3.23-1.985-8.155-2.56-11.973-1.4a.9.9 0 0 1-.523-1.722c4.37-1.329 9.79-.68 13.5 1.6a.9.9 0 0 1 .232 1.224zm.126-3.21C14.38 7.82 8.03 7.633 4.57 8.68a1.05 1.05 0 0 1-.61-2.01c3.98-1.206 10.93-0.976 15.35 1.67a1.05 1.05 0 0 1-1.124 1.738z"/>
+      </svg>
+    `;
 
-    <!-- ✅ IDs added on panels too -->
-    <section id="panel-now" class="panel" data-panel="now">
-      <div class="card">
-        <div id="nowAmbient" class="nowAmbient"></div>
+    const syncBtn = () => {
+      const on = isConnected();
+      btn.dataset.state = on ? "on" : "off";
+      btn.setAttribute("aria-label", on ? "Spotify disconnect" : "Spotify connect");
+      btn.setAttribute("title", on ? "Spotify disconnect" : "Spotify connect");
+    };
 
-        <div class="nowWrap">
-          <div class="nowTop">
-            <div id="nowBadge" class="chip">
-              <span class="miniDot" aria-hidden="true"></span>
-              <span id="nowBadgeText">OFF</span>
-            </div>
-          </div>
-
-          <div class="nowMain">
-            <div class="coverWrap" id="nowCoverWrap">
-              <img id="nowImg" class="coverImg" alt="" crossorigin="anonymous" />
-              <div id="nowFallback" class="coverFallback">♪</div>
-            </div>
-
-            <div class="nowText">
-              <div class="line1 marqWrap" id="nowTrackWrap">
-                <span class="marq" id="nowTrack">—</span>
-              </div>
-              <div class="line2 marqWrap" id="nowArtistWrap">
-                <span class="marq" id="nowArtist">—</span>
-              </div>
-              <div class="line3 marqWrap" id="nowAlbumWrap">
-                <span class="marq" id="nowAlbum">—</span>
-              </div>
-              <div class="sub" id="nowMsg" style="margin-top:12px;">—</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- keep doodleZone (optional) -->
-      <div class="doodleZone" aria-hidden="true">
-        <div class="doodleFloor bright"></div>
-        <div class="doodleFloor dark"></div>
-      </div>
-    </section>
-
-    <section id="panel-top" class="panel hidden" data-panel="top">
-      <div class="card">
-        <div class="controls">
-          <div class="seg" aria-label="Top type">
-            <button data-top-type="tracks" aria-selected="true">Track</button>
-            <button data-top-type="artists" aria-selected="false">Artist</button>
-            <button data-top-type="albums" aria-selected="false">Album</button>
-          </div>
-
-          <div class="seg" aria-label="Top period">
-            <button data-top-period="today" aria-selected="true">Today</button>
-            <button data-top-period="week" aria-selected="false">Week</button>
-            <button data-top-period="year" aria-selected="false">Year</button>
-          </div>
-        </div>
-
-        <div class="list" id="topList" aria-live="polite"></div>
-      </div>
-    </section>
-
-    <section id="panel-recent" class="panel hidden" data-panel="recent">
-      <div class="card">
-        <div class="list" id="recentList" aria-live="polite"></div>
-      </div>
-    </section>
-
-    <section id="panel-econcerts" class="panel hidden" data-panel="econcerts">
-      <div class="card">
-        <div class="econcertsHead">
-          <div class="econcertsTitle">
-            <span class="dot on" aria-hidden="true"></span>
-            eConcerts
-          </div>
-
-          <div style="display:flex; gap:8px; align-items:center;">
-            <button class="eBtn ghost" id="econcertsToggleGroup" type="button" aria-pressed="true">Group by city</button>
-            <button class="eBtn" id="econcertsRefresh" type="button">Refresh</button>
-          </div>
-        </div>
-
-        <div class="econcertsGrid" id="econcertsList" aria-live="polite">
-          <div class="eEmpty">No events yet. Tap Refresh.</div>
-        </div>
-      </div>
-    </section>
-  </div>
-
-  <!-- ✅ Hidden Mirror stubs: prevent crashes if any script still expects these IDs -->
-  <div class="stubs" aria-hidden="true">
-    <details id="orbDetails"><summary><span id="mirrorOrb"></span></summary></details>
-    <div id="mirrorCard"></div>
-    <div id="mirrorPill"></div>
-    <div id="mirrorPillText"></div>
-    <div id="mirrorState">IDLE</div>
-
-    <div id="mDot" style="left:50%"></div>
-
-    <i id="mEnergy" style="width:0%"></i>
-    <i id="mMood" style="width:0%"></i>
-    <i id="mReplay" style="width:0%"></i>
-
-    <div id="mEnergyNum">—</div>
-    <div id="mMoodNum">—</div>
-    <div id="mReplayNum">—</div>
-
-    <i id="pEnergy" style="width:0%"></i>
-    <i id="pMood" style="width:0%"></i>
-    <i id="pReplay" style="width:0%"></i>
-
-    <div id="pEnergyNum">—</div>
-    <div id="pMoodNum">—</div>
-    <div id="pReplayNum">—</div>
-
-    <div id="mCovers"></div>
-  </div>
-
-  <script src="./spotify-auth.js?v=20260213a"></script>
-  <script src="./spotify-player.js?v=20260213a"></script>
-  <script src="./spotify-ui.js?v=20260213a"></script>
-  <script src="./app.js?v=20260213a"></script>
-
-  <!-- header orb -->
-  <script src="./orb.js?v=20260304a"></script>
-
-  <script src="./econcerts.js?v=20260213a"></script>
-
-  <!-- ✅ keep your adaptive overlay sampler -->
-  <script>
-  (() => {
-    const imgEl = document.getElementById("nowImg");
-    const ambientEl = document.getElementById("nowAmbient");
-    if (!imgEl || !ambientEl) return;
-
-    const c = document.createElement("canvas");
-    const ctx = c.getContext("2d", { willReadFrequently: true });
-
-    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-    const lerp = (a, b, t) => a + (b - a) * t;
-
-    function setOverlay(topA, botA){
-      ambientEl.style.setProperty("--ovTop", topA.toFixed(3));
-      ambientEl.style.setProperty("--ovBot", botA.toFixed(3));
-    }
-
-    function fallback(){
-      setOverlay(0.16, 0.46);
-    }
-
-    function sampleTextZone(){
+    btn.addEventListener("click", async () => {
       try{
-        if (!imgEl.complete || !imgEl.naturalWidth || !imgEl.naturalHeight) return;
-
-        const W = 64, H = 64;
-        c.width = W; c.height = H;
-        ctx.clearRect(0, 0, W, H);
-        ctx.drawImage(imgEl, 0, 0, W, H);
-
-        const x0 = 0, x1 = Math.floor(W * 0.60);
-        const y0 = Math.floor(H * 0.18), y1 = Math.floor(H * 0.82);
-
-        const data = ctx.getImageData(0, 0, W, H).data;
-
-        let sum = 0, cnt = 0;
-        for (let y = y0; y < y1; y += 2){
-          for (let x = x0; x < x1; x += 2){
-            const i = (y * W + x) * 4;
-            const r = data[i] / 255, g = data[i+1] / 255, b = data[i+2] / 255;
-            const lum = 0.2126*r + 0.7152*g + 0.0722*b;
-            sum += lum; cnt++;
-          }
+        if (isConnected()){
+          await disconnectSpotify();
+        } else {
+          await connectSpotify();
         }
-
-        const avg = cnt ? (sum / cnt) : 0.5;
-        const t = clamp(avg, 0, 1);
-
-        const ovTop = lerp(0.08, 0.22, t);
-        const ovBot = lerp(0.22, 0.58, t);
-
-        setOverlay(ovTop, ovBot);
-      } catch(e){
-        fallback();
+      } catch {
+        // silent
+      } finally {
+        setTimeout(syncBtn, 250);
+        setTimeout(syncBtn, 900);
       }
+    }, { passive: true });
+
+    tabs.appendChild(btn);
+
+    // keep it accurate if other scripts refresh tokens
+    setTimeout(syncBtn, 350);
+    setTimeout(syncBtn, 1100);
+    window.addEventListener("spotify:connected", syncBtn, { passive:true });
+    window.addEventListener("spotify:disconnected", syncBtn, { passive:true });
+  }
+
+  // ---------- Build modal ----------
+  const overlay = document.createElement("div");
+  overlay.className = "auraOverlay";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-label", "Aura");
+  overlay.innerHTML = `
+    <div class="auraCard">
+      <div class="auraTop">
+        <div class="auraLabel">
+          <span class="auraDot" aria-hidden="true"></span>
+          <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;">Aura</span>
+        </div>
+        <button class="auraClose" type="button" aria-label="Close aura">Close</button>
+      </div>
+      <div class="auraBody">
+        <div class="auraOrbWrap">
+          <canvas id="auraOrbCanvas" width="320" height="320" style="width:240px;height:240px;display:block;"></canvas>
+          <div id="auraOrbHint" class="auraOrbHint">—</div>
+        </div>
+
+        <div class="auraGrid" aria-label="Aura signals">
+          <div class="auraBox">
+            <div class="auraK">Heat</div>
+            <div class="auraRow">
+              <span class="auraBar"><i id="auraHeatBar" class="auraFill"></i></span>
+              <span id="auraHeatNum" class="auraN">—</span>
+            </div>
+          </div>
+
+          <div class="auraBox">
+            <div class="auraK">Focus</div>
+            <div class="auraRow">
+              <span class="auraBar"><i id="auraFocusBar" class="auraFill"></i></span>
+              <span id="auraFocusNum" class="auraN">—</span>
+            </div>
+          </div>
+
+          <div class="auraBox">
+            <div class="auraK">Depth</div>
+            <div class="auraRow">
+              <span class="auraBar"><i id="auraDepthBar" class="auraFill"></i></span>
+              <span id="auraDepthNum" class="auraN">—</span>
+            </div>
+          </div>
+
+          <div class="auraBox">
+            <div class="auraK">Flux</div>
+            <div class="auraRow">
+              <span class="auraBar"><i id="auraFluxBar" class="auraFill"></i></span>
+              <span id="auraFluxNum" class="auraN">—</span>
+            </div>
+          </div>
+
+          <div class="auraBox auraBoxWide">
+            <div class="auraLine"><span id="auraLine">—</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const closeBtn = $(".auraClose", overlay);
+  const card = $(".auraCard", overlay);
+
+  const c = $("#auraOrbCanvas", overlay);
+  const ctx = c ? c.getContext("2d") : null;
+
+  const hint = $("#auraOrbHint", overlay);
+
+  const heatBar = $("#auraHeatBar", overlay);
+  const focusBar = $("#auraFocusBar", overlay);
+  const depthBar = $("#auraDepthBar", overlay);
+  const fluxBar = $("#auraFluxBar", overlay);
+
+  const heatNum = $("#auraHeatNum", overlay);
+  const focusNum = $("#auraFocusNum", overlay);
+  const depthNum = $("#auraDepthNum", overlay);
+  const fluxNum = $("#auraFluxNum", overlay);
+
+  const auraLine = $("#auraLine", overlay);
+  /* aura-tab.js (FULL FILE REPLACE) — PART 3/4 */
+
+  // ---------- State (0..1) ----------
+  let open = false;
+  let rafId = 0;
+  let lastFrame = 0;
+  let lastTrackId = "";
+  let pollTimer = 0;
+
+  // Signals
+  let heat = 0.55;
+  let focus = 0.55;
+  let depth = 0.55;
+  let flux = 0.50;
+
+  // Color driver
+  let hue = 210;
+  let sat = 88;
+  let light = 62;
+
+  function setOverlay(on){
+    open = !!on;
+    if(open){
+      overlay.classList.add("on");
+      titleEl.classList.add("auraHover");
+      startPolling(true);
+      if(!rafId) rafId = requestAnimationFrame(draw);
+    }else{
+      overlay.classList.remove("on");
+      titleEl.classList.remove("auraHover");
+      startPolling(false);
+    }
+  }
+
+  function toggle(){ setOverlay(!open); }
+
+  closeBtn?.addEventListener("click", () => setOverlay(false), { passive:true });
+
+  overlay.addEventListener("pointerdown", (e) => {
+    if(!open) return;
+    if(card && card.contains(e.target)) return;
+    setOverlay(false);
+  }, { passive:true });
+
+  document.addEventListener("keydown", (e) => {
+    if(!open) return;
+    if(e.key === "Escape") setOverlay(false);
+  });
+
+  titleEl.addEventListener("click", (e) => { e.preventDefault(); toggle(); });
+  titleEl.addEventListener("keydown", (e) => {
+    if(e.key === "Enter" || e.key === " "){
+      e.preventDefault();
+      toggle();
+    }
+  });
+
+  function setBars(){
+    const H = clamp01(heat);
+    const F = clamp01(focus);
+    const D = clamp01(depth);
+    const X = clamp01(flux);
+
+    if(heatBar) heatBar.style.width = `${Math.round(H*100)}%`;
+    if(focusBar) focusBar.style.width = `${Math.round(F*100)}%`;
+    if(depthBar) depthBar.style.width = `${Math.round(D*100)}%`;
+    if(fluxBar) fluxBar.style.width = `${Math.round(X*100)}%`;
+
+    if(heatNum) heatNum.textContent = `${Math.round(H*100)}`;
+    if(focusNum) focusNum.textContent = `${Math.round(F*100)}`;
+    if(depthNum) depthNum.textContent = `${Math.round(D*100)}`;
+    if(fluxNum) fluxNum.textContent = `${Math.round(X*100)}`;
+
+    if(auraLine){
+      const line =
+        (H > .72 && X > .62) ? "Kinetic. Bright edges." :
+        (D > .72 && H < .52) ? "Deep. Slow gravity." :
+        (F > .72) ? "Focused. Clean center." :
+        (X > .70) ? "Restless. Moving surface." :
+        "Steady. Balanced field.";
+      auraLine.textContent = line;
+    }
+  }
+
+  function setHintText(txt){
+    if(!hint) return;
+    hint.textContent = txt || "—";
+  }
+
+  function normalizePercent01(n, fallback){
+    const v = Number(n);
+    if(!Number.isFinite(v)) return fallback;
+    if(v > 1.001) return clamp01(v/100);
+    return clamp01(v);
+  }
+
+  async function pollSpotify(){
+    try{
+      const st = await getPlayer();
+      if(!st || !st.item){
+        setHintText("No active playback.");
+        driftFallback();
+        setBars();
+        return;
+      }
+
+      const track = st.item?.name || "—";
+      const artist = st.item?.artists?.[0]?.name || "—";
+      const id = st.item?.id || "";
+
+      setHintText(`${artist} — ${track}`);
+
+      if(!id){
+        driftFallback();
+        setBars();
+        return;
+      }
+
+      if(id === lastTrackId){
+        setBars();
+        return;
+      }
+      lastTrackId = id;
+
+      const af = await getAudioFeatures(id);
+      if(!af){
+        driftFallback();
+        setBars();
+        return;
+      }
+
+      const e = normalizePercent01(af.energy, heat);
+      const v = normalizePercent01(af.valence, 0.5);
+      const da = normalizePercent01(af.danceability, flux);
+      const ac = normalizePercent01(af.acousticness, 0.45);
+      const ins = normalizePercent01(af.instrumentalness, focus);
+      const tempo = Number(af.tempo || 0);
+
+      const heatT  = clamp01(e*0.82 + clamp01((tempo-70)/120)*0.18);
+      const focusT = clamp01(ins*0.70 + (1-da)*0.30);
+      const depthT = clamp01((1-v)*0.70 + ac*0.30);
+      const fluxT  = clamp01(da*0.68 + clamp01((tempo-60)/140)*0.32);
+
+      heat  = lerp(heat,  heatT,  0.32);
+      focus = lerp(focus, focusT, 0.32);
+      depth = lerp(depth, depthT, 0.32);
+      flux  = lerp(flux,  fluxT,  0.32);
+
+      const warm = v;
+      const deep = depthT;
+      const targetHue = lerp(205, 32, warm) + lerp(0, 55, deep);
+      hue = (targetHue % 360 + 360) % 360;
+
+      sat = lerp(72, 96, clamp01(heatT*0.65 + fluxT*0.35));
+      light = lerp(56, 70, clamp01(0.55 + heatT*0.25 - depthT*0.18));
+
+      setBars();
+    }catch{
+      setHintText("Aura waiting for Spotify…");
+      driftFallback();
+      setBars();
+    }
+  }
+
+  function driftFallback(){
+    const d = () => (Math.random() - 0.5) * 0.04;
+    heat = clamp01(heat + d());
+    focus = clamp01(focus + d());
+    depth = clamp01(depth + d());
+    flux = clamp01(flux + d());
+
+    hue = (hue + (Math.random()-0.5)*6 + 360) % 360;
+    sat = clamp01(sat/100 + d())*100;
+    light = clamp01(light/100 + d())*100;
+  }
+
+  function startPolling(isOpen){
+    if(pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(pollSpotify, isOpen ? OPEN_POLL_MS : CLOSED_POLL_MS);
+  }
+          /* aura-tab.js (FULL FILE REPLACE) — PART 4/4 */
+
+  // ---------- Orb draw ----------
+  function resizeCanvas(){
+    if(!c || !ctx) return;
+    const dpr = Math.min(MAX_DPR, window.devicePixelRatio || 1);
+    const css = 240;
+    const px = Math.round(css * dpr);
+    if(c.width !== px || c.height !== px){
+      c.width = px;
+      c.height = px;
+    }
+    ctx.setTransform(1,0,0,1,0,0);
+  }
+
+  function draw(ts){
+    if(!ctx || !c){
+      rafId = 0;
+      return;
     }
 
-    imgEl.addEventListener("load", () => setTimeout(sampleTextZone, 30), { passive: true });
-    setTimeout(sampleTextZone, 160);
-  })();
-  </script>
+    if(FPS_CAP > 0){
+      const minFrame = 1000 / FPS_CAP;
+      if(ts - lastFrame < minFrame){
+        rafId = requestAnimationFrame(draw);
+        return;
+      }
+      lastFrame = ts;
+    }
 
-  <script src="./lyrics-ui.js?v=202603022b"></script>
-<script src="./aura-tab.js?v=20260305a"></script>
-  <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
-  <script>eruda.init();</script>
-</body>
-</html>
+    resizeCanvas();
+
+    const dpr = Math.min(MAX_DPR, window.devicePixelRatio || 1);
+    const W = c.width, H = c.height;
+    const cx = W/2, cy = H/2;
+
+    ctx.clearRect(0,0,W,H);
+
+    const baseR = (Math.min(W,H) * 0.26);
+    const pulse = 0.5 + 0.5*Math.sin(ts*0.0022 + flux*2.3);
+    const r = baseR * (0.92 + pulse*0.08 + heat*0.06);
+
+    const field = ctx.createRadialGradient(cx, cy, r*0.2, cx, cy, r*2.6);
+    field.addColorStop(0, `hsla(${hue}, ${sat}%, ${light+10}%, ${0.20 + heat*0.20})`);
+    field.addColorStop(0.55, `hsla(${(hue+28)%360}, ${sat}%, ${light}%, ${0.10 + depth*0.16})`);
+    field.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = field;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r*2.6, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.strokeStyle = `hsla(${(hue+12)%360}, ${sat}%, ${light+6}%, ${0.10 + focus*0.14})`;
+    ctx.lineWidth = Math.max(1, Math.round(1.6*dpr));
+    ctx.beginPath();
+    ctx.arc(cx, cy, r*1.38, 0, Math.PI*2);
+    ctx.stroke();
+
+    const core = ctx.createRadialGradient(cx - r*0.22, cy - r*0.28, r*0.18, cx, cy, r);
+    core.addColorStop(0, `hsla(${hue}, ${sat}%, ${light+18}%, 0.72)`);
+    core.addColorStop(0.62, `hsla(${(hue+18)%360}, ${sat}%, ${light+2}%, ${0.18 + heat*0.20})`);
+    core.addColorStop(1, `hsla(${(hue+40)%360}, ${sat}%, ${light-10}%, 0.10)`);
+    ctx.fillStyle = core;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.fillStyle = `rgba(255,255,255,${0.12 + heat*0.08})`;
+    ctx.beginPath();
+    ctx.ellipse(cx - r*0.20, cy - r*0.30, r*0.45, r*0.30, -0.55, 0, Math.PI*2);
+    ctx.fill();
+
+    const pCount = Math.round(10 + flux*14 + heat*6);
+    for(let i=0;i<pCount;i++){
+      const ang = (ts*0.00025 + i*0.43) * (0.9 + flux*0.8);
+      const rr = r*(1.00 + 0.75*Math.sin(ang*2 + i));
+      const px = cx + Math.cos(ang + i)*rr*(0.55 + 0.35*Math.sin(i*1.7));
+      const py = cy + Math.sin(ang + i*0.9)*rr*(0.55 + 0.35*Math.cos(i*1.3));
+      const a = 0.10 + 0.18*Math.sin(ts*0.001 + i) * (0.55 + heat*0.45);
+      const sz = (0.9 + 1.6*Math.abs(Math.sin(i*1.2 + ts*0.001))) * dpr;
+
+      ctx.fillStyle = `hsla(${(hue + 18 + i*7)%360}, ${sat}%, ${light+10}%, ${Math.max(0, a)})`;
+      ctx.beginPath();
+      ctx.arc(px, py, sz, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    rafId = requestAnimationFrame(draw);
+  }
+
+  // ---------- Boot ----------
+  function boot(){
+    ensureSpotifyIconButton();
+    setTimeout(ensureSpotifyIconButton, 350);
+    setTimeout(ensureSpotifyIconButton, 1100);
+
+    setBars();
+    pollSpotify();
+    startPolling(false);
+
+    setOverlay(false);
+
+    let t = 0;
+    const invite = setInterval(() => {
+      t += 1;
+      if(t > 6){ clearInterval(invite); titleEl.classList.remove("auraHover"); return; }
+      titleEl.classList.toggle("auraHover", t % 2 === 1);
+    }, 200);
+    setTimeout(() => { titleEl.classList.remove("auraHover"); clearInterval(invite); }, 1200);
+
+    window.addEventListener("resize", () => { if(open) resizeCanvas(); }, { passive:true });
+  }
+
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", boot, { once:true });
+  }else{
+    boot();
+  }
+})();

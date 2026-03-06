@@ -36,9 +36,21 @@
       --floorBright:  calc(.46 + (var(--axis) * .44));
       --floorDark:    calc(.38 + (var(--axisInv) * .42));
 
-      /* ✅ adaptive overlay (JS updates these per cover) */
       --ovTop: .10;
       --ovBot: .30;
+
+      /* header / rail polish */
+      --headerGlass: rgba(255,255,255,.035);
+      --headerLine: rgba(255,255,255,.075);
+      --headerGlow: rgba(145,175,255,.08);
+      --railBg: rgba(255,255,255,.045);
+      --railLine: rgba(255,255,255,.085);
+      --railInset: rgba(255,255,255,.05);
+      --tabIdle: rgba(255,255,255,.70);
+      --tabIdleBg: rgba(255,255,255,.025);
+      --tabOnBg: rgba(255,255,255,.10);
+      --tabOnLine: rgba(255,255,255,.13);
+      --tabOnText: rgba(255,255,255,.96);
     }
 
     *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
@@ -49,7 +61,6 @@
       overflow:hidden;
       color: var(--text);
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-
       background:
         radial-gradient(1200px 700px at 22% -10%, rgba(255,255,255, calc(.04 + var(--axis)*.12)), transparent 60%),
         radial-gradient(900px 600px at 92% 0%, rgba(255,255,255, calc(.03 + var(--axis)*.10)), transparent 55%),
@@ -151,7 +162,6 @@
       -webkit-overflow-scrolling: touch;
       touch-action: pan-y;
       overscroll-behavior: contain;
-
       padding: calc(var(--safeT) + 14px) var(--safeR) calc(var(--safeB) + 18px) var(--safeL);
       max-width: 920px;
       margin: 0 auto;
@@ -159,56 +169,187 @@
       z-index:1;
     }
 
-    header{ display:flex; align-items:flex-start; gap:14px; margin-bottom: 14px; }
-    .brand{ display:flex; align-items:center; gap:10px; padding-left: 2px; }
+    /* ===== HEADER ===== */
+    header{
+      display:flex;
+      align-items:flex-start;
+      gap:14px;
+      margin-bottom: 16px;
+      padding: 10px 12px 12px 12px;
+      border-radius: 24px;
+      background:
+        radial-gradient(180px 80px at 12% 20%, rgba(145,175,255,.08), transparent 72%),
+        linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.018));
+      outline: 1px solid var(--headerLine);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.05),
+        0 18px 40px rgba(0,0,0,.22);
+      position:relative;
+      overflow:hidden;
+    }
+    header:before{
+      content:"";
+      position:absolute;
+      inset:0;
+      pointer-events:none;
+      background:
+        radial-gradient(220px 90px at 0% 0%, rgba(255,255,255,.03), transparent 70%),
+        linear-gradient(180deg, rgba(255,255,255,.02), transparent 50%);
+      opacity:.9;
+    }
+
+    .brand{
+      display:flex;
+      align-items:center;
+      gap:12px;
+      padding-left: 2px;
+      min-width:0;
+      position:relative;
+      z-index:1;
+    }
 
     .glyph{
-      width: 18px; height: 18px; border-radius: 999px; position:relative;
-      background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.22), rgba(255,255,255,.05) 55%, rgba(255,255,255,.03) 70%);
-      outline: 1px solid rgba(255,255,255,.10);
-      box-shadow: 0 10px 35px rgba(0,0,0,.45);
+      width: 20px; height: 20px; border-radius: 999px; position:relative;
+      background:
+        radial-gradient(circle at 30% 30%, rgba(255,255,255,.26), rgba(255,255,255,.06) 54%, rgba(255,255,255,.03) 76%),
+        radial-gradient(circle at 70% 70%, rgba(145,175,255,.11), transparent 60%);
+      outline: 1px solid rgba(255,255,255,.11);
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,.03),
+        0 10px 35px rgba(0,0,0,.45),
+        0 0 24px rgba(145,175,255,.08);
       flex: 0 0 auto;
-      overflow:hidden; /* for orb canvas injection */
+      overflow:hidden;
     }
     .glyph:before{
-      content:""; position:absolute; inset:3px; border-radius: 999px;
+      content:"";
+      position:absolute;
+      inset:3px;
+      border-radius: 999px;
       outline: 1px solid rgba(255,255,255,.10);
       background: radial-gradient(circle at 65% 35%, rgba(255,255,255,.10), transparent 60%);
       opacity:.9;
       pointer-events:none;
     }
+    .glyph:after{
+      content:"";
+      position:absolute;
+      inset:-8px;
+      border-radius:999px;
+      background: radial-gradient(circle, rgba(145,175,255,.10), transparent 65%);
+      opacity:.65;
+      pointer-events:none;
+    }
 
-    .wordmark{ display:flex; flex-direction:column; line-height: 1.15; }
+    .wordmark{
+      display:flex;
+      flex-direction:column;
+      line-height: 1.05;
+      min-width:0;
+    }
     .wordmark .title{
-      font-size: 18px; font-weight: 720; letter-spacing: .35px; margin:0;
-      background: linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.70));
-      -webkit-background-clip: text; background-clip: text; color: transparent;
+      font-size: 18px;
+      font-weight: 720;
+      letter-spacing: .52px;
+      margin:0;
+      text-wrap: balance;
+      background: linear-gradient(180deg, rgba(255,255,255,.95), rgba(222,226,234,.68));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      text-shadow: 0 0 28px rgba(145,175,255,.02);
     }
     .wordmark .sub{
-      margin-top: 6px; display:flex; align-items:center; gap:8px;
-      color: var(--muted2); font-size: 12px; letter-spacing: .2px;
+      margin-top: 7px;
+      display:flex;
+      align-items:center;
+      gap:8px;
+      color: rgba(255,255,255,.58);
+      font-size: 11.5px;
+      letter-spacing: .28px;
+      text-transform: uppercase;
     }
 
-    .dot{ width: 7px; height: 7px; border-radius: 99px; background: rgba(255,255,255,.14); outline: 1px solid rgba(255,255,255,.10); }
-    .dot.on{ background: rgba(49,208,124,.75); outline-color: rgba(49,208,124,.35); box-shadow: 0 0 0 3px rgba(49,208,124,.10); }
+    .dot{
+      width: 7px;
+      height: 7px;
+      border-radius: 99px;
+      background: rgba(255,255,255,.14);
+      outline: 1px solid rgba(255,255,255,.10);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.10);
+    }
+    .dot.on{
+      background: rgba(49,208,124,.75);
+      outline-color: rgba(49,208,124,.35);
+      box-shadow: 0 0 0 3px rgba(49,208,124,.10);
+    }
 
+    /* ===== TOP RAIL ===== */
     .tabs{
-      display:flex; gap:10px; padding: 8px; border-radius: 999px;
-      background: rgba(255,255,255,.04);
-      outline: 1px solid rgba(255,255,255,.08);
-      box-shadow: 0 16px 45px rgba(0,0,0,.35);
-      width: 100%; margin: 12px 0 16px 0;
-      justify-content:flex-start; overflow:hidden;
+      display:flex;
+      gap:6px;
+      padding: 6px;
+      border-radius: 999px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.028));
+      outline: 1px solid var(--railLine);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.04),
+        0 16px 45px rgba(0,0,0,.30);
+      width: 100%;
+      margin: 0 0 18px 0;
+      justify-content:flex-start;
+      align-items:center;
+      overflow:hidden;
+      position:relative;
     }
+    .tabs:before{
+      content:"";
+      position:absolute;
+      inset:0;
+      pointer-events:none;
+      border-radius:999px;
+      background:
+        radial-gradient(220px 60px at 12% 0%, rgba(255,255,255,.03), transparent 70%),
+        linear-gradient(180deg, rgba(255,255,255,.02), transparent 65%);
+      opacity:.95;
+    }
+
     .tabBtn{
-      border:0; background: transparent; color: rgba(255,255,255,.72);
-      padding: 10px 14px; border-radius: 999px; font-size: 13px;
-      letter-spacing: .2px; cursor:pointer; flex: 0 0 auto;
+      border:0;
+      background: transparent;
+      color: var(--tabIdle);
+      padding: 10px 14px;
+      border-radius: 999px;
+      font-size: 12.8px;
+      font-weight: 560;
+      letter-spacing: .22px;
+      cursor:pointer;
+      flex: 0 0 auto;
+      position:relative;
+      z-index:1;
+      transition:
+        background .16s ease,
+        color .16s ease,
+        box-shadow .16s ease,
+        transform .12s ease,
+        outline-color .16s ease;
+    }
+    .tabBtn:hover{
+      background: var(--tabIdleBg);
+      color: rgba(255,255,255,.86);
+    }
+    .tabBtn:active{
+      transform: translateY(1px);
     }
     .tabBtn[aria-selected="true"]{
-      background: rgba(255,255,255,.085);
-      outline: 1px solid rgba(255,255,255,.10);
-      color: rgba(255,255,255,.95);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.08));
+      outline: 1px solid var(--tabOnLine);
+      color: var(--tabOnText);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.07),
+        0 10px 22px rgba(0,0,0,.18);
     }
 
     .panel{ display:block; }
@@ -376,7 +517,6 @@
     }
     .right.count{ color: rgba(255,214,102,.92); }
 
-    /* eConcerts */
     .econcertsHead{ padding: 14px; display:flex; align-items:center; justify-content:space-between; gap:10px; border-bottom: 1px solid rgba(255,255,255,.07); }
     .econcertsTitle{ font-size: 12px; letter-spacing: .34px; color: rgba(255,255,255,.62); text-transform: uppercase; display:flex; align-items:center; gap:10px; min-width: 0; }
     .eBtn{ border:0; cursor:pointer; padding: 9px 12px; border-radius: 999px; font-size: 12.5px; letter-spacing:.2px; background: rgba(255,255,255,.06); outline: 1px solid rgba(255,255,255,.10); color: rgba(255,255,255,.90); }
@@ -396,7 +536,6 @@
     .eBadge{ font-size: 12px; font-weight: 750; color: rgba(255,255,255,.85); padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,.04); outline: 1px solid rgba(255,255,255,.08); }
     .eEmpty{ padding: 14px; color: rgba(255,255,255,.70); font-size: 13px; }
 
-    /* ✅ hidden stubs to prevent JS crashes */
     .stubs{
       position:absolute;
       width:0;height:0;
@@ -412,12 +551,37 @@
 
       .card{ backdrop-filter:none !important; -webkit-backdrop-filter:none !important; box-shadow:none !important; }
       .thumb{ box-shadow:none !important; }
+
+      header{
+        box-shadow:none !important;
+        backdrop-filter:none !important;
+        -webkit-backdrop-filter:none !important;
+      }
+      .tabs{
+        box-shadow:none !important;
+      }
     }
 
     @media (max-width: 520px){
       .line1{ font-size: 15px; }
       .eCard{ grid-template-columns: 1fr; }
       .eRight{ align-items:flex-start; }
+
+      header{
+        padding: 10px 10px 11px 10px;
+        border-radius: 22px;
+      }
+      .wordmark .title{
+        font-size: 17px;
+      }
+      .tabs{
+        gap:4px;
+        padding:5px;
+      }
+      .tabBtn{
+        padding: 9px 12px;
+        font-size: 12.4px;
+      }
     }
   </style>
 </head>
@@ -441,14 +605,12 @@
     </header>
 
     <div class="tabs" role="tablist" aria-label="Main tabs">
-      <!-- ✅ IDs added so any JS using getElementById(...).classList won’t crash -->
       <button id="tab-now" class="tabBtn" data-tab="now" aria-selected="true" role="tab">Now</button>
       <button id="tab-recent" class="tabBtn" data-tab="recent" aria-selected="false" role="tab">Recent</button>
       <button id="tab-top" class="tabBtn" data-tab="top" aria-selected="false" role="tab">Top</button>
       <button id="tab-econcerts" class="tabBtn" data-tab="econcerts" aria-selected="false" role="tab">eConcerts</button>
     </div>
 
-    <!-- ✅ IDs added on panels too -->
     <section id="panel-now" class="panel" data-panel="now">
       <div class="card">
         <div id="nowAmbient" class="nowAmbient"></div>
@@ -483,7 +645,6 @@
         </div>
       </div>
 
-      <!-- keep doodleZone (optional) -->
       <div class="doodleZone" aria-hidden="true">
         <div class="doodleFloor bright"></div>
         <div class="doodleFloor dark"></div>
@@ -537,7 +698,6 @@
     </section>
   </div>
 
-  <!-- ✅ Hidden Mirror stubs: prevent crashes if any script still expects these IDs -->
   <div class="stubs" aria-hidden="true">
     <details id="orbDetails"><summary><span id="mirrorOrb"></span></summary></details>
     <div id="mirrorCard"></div>
@@ -571,12 +731,10 @@
   <script src="./spotify-ui.js?v=20260213a"></script>
   <script src="./app.js?v=20260213a"></script>
 
-  <!-- header orb -->
   <script src="./orb.js?v=20260304a"></script>
 
   <script src="./econcerts.js?v=20260213a"></script>
 
-  <!-- ✅ keep your adaptive overlay sampler -->
   <script>
   (() => {
     const imgEl = document.getElementById("nowImg");
@@ -640,7 +798,7 @@
   </script>
 
   <script src="./lyrics-ui.js?v=202603022b"></script>
-<script src="./aura-tab.js?v=20260305a"></script>
+  <script src="./aura-tab.js?v=20260305a"></script>
   <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
   <script>eruda.init();</script>
 </body>

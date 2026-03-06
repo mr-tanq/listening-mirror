@@ -11,7 +11,11 @@
       - Instant poll on open
       - Burst retries (0ms/350ms/900ms/1800ms/3200ms/5200ms)
       - Burst after connect tap
-   ✅ Better message when no active playback/device (204)
+   ✅ FIX: Spotify button never “disappears” (MutationObserver self-heal)
+   ✅ NEW: Cosmic Nebula Orb with π / φ structure
+      - π drives motion / phase / pulse
+      - φ drives spacing / layer ratios / star distribution
+      - Palette changes by Spotify vibe, not just “always blue”
 */
 
 (() => {
@@ -22,13 +26,17 @@
   // Polling cadence
   const OPEN_POLL_MS = 8000;
   const CLOSED_POLL_MS = 60000;
-
-  // Burst retry timings (ms)
   const BURST_STEPS = [0, 350, 900, 1800, 3200, 5200];
 
   // Perf caps
   const MAX_DPR = 2.25;
   const FPS_CAP = 60;
+
+  // Sacred constants
+  const PI = Math.PI;
+  const TAU = Math.PI * 2;
+  const PHI = (1 + Math.sqrt(5)) / 2;
+  const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5)); // ~2.39996
 
   // Helpers
   const clamp01 = (x) => Math.max(0, Math.min(1, x));
@@ -39,15 +47,14 @@
     try { return fn(); } catch { return undefined; }
   }
 
+  // ---------- Spotify auth ----------
   function getToken() {
-    // Prefer your existing auth/player modules if present
     if (window.SpotifyAuth && typeof window.SpotifyAuth.getAccessToken === "function") {
       return safeCall(() => window.SpotifyAuth.getAccessToken());
     }
     if (window.SpotifyPlayer && typeof window.SpotifyPlayer.getAccessToken === "function") {
       return safeCall(() => window.SpotifyPlayer.getAccessToken());
     }
-    // Fallback: try common keys (best-effort; won’t break if absent)
     try {
       const keys = Object.keys(localStorage);
       for (const k of keys) {
@@ -55,7 +62,7 @@
         const lk = String(k).toLowerCase();
         if (!lk.includes("spotify")) continue;
         const v = localStorage.getItem(k);
-        if (v && v.length > 20 && v.includes(".")) return v; // very loose heuristic
+        if (v && v.length > 20 && v.includes(".")) return v;
       }
     } catch {}
     return null;
@@ -77,7 +84,6 @@
       headers: { Authorization: "Bearer " + token }
     });
 
-    // 204 = no active playback (for /me/player)
     if (res.status === 204) return { __no_content: true, __status: 204 };
 
     const json = await res.json().catch(() => null);
@@ -104,10 +110,7 @@
   const brandEl = $(".brand");
   if (!titleEl || !brandEl) return;
 
-  // Force lowercase label
   titleEl.textContent = "listening mirror";
-
-  // Make it portal button
   titleEl.style.cursor = "pointer";
   titleEl.style.userSelect = "none";
   titleEl.setAttribute("role", "button");
@@ -147,13 +150,12 @@
     .wordmark .title:active:after{ opacity:.85; transform: translateY(1px); }
     .wordmark .title.auraHover:after{ opacity:.55; }
 
-    /* Spotify icon button (icon-only, no circle outline) */
     .lmSpotifyIcoBtn{
       margin-left: auto;
       border: 0;
       background: transparent;
       padding: 8px 10px;
-      border-radius: 12px; /* for hit-area only */
+      border-radius: 12px;
       cursor: pointer;
       line-height: 0;
       -webkit-tap-highlight-color: transparent;
@@ -165,20 +167,17 @@
       display:block;
       transition: opacity .15s ease, filter .15s ease;
     }
-    /* Disconnected = grey */
     .lmSpotifyIcoBtn[data-state="off"] svg{
       fill: rgba(255,255,255,.55);
       opacity: .95;
       filter: none;
     }
-    /* Connected = black (with subtle light drop-shadow so black is visible on dark UI) */
     .lmSpotifyIcoBtn[data-state="on"] svg{
       fill: #000000;
       opacity: 1;
       filter: drop-shadow(0 0 1.5px rgba(255,255,255,.45));
     }
 
-    /* Modal overlay */
     .auraOverlay{
       position: fixed;
       inset: 0;
@@ -427,20 +426,29 @@
   let lastFrame = 0;
   let lastTrackId = "";
   let pollTimer = 0;
-
-  // Burst control
   let burstTimeouts = [];
 
-  // Signals
   let heat = 0.55;
   let focus = 0.55;
   let depth = 0.55;
   let flux = 0.5;
+  let hasSpotifyPlayback = false;
 
-  // Color
-  let hue = 210;
-  let sat = 88;
-  let light = 62;
+  // Orb vibe state
+  let orbSeed = 1337;
+  let paletteName = "cosmic";
+  let orbTone = {
+    glow: 0.75,
+    turbulence: 0.65,
+    starDensity: 0.60,
+    rim: 0.40
+  };
+
+  // Offscreen nebula texture
+  const tex = document.createElement("canvas");
+  const texCtx = tex.getContext("2d", { willReadFrequently: true });
+  let texReady = false;
+  let texSignature = "";
 
   function setHintText(txt) {
     if (!hint) return;
@@ -481,36 +489,250 @@
     return clamp01(v);
   }
 
-  function driftFallback() {
-    const d = () => (Math.random() - 0.5) * 0.04;
-    heat = clamp01(heat + d());
-    focus = clamp01(focus + d());
-    depth = clamp01(depth + d());
-    flux = clamp01(flux + d());
-    hue = (hue + (Math.random() - 0.5) * 6 + 360) % 360;
-    sat = clamp01(sat / 100 + d()) * 100;
-    light = clamp01(light / 100 + d()) * 100;
+  // ---------- Seed / RNG ----------
+  function hashStringToSeed(str) {
+    const s = String(str || "");
+    let h = 2166136261 >>> 0;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
   }
 
-  // ---------- Spotify logic ----------
+  function mulberry32(a) {
+    return function() {
+      let t = a += 0x6D2B79F5;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // ---------- Palettes ----------
+  const PALETTES = {
+    deep:    ["#09091c", "#1b1547", "#41218a", "#ff8a38", "#ffd7b4"],
+    kinetic: ["#04101d", "#063f68", "#00d7d9", "#7e39ff", "#ff64b0"],
+    warm:    ["#140b0b", "#3a1415", "#8d2b1f", "#ffc047", "#fff0c9"],
+    airy:    ["#0a1119", "#12303a", "#3eb9b4", "#b5ecd8", "#fff3dc"],
+    cosmic:  ["#060913", "#1a1152", "#432caa", "#2cc6ff", "#ffba66"]
+  };
+
+  function choosePaletteFromVibe(vibe) {
+    const H = vibe.heat, D = vibe.depth, F = vibe.focus, X = vibe.flux;
+    const V = vibe.valence, A = vibe.acoustic;
+
+    if (D > 0.70 && H < 0.58) return "deep";
+    if (V > 0.62 && H > 0.52) return "warm";
+    if (X > 0.68 && H > 0.60) return "kinetic";
+    if (A > 0.62 && H < 0.62) return "airy";
+    return "cosmic";
+  }
+
+  function vibeToTone(vibe) {
+    return {
+      glow: lerp(0.52, 1.00, clamp01(vibe.heat * 0.7 + vibe.flux * 0.3)),
+      turbulence: lerp(0.42, 1.00, clamp01(vibe.depth * 0.55 + vibe.flux * 0.45)),
+      starDensity: lerp(0.35, 1.00, clamp01(vibe.focus * 0.45 + vibe.heat * 0.20 + (1 - vibe.acoustic) * 0.35)),
+      rim: lerp(0.22, 0.78, clamp01(vibe.focus * 0.5 + vibe.heat * 0.5))
+    };
+  }
+
+  // ---------- Color helpers ----------
+  function hexToRgb(hex) {
+    const h = String(hex).replace("#", "").trim();
+    const v = parseInt(h.length === 3 ? h.split("").map(x => x + x).join("") : h, 16);
+    return { r: (v >> 16) & 255, g: (v >> 8) & 255, b: v & 255 };
+  }
+
+  function mixRgb(a, b, t) {
+    return {
+      r: Math.round(lerp(a.r, b.r, t)),
+      g: Math.round(lerp(a.g, b.g, t)),
+      b: Math.round(lerp(a.b, b.b, t))
+    };
+  }
+
+  function smoothstep(t) {
+    t = clamp01(t);
+    return t * t * (3 - 2 * t);
+  }
+
+  // ---------- Noise ----------
+  function randAt(ix, iy, seed) {
+    let n = (ix * 374761393 + iy * 668265263) ^ (seed | 0);
+    n = (n ^ (n >>> 13)) >>> 0;
+    n = Math.imul(n, 1274126177) >>> 0;
+    return (n >>> 0) / 4294967296;
+  }
+
+  function valueNoise2D(x, y, seed) {
+    const xi = Math.floor(x), yi = Math.floor(y);
+    const xf = x - xi, yf = y - yi;
+
+    const v00 = randAt(xi, yi, seed);
+    const v10 = randAt(xi + 1, yi, seed);
+    const v01 = randAt(xi, yi + 1, seed);
+    const v11 = randAt(xi + 1, yi + 1, seed);
+
+    const u = smoothstep(xf);
+    const v = smoothstep(yf);
+
+    const x1 = lerp(v00, v10, u);
+    const x2 = lerp(v01, v11, u);
+    return lerp(x1, x2, v);
+  }
+
+  function fbm(x, y, seed, octaves = 5, lac = PHI + 0.42, gain = 1 / PHI) {
+    let amp = 0.5;
+    let f = 1.0;
+    let sum = 0.0;
+    for (let i = 0; i < octaves; i++) {
+      sum += amp * valueNoise2D(x * f, y * f, seed + i * 1013);
+      f *= lac;
+      amp *= gain;
+    }
+    return sum;
+  }
+
+  // ---------- Build nebula texture ----------
+  function buildNebulaTexture(seed, palName, tone) {
+    orbSeed = seed >>> 0;
+    paletteName = palName || "cosmic";
+    orbTone = tone || orbTone;
+
+    const colors = (PALETTES[paletteName] || PALETTES.cosmic).map(hexToRgb);
+
+    const W = 256, H = 256;
+    tex.width = W;
+    tex.height = H;
+
+    const img = texCtx.createImageData(W, H);
+    const data = img.data;
+
+    const rand = mulberry32(orbSeed ^ 0xA53C9E3);
+
+    const swirl1 = lerp(0.75, 1.45, rand());
+    const swirl2 = lerp(0.85, 1.35, rand());
+    const warp = lerp(0.45, 1.30, rand()) * orbTone.turbulence;
+
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const nx = (x / (W - 1)) * 2 - 1;
+        const ny = (y / (H - 1)) * 2 - 1;
+
+        const r = Math.sqrt(nx * nx + ny * ny);
+        const ang = Math.atan2(ny, nx);
+
+        const wx = nx + warp * 0.16 * Math.sin(ang * PHI + r * PI * 1.35 + orbSeed * 0.00017);
+        const wy = ny + warp * 0.16 * Math.cos(ang * (PHI + 0.22) - r * PI * 1.10 + orbSeed * 0.00013);
+
+        const n1 = fbm(wx * 1.10 + 12.4, wy * 1.10 - 3.7, orbSeed, 5);
+        const n2 = fbm(wx * PHI - 5.1, wy * PHI + 8.9, orbSeed ^ 0x9e3779b9, 4);
+        const n3 = fbm(wx * 0.82 + 1.7, wy * 0.82 + 11.2, orbSeed ^ 0x85ebca6b, 5);
+
+        const band1 = Math.abs(Math.sin(ang * swirl1 + r * PI * 1.8 + n2 * PI * 0.9));
+        const band2 = Math.abs(Math.cos(ang * swirl2 - r * PI * 1.45 + n1 * PI * 0.7));
+        const clouds = clamp01((n1 * 0.62 + n3 * 0.52) * 0.95 + band1 * 0.16 + band2 * 0.10);
+
+        const core1 = Math.exp(-Math.pow((r - 0.22 - n2 * 0.06) * 3.6, 2));
+        const core2 = Math.exp(-Math.pow((r - (0.22 * PHI) - n1 * 0.08) * 3.0, 2));
+        const glow = clamp01(core1 * 0.78 + core2 * 0.52) * orbTone.glow;
+
+        const t = clamp01(clouds * 0.76 + glow * 0.60);
+        const seg = t * 4;
+        const i0 = Math.max(0, Math.min(3, Math.floor(seg)));
+        const f = seg - i0;
+
+        const cA = colors[i0];
+        const cB = colors[i0 + 1];
+        let col = mixRgb(cA, cB, smoothstep(f));
+
+        const vign = smoothstep(1.0 - clamp01(r * 0.95));
+        col.r = Math.round(col.r * (0.14 + 0.86 * vign));
+        col.g = Math.round(col.g * (0.14 + 0.86 * vign));
+        col.b = Math.round(col.b * (0.14 + 0.86 * vign));
+
+        const sparks = Math.pow(n2, 5.3) * 0.85 * orbTone.glow;
+        col.r = Math.min(255, col.r + Math.round(255 * sparks * 0.24));
+        col.g = Math.min(255, col.g + Math.round(255 * sparks * 0.18));
+        col.b = Math.min(255, col.b + Math.round(255 * sparks * 0.32));
+
+        const st = valueNoise2D(wx * 10.0 + 100.0, wy * 10.0 - 50.0, orbSeed ^ 0x27d4eb2d);
+        const starProb = Math.pow(clamp01(st - 0.88) / 0.12, 2.8) * orbTone.starDensity;
+        const star = starProb * 0.9;
+
+        const alpha = r <= 1.0 ? 255 : 0;
+
+        const idx = (y * W + x) * 4;
+        const boost = 1.0 + glow * 0.25;
+        data[idx + 0] = Math.min(255, Math.round(col.r * boost + 255 * star));
+        data[idx + 1] = Math.min(255, Math.round(col.g * boost + 255 * star));
+        data[idx + 2] = Math.min(255, Math.round(col.b * boost + 255 * star));
+        data[idx + 3] = alpha;
+      }
+    }
+
+    texCtx.putImageData(img, 0, 0);
+
+    // Golden-angle stars / nodes over texture
+    texCtx.save();
+    texCtx.globalCompositeOperation = "screen";
+
+    const starCount = Math.round(40 + 110 * orbTone.starDensity);
+    for (let i = 0; i < starCount; i++) {
+      const t = (i + 0.5) / starCount;
+      const rr = Math.sqrt(t) * 0.92;
+      const a = i * GOLDEN_ANGLE + (orbSeed % 1024) * 0.0007;
+
+      const x = W * 0.5 + Math.cos(a) * rr * W * 0.42;
+      const y = H * 0.5 + Math.sin(a) * rr * H * 0.42;
+
+      const bright = Math.pow(1 - t, 1 / PHI) * (0.25 + 0.75 * ((i % 7) / 6));
+      const rad = lerp(0.6, 2.2, bright) * (0.75 + 0.25 * orbTone.glow);
+
+      const g = texCtx.createRadialGradient(x, y, 0, x, y, rad * PHI * 2.4);
+      g.addColorStop(0, `rgba(255,255,255,${0.22 + bright * 0.78})`);
+      g.addColorStop(1, "rgba(255,255,255,0)");
+      texCtx.fillStyle = g;
+      texCtx.beginPath();
+      texCtx.arc(x, y, rad * PHI * 2.4, 0, TAU);
+      texCtx.fill();
+    }
+
+    texCtx.restore();
+
+    texReady = true;
+    texSignature = `${orbSeed}|${paletteName}|${orbTone.glow.toFixed(3)}|${orbTone.turbulence.toFixed(3)}|${orbTone.starDensity.toFixed(3)}|${orbTone.rim.toFixed(3)}`;
+  }
+
+  function ensureTexture(seed, palName, tone) {
+    const sig = `${seed >>> 0}|${palName}|${tone.glow.toFixed(3)}|${tone.turbulence.toFixed(3)}|${tone.starDensity.toFixed(3)}|${tone.rim.toFixed(3)}`;
+    if (!texReady || sig !== texSignature) {
+      buildNebulaTexture(seed, palName, tone);
+    }
+  }
+
+  // ---------- Spotify-driven vibe ----------
   async function pollSpotify() {
     try {
       const st = await getPlayer();
 
-      // No active playback device/session
       if (st && st.__no_content) {
+        hasSpotifyPlayback = false;
         setHintText("Open Spotify and press Play (no active playback).");
-        driftFallback();
         setBars();
         return false;
       }
 
       if (!st || !st.item) {
+        hasSpotifyPlayback = false;
         setHintText("Open Spotify and press Play (no active playback).");
-        driftFallback();
         setBars();
         return false;
       }
+
+      hasSpotifyPlayback = true;
 
       const track = st.item?.name || "—";
       const artist = st.item?.artists?.[0]?.name || "—";
@@ -519,13 +741,11 @@
       setHintText(`${artist} — ${track}`);
 
       if (!id) {
-        driftFallback();
         setBars();
         return false;
       }
 
       if (id === lastTrackId) {
-        // still alive
         setBars();
         return true;
       }
@@ -534,7 +754,6 @@
 
       const af = await getAudioFeatures(id);
       if (!af || af.__no_content) {
-        driftFallback();
         setBars();
         return true;
       }
@@ -556,29 +775,26 @@
       depth = lerp(depth, depthT, 0.32);
       flux = lerp(flux, fluxT, 0.32);
 
-      const warm = v;
-      const deep = depthT;
+      const vibe = {
+        heat: heatT,
+        depth: depthT,
+        focus: focusT,
+        flux: fluxT,
+        valence: v,
+        acoustic: ac
+      };
 
-      const targetHue = lerp(205, 32, warm) + lerp(0, 55, deep);
-      hue = (targetHue % 360 + 360) % 360;
+      paletteName = choosePaletteFromVibe(vibe);
+      orbSeed = hashStringToSeed(id);
+      orbTone = vibeToTone(vibe);
 
-      sat = lerp(72, 96, clamp01(heatT * 0.65 + fluxT * 0.35));
-      light = lerp(56, 70, clamp01(0.55 + heatT * 0.25 - depthT * 0.18));
+      ensureTexture(orbSeed, paletteName, orbTone);
 
       setBars();
       return true;
     } catch (e) {
-      // Token missing/expired or Spotify not ready
-      const isNoToken = e && (e.code === "NO_TOKEN" || e.message === "NO_TOKEN");
-      const isUnauthorized = e && e.status === 401;
-
-      if (isNoToken || isUnauthorized) {
-        setHintText("Aura waiting for Spotify…");
-      } else {
-        setHintText("Aura waiting for Spotify…");
-      }
-
-      driftFallback();
+      hasSpotifyPlayback = false;
+      setHintText("Aura waiting for Spotify…");
       setBars();
       return false;
     }
@@ -591,16 +807,10 @@
     burstTimeouts = [];
   }
 
-  function burstPoll(reason = "burst") {
+  function burstPoll() {
     clearBurst();
-
-    // Immediate + short retries
     for (const ms of BURST_STEPS) {
-      const t = setTimeout(async () => {
-        // If modal is open, we prioritize instant sync
-        // If closed, still do the poll (cheap) to warm state
-        await pollSpotify();
-      }, ms);
+      const t = setTimeout(async () => { await pollSpotify(); }, ms);
       burstTimeouts.push(t);
     }
   }
@@ -610,7 +820,7 @@
     pollTimer = setInterval(pollSpotify, isOpen ? OPEN_POLL_MS : CLOSED_POLL_MS);
   }
 
-  // ---------- Orb draw ----------
+  // ---------- Draw ----------
   function resizeCanvas() {
     if (!c || !ctx) return;
     const dpr = Math.min(MAX_DPR, window.devicePixelRatio || 1);
@@ -621,6 +831,14 @@
       c.height = px;
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
+
+  function fallbackPalette(ts) {
+    const t = (ts % 52000) / 52000;
+    if (t < 0.25) return "cosmic";
+    if (t < 0.50) return "kinetic";
+    if (t < 0.75) return "deep";
+    return "warm";
   }
 
   function draw(ts) {
@@ -643,68 +861,146 @@
 
     ctx.clearRect(0, 0, W, H);
 
-    const baseR = Math.min(W, H) * 0.26;
-    const pulse = 0.5 + 0.5 * Math.sin(ts * 0.0022 + flux * 2.3);
-    const r = baseR * (0.92 + pulse * 0.08 + heat * 0.06);
+    // Fallback palette rotation if no active playback
+    if (!hasSpotifyPlayback) {
+      const pal = fallbackPalette(ts);
+      const seed = hashStringToSeed("fallback-" + pal);
+      const tone = {
+        glow: 0.72,
+        turbulence: 0.68,
+        starDensity: 0.70,
+        rim: 0.46
+      };
+      ensureTexture(seed, pal, tone);
+    }
 
-    const field = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r * 2.6);
-    field.addColorStop(0, `hsla(${hue}, ${sat}%, ${light + 10}%, ${0.20 + heat * 0.20})`);
-    field.addColorStop(0.55, `hsla(${(hue + 28) % 360}, ${sat}%, ${light}%, ${0.10 + depth * 0.16})`);
-    field.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = field;
+    // π-based pulse + φ-based radius hierarchy
+    const baseR = Math.min(W, H) * 0.312;
+    const pulse = 0.5 + 0.5 * Math.sin(ts * 0.00185 * PI + flux * PHI);
+    const r = baseR * (0.965 + pulse * 0.042 + heat * 0.040);
+    const rInner = r / PHI;
+    const rHalo = r * PHI * 0.82;
+
+    // Background cosmic field
+    const bg = ctx.createRadialGradient(cx, cy, rInner * 0.2, cx, cy, rHalo * 2.2);
+    bg.addColorStop(0, "rgba(255,255,255,0.05)");
+    bg.addColorStop(0.40, "rgba(120,140,255,0.05)");
+    bg.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = bg;
     ctx.beginPath();
-    ctx.arc(cx, cy, r * 2.6, 0, Math.PI * 2);
+    ctx.arc(cx, cy, rHalo * 2.2, 0, TAU);
     ctx.fill();
 
-    // Outer veil ring (subtle)
-    ctx.strokeStyle = `hsla(${(hue + 12) % 360}, ${sat}%, ${light + 6}%, ${0.10 + focus * 0.14})`;
-    ctx.lineWidth = Math.max(1, Math.round(1.6 * dpr));
-    ctx.beginPath();
-    ctx.arc(cx, cy, r * 1.38, 0, Math.PI * 2);
-    ctx.stroke();
+    // Outer environment stars (φ / golden-angle)
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    const envStars = Math.round(16 + orbTone.starDensity * 24);
+    for (let i = 0; i < envStars; i++) {
+      const t = (i + 0.5) / envStars;
+      const rr = lerp(r * 1.12, r * 1.82, Math.pow(t, 0.88));
+      const ang = i * GOLDEN_ANGLE + ts * 0.00005 * PI / PHI;
+      const x = cx + Math.cos(ang) * rr;
+      const y = cy + Math.sin(ang) * rr * (0.96 + 0.04 * Math.sin(i));
+      const size = (0.9 + (i % 3) * 0.5) * dpr;
+      const alpha = 0.08 + 0.18 * (1 - t);
 
-    const core = ctx.createRadialGradient(cx - r * 0.22, cy - r * 0.28, r * 0.18, cx, cy, r);
-    core.addColorStop(0, `hsla(${hue}, ${sat}%, ${light + 18}%, 0.72)`);
-    core.addColorStop(0.62, `hsla(${(hue + 18) % 360}, ${sat}%, ${light + 2}%, ${0.18 + heat * 0.20})`);
-    core.addColorStop(1, `hsla(${(hue + 40) % 360}, ${sat}%, ${light - 10}%, 0.10)`);
-    ctx.fillStyle = core;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = `rgba(255,255,255,${0.12 + heat * 0.08})`;
-    ctx.beginPath();
-    ctx.ellipse(cx - r * 0.20, cy - r * 0.30, r * 0.45, r * 0.30, -0.55, 0, Math.PI * 2);
-    ctx.fill();
-
-    const pCount = Math.round(10 + flux * 14 + heat * 6);
-    for (let i = 0; i < pCount; i++) {
-      const ang = (ts * 0.00025 + i * 0.43) * (0.9 + flux * 0.8);
-      const rr = r * (1.00 + 0.75 * Math.sin(ang * 2 + i));
-      const px = cx + Math.cos(ang + i) * rr * (0.55 + 0.35 * Math.sin(i * 1.7));
-      const py = cy + Math.sin(ang + i * 0.9) * rr * (0.55 + 0.35 * Math.cos(i * 1.3));
-      const a = 0.10 + 0.18 * Math.sin(ts * 0.001 + i) * (0.55 + heat * 0.45);
-      const sz = (0.9 + 1.6 * Math.abs(Math.sin(i * 1.2 + ts * 0.001))) * dpr;
-
-      ctx.fillStyle = `hsla(${(hue + 18 + i * 7) % 360}, ${sat}%, ${light + 10}%, ${Math.max(0, a)})`;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, size * PHI * 4);
+      g.addColorStop(0, `rgba(255,255,255,${alpha + 0.10})`);
+      g.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = g;
       ctx.beginPath();
-      ctx.arc(px, py, sz, 0, Math.PI * 2);
+      ctx.arc(x, y, size * PHI * 4, 0, TAU);
       ctx.fill();
     }
+    ctx.restore();
+
+    // Clip orb
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, TAU);
+    ctx.clip();
+
+    // Nebula texture drift (π-based motion, φ ratios)
+    if (texReady) {
+      const driftX = Math.sin(ts * 0.00021 * PI / PHI) * r * 0.10;
+      const driftY = Math.cos(ts * 0.00017 * TAU / PHI) * r * 0.10;
+      const scale = 1.18;
+
+      const dw = r * 2 * scale;
+      const dh = r * 2 * scale;
+      ctx.globalAlpha = 1.0;
+      ctx.drawImage(tex, cx - dw / 2 + driftX, cy - dh / 2 + driftY, dw, dh);
+    }
+
+    // Dark cloud lanes
+    ctx.globalCompositeOperation = "multiply";
+    const lane = ctx.createRadialGradient(cx - r / PHI * 0.32, cy + r / PHI * 0.22, r * 0.08, cx, cy, r * 1.22);
+    lane.addColorStop(0, "rgba(0,0,0,0.0)");
+    lane.addColorStop(0.72, "rgba(0,0,0,0.17)");
+    lane.addColorStop(1, "rgba(0,0,0,0.34)");
+    ctx.fillStyle = lane;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 1.22, 0, TAU);
+    ctx.fill();
+
+    // Central glow node
+    ctx.globalCompositeOperation = "screen";
+    const nodeG = ctx.createRadialGradient(cx, cy, 0, cx, cy, r / PHI);
+    nodeG.addColorStop(0, `rgba(255,255,255,${0.06 + orbTone.glow * 0.16})`);
+    nodeG.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = nodeG;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r / PHI, 0, TAU);
+    ctx.fill();
+
+    // Bloom
+    const bloom = ctx.createRadialGradient(cx - r * 0.19, cy - r * 0.22, r * 0.05, cx, cy, r * 1.15);
+    bloom.addColorStop(0, `rgba(255,255,255,${0.10 + heat * 0.12})`);
+    bloom.addColorStop(0.45, "rgba(255,255,255,0.05)");
+    bloom.addColorStop(1, "rgba(255,255,255,0.0)");
+    ctx.fillStyle = bloom;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 1.15, 0, TAU);
+    ctx.fill();
+
+    // Glass highlight
+    ctx.fillStyle = `rgba(255,255,255,${0.10 + heat * 0.10})`;
+    ctx.beginPath();
+    ctx.ellipse(cx - r * 0.18, cy - r * 0.30, r * (0.52 / PHI + 0.20), r * (0.34 / PHI + 0.13), -0.55, 0, TAU);
+    ctx.fill();
+
+    // Rim atmospheric edge
+    ctx.globalCompositeOperation = "source-over";
+    const rim = ctx.createRadialGradient(cx, cy, r * 0.82, cx, cy, r);
+    rim.addColorStop(0, "rgba(255,255,255,0)");
+    rim.addColorStop(0.72, `rgba(255,255,255,${0.06 + orbTone.rim * 0.08})`);
+    rim.addColorStop(1, `rgba(255,255,255,${0.14 + orbTone.rim * 0.10})`);
+    ctx.fillStyle = rim;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, TAU);
+    ctx.fill();
+
+    ctx.restore();
+
+    // Outer sacred ring — very subtle
+    ctx.strokeStyle = `rgba(255,255,255,${0.05 + orbTone.rim * 0.10})`;
+    ctx.lineWidth = Math.max(1, Math.round(1.1 * dpr));
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 1.018, 0, TAU);
+    ctx.stroke();
 
     rafId = requestAnimationFrame(draw);
   }
 
-  // ---------- Open/close modal ----------
+  // ---------- Open / close ----------
   function setOverlay(on) {
     open = !!on;
     if (open) {
       overlay.classList.add("on");
       titleEl.classList.add("auraHover");
 
-      // FAST: instant poll + burst
       pollSpotify();
-      burstPoll("open");
+      burstPoll();
 
       startPolling(true);
       if (!rafId) rafId = requestAnimationFrame(draw);
@@ -712,7 +1008,6 @@
       overlay.classList.remove("on");
       titleEl.classList.remove("auraHover");
       startPolling(false);
-      // keep orb anim running (cheap) – feels alive; you can stop if you want
     }
   }
 
@@ -745,9 +1040,8 @@
     }
   });
 
-  // ---------- Spotify icon button (tabs right) ----------
+  // ---------- Spotify icon button ----------
   function spotifySvg() {
-    // solid Spotify icon (no circle button)
     return `
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M12 2C6.48 2 2 6.49 2 12s4.48 10 10 10 10-4.49 10-10S17.52 2 12 2zm4.58 14.51c-.2.33-.63.44-.96.24-2.63-1.61-5.94-1.97-9.85-1.07-.38.09-.76-.15-.85-.53-.09-.38.15-.76.53-.85 4.28-.98 7.95-.57 10.88 1.23.33.2.44.63.25.98zm1.37-3.05c-.25.41-.78.54-1.19.29-3.01-1.85-7.6-2.39-11.17-1.31-.46.14-.95-.12-1.09-.58-.14-.46.12-.95.58-1.09 4.08-1.24 9.15-.64 12.63 1.49.41.25.54.78.24 1.2zm.12-3.18C14.66 8.24 8.98 8.1 5.77 9.08c-.55.17-1.13-.14-1.3-.69-.17-.55.14-1.13.69-1.3 3.69-1.12 9.83-.91 13.7 1.39.5.3.66.95.36 1.45-.3.5-.95.66-1.45.35z"/>
@@ -756,7 +1050,6 @@
   }
 
   function nukeSpotifyTokensBestEffort() {
-    // Best-effort: remove keys that look like Spotify tokens (does not crash if blocked)
     try {
       const keys = Object.keys(localStorage);
       for (const k of keys) {
@@ -779,13 +1072,13 @@
 
   function updateSpotifyBtnState(btn) {
     if (!btn) return;
-    btn.dataset.state = isConnected() ? "on" : "off";
-    btn.setAttribute("aria-pressed", isConnected() ? "true" : "false");
-    btn.setAttribute("title", isConnected() ? "Spotify: connected (tap to disconnect)" : "Spotify: connect");
+    const on = isConnected();
+    btn.dataset.state = on ? "on" : "off";
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    btn.setAttribute("title", on ? "Spotify: connected (tap to disconnect)" : "Spotify: connect");
   }
 
   async function connectSpotifyBestEffort() {
-    // Try known APIs; otherwise just trigger burst (token may already be set by other flow)
     if (window.SpotifyAuth && typeof window.SpotifyAuth.login === "function") {
       safeCall(() => window.SpotifyAuth.login());
       return;
@@ -798,7 +1091,6 @@
       safeCall(() => window.SpotifyPlayer.connect());
       return;
     }
-    // If none exist, do nothing (user likely already has a connect flow elsewhere)
   }
 
   async function disconnectSpotifyBestEffort() {
@@ -809,7 +1101,6 @@
       safeCall(() => window.SpotifyPlayer.logout());
     }
     nukeSpotifyTokensBestEffort();
-    // Inform other scripts (if they listen)
     try { window.dispatchEvent(new CustomEvent("spotify:disconnected")); } catch {}
   }
 
@@ -818,76 +1109,98 @@
     if (!tabs) return null;
 
     let btn = $("#lmSpotifyIcoBtn");
-    if (btn) {
-      updateSpotifyBtnState(btn);
-      return btn;
-    }
+    if (!btn) {
+      btn = document.createElement("button");
+      btn.id = "lmSpotifyIcoBtn";
+      btn.className = "lmSpotifyIcoBtn";
+      btn.type = "button";
+      btn.setAttribute("aria-label", "Spotify connect");
+      btn.innerHTML = spotifySvg();
 
-    btn = document.createElement("button");
-    btn.id = "lmSpotifyIcoBtn";
-    btn.className = "lmSpotifyIcoBtn";
-    btn.type = "button";
-    btn.setAttribute("aria-label", "Spotify connect");
-    btn.innerHTML = spotifySvg();
+      btn.addEventListener("click", async (e) => {
+        e.preventDefault();
+        const connected = isConnected();
+
+        if (connected) {
+          await disconnectSpotifyBestEffort();
+          updateSpotifyBtnState(btn);
+          setHintText("Aura waiting for Spotify…");
+          hasSpotifyPlayback = false;
+          burstPoll();
+          return;
+        }
+
+        await connectSpotifyBestEffort();
+        updateSpotifyBtnState(btn);
+
+        pollSpotify();
+        burstPoll();
+      });
+    }
 
     updateSpotifyBtnState(btn);
 
-    btn.addEventListener("click", async (e) => {
-      e.preventDefault();
-      const connected = isConnected();
+    if (btn.parentElement !== tabs) {
+      tabs.appendChild(btn);
+    } else if (tabs.lastElementChild !== btn) {
+      tabs.appendChild(btn);
+    }
 
-      if (connected) {
-        await disconnectSpotifyBestEffort();
-        updateSpotifyBtnState(btn);
+    return btn;
+  }
 
-        // Aura reflects disconnect instantly
-        setHintText("Aura waiting for Spotify…");
-        burstPoll("disconnect");
-        return;
-      }
+  let tabsObserver = null;
+  function watchTabsForSpotifyButton() {
+    if (tabsObserver) return;
+    const root = document.body;
+    if (!root) return;
 
-      await connectSpotifyBestEffort();
-      updateSpotifyBtnState(btn);
-
-      // FAST: burst right after connect tap
-      pollSpotify();
-      burstPoll("connect");
+    tabsObserver = new MutationObserver(() => {
+      ensureSpotifyIconButton();
     });
 
-    // Put it at the far right (tabs is flex; margin-left:auto is in CSS)
-    tabs.appendChild(btn);
-    return btn;
+    tabsObserver.observe(root, { childList: true, subtree: true });
   }
 
   // ---------- Boot ----------
   function boot() {
     setBars();
 
-    // ensure Spotify icon exists and stays updated
     const spBtn = ensureSpotifyIconButton();
+    watchTabsForSpotifyButton();
 
-    // One quick poll at start
+    // Initial fallback nebula
+    ensureTexture(hashStringToSeed("fallback-cosmic"), "cosmic", {
+      glow: 0.72,
+      turbulence: 0.68,
+      starDensity: 0.70,
+      rim: 0.46
+    });
+
     pollSpotify();
 
-    // Keep it closed by default
     setOverlay(false);
-
-    // background polling
     startPolling(false);
 
-    // Gentle invite pulse (short)
     let t = 0;
     const invite = setInterval(() => {
       t += 1;
       if (t > 6) { clearInterval(invite); titleEl.classList.remove("auraHover"); return; }
       titleEl.classList.toggle("auraHover", t % 2 === 1);
     }, 200);
-    setTimeout(() => { titleEl.classList.remove("auraHover"); clearInterval(invite); }, 1200);
+    setTimeout(() => {
+      titleEl.classList.remove("auraHover");
+      clearInterval(invite);
+    }, 1200);
 
-    // Keep spotify icon state in sync if other scripts change tokens
-    setInterval(() => updateSpotifyBtnState(spBtn), 2000);
+    setInterval(() => {
+      ensureSpotifyIconButton();
+      updateSpotifyBtnState(spBtn || $("#lmSpotifyIcoBtn"));
+    }, 2000);
 
-    window.addEventListener("resize", () => { if (open) resizeCanvas(); }, { passive: true });
+    window.addEventListener("resize", () => {
+      if (open) resizeCanvas();
+    }, { passive: true });
   }
 
   if (document.readyState === "loading") {

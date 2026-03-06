@@ -14,8 +14,7 @@
    ✅ FIX: Spotify button never “disappears” (MutationObserver self-heal)
    ✅ NEW: Cosmic Nebula Orb with π / φ structure
    ✅ FIX: Same track = same core palette / same core seed
-      - no palette family jumps while the same track keeps playing
-      - only motion / shimmer / pulse / drift keep evolving
+   ✅ FIX: If /audio-features/{id} returns 403 / fails, Aura still works from player metadata
 */
 
 (() => {
@@ -23,22 +22,18 @@
 
   const SPOTIFY_API = "https://api.spotify.com/v1";
 
-  // Polling cadence
   const OPEN_POLL_MS = 8000;
   const CLOSED_POLL_MS = 60000;
   const BURST_STEPS = [0, 350, 900, 1800, 3200, 5200];
 
-  // Perf caps
   const MAX_DPR = 2.25;
   const FPS_CAP = 60;
 
-  // Sacred constants
   const PI = Math.PI;
   const TAU = Math.PI * 2;
   const PHI = (1 + Math.sqrt(5)) / 2;
   const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
-  // Helpers
   const clamp01 = (x) => Math.max(0, Math.min(1, x));
   const lerp = (a, b, t) => a + (b - a) * t;
   const $ = (sel, root = document) => root.querySelector(sel);
@@ -58,8 +53,7 @@
     try {
       const keys = Object.keys(localStorage);
       for (const k of keys) {
-        if (!k) continue;
-        const lk = String(k).toLowerCase();
+        const lk = String(k || "").toLowerCase();
         if (!lk.includes("spotify")) continue;
         const v = localStorage.getItem(k);
         if (v && v.length > 20 && v.includes(".")) return v;
@@ -424,17 +418,15 @@
   let open = false;
   let rafId = 0;
   let lastFrame = 0;
-  let lastTrackId = "";
   let pollTimer = 0;
   let burstTimeouts = [];
 
   let heat = 0.55;
   let focus = 0.55;
   let depth = 0.55;
-  let flux = 0.5;
+  let flux = 0.50;
   let hasSpotifyPlayback = false;
 
-  // Orb vibe state
   let orbSeed = 1337;
   let paletteName = "cosmic";
   let orbTone = {
@@ -444,14 +436,12 @@
     rim: 0.40
   };
 
-  // LOCKED track identity
   let lockedTrackId = "";
   let lockedPaletteName = "";
   let lockedSeed = 0;
   let lockedTone = null;
   let lockedHint = "";
 
-  // Offscreen nebula texture
   const tex = document.createElement("canvas");
   const texCtx = tex.getContext("2d", { willReadFrequently: true });
   let texReady = false;
@@ -496,7 +486,7 @@
     return clamp01(v);
   }
 
-  // ---------- Seed / RNG ----------
+  // ---------- Metadata vibe fallback ----------
   function hashStringToSeed(str) {
     const s = String(str || "");
     let h = 2166136261 >>> 0;
@@ -514,6 +504,65 @@
       t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
+  }
+
+  function words(str) {
+    return String(str || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9&+\- ]+/g, " ")
+      .split(/\s+/)
+      .filter(Boolean);
+  }
+
+  function hasAny(set, arr) {
+    return arr.some(x => set.has(x));
+  }
+
+  function deriveVibeFromMetadata({ track, artist, album, durationMs }) {
+    const all = new Set([
+      ...words(track),
+      ...words(artist),
+      ...words(album)
+    ]);
+
+    const deepWords = ["doom","slow","grief","ashes","dark","night","shadow","funeral","ocean","void","endless","sorrow","deep","black"];
+    const warmWords = ["sun","gold","light","love","honey","fire","heart","soul","rose","summer","warm","kiss"];
+    const kineticWords = ["run","burn","dance","electric","speed","motor","blood","wild","riot","storm","shake","move"];
+    const airyWords = ["sky","wind","air","sea","moon","cloud","dream","echo","ambient","mist","soft","blue"];
+    const focusedWords = ["instrumental","interlude","theme","reprise","part","movement","solo"];
+
+    let H = 0.50, F = 0.50, D = 0.50, X = 0.50, V = 0.50, A = 0.40;
+
+    if (hasAny(all, deepWords)) { D += 0.22; H -= 0.05; V -= 0.18; }
+    if (hasAny(all, warmWords)) { H += 0.16; V += 0.18; }
+    if (hasAny(all, kineticWords)) { H += 0.14; X += 0.22; }
+    if (hasAny(all, airyWords)) { A += 0.20; D -= 0.06; }
+    if (hasAny(all, focusedWords)) { F += 0.22; X -= 0.06; }
+
+    const durMin = (Number(durationMs || 0) / 60000);
+    if (durMin >= 7) { D += 0.14; F += 0.08; X -= 0.06; }
+    else if (durMin > 0 && durMin <= 3.2) { X += 0.10; H += 0.05; }
+
+    // artist-specific hints you’ll actually feel in use
+    const artistLc = String(artist || "").toLowerCase();
+    if (artistLc.includes("mono") || artistLc.includes("sigur") || artistLc.includes("olafur")) {
+      D += 0.18; F += 0.12; A += 0.10; H -= 0.04;
+    }
+    if (artistLc.includes("nightstalker") || artistLc.includes("metallica") || artistLc.includes("zeal & ardor")) {
+      H += 0.16; X += 0.10; D += 0.06;
+    }
+    if (artistLc.includes("bonobo") || artistLc.includes("quantic") || artistLc.includes("thievery")) {
+      X += 0.10; A += 0.10; V += 0.06;
+    }
+
+    H = clamp01(H);
+    F = clamp01(F);
+    D = clamp01(D);
+    X = clamp01(X);
+    V = clamp01(V);
+    A = clamp01(A);
+
+    return { heat: H, focus: F, depth: D, flux: X, valence: V, acoustic: A };
   }
 
   // ---------- Palettes ----------
@@ -602,7 +651,7 @@
     return sum;
   }
 
-  // ---------- Build nebula texture ----------
+  // ---------- Nebula texture ----------
   function buildNebulaTexture(seed, palName, tone) {
     orbSeed = seed >>> 0;
     paletteName = palName || "cosmic";
@@ -618,7 +667,6 @@
     const data = img.data;
 
     const rand = mulberry32(orbSeed ^ 0xA53C9E3);
-
     const swirl1 = lerp(0.75, 1.45, rand());
     const swirl2 = lerp(0.85, 1.35, rand());
     const warp = lerp(0.45, 1.30, rand()) * orbTone.turbulence;
@@ -670,7 +718,6 @@
         const star = starProb * 0.9;
 
         const alpha = r <= 1.0 ? 255 : 0;
-
         const idx = (y * W + x) * 4;
         const boost = 1.0 + glow * 0.25;
         data[idx + 0] = Math.min(255, Math.round(col.r * boost + 255 * star));
@@ -726,7 +773,6 @@
     lockedSeed = hashStringToSeed(trackId);
     lockedTone = { ...tone };
     lockedHint = `${artist} — ${track}`;
-
     ensureTexture(lockedSeed, lockedPaletteName, lockedTone);
   }
 
@@ -745,6 +791,13 @@
     lockedHint = "";
   }
 
+  function applyVibeToBars(vibe) {
+    heat = lerp(heat, vibe.heat, 0.32);
+    focus = lerp(focus, vibe.focus, 0.32);
+    depth = lerp(depth, vibe.depth, 0.32);
+    flux = lerp(flux, vibe.flux, 0.32);
+  }
+
   // ---------- Spotify-driven vibe ----------
   async function pollSpotify() {
     try {
@@ -753,7 +806,6 @@
       if (st && st.__no_content) {
         hasSpotifyPlayback = false;
         setHintText("Open Spotify and press Play (no active playback).");
-        // IMPORTANT: keep locked identity if same track was already locked
         if (applyLockedIdentity()) {
           setBars();
           return false;
@@ -778,6 +830,8 @@
       const track = st.item?.name || "—";
       const artist = st.item?.artists?.[0]?.name || "—";
       const id = st.item?.id || "";
+      const album = st.item?.album?.name || "";
+      const durationMs = Number(st.item?.duration_ms || 0);
 
       setHintText(`${artist} — ${track}`);
 
@@ -790,69 +844,57 @@
         return false;
       }
 
-      // SAME TRACK => keep locked palette/seed, only update live bars gently
+      // same track: keep exact palette/seed, optionally refresh bars from metadata only
       if (id === lockedTrackId && lockedTone) {
-        setHintText(lockedHint || `${artist} — ${track}`);
+        const vibe = deriveVibeFromMetadata({ track, artist, album, durationMs });
+        applyVibeToBars(vibe);
         ensureTexture(lockedSeed, lockedPaletteName, lockedTone);
+        setHintText(lockedHint || `${artist} — ${track}`);
         setBars();
         return true;
       }
 
-      // NEW TRACK => compute once and lock
-      lastTrackId = id;
+      // new track: try audio features first
+      let vibe = null;
+      try {
+        const af = await getAudioFeatures(id);
+        if (af && !af.__no_content) {
+          const e = normalize01(af.energy, heat);
+          const v = normalize01(af.valence, 0.5);
+          const da = normalize01(af.danceability, flux);
+          const ac = normalize01(af.acousticness, 0.45);
+          const ins = normalize01(af.instrumentalness, focus);
+          const tempo = Number(af.tempo || 0);
 
-      const af = await getAudioFeatures(id);
-      if (!af || af.__no_content) {
-        // If features unavailable, still lock a stable fallback identity from track id
-        const fallbackTone = {
-          glow: 0.72,
-          turbulence: 0.68,
-          starDensity: 0.70,
-          rim: 0.46
-        };
-        lockTrackIdentity(id, "cosmic", fallbackTone, artist, track);
-        setBars();
-        return true;
+          vibe = {
+            heat: clamp01(e * 0.82 + clamp01((tempo - 70) / 120) * 0.18),
+            focus: clamp01(ins * 0.70 + (1 - da) * 0.30),
+            depth: clamp01((1 - v) * 0.70 + ac * 0.30),
+            flux: clamp01(da * 0.68 + clamp01((tempo - 60) / 140) * 0.32),
+            valence: v,
+            acoustic: ac
+          };
+        }
+      } catch (err) {
+        // ignore here; metadata fallback below will take over
       }
 
-      const e = normalize01(af.energy, heat);
-      const v = normalize01(af.valence, 0.5);
-      const da = normalize01(af.danceability, flux);
-      const ac = normalize01(af.acousticness, 0.45);
-      const ins = normalize01(af.instrumentalness, focus);
-      const tempo = Number(af.tempo || 0);
+      if (!vibe) {
+        vibe = deriveVibeFromMetadata({ track, artist, album, durationMs });
+      }
 
-      const heatT = clamp01(e * 0.82 + clamp01((tempo - 70) / 120) * 0.18);
-      const focusT = clamp01(ins * 0.70 + (1 - da) * 0.30);
-      const depthT = clamp01((1 - v) * 0.70 + ac * 0.30);
-      const fluxT = clamp01(da * 0.68 + clamp01((tempo - 60) / 140) * 0.32);
-
-      heat = lerp(heat, heatT, 0.32);
-      focus = lerp(focus, focusT, 0.32);
-      depth = lerp(depth, depthT, 0.32);
-      flux = lerp(flux, fluxT, 0.32);
-
-      const vibe = {
-        heat: heatT,
-        depth: depthT,
-        focus: focusT,
-        flux: fluxT,
-        valence: v,
-        acoustic: ac
-      };
+      applyVibeToBars(vibe);
 
       const pal = choosePaletteFromVibe(vibe);
       const tone = vibeToTone(vibe);
 
       lockTrackIdentity(id, pal, tone, artist, track);
-
       setBars();
       return true;
     } catch (e) {
       hasSpotifyPlayback = false;
       setHintText("Aura waiting for Spotify…");
 
-      // IMPORTANT: do NOT swap palette on transient errors if we already locked this track
       if (applyLockedIdentity()) {
         setBars();
         return false;
@@ -924,30 +966,23 @@
 
     ctx.clearRect(0, 0, W, H);
 
-    // If locked track exists, ALWAYS use locked identity.
     if (lockedTrackId && lockedTone) {
       ensureTexture(lockedSeed, lockedPaletteName, lockedTone);
     } else if (!hasSpotifyPlayback) {
-      // Only before first lock / when truly nothing is known
       const pal = fallbackPalette(ts);
       const seed = hashStringToSeed("fallback-" + pal);
-      const tone = {
-        glow: 0.72,
-        turbulence: 0.68,
-        starDensity: 0.70,
-        rim: 0.46
-      };
+      const tone = { glow: 0.72, turbulence: 0.68, starDensity: 0.70, rim: 0.46 };
       ensureTexture(seed, pal, tone);
     }
 
-    // π-based pulse + φ-based radius hierarchy
+    const activeTone = lockedTone || orbTone;
+
     const baseR = Math.min(W, H) * 0.312;
     const pulse = 0.5 + 0.5 * Math.sin(ts * 0.00185 * PI + flux * PHI);
     const r = baseR * (0.965 + pulse * 0.042 + heat * 0.040);
     const rInner = r / PHI;
     const rHalo = r * PHI * 0.82;
 
-    // Background cosmic field
     const bg = ctx.createRadialGradient(cx, cy, rInner * 0.2, cx, cy, rHalo * 2.2);
     bg.addColorStop(0, "rgba(255,255,255,0.05)");
     bg.addColorStop(0.40, "rgba(120,140,255,0.05)");
@@ -957,10 +992,8 @@
     ctx.arc(cx, cy, rHalo * 2.2, 0, TAU);
     ctx.fill();
 
-    // Outer environment stars
     ctx.save();
     ctx.globalCompositeOperation = "screen";
-    const activeTone = lockedTone || orbTone;
     const envStars = Math.round(16 + activeTone.starDensity * 24);
     for (let i = 0; i < envStars; i++) {
       const t = (i + 0.5) / envStars;
@@ -981,25 +1014,21 @@
     }
     ctx.restore();
 
-    // Clip orb
     ctx.save();
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, TAU);
     ctx.clip();
 
-    // Nebula drift: alive, but same palette/seed if same track
     if (texReady) {
       const driftX = Math.sin(ts * 0.00021 * PI / PHI) * r * 0.10;
       const driftY = Math.cos(ts * 0.00017 * TAU / PHI) * r * 0.10;
       const scale = 1.18;
-
       const dw = r * 2 * scale;
       const dh = r * 2 * scale;
       ctx.globalAlpha = 1.0;
       ctx.drawImage(tex, cx - dw / 2 + driftX, cy - dh / 2 + driftY, dw, dh);
     }
 
-    // Dark cloud lanes
     ctx.globalCompositeOperation = "multiply";
     const lane = ctx.createRadialGradient(cx - r / PHI * 0.32, cy + r / PHI * 0.22, r * 0.08, cx, cy, r * 1.22);
     lane.addColorStop(0, "rgba(0,0,0,0.0)");
@@ -1010,7 +1039,6 @@
     ctx.arc(cx, cy, r * 1.22, 0, TAU);
     ctx.fill();
 
-    // Central glow node
     ctx.globalCompositeOperation = "screen";
     const nodeG = ctx.createRadialGradient(cx, cy, 0, cx, cy, r / PHI);
     nodeG.addColorStop(0, `rgba(255,255,255,${0.06 + activeTone.glow * 0.16})`);
@@ -1020,7 +1048,6 @@
     ctx.arc(cx, cy, r / PHI, 0, TAU);
     ctx.fill();
 
-    // Bloom
     const bloom = ctx.createRadialGradient(cx - r * 0.19, cy - r * 0.22, r * 0.05, cx, cy, r * 1.15);
     bloom.addColorStop(0, `rgba(255,255,255,${0.10 + heat * 0.12})`);
     bloom.addColorStop(0.45, "rgba(255,255,255,0.05)");
@@ -1030,13 +1057,11 @@
     ctx.arc(cx, cy, r * 1.15, 0, TAU);
     ctx.fill();
 
-    // Glass highlight
     ctx.fillStyle = `rgba(255,255,255,${0.10 + heat * 0.10})`;
     ctx.beginPath();
     ctx.ellipse(cx - r * 0.18, cy - r * 0.30, r * (0.52 / PHI + 0.20), r * (0.34 / PHI + 0.13), -0.55, 0, TAU);
     ctx.fill();
 
-    // Rim atmospheric edge
     ctx.globalCompositeOperation = "source-over";
     const rim = ctx.createRadialGradient(cx, cy, r * 0.82, cx, cy, r);
     rim.addColorStop(0, "rgba(255,255,255,0)");
@@ -1049,7 +1074,6 @@
 
     ctx.restore();
 
-    // Outer sacred ring
     ctx.strokeStyle = `rgba(255,255,255,${0.05 + activeTone.rim * 0.10})`;
     ctx.lineWidth = Math.max(1, Math.round(1.1 * dpr));
     ctx.beginPath();
@@ -1059,16 +1083,14 @@
     rafId = requestAnimationFrame(draw);
   }
 
-  // ---------- Open / close ----------
+  // ---------- Overlay ----------
   function setOverlay(on) {
     open = !!on;
     if (open) {
       overlay.classList.add("on");
       titleEl.classList.add("auraHover");
-
       pollSpotify();
       burstPoll();
-
       startPolling(true);
       if (!rafId) rafId = requestAnimationFrame(draw);
     } else {
@@ -1237,7 +1259,6 @@
     const spBtn = ensureSpotifyIconButton();
     watchTabsForSpotifyButton();
 
-    // Initial fallback nebula before first track lock
     ensureTexture(hashStringToSeed("fallback-cosmic"), "cosmic", {
       glow: 0.72,
       turbulence: 0.68,
@@ -1256,6 +1277,7 @@
       if (t > 6) { clearInterval(invite); titleEl.classList.remove("auraHover"); return; }
       titleEl.classList.toggle("auraHover", t % 2 === 1);
     }, 200);
+
     setTimeout(() => {
       titleEl.classList.remove("auraHover");
       clearInterval(invite);

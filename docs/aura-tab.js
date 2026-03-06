@@ -13,9 +13,9 @@
       - Burst after connect tap
    ✅ FIX: Spotify button never “disappears” (MutationObserver self-heal)
    ✅ NEW: Cosmic Nebula Orb with π / φ structure
-      - π drives motion / phase / pulse
-      - φ drives spacing / layer ratios / star distribution
-      - Palette changes by Spotify vibe, not just “always blue”
+   ✅ FIX: Same track = same core palette / same core seed
+      - no palette family jumps while the same track keeps playing
+      - only motion / shimmer / pulse / drift keep evolving
 */
 
 (() => {
@@ -36,7 +36,7 @@
   const PI = Math.PI;
   const TAU = Math.PI * 2;
   const PHI = (1 + Math.sqrt(5)) / 2;
-  const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5)); // ~2.39996
+  const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
   // Helpers
   const clamp01 = (x) => Math.max(0, Math.min(1, x));
@@ -444,6 +444,13 @@
     rim: 0.40
   };
 
+  // LOCKED track identity
+  let lockedTrackId = "";
+  let lockedPaletteName = "";
+  let lockedSeed = 0;
+  let lockedTone = null;
+  let lockedHint = "";
+
   // Offscreen nebula texture
   const tex = document.createElement("canvas");
   const texCtx = tex.getContext("2d", { willReadFrequently: true });
@@ -519,7 +526,7 @@
   };
 
   function choosePaletteFromVibe(vibe) {
-    const H = vibe.heat, D = vibe.depth, F = vibe.focus, X = vibe.flux;
+    const H = vibe.heat, D = vibe.depth, X = vibe.flux;
     const V = vibe.valence, A = vibe.acoustic;
 
     if (D > 0.70 && H < 0.58) return "deep";
@@ -675,7 +682,6 @@
 
     texCtx.putImageData(img, 0, 0);
 
-    // Golden-angle stars / nodes over texture
     texCtx.save();
     texCtx.globalCompositeOperation = "screen";
 
@@ -713,6 +719,32 @@
     }
   }
 
+  // ---------- Track lock helpers ----------
+  function lockTrackIdentity(trackId, palName, tone, artist, track) {
+    lockedTrackId = trackId;
+    lockedPaletteName = palName;
+    lockedSeed = hashStringToSeed(trackId);
+    lockedTone = { ...tone };
+    lockedHint = `${artist} — ${track}`;
+
+    ensureTexture(lockedSeed, lockedPaletteName, lockedTone);
+  }
+
+  function applyLockedIdentity() {
+    if (!lockedTrackId || !lockedTone) return false;
+    ensureTexture(lockedSeed, lockedPaletteName, lockedTone);
+    if (lockedHint) setHintText(lockedHint);
+    return true;
+  }
+
+  function clearLockedIdentity() {
+    lockedTrackId = "";
+    lockedPaletteName = "";
+    lockedSeed = 0;
+    lockedTone = null;
+    lockedHint = "";
+  }
+
   // ---------- Spotify-driven vibe ----------
   async function pollSpotify() {
     try {
@@ -721,6 +753,11 @@
       if (st && st.__no_content) {
         hasSpotifyPlayback = false;
         setHintText("Open Spotify and press Play (no active playback).");
+        // IMPORTANT: keep locked identity if same track was already locked
+        if (applyLockedIdentity()) {
+          setBars();
+          return false;
+        }
         setBars();
         return false;
       }
@@ -728,6 +765,10 @@
       if (!st || !st.item) {
         hasSpotifyPlayback = false;
         setHintText("Open Spotify and press Play (no active playback).");
+        if (applyLockedIdentity()) {
+          setBars();
+          return false;
+        }
         setBars();
         return false;
       }
@@ -741,19 +782,35 @@
       setHintText(`${artist} — ${track}`);
 
       if (!id) {
+        if (applyLockedIdentity()) {
+          setBars();
+          return false;
+        }
         setBars();
         return false;
       }
 
-      if (id === lastTrackId) {
+      // SAME TRACK => keep locked palette/seed, only update live bars gently
+      if (id === lockedTrackId && lockedTone) {
+        setHintText(lockedHint || `${artist} — ${track}`);
+        ensureTexture(lockedSeed, lockedPaletteName, lockedTone);
         setBars();
         return true;
       }
 
+      // NEW TRACK => compute once and lock
       lastTrackId = id;
 
       const af = await getAudioFeatures(id);
       if (!af || af.__no_content) {
+        // If features unavailable, still lock a stable fallback identity from track id
+        const fallbackTone = {
+          glow: 0.72,
+          turbulence: 0.68,
+          starDensity: 0.70,
+          rim: 0.46
+        };
+        lockTrackIdentity(id, "cosmic", fallbackTone, artist, track);
         setBars();
         return true;
       }
@@ -784,17 +841,23 @@
         acoustic: ac
       };
 
-      paletteName = choosePaletteFromVibe(vibe);
-      orbSeed = hashStringToSeed(id);
-      orbTone = vibeToTone(vibe);
+      const pal = choosePaletteFromVibe(vibe);
+      const tone = vibeToTone(vibe);
 
-      ensureTexture(orbSeed, paletteName, orbTone);
+      lockTrackIdentity(id, pal, tone, artist, track);
 
       setBars();
       return true;
     } catch (e) {
       hasSpotifyPlayback = false;
       setHintText("Aura waiting for Spotify…");
+
+      // IMPORTANT: do NOT swap palette on transient errors if we already locked this track
+      if (applyLockedIdentity()) {
+        setBars();
+        return false;
+      }
+
       setBars();
       return false;
     }
@@ -861,8 +924,11 @@
 
     ctx.clearRect(0, 0, W, H);
 
-    // Fallback palette rotation if no active playback
-    if (!hasSpotifyPlayback) {
+    // If locked track exists, ALWAYS use locked identity.
+    if (lockedTrackId && lockedTone) {
+      ensureTexture(lockedSeed, lockedPaletteName, lockedTone);
+    } else if (!hasSpotifyPlayback) {
+      // Only before first lock / when truly nothing is known
       const pal = fallbackPalette(ts);
       const seed = hashStringToSeed("fallback-" + pal);
       const tone = {
@@ -891,10 +957,11 @@
     ctx.arc(cx, cy, rHalo * 2.2, 0, TAU);
     ctx.fill();
 
-    // Outer environment stars (φ / golden-angle)
+    // Outer environment stars
     ctx.save();
     ctx.globalCompositeOperation = "screen";
-    const envStars = Math.round(16 + orbTone.starDensity * 24);
+    const activeTone = lockedTone || orbTone;
+    const envStars = Math.round(16 + activeTone.starDensity * 24);
     for (let i = 0; i < envStars; i++) {
       const t = (i + 0.5) / envStars;
       const rr = lerp(r * 1.12, r * 1.82, Math.pow(t, 0.88));
@@ -920,7 +987,7 @@
     ctx.arc(cx, cy, r, 0, TAU);
     ctx.clip();
 
-    // Nebula texture drift (π-based motion, φ ratios)
+    // Nebula drift: alive, but same palette/seed if same track
     if (texReady) {
       const driftX = Math.sin(ts * 0.00021 * PI / PHI) * r * 0.10;
       const driftY = Math.cos(ts * 0.00017 * TAU / PHI) * r * 0.10;
@@ -946,7 +1013,7 @@
     // Central glow node
     ctx.globalCompositeOperation = "screen";
     const nodeG = ctx.createRadialGradient(cx, cy, 0, cx, cy, r / PHI);
-    nodeG.addColorStop(0, `rgba(255,255,255,${0.06 + orbTone.glow * 0.16})`);
+    nodeG.addColorStop(0, `rgba(255,255,255,${0.06 + activeTone.glow * 0.16})`);
     nodeG.addColorStop(1, "rgba(255,255,255,0)");
     ctx.fillStyle = nodeG;
     ctx.beginPath();
@@ -973,8 +1040,8 @@
     ctx.globalCompositeOperation = "source-over";
     const rim = ctx.createRadialGradient(cx, cy, r * 0.82, cx, cy, r);
     rim.addColorStop(0, "rgba(255,255,255,0)");
-    rim.addColorStop(0.72, `rgba(255,255,255,${0.06 + orbTone.rim * 0.08})`);
-    rim.addColorStop(1, `rgba(255,255,255,${0.14 + orbTone.rim * 0.10})`);
+    rim.addColorStop(0.72, `rgba(255,255,255,${0.06 + activeTone.rim * 0.08})`);
+    rim.addColorStop(1, `rgba(255,255,255,${0.14 + activeTone.rim * 0.10})`);
     ctx.fillStyle = rim;
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, TAU);
@@ -982,8 +1049,8 @@
 
     ctx.restore();
 
-    // Outer sacred ring — very subtle
-    ctx.strokeStyle = `rgba(255,255,255,${0.05 + orbTone.rim * 0.10})`;
+    // Outer sacred ring
+    ctx.strokeStyle = `rgba(255,255,255,${0.05 + activeTone.rim * 0.10})`;
     ctx.lineWidth = Math.max(1, Math.round(1.1 * dpr));
     ctx.beginPath();
     ctx.arc(cx, cy, r * 1.018, 0, TAU);
@@ -1101,6 +1168,7 @@
       safeCall(() => window.SpotifyPlayer.logout());
     }
     nukeSpotifyTokensBestEffort();
+    clearLockedIdentity();
     try { window.dispatchEvent(new CustomEvent("spotify:disconnected")); } catch {}
   }
 
@@ -1169,7 +1237,7 @@
     const spBtn = ensureSpotifyIconButton();
     watchTabsForSpotifyButton();
 
-    // Initial fallback nebula
+    // Initial fallback nebula before first track lock
     ensureTexture(hashStringToSeed("fallback-cosmic"), "cosmic", {
       glow: 0.72,
       turbulence: 0.68,

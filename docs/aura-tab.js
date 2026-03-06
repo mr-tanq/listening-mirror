@@ -7,14 +7,11 @@
       - Connected => BLACK icon (with subtle light drop-shadow so it's visible)
       - Disconnected => GREY icon
       - Tap toggles connect / disconnect (best-effort)
-   ✅ FIX: Aura/orb connects FAST:
-      - Instant poll on open
-      - Burst retries (0ms/350ms/900ms/1800ms/3200ms/5200ms)
-      - Burst after connect tap
-   ✅ FIX: Spotify button never “disappears” (MutationObserver self-heal)
-   ✅ NEW: Cosmic Nebula Orb with π / φ structure
-   ✅ FIX: Same track = same core palette / same core seed
-   ✅ FIX: If /audio-features/{id} returns 403 / fails, Aura still works from player metadata
+   ✅ FAST sync on open/connect
+   ✅ Spotify button self-heals if DOM changes
+   ✅ Same track = same core palette / same seed
+   ✅ If /audio-features fails (403 etc), Aura still works from strong metadata fallback
+   ✅ FIX: fallback is no longer flat 50/50/50/50
 */
 
 (() => {
@@ -447,6 +444,7 @@
   let texReady = false;
   let texSignature = "";
 
+  // ---------- UI helpers ----------
   function setHintText(txt) {
     if (!hint) return;
     hint.textContent = txt || "—";
@@ -470,10 +468,11 @@
 
     if (auraLine) {
       const line =
-        (H > 0.72 && X > 0.62) ? "Kinetic. Bright edges." :
-        (D > 0.72 && H < 0.52) ? "Deep. Slow gravity." :
-        (F > 0.72) ? "Focused. Clean center." :
-        (X > 0.70) ? "Restless. Moving surface." :
+        (H > 0.78 && X > 0.66) ? "Volcanic. Fast surface." :
+        (D > 0.78 && H < 0.46) ? "Deep. Heavy gravity." :
+        (F > 0.78 && X < 0.46) ? "Focused. Ritual center." :
+        (X > 0.76) ? "Restless. Shifting field." :
+        (H > 0.68 && D > 0.60) ? "Hot core. Dark horizon." :
         "Steady. Balanced field.";
       auraLine.textContent = line;
     }
@@ -486,7 +485,7 @@
     return clamp01(v);
   }
 
-  // ---------- Metadata vibe fallback ----------
+  // ---------- Hash / RNG ----------
   function hashStringToSeed(str) {
     const s = String(str || "");
     let h = 2166136261 >>> 0;
@@ -506,9 +505,20 @@
     };
   }
 
+  function seededUnit(seed, salt) {
+    const rand = mulberry32((seed ^ salt) >>> 0);
+    return rand();
+  }
+
+  function seededRange(seed, salt, a, b) {
+    return lerp(a, b, seededUnit(seed, salt));
+  }
+
   function words(str) {
     return String(str || "")
       .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
       .replace(/[^a-z0-9&+\- ]+/g, " ")
       .split(/\s+/)
       .filter(Boolean);
@@ -518,41 +528,64 @@
     return arr.some(x => set.has(x));
   }
 
-  function deriveVibeFromMetadata({ track, artist, album, durationMs }) {
-    const all = new Set([
-      ...words(track),
-      ...words(artist),
-      ...words(album)
-    ]);
+  // ---------- Strong metadata fallback ----------
+  function deriveVibeFromMetadata(meta) {
+    const track = String(meta.track || "");
+    const artist = String(meta.artist || "");
+    const album = String(meta.album || "");
+    const durationMs = Number(meta.durationMs || 0);
 
-    const deepWords = ["doom","slow","grief","ashes","dark","night","shadow","funeral","ocean","void","endless","sorrow","deep","black"];
-    const warmWords = ["sun","gold","light","love","honey","fire","heart","soul","rose","summer","warm","kiss"];
-    const kineticWords = ["run","burn","dance","electric","speed","motor","blood","wild","riot","storm","shake","move"];
-    const airyWords = ["sky","wind","air","sea","moon","cloud","dream","echo","ambient","mist","soft","blue"];
-    const focusedWords = ["instrumental","interlude","theme","reprise","part","movement","solo"];
+    const seed = hashStringToSeed(`${artist}__${track}__${album}__${durationMs}`);
+    const all = new Set([...words(track), ...words(artist), ...words(album)]);
 
-    let H = 0.50, F = 0.50, D = 0.50, X = 0.50, V = 0.50, A = 0.40;
+    const deepWords = [
+      "doom","slow","grief","ashes","dark","night","shadow","funeral","ocean","void","endless","sorrow","deep","black",
+      "pain","grave","blood","ghost","wolf","winter","storm","firewake"
+    ];
+    const warmWords = [
+      "sun","gold","light","love","honey","fire","heart","soul","rose","summer","warm","kiss","crazy","crazyz","heat"
+    ];
+    const kineticWords = [
+      "run","burn","dance","electric","speed","motor","wild","riot","shake","move","crazy","fuerza","fast","drive"
+    ];
+    const airyWords = [
+      "sky","wind","air","sea","moon","cloud","dream","echo","ambient","mist","soft","blue","float","endless"
+    ];
+    const focusedWords = [
+      "instrumental","interlude","theme","reprise","part","movement","solo","suite","op","nocturne"
+    ];
 
-    if (hasAny(all, deepWords)) { D += 0.22; H -= 0.05; V -= 0.18; }
-    if (hasAny(all, warmWords)) { H += 0.16; V += 0.18; }
+    // Strong seed-based base, not flat 0.5
+    let H = seededRange(seed, 0x1111, 0.28, 0.78);
+    let F = seededRange(seed, 0x2222, 0.22, 0.82);
+    let D = seededRange(seed, 0x3333, 0.24, 0.84);
+    let X = seededRange(seed, 0x4444, 0.20, 0.86);
+    let V = seededRange(seed, 0x5555, 0.18, 0.82);
+    let A = seededRange(seed, 0x6666, 0.12, 0.76);
+
+    if (hasAny(all, deepWords)) { D += 0.22; H -= 0.06; V -= 0.16; }
+    if (hasAny(all, warmWords)) { H += 0.18; V += 0.16; }
     if (hasAny(all, kineticWords)) { H += 0.14; X += 0.22; }
-    if (hasAny(all, airyWords)) { A += 0.20; D -= 0.06; }
-    if (hasAny(all, focusedWords)) { F += 0.22; X -= 0.06; }
+    if (hasAny(all, airyWords)) { A += 0.22; D -= 0.05; V += 0.04; }
+    if (hasAny(all, focusedWords)) { F += 0.22; X -= 0.08; }
 
-    const durMin = (Number(durationMs || 0) / 60000);
-    if (durMin >= 7) { D += 0.14; F += 0.08; X -= 0.06; }
-    else if (durMin > 0 && durMin <= 3.2) { X += 0.10; H += 0.05; }
+    const durMin = durationMs / 60000;
+    if (durMin >= 7.5) { D += 0.16; F += 0.10; X -= 0.08; }
+    else if (durMin >= 5.5) { D += 0.10; F += 0.06; }
+    else if (durMin > 0 && durMin <= 3.2) { X += 0.12; H += 0.06; }
 
-    // artist-specific hints you’ll actually feel in use
-    const artistLc = String(artist || "").toLowerCase();
+    const artistLc = artist.toLowerCase();
     if (artistLc.includes("mono") || artistLc.includes("sigur") || artistLc.includes("olafur")) {
-      D += 0.18; F += 0.12; A += 0.10; H -= 0.04;
+      D += 0.18; F += 0.12; A += 0.10; H -= 0.04; X -= 0.06;
     }
     if (artistLc.includes("nightstalker") || artistLc.includes("metallica") || artistLc.includes("zeal & ardor")) {
-      H += 0.16; X += 0.10; D += 0.06;
+      H += 0.16; X += 0.10; D += 0.06; V -= 0.03;
     }
     if (artistLc.includes("bonobo") || artistLc.includes("quantic") || artistLc.includes("thievery")) {
       X += 0.10; A += 0.10; V += 0.06;
+    }
+    if (artistLc.includes("yo la tengo")) {
+      D += 0.10; A += 0.12; X -= 0.02; V += 0.02;
     }
 
     H = clamp01(H);
@@ -562,7 +595,26 @@
     V = clamp01(V);
     A = clamp01(A);
 
-    return { heat: H, focus: F, depth: D, flux: X, valence: V, acoustic: A };
+    // push away from fake-neutral center if too flat
+    const arr = [H, F, D, X];
+    const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+    const variance = arr.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / arr.length;
+
+    if (variance < 0.008) {
+      H = clamp01(H + seededRange(seed, 0x7777, -0.16, 0.16));
+      F = clamp01(F + seededRange(seed, 0x8888, -0.16, 0.16));
+      D = clamp01(D + seededRange(seed, 0x9999, -0.16, 0.16));
+      X = clamp01(X + seededRange(seed, 0xAAAA, -0.16, 0.16));
+    }
+
+    return {
+      heat: H,
+      focus: F,
+      depth: D,
+      flux: X,
+      valence: V,
+      acoustic: A
+    };
   }
 
   // ---------- Palettes ----------
@@ -720,6 +772,7 @@
         const alpha = r <= 1.0 ? 255 : 0;
         const idx = (y * W + x) * 4;
         const boost = 1.0 + glow * 0.25;
+
         data[idx + 0] = Math.min(255, Math.round(col.r * boost + 255 * star));
         data[idx + 1] = Math.min(255, Math.round(col.g * boost + 255 * star));
         data[idx + 2] = Math.min(255, Math.round(col.b * boost + 255 * star));
@@ -791,11 +844,12 @@
     lockedHint = "";
   }
 
-  function applyVibeToBars(vibe) {
-    heat = lerp(heat, vibe.heat, 0.32);
-    focus = lerp(focus, vibe.focus, 0.32);
-    depth = lerp(depth, vibe.depth, 0.32);
-    flux = lerp(flux, vibe.flux, 0.32);
+  function applyVibeToBars(vibe, strong = false) {
+    const k = strong ? 0.52 : 0.32;
+    heat = lerp(heat, vibe.heat, k);
+    focus = lerp(focus, vibe.focus, k);
+    depth = lerp(depth, vibe.depth, k);
+    flux = lerp(flux, vibe.flux, k);
   }
 
   // ---------- Spotify-driven vibe ----------
@@ -844,18 +898,17 @@
         return false;
       }
 
-      // same track: keep exact palette/seed, optionally refresh bars from metadata only
       if (id === lockedTrackId && lockedTone) {
         const vibe = deriveVibeFromMetadata({ track, artist, album, durationMs });
-        applyVibeToBars(vibe);
+        applyVibeToBars(vibe, false);
         ensureTexture(lockedSeed, lockedPaletteName, lockedTone);
         setHintText(lockedHint || `${artist} — ${track}`);
         setBars();
         return true;
       }
 
-      // new track: try audio features first
       let vibe = null;
+
       try {
         const af = await getAudioFeatures(id);
         if (af && !af.__no_content) {
@@ -875,15 +928,15 @@
             acoustic: ac
           };
         }
-      } catch (err) {
-        // ignore here; metadata fallback below will take over
+      } catch {
+        // metadata fallback below
       }
 
       if (!vibe) {
         vibe = deriveVibeFromMetadata({ track, artist, album, durationMs });
       }
 
-      applyVibeToBars(vibe);
+      applyVibeToBars(vibe, true);
 
       const pal = choosePaletteFromVibe(vibe);
       const tone = vibeToTone(vibe);
@@ -891,7 +944,7 @@
       lockTrackIdentity(id, pal, tone, artist, track);
       setBars();
       return true;
-    } catch (e) {
+    } catch {
       hasSpotifyPlayback = false;
       setHintText("Aura waiting for Spotify…");
 
@@ -1222,7 +1275,6 @@
 
         await connectSpotifyBestEffort();
         updateSpotifyBtnState(btn);
-
         pollSpotify();
         burstPoll();
       });

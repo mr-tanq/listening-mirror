@@ -163,10 +163,8 @@
       z-index:1;
     }
 
-    /* ===== HARD KILL old orb popup artifact ===== */
     .lmOrbPop{ display:none !important; }
 
-    /* ===== HEADER CLEANUP ===== */
     header{
       display:flex;
       align-items:center;
@@ -243,6 +241,7 @@
       line-height: 1.05;
       min-width:0;
       gap:8px;
+      flex:1 1 auto;
     }
     .wordmark .title{
       font-size: 17.2px;
@@ -284,7 +283,25 @@
       box-shadow: 0 0 0 3px rgba(49,208,124,.08);
     }
 
-    /* ===== TOP RAIL CLEANUP ===== */
+    /* header spotify slot */
+    .headerActions{
+      display:flex;
+      align-items:center;
+      justify-content:flex-end;
+      gap:8px;
+      margin-left: auto;
+      flex: 0 0 auto;
+      position:relative;
+      z-index:2;
+      min-width: 28px;
+    }
+    .headerActions:empty{
+      display:flex;
+      width:28px;
+      min-width:28px;
+      height:28px;
+    }
+
     .tabs{
       display:flex;
       gap:6px;
@@ -585,6 +602,9 @@
         padding: 9px 12px;
         font-size: 12.4px;
       }
+      .headerActions{
+        min-width:24px;
+      }
     }
   </style>
 </head>
@@ -597,6 +617,7 @@
     <header>
       <div class="brand">
         <div class="glyph" aria-hidden="true"></div>
+
         <div class="wordmark">
           <div class="title">Listening Mirror</div>
           <div class="sub">
@@ -604,6 +625,8 @@
             <span id="statusLine">Offline</span>
           </div>
         </div>
+
+        <div class="headerActions" id="headerActions"></div>
       </div>
     </header>
 

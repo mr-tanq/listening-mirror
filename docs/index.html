@@ -39,18 +39,12 @@
       --ovTop: .10;
       --ovBot: .30;
 
-      /* header / rail polish */
-      --headerGlass: rgba(255,255,255,.035);
-      --headerLine: rgba(255,255,255,.075);
-      --headerGlow: rgba(145,175,255,.08);
-      --railBg: rgba(255,255,255,.045);
-      --railLine: rgba(255,255,255,.085);
-      --railInset: rgba(255,255,255,.05);
-      --tabIdle: rgba(255,255,255,.70);
-      --tabIdleBg: rgba(255,255,255,.025);
-      --tabOnBg: rgba(255,255,255,.10);
-      --tabOnLine: rgba(255,255,255,.13);
-      --tabOnText: rgba(255,255,255,.96);
+      --headerLine: rgba(255,255,255,.07);
+      --headerGlassTop: rgba(255,255,255,.042);
+      --headerGlassBot: rgba(255,255,255,.022);
+      --railLine: rgba(255,255,255,.082);
+      --railGlassTop: rgba(255,255,255,.048);
+      --railGlassBot: rgba(255,255,255,.028);
     }
 
     *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
@@ -169,23 +163,28 @@
       z-index:1;
     }
 
-    /* ===== HEADER ===== */
+    /* ===== HARD KILL old orb popup artifact ===== */
+    .lmOrbPop{ display:none !important; }
+
+    /* ===== HEADER CLEANUP ===== */
     header{
       display:flex;
-      align-items:flex-start;
+      align-items:center;
       gap:14px;
       margin-bottom: 16px;
-      padding: 10px 12px 12px 12px;
+      padding: 12px 14px;
+      min-height: 78px;
       border-radius: 24px;
       background:
-        radial-gradient(180px 80px at 12% 20%, rgba(145,175,255,.08), transparent 72%),
-        linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.018));
+        radial-gradient(220px 88px at 12% 16%, rgba(255,255,255,.035), transparent 72%),
+        linear-gradient(180deg, var(--headerGlassTop), var(--headerGlassBot));
       outline: 1px solid var(--headerLine);
       box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.05),
-        0 18px 40px rgba(0,0,0,.22);
+        inset 0 1px 0 rgba(255,255,255,.04),
+        0 18px 42px rgba(0,0,0,.22);
       position:relative;
       overflow:hidden;
+      isolation:isolate;
     }
     header:before{
       content:"";
@@ -193,9 +192,10 @@
       inset:0;
       pointer-events:none;
       background:
-        radial-gradient(220px 90px at 0% 0%, rgba(255,255,255,.03), transparent 70%),
-        linear-gradient(180deg, rgba(255,255,255,.02), transparent 50%);
-      opacity:.9;
+        radial-gradient(220px 90px at 0% 0%, rgba(255,255,255,.028), transparent 72%),
+        linear-gradient(180deg, rgba(255,255,255,.018), transparent 58%);
+      opacity:.95;
+      z-index:0;
     }
 
     .brand{
@@ -204,20 +204,24 @@
       gap:12px;
       padding-left: 2px;
       min-width:0;
+      width:100%;
       position:relative;
       z-index:1;
     }
 
     .glyph{
-      width: 20px; height: 20px; border-radius: 999px; position:relative;
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      position:relative;
       background:
-        radial-gradient(circle at 30% 30%, rgba(255,255,255,.26), rgba(255,255,255,.06) 54%, rgba(255,255,255,.03) 76%),
-        radial-gradient(circle at 70% 70%, rgba(145,175,255,.11), transparent 60%);
+        radial-gradient(circle at 30% 30%, rgba(255,255,255,.24), rgba(255,255,255,.055) 56%, rgba(255,255,255,.03) 76%),
+        radial-gradient(circle at 70% 70%, rgba(145,175,255,.09), transparent 60%);
       outline: 1px solid rgba(255,255,255,.11);
       box-shadow:
         0 0 0 1px rgba(255,255,255,.03),
-        0 10px 35px rgba(0,0,0,.45),
-        0 0 24px rgba(145,175,255,.08);
+        0 10px 30px rgba(0,0,0,.42),
+        0 0 20px rgba(145,175,255,.06);
       flex: 0 0 auto;
       overflow:hidden;
     }
@@ -231,43 +235,38 @@
       opacity:.9;
       pointer-events:none;
     }
-    .glyph:after{
-      content:"";
-      position:absolute;
-      inset:-8px;
-      border-radius:999px;
-      background: radial-gradient(circle, rgba(145,175,255,.10), transparent 65%);
-      opacity:.65;
-      pointer-events:none;
-    }
 
     .wordmark{
       display:flex;
       flex-direction:column;
+      justify-content:center;
       line-height: 1.05;
       min-width:0;
+      gap:8px;
     }
     .wordmark .title{
-      font-size: 18px;
-      font-weight: 720;
-      letter-spacing: .52px;
+      font-size: 17.2px;
+      font-weight: 640;
+      letter-spacing: .95px;
       margin:0;
       text-wrap: balance;
-      background: linear-gradient(180deg, rgba(255,255,255,.95), rgba(222,226,234,.68));
+      background: linear-gradient(180deg, rgba(255,255,255,.90), rgba(214,220,230,.60));
       -webkit-background-clip: text;
       background-clip: text;
       color: transparent;
-      text-shadow: 0 0 28px rgba(145,175,255,.02);
+      text-shadow: none;
     }
     .wordmark .sub{
-      margin-top: 7px;
+      margin-top: 0;
       display:flex;
       align-items:center;
       gap:8px;
-      color: rgba(255,255,255,.58);
-      font-size: 11.5px;
-      letter-spacing: .28px;
+      color: rgba(255,255,255,.52);
+      font-size: 10.8px;
+      font-weight: 560;
+      letter-spacing: .34px;
       text-transform: uppercase;
+      line-height:1;
     }
 
     .dot{
@@ -277,25 +276,25 @@
       background: rgba(255,255,255,.14);
       outline: 1px solid rgba(255,255,255,.10);
       box-shadow: inset 0 1px 0 rgba(255,255,255,.10);
+      flex:0 0 auto;
     }
     .dot.on{
-      background: rgba(49,208,124,.75);
-      outline-color: rgba(49,208,124,.35);
-      box-shadow: 0 0 0 3px rgba(49,208,124,.10);
+      background: rgba(49,208,124,.72);
+      outline-color: rgba(49,208,124,.24);
+      box-shadow: 0 0 0 3px rgba(49,208,124,.08);
     }
 
-    /* ===== TOP RAIL ===== */
+    /* ===== TOP RAIL CLEANUP ===== */
     .tabs{
       display:flex;
       gap:6px;
       padding: 6px;
       border-radius: 999px;
-      background:
-        linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.028));
+      background: linear-gradient(180deg, var(--railGlassTop), var(--railGlassBot));
       outline: 1px solid var(--railLine);
       box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.04),
-        0 16px 45px rgba(0,0,0,.30);
+        inset 0 1px 0 rgba(255,255,255,.035),
+        0 16px 45px rgba(0,0,0,.28);
       width: 100%;
       margin: 0 0 18px 0;
       justify-content:flex-start;
@@ -307,23 +306,23 @@
       content:"";
       position:absolute;
       inset:0;
-      pointer-events:none;
       border-radius:999px;
+      pointer-events:none;
       background:
-        radial-gradient(220px 60px at 12% 0%, rgba(255,255,255,.03), transparent 70%),
-        linear-gradient(180deg, rgba(255,255,255,.02), transparent 65%);
+        radial-gradient(220px 60px at 12% 0%, rgba(255,255,255,.025), transparent 72%),
+        linear-gradient(180deg, rgba(255,255,255,.016), transparent 65%);
       opacity:.95;
     }
 
     .tabBtn{
       border:0;
       background: transparent;
-      color: var(--tabIdle);
+      color: rgba(255,255,255,.70);
       padding: 10px 14px;
       border-radius: 999px;
       font-size: 12.8px;
-      font-weight: 560;
-      letter-spacing: .22px;
+      font-weight: 590;
+      letter-spacing: .18px;
       cursor:pointer;
       flex: 0 0 auto;
       position:relative;
@@ -336,20 +335,19 @@
         outline-color .16s ease;
     }
     .tabBtn:hover{
-      background: var(--tabIdleBg);
+      background: rgba(255,255,255,.03);
       color: rgba(255,255,255,.86);
     }
     .tabBtn:active{
       transform: translateY(1px);
     }
     .tabBtn[aria-selected="true"]{
-      background:
-        linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.08));
-      outline: 1px solid var(--tabOnLine);
-      color: var(--tabOnText);
+      background: linear-gradient(180deg, rgba(255,255,255,.115), rgba(255,255,255,.075));
+      outline: 1px solid rgba(255,255,255,.12);
+      color: rgba(255,255,255,.96);
       box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.07),
-        0 10px 22px rgba(0,0,0,.18);
+        inset 0 1px 0 rgba(255,255,255,.055),
+        0 10px 20px rgba(0,0,0,.16);
     }
 
     .panel{ display:block; }
@@ -568,11 +566,16 @@
       .eRight{ align-items:flex-start; }
 
       header{
-        padding: 10px 10px 11px 10px;
+        padding: 12px 12px 11px 12px;
+        min-height: 74px;
         border-radius: 22px;
       }
       .wordmark .title{
-        font-size: 17px;
+        font-size: 16.6px;
+        letter-spacing: .88px;
+      }
+      .wordmark .sub{
+        font-size: 10.4px;
       }
       .tabs{
         gap:4px;
@@ -732,7 +735,6 @@
   <script src="./app.js?v=20260213a"></script>
 
   <script src="./orb.js?v=20260304a"></script>
-
   <script src="./econcerts.js?v=20260213a"></script>
 
   <script>

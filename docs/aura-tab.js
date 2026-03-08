@@ -1,5 +1,5 @@
 /* aura-tab.js (FULL FILE REPLACE) — PART 1/4
-   Listening Mirror — Shared Main Orb + Aura Details Panel
+   Listening Mirror — Shared Main Orb + Aura Details Panel + Album Art Palette Sync
    ✅ ONE orb system only (main screen)
    ✅ Title: "listening mirror" (lowercase) + premium styling
    ✅ Tap title => Aura modal (details only, NO second orb canvas)
@@ -11,9 +11,9 @@
    ✅ FAST sync on open/connect
    ✅ Spotify button self-heals if DOM changes
    ✅ Same track = same core palette / same seed
-   ✅ If /audio-features fails (403 etc), Aura still works from strong metadata fallback
-   ✅ FIX: fallback is no longer flat 50/50/50/50
+   ✅ If /audio-features fails, Aura still works from strong metadata fallback
    ✅ NEW: shared premium plasma orb on main UI
+   ✅ NEW: album-cover palette sync with safe fallback + cache
 */
 
 (() => {
@@ -122,20 +122,20 @@
 
   // ---------- Styles ----------
   const style = document.createElement("style");
-  style.id = "auraTabStylesSharedOrb";
+  style.id = "auraTabStylesSharedOrbArtSync";
   style.textContent = `
     .wordmark .title{
-      letter-spacing: 1.15px !important;
-      font-weight: 680 !important;
-      text-transform: none !important;
-      background: linear-gradient(180deg, rgba(255,255,255,.90), rgba(220,225,234,.62)) !important;
-      -webkit-background-clip: text !important;
-      background-clip: text !important;
-      color: transparent !important;
-      position: relative !important;
-      display: inline-block !important;
-      padding: 2px 2px 3px 2px !important;
-      transform: translateZ(0);
+      letter-spacing:1.15px !important;
+      font-weight:680 !important;
+      text-transform:none !important;
+      background:linear-gradient(180deg, rgba(255,255,255,.90), rgba(220,225,234,.62)) !important;
+      -webkit-background-clip:text !important;
+      background-clip:text !important;
+      color:transparent !important;
+      position:relative !important;
+      display:inline-block !important;
+      padding:2px 2px 3px 2px !important;
+      transform:translateZ(0);
     }
     .wordmark .title:after{
       content:"";
@@ -146,11 +146,11 @@
         radial-gradient(120px 44px at 35% 40%, rgba(150,190,255,.10), transparent 60%),
         radial-gradient(120px 44px at 70% 55%, rgba(255,215,140,.06), transparent 62%);
       opacity:0;
-      transition: opacity .18s ease, transform .18s ease;
-      transform: translateY(0px);
+      transition:opacity .18s ease, transform .18s ease;
+      transform:translateY(0px);
       pointer-events:none;
     }
-    .wordmark .title:active:after{ opacity:.85; transform: translateY(1px); }
+    .wordmark .title:active:after{ opacity:.85; transform:translateY(1px); }
     .wordmark .title.auraHover:after{ opacity:.55; }
 
     .lmSpotifyIcoBtn{
@@ -164,22 +164,22 @@
       -webkit-tap-highlight-color:transparent;
       flex:0 0 auto;
     }
-    .lmSpotifyIcoBtn:active{ transform: translateY(1px); }
+    .lmSpotifyIcoBtn:active{ transform:translateY(1px); }
     .lmSpotifyIcoBtn svg{
       width:20px;
       height:20px;
       display:block;
-      transition: opacity .15s ease, filter .15s ease;
+      transition:opacity .15s ease, filter .15s ease;
     }
     .lmSpotifyIcoBtn[data-state="off"] svg{
-      fill: rgba(255,255,255,.55);
+      fill:rgba(255,255,255,.55);
       opacity:.95;
       filter:none;
     }
     .lmSpotifyIcoBtn[data-state="on"] svg{
       fill:#000000;
       opacity:1;
-      filter: drop-shadow(0 0 1.5px rgba(255,255,255,.45));
+      filter:drop-shadow(0 0 1.5px rgba(255,255,255,.45));
     }
 
     .auraOverlay{
@@ -195,23 +195,23 @@
         radial-gradient(900px 600px at 30% 20%, rgba(255,255,255,.06), transparent 60%),
         radial-gradient(900px 600px at 70% 80%, rgba(255,255,255,.04), transparent 62%),
         rgba(0,0,0,.52);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
+      backdrop-filter:blur(10px);
+      -webkit-backdrop-filter:blur(10px);
     }
     .auraCard{
       width:min(420px, calc(100vw - 26px));
       border-radius:22px;
-      background: linear-gradient(180deg, rgba(18,20,24,.92), rgba(12,13,16,.92));
+      background:linear-gradient(180deg, rgba(18,20,24,.92), rgba(12,13,16,.92));
       outline:1px solid rgba(255,255,255,.10);
       box-shadow:0 30px 90px rgba(0,0,0,.68);
       overflow:hidden;
-      transform: translateY(6px) scale(.985);
+      transform:translateY(6px) scale(.985);
       opacity:0;
-      transition: transform .18s ease, opacity .18s ease;
-      will-change: transform, opacity;
+      transition:transform .18s ease, opacity .18s ease;
+      will-change:transform, opacity;
     }
     .auraOverlay.on{ display:flex; }
-    .auraOverlay.on .auraCard{ transform: translateY(0) scale(1); opacity:1; }
+    .auraOverlay.on .auraCard{ transform:translateY(0) scale(1); opacity:1; }
 
     .auraTop{
       padding:14px 16px 10px 16px;
@@ -236,7 +236,7 @@
       height:8px;
       border-radius:999px;
       background:rgba(160,190,255,.65);
-      box-shadow: 0 0 0 3px rgba(160,190,255,.10);
+      box-shadow:0 0 0 3px rgba(160,190,255,.10);
       outline:1px solid rgba(255,255,255,.10);
       flex:0 0 auto;
     }
@@ -251,7 +251,7 @@
       outline:1px solid rgba(255,255,255,.10);
       color:rgba(255,255,255,.90);
     }
-    .auraClose:active{ transform: translateY(1px); }
+    .auraClose:active{ transform:translateY(1px); }
 
     .auraBody{ padding:16px; }
 
@@ -333,8 +333,8 @@ style.textContent += `
       height:100%;
       width:50%;
       border-radius:999px;
-      background: linear-gradient(180deg, rgba(255,255,255,.62), rgba(255,255,255,.34));
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.26);
+      background:linear-gradient(180deg, rgba(255,255,255,.62), rgba(255,255,255,.34));
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.26);
     }
     .auraN{
       font-size:12px;
@@ -504,12 +504,18 @@ style.textContent += `
   let texReady = false;
   let texSignature = "";
 
+  let albumPalette = null;
+  let albumPaletteTrackId = "";
+  const albumPaletteCache = new Map();
+
   // ---------- UI helpers ----------
   function setHintText(txt) {
     if (hint) hint.textContent = txt || "—";
-    if (subHint) subHint.textContent = hasSpotifyPlayback
-      ? "Live from Spotify playback"
-      : "Metadata-derived field";
+    if (subHint) {
+      subHint.textContent = hasSpotifyPlayback
+        ? (albumPalette ? "Live from Spotify + album palette" : "Live from Spotify playback")
+        : "Metadata-derived field";
+    }
   }
 
   function setBars() {
@@ -676,58 +682,7 @@ style.textContent += `
     };
   }
 
-  // ---------- Palettes ----------
-// ---------- Album art palette extraction ----------
-async function extractPaletteFromImage(url) {
-  return new Promise((resolve) => {
-
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-
-    img.onload = () => {
-
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
-
-      const size = 64;
-      canvas.width = size;
-      canvas.height = size;
-
-      ctx.drawImage(img,0,0,size,size);
-
-      const data = ctx.getImageData(0,0,size,size).data;
-
-      let r=0,g=0,b=0,count=0;
-
-      for(let i=0;i<data.length;i+=20){
-
-        r+=data[i];
-        g+=data[i+1];
-        b+=data[i+2];
-        count++;
-
-      }
-
-      r=Math.floor(r/count);
-      g=Math.floor(g/count);
-      b=Math.floor(b/count);
-
-      const dominant = `rgb(${r},${g},${b})`;
-
-      resolve({
-        dominant,
-        glow:`rgba(${r},${g},${b},0.6)`
-      });
-
-    };
-
-    img.onerror = ()=>resolve(null);
-
-    img.src = url;
-
-  });
-}
-
+  // ---------- Base palettes ----------
   const PALETTES = {
     deep:    ["#060814", "#17143d", "#34247d", "#ff8a38", "#ffd7b4"],
     kinetic: ["#04101d", "#063f68", "#00d7d9", "#7e39ff", "#ff64b0"],
@@ -776,6 +731,14 @@ async function extractPaletteFromImage(url) {
     return `rgba(${r},${g},${b},${a})`;
   }
 
+  function rgbString(r, g, b) {
+    return `rgb(${r},${g},${b})`;
+  }
+
+  function rgbToHex(r, g, b) {
+    return "#" + [r, g, b].map(v => Math.max(0, Math.min(255, v)).toString(16).padStart(2, "0")).join("");
+  }
+
   function mixHex(a, b, t) {
     const A = hexToRgb(a);
     const B = hexToRgb(b);
@@ -785,11 +748,123 @@ async function extractPaletteFromImage(url) {
     return `rgb(${r},${g},${bb})`;
   }
 
-  // ---------- Texture builder ----------
+  function brighten(hex, amt = 0.18) {
+    const c = hexToRgb(hex);
+    return rgbToHex(
+      Math.round(lerp(c.r, 255, amt)),
+      Math.round(lerp(c.g, 255, amt)),
+      Math.round(lerp(c.b, 255, amt))
+    );
+  }
+
+  function darken(hex, amt = 0.35) {
+    const c = hexToRgb(hex);
+    return rgbToHex(
+      Math.round(c.r * (1 - amt)),
+      Math.round(c.g * (1 - amt)),
+      Math.round(c.b * (1 - amt))
+    );
+  }
+
+  // ---------- Album art palette extraction ----------
+  async function extractPaletteFromImage(url) {
+    if (!url) return null;
+    if (albumPaletteCache.has(url)) return albumPaletteCache.get(url);
+
+    const palettePromise = new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+
+      img.onload = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          const ctx2 = canvas.getContext("2d", { willReadFrequently: true });
+          const size = 48;
+          canvas.width = size;
+          canvas.height = size;
+          ctx2.drawImage(img, 0, 0, size, size);
+
+          const data = ctx2.getImageData(0, 0, size, size).data;
+
+          let rs = 0, gs = 0, bs = 0, count = 0;
+          let bestSat = -1;
+          let vibrant = { r: 255, g: 180, b: 90 };
+
+          for (let i = 0; i < data.length; i += 16) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            const a = data[i + 3];
+            if (a < 120) continue;
+
+            rs += r;
+            gs += g;
+            bs += b;
+            count++;
+
+            const max = Math.max(r, g, b);
+            const min = Math.min(r, g, b);
+            const sat = max - min;
+            const bright = (r + g + b) / 3;
+
+            if (sat > bestSat && bright > 30 && bright < 235) {
+              bestSat = sat;
+              vibrant = { r, g, b };
+            }
+          }
+
+          if (!count) {
+            resolve(null);
+            return;
+          }
+
+          const ar = Math.round(rs / count);
+          const ag = Math.round(gs / count);
+          const ab = Math.round(bs / count);
+
+          const dominantHex = rgbToHex(ar, ag, ab);
+          const vibrantHex = rgbToHex(vibrant.r, vibrant.g, vibrant.b);
+
+          const palette = {
+            dominantHex,
+            vibrantHex,
+            darkHex: darken(dominantHex, 0.52),
+            midHex: darken(vibrantHex, 0.18),
+            lightHex: brighten(vibrantHex, 0.35)
+          };
+
+          resolve(palette);
+        } catch {
+          resolve(null);
+        }
+      };
+
+      img.onerror = () => resolve(null);
+      img.src = url;
+    });
+
+    albumPaletteCache.set(url, palettePromise);
+    return palettePromise;
+  }
+
+  function getActivePalette() {
+    if (albumPalette) {
+      return [
+        albumPalette.darkHex,
+        darken(albumPalette.midHex, 0.18),
+        albumPalette.midHex,
+        albumPalette.vibrantHex,
+        albumPalette.lightHex
+      ];
+    }
+    return PALETTES[paletteName] || PALETTES.cosmic;
+  }
+// ---------- Texture builder ----------
   function rebuildTextureIfNeeded() {
     const sig = [
       paletteName,
       orbSeed,
+      albumPalette ? albumPalette.vibrantHex : "no-art",
       Math.round(heat * 100),
       Math.round(focus * 100),
       Math.round(depth * 100),
@@ -806,7 +881,7 @@ async function extractPaletteFromImage(url) {
     const h = tex.height;
     texCtx.clearRect(0, 0, w, h);
 
-    const pal = PALETTES[paletteName] || PALETTES.cosmic;
+    const pal = getActivePalette();
     const rand = mulberry32(orbSeed ^ 0x91ab32cd);
 
     const bg = texCtx.createRadialGradient(w * 0.5, h * 0.5, 10, w * 0.5, h * 0.5, w * 0.52);
@@ -967,15 +1042,14 @@ async function extractPaletteFromImage(url) {
     setBars();
     rebuildTextureIfNeeded();
   }
-// ---------- Shared main orb draw ----------
+
+  // ---------- Shared main orb draw ----------
   function resizeCanvas() {
     if (!c || !ctx) return;
-
     const rect = c.getBoundingClientRect();
     const dpr = Math.min(MAX_DPR, window.devicePixelRatio || 1);
     const w = Math.max(64, Math.round(rect.width * dpr));
     const h = Math.max(64, Math.round(rect.height * dpr));
-
     if (c.width !== w || c.height !== h) {
       c.width = w;
       c.height = h;
@@ -997,7 +1071,7 @@ async function extractPaletteFromImage(url) {
     const cx = w * 0.5;
     const cy = h * 0.5;
     const t = ts * 0.001;
-    const pal = PALETTES[paletteName] || PALETTES.cosmic;
+    const pal = getActivePalette();
 
     ctx.clearRect(0, 0, w, h);
 
@@ -1154,6 +1228,7 @@ async function extractPaletteFromImage(url) {
   // ---------- Spotify sync ----------
   async function syncAura() {
     let trackId = "";
+    let artUrl = "";
     let meta = {
       track: "",
       artist: "",
@@ -1165,6 +1240,8 @@ async function extractPaletteFromImage(url) {
       const player = await getPlayer();
       if (!player || player.__no_content || !player.item) {
         hasSpotifyPlayback = false;
+        albumPalette = null;
+        albumPaletteTrackId = "";
         const vibe = deriveVibeFromMetadata({ track: "", artist: "", album: "", durationMs: 0 });
         applyVibe(vibe, meta, "");
         return;
@@ -1177,6 +1254,12 @@ async function extractPaletteFromImage(url) {
       meta.artist = Array.isArray(item.artists) ? item.artists.map(a => a && a.name).filter(Boolean).join(", ") : "";
       meta.album = item.album && item.album.name ? String(item.album.name) : "";
       meta.durationMs = Number(item.duration_ms || 0);
+      artUrl = item?.album?.images?.[0]?.url || "";
+
+      if (trackId !== albumPaletteTrackId) {
+        albumPaletteTrackId = trackId;
+        albumPalette = await extractPaletteFromImage(artUrl);
+      }
 
       let vibe = null;
       try {
@@ -1192,6 +1275,8 @@ async function extractPaletteFromImage(url) {
       applyVibe(vibe, meta, trackId);
     } catch {
       hasSpotifyPlayback = false;
+      albumPalette = null;
+      albumPaletteTrackId = "";
       const vibe = deriveVibeFromMetadata(meta);
       applyVibe(vibe, meta, trackId);
     }

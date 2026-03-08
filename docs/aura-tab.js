@@ -677,6 +677,57 @@ style.textContent += `
   }
 
   // ---------- Palettes ----------
+// ---------- Album art palette extraction ----------
+async function extractPaletteFromImage(url) {
+  return new Promise((resolve) => {
+
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+
+    img.onload = () => {
+
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+
+      const size = 64;
+      canvas.width = size;
+      canvas.height = size;
+
+      ctx.drawImage(img,0,0,size,size);
+
+      const data = ctx.getImageData(0,0,size,size).data;
+
+      let r=0,g=0,b=0,count=0;
+
+      for(let i=0;i<data.length;i+=20){
+
+        r+=data[i];
+        g+=data[i+1];
+        b+=data[i+2];
+        count++;
+
+      }
+
+      r=Math.floor(r/count);
+      g=Math.floor(g/count);
+      b=Math.floor(b/count);
+
+      const dominant = `rgb(${r},${g},${b})`;
+
+      resolve({
+        dominant,
+        glow:`rgba(${r},${g},${b},0.6)`
+      });
+
+    };
+
+    img.onerror = ()=>resolve(null);
+
+    img.src = url;
+
+  });
+}
+
   const PALETTES = {
     deep:    ["#060814", "#17143d", "#34247d", "#ff8a38", "#ffd7b4"],
     kinetic: ["#04101d", "#063f68", "#00d7d9", "#7e39ff", "#ff64b0"],

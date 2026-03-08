@@ -1,12 +1,12 @@
 /* aura-tab.js (FULL FILE REPLACE) — PART 1/4
-   Listening Mirror — Shared Main Orb + Aura Details Panel + Plasma Reference Renderer
+   Listening Mirror — Shared Main Orb + Aura Details Panel + Plasma Renderer V2
    ✅ ONE orb system only (main screen)
    ✅ Title portal
    ✅ Spotify button in header
    ✅ Aura modal = details only
    ✅ Shared main orb
    ✅ Album art adaptive palette
-   ✅ Hot/cold cinematic plasma renderer
+   ✅ V2: stronger plasma filaments / harder split / hotter center
 */
 
 (() => {
@@ -27,7 +27,6 @@
   const clamp01 = (x) => Math.max(0, Math.min(1, x));
   const lerp = (a, b, t) => a + (b - a) * t;
   const invLerp = (a, b, v) => (v - a) / (b - a || 1);
-  const ease = (t) => t * t * (3 - 2 * t);
   const $ = (sel, root = document) => root.querySelector(sel);
 
   function safeCall(fn) {
@@ -113,7 +112,7 @@
   titleEl.setAttribute("aria-label", "Open aura");
 
   const style = document.createElement("style");
-  style.id = "auraTabStylesPlasmaRef";
+  style.id = "auraTabStylesPlasmaRefV2";
   style.textContent = `
     .wordmark .title{
       letter-spacing:1.15px !important;
@@ -473,16 +472,14 @@
   let hasSpotifyPlayback = false;
 
   let orbSeed = 1337;
-  let paletteName = "cosmic";
   let orbTone = {
-    glow: 0.85,
-    turbulence: 0.78,
-    starDensity: 0.65,
-    rim: 0.62
+    glow: 0.92,
+    turbulence: 0.86,
+    starDensity: 0.50,
+    rim: 0.72
   };
 
   let lockedTrackId = "";
-  let lockedPaletteName = "";
   let lockedSeed = 0;
   let lockedTone = null;
   let lockedHint = "";
@@ -557,15 +554,6 @@
     };
   }
 
-  function seededUnit(seed, salt) {
-    const rand = mulberry32((seed ^ salt) >>> 0);
-    return rand();
-  }
-
-  function seededRange(seed, salt, a, b) {
-    return lerp(a, b, seededUnit(seed, salt));
-  }
-
   function words(str) {
     return String(str || "")
       .toLowerCase()
@@ -578,7 +566,7 @@
 
   function hasAny(set, arr) {
     return arr.some(x => set.has(x));
-  }
+        }
    function deriveVibeFromMetadata(meta) {
     const track = String(meta.track || "");
     const artist = String(meta.artist || "");
@@ -605,52 +593,37 @@
       "instrumental","interlude","theme","reprise","part","movement","solo","suite","op","nocturne"
     ];
 
-    let H = seededRange(seed, 0x1111, 0.28, 0.78);
-    let F = seededRange(seed, 0x2222, 0.22, 0.82);
-    let D = seededRange(seed, 0x3333, 0.24, 0.84);
-    let X = seededRange(seed, 0x4444, 0.20, 0.86);
-    let V = seededRange(seed, 0x5555, 0.18, 0.82);
-    let A = seededRange(seed, 0x6666, 0.12, 0.76);
+    let H = 0.42;
+    let F = 0.48;
+    let D = 0.52;
+    let X = 0.46;
 
-    if (hasAny(all, deepWords)) { D += 0.22; H -= 0.06; V -= 0.16; }
-    if (hasAny(all, warmWords)) { H += 0.18; V += 0.16; }
-    if (hasAny(all, kineticWords)) { H += 0.14; X += 0.22; }
-    if (hasAny(all, airyWords)) { A += 0.22; D -= 0.05; V += 0.04; }
+    if (hasAny(all, deepWords)) { D += 0.24; H -= 0.04; X -= 0.02; }
+    if (hasAny(all, warmWords)) { H += 0.20; }
+    if (hasAny(all, kineticWords)) { H += 0.12; X += 0.24; }
+    if (hasAny(all, airyWords)) { D -= 0.04; X += 0.02; }
     if (hasAny(all, focusedWords)) { F += 0.22; X -= 0.08; }
 
     const durMin = durationMs / 60000;
     if (durMin >= 7.5) { D += 0.16; F += 0.10; X -= 0.08; }
-    else if (durMin >= 5.5) { D += 0.10; F += 0.06; }
-    else if (durMin > 0 && durMin <= 3.2) { X += 0.12; H += 0.06; }
-
-    H = clamp01(H);
-    F = clamp01(F);
-    D = clamp01(D);
-    X = clamp01(X);
-    V = clamp01(V);
-    A = clamp01(A);
+    else if (durMin > 0 && durMin <= 3.2) { X += 0.14; H += 0.08; }
 
     return {
-      heat: H,
-      focus: F,
-      depth: D,
-      flux: X,
-      valence: V,
-      acoustic: A
+      heat: clamp01(H),
+      focus: clamp01(F),
+      depth: clamp01(D),
+      flux: clamp01(X),
+      valence: 0.45,
+      acoustic: 0.30
     };
   }
 
   function vibeToTone(vibe) {
-    const H = clamp01(vibe.heat);
-    const F = clamp01(vibe.focus);
-    const D = clamp01(vibe.depth);
-    const X = clamp01(vibe.flux);
-
     return {
-      glow: clamp01(0.58 + H * 0.32 + D * 0.14),
-      turbulence: clamp01(0.42 + X * 0.46 + H * 0.08),
-      starDensity: clamp01(0.18 + D * 0.24 + F * 0.08),
-      rim: clamp01(0.34 + F * 0.30 + D * 0.18)
+      glow: clamp01(0.72 + vibe.heat * 0.22 + vibe.depth * 0.10),
+      turbulence: clamp01(0.58 + vibe.flux * 0.26 + vibe.heat * 0.08),
+      starDensity: clamp01(0.10 + vibe.depth * 0.14),
+      rim: clamp01(0.55 + vibe.focus * 0.16 + vibe.depth * 0.08)
     };
   }
 
@@ -689,15 +662,6 @@
       Math.round(c.g * (1 - amt)),
       Math.round(c.b * (1 - amt))
     );
-  }
-
-  function mixHex(a, b, t) {
-    const A = hexToRgb(a);
-    const B = hexToRgb(b);
-    const r = Math.round(lerp(A.r, B.r, t));
-    const g = Math.round(lerp(A.g, B.g, t));
-    const bb = Math.round(lerp(A.b, B.b, t));
-    return `rgb(${r},${g},${bb})`;
   }
 
   async function extractPaletteFromImage(url) {
@@ -758,14 +722,14 @@
           resolve({
             dominantHex,
             vibrantHex,
-            warmHex: brighten(vibrantHex, 0.10),
+            warmHex: brighten(vibrantHex, 0.12),
             coldHex: rgbToHex(
-              Math.round(lerp(vibrant.r, 80, 0.72)),
-              Math.round(lerp(vibrant.g, 180, 0.72)),
-              Math.round(lerp(vibrant.b, 255, 0.78))
+              Math.round(lerp(vibrant.r, 72, 0.76)),
+              Math.round(lerp(vibrant.g, 190, 0.76)),
+              Math.round(lerp(vibrant.b, 255, 0.82))
             ),
-            darkHex: darken(dominantHex, 0.62),
-            lightHex: brighten(vibrantHex, 0.42)
+            darkHex: darken(dominantHex, 0.68),
+            lightHex: brighten(vibrantHex, 0.52)
           });
         } catch {
           resolve(null);
@@ -792,11 +756,11 @@
     }
 
     return {
-      bg: "#050812",
+      bg: "#040814",
       warm: "#ff8a38",
       cold: "#49c9ff",
       fusion: "#c378ff",
-      light: "#fff0dc"
+      light: "#fff4e6"
     };
   }
 
@@ -806,17 +770,15 @@
     depth = clamp01(vibe.depth);
     flux = clamp01(vibe.flux);
 
-    if (trackId && lockedTrackId === trackId && lockedPaletteName && lockedSeed && lockedTone) {
-      paletteName = lockedPaletteName;
+    if (trackId && lockedTrackId === trackId && lockedSeed && lockedTone) {
       orbSeed = lockedSeed;
       orbTone = { ...lockedTone };
       if (lockedHint) setHintText(lockedHint);
     } else {
-      paletteName = "ref";
       orbSeed = hashStringToSeed(`${trackId || ""}__${meta.artist || ""}__${meta.track || ""}`);
       orbTone = vibeToTone(vibe);
-
       beatEnergy = heat;
+
       const newHint = [
         meta.artist || "Unknown artist",
         meta.track || "Unknown track"
@@ -826,7 +788,6 @@
 
       if (trackId) {
         lockedTrackId = trackId;
-        lockedPaletteName = paletteName;
         lockedSeed = orbSeed;
         lockedTone = { ...orbTone };
         lockedHint = newHint;
@@ -834,7 +795,7 @@
     }
 
     setBars();
-        }
+       }
    function resizeCanvas() {
     if (!c || !ctx) return;
     const rect = c.getBoundingClientRect();
@@ -847,43 +808,43 @@
     }
   }
 
-  function drawFilaments(ctx, cx, cy, r, t, palette, pulse) {
-    const layers = 14;
+  function drawFilamentSet(ctx, cx, cy, r, t, palette, pulse, side) {
+    const count = 20;
+    const warm = side === "warm";
+    const baseCol = warm ? palette.warm : palette.cold;
+    const hiCol = warm ? palette.light : palette.light;
+
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
 
-    for (let i = 0; i < layers; i++) {
-      const frac = i / Math.max(1, layers - 1);
-      const sideWarm = i < layers / 2;
-      const colA = sideWarm ? palette.warm : palette.cold;
-      const colB = sideWarm ? palette.fusion : palette.light;
-      const alpha = (0.15 + (1 - frac) * 0.20 + pulse * 0.10) * (0.78 + heat * 0.35);
+    for (let i = 0; i < count; i++) {
+      const frac = i / (count - 1);
+      const lane = warm ? -1 : 1;
 
-      const a0 = (sideWarm ? PI * 0.90 : -PI * 0.08) + Math.sin(t * (0.8 + frac * 0.7) + i * 0.8) * 0.32;
-      const a1 = (sideWarm ? PI * 1.95 : PI * 0.96) + Math.cos(t * (1.05 + frac * 0.55) + i * 0.9) * 0.34;
+      const startA = (warm ? PI * 1.06 : -0.04) + Math.sin(t * (0.85 + frac * 0.55) + i * 0.6) * 0.22;
+      const endA   = (warm ? PI * 1.88 : PI * 0.88) + Math.cos(t * (0.95 + frac * 0.45) + i * 0.72) * 0.20;
 
-      const startR = r * lerp(0.52, 0.90, frac);
-      const endR = r * lerp(0.96, 0.68, frac);
+      const startR = r * lerp(0.54, 0.96, frac);
+      const endR   = r * lerp(0.88, 0.58, frac);
 
-      const x1 = cx + Math.cos(a0) * startR;
-      const y1 = cy + Math.sin(a0) * startR;
-      const x4 = cx + Math.cos(a1) * endR;
-      const y4 = cy + Math.sin(a1) * endR;
+      const x1 = cx + Math.cos(startA) * startR;
+      const y1 = cy + Math.sin(startA) * startR;
+      const x4 = cx + Math.cos(endA) * endR;
+      const y4 = cy + Math.sin(endA) * endR;
 
-      const ctrlBias = sideWarm ? -1 : 1;
-      const c1x = cx + ctrlBias * r * lerp(0.26, 0.40, frac) + Math.cos(a0 + 0.8) * r * 0.16;
-      const c1y = cy - r * lerp(0.22, 0.05, frac) + Math.sin(t + i) * r * 0.02;
-      const c2x = cx - ctrlBias * r * lerp(0.06, 0.20, frac) + Math.cos(a1 - 0.5) * r * 0.12;
-      const c2y = cy + r * lerp(0.08, 0.22, frac) + Math.cos(t * 0.9 + i) * r * 0.02;
+      const c1x = cx + lane * r * lerp(0.30, 0.44, frac) + Math.cos(startA + lane * 0.55) * r * 0.12;
+      const c1y = cy - r * lerp(0.26, 0.08, frac) + Math.sin(t * 0.8 + i) * r * 0.015;
+      const c2x = cx - lane * r * lerp(0.02, 0.16, frac) + Math.cos(endA - lane * 0.35) * r * 0.08;
+      const c2y = cy + r * lerp(0.06, 0.24, frac) + Math.cos(t * 0.9 + i) * r * 0.015;
 
       const grad = ctx.createLinearGradient(x1, y1, x4, y4);
-      grad.addColorStop(0.0, rgba(colA, 0.00));
-      grad.addColorStop(0.18, rgba(colA, alpha * 0.85));
-      grad.addColorStop(0.55, rgba(colB, alpha));
-      grad.addColorStop(1.0, rgba(colB, 0.00));
+      grad.addColorStop(0.00, rgba(baseCol, 0.00));
+      grad.addColorStop(0.16, rgba(baseCol, 0.30 + pulse * 0.20));
+      grad.addColorStop(0.55, rgba(hiCol, 0.32 + pulse * 0.24));
+      grad.addColorStop(1.00, rgba(baseCol, 0.00));
 
       ctx.strokeStyle = grad;
-      ctx.lineWidth = lerp(1.0, 4.8, 1 - frac) * (0.72 + pulse * 0.28);
+      ctx.lineWidth = lerp(0.9, 5.4, 1 - frac) * (0.82 + pulse * 0.42);
       ctx.lineCap = "round";
       ctx.beginPath();
       ctx.moveTo(x1, y1);
@@ -909,37 +870,36 @@
     const cx = w * 0.5;
     const cy = h * 0.5;
     const t = ts * 0.001;
-
     const palette = getRenderPalette();
 
     const bpm = Math.max(60, Math.min(180, beatTempo || 110));
     const beat = (t * bpm / 60) % 1;
-    const beatPulse = Math.pow(Math.max(0, 1 - beat), 3.5) * (0.10 + beatEnergy * 0.12);
+    const beatPulse = Math.pow(Math.max(0, 1 - beat), 4.2) * (0.14 + beatEnergy * 0.16);
 
     ctx.clearRect(0, 0, w, h);
 
     const baseR = Math.min(w, h) * 0.405;
-    const radius = baseR * (1 + Math.sin(t * (0.85 + flux * 0.45)) * 0.012 + beatPulse * 0.08);
+    const radius = baseR * (1 + Math.sin(t * (0.85 + flux * 0.40)) * 0.010 + beatPulse * 0.07);
 
-    const outerHalo = ctx.createRadialGradient(cx, cy, radius * 0.48, cx, cy, radius * 1.62);
-    outerHalo.addColorStop(0.0, rgba(palette.light, 0.10 + beatPulse * 0.10));
-    outerHalo.addColorStop(0.28, rgba(palette.warm, 0.12 + heat * 0.10));
-    outerHalo.addColorStop(0.52, rgba(palette.cold, 0.10 + depth * 0.08));
-    outerHalo.addColorStop(1.0, "rgba(0,0,0,0)");
+    const outerHalo = ctx.createRadialGradient(cx, cy, radius * 0.42, cx, cy, radius * 1.78);
+    outerHalo.addColorStop(0.00, rgba(palette.light, 0.12 + beatPulse * 0.14));
+    outerHalo.addColorStop(0.24, rgba(palette.warm, 0.18 + heat * 0.10));
+    outerHalo.addColorStop(0.42, rgba(palette.cold, 0.16 + depth * 0.08));
+    outerHalo.addColorStop(1.00, "rgba(0,0,0,0)");
     ctx.fillStyle = outerHalo;
     ctx.beginPath();
-    ctx.arc(cx, cy, radius * 1.70, 0, TAU);
+    ctx.arc(cx, cy, radius * 1.78, 0, TAU);
     ctx.fill();
 
     ctx.save();
     ctx.beginPath();
-    const pts = 260;
+    const pts = 280;
     for (let i = 0; i <= pts; i++) {
       const a = (i / pts) * TAU;
       const wobble =
-        Math.sin(a * 3 + t * 1.15) * radius * 0.018 * (0.55 + flux * 0.60) +
-        Math.sin(a * 7 - t * 1.60) * radius * 0.010 * (0.45 + heat * 0.45) +
-        Math.sin(a * 11 + t * 2.0) * radius * 0.005 * (0.40 + depth * 0.30);
+        Math.sin(a * 3 + t * 1.00) * radius * 0.010 * (0.65 + flux * 0.35) +
+        Math.sin(a * 6 - t * 1.45) * radius * 0.006 * (0.55 + heat * 0.30) +
+        Math.sin(a * 10 + t * 1.9) * radius * 0.003;
       const rr = radius + wobble;
       const x = cx + Math.cos(a) * rr;
       const y = cy + Math.sin(a) * rr;
@@ -948,70 +908,72 @@
     ctx.closePath();
     ctx.clip();
 
-    const leftField = ctx.createRadialGradient(
-      cx - radius * 0.35, cy - radius * 0.06, radius * 0.10,
-      cx - radius * 0.18, cy, radius * 1.06
+    const leftCore = ctx.createRadialGradient(
+      cx - radius * 0.36, cy - radius * 0.08, radius * 0.03,
+      cx - radius * 0.18, cy, radius * 1.00
     );
-    leftField.addColorStop(0.00, rgba(palette.light, 0.85));
-    leftField.addColorStop(0.18, rgba(palette.warm, 0.78));
-    leftField.addColorStop(0.58, rgba(palette.warm, 0.22));
-    leftField.addColorStop(1.00, "rgba(0,0,0,0)");
-    ctx.fillStyle = leftField;
+    leftCore.addColorStop(0.00, rgba(palette.light, 0.95));
+    leftCore.addColorStop(0.12, rgba(palette.warm, 0.88));
+    leftCore.addColorStop(0.42, rgba(palette.warm, 0.34));
+    leftCore.addColorStop(1.00, "rgba(0,0,0,0)");
+    ctx.fillStyle = leftCore;
     ctx.fillRect(cx - radius * 1.2, cy - radius * 1.2, radius * 2.4, radius * 2.4);
 
-    const rightField = ctx.createRadialGradient(
-      cx + radius * 0.30, cy - radius * 0.03, radius * 0.10,
-      cx + radius * 0.16, cy, radius * 1.04
+    const rightCore = ctx.createRadialGradient(
+      cx + radius * 0.32, cy - radius * 0.04, radius * 0.03,
+      cx + radius * 0.16, cy, radius * 1.00
     );
-    rightField.addColorStop(0.00, rgba(palette.light, 0.68));
-    rightField.addColorStop(0.18, rgba(palette.cold, 0.82));
-    rightField.addColorStop(0.58, rgba(palette.cold, 0.22));
-    rightField.addColorStop(1.00, "rgba(0,0,0,0)");
-    ctx.fillStyle = rightField;
+    rightCore.addColorStop(0.00, rgba(palette.light, 0.84));
+    rightCore.addColorStop(0.12, rgba(palette.cold, 0.92));
+    rightCore.addColorStop(0.42, rgba(palette.cold, 0.34));
+    rightCore.addColorStop(1.00, "rgba(0,0,0,0)");
+    ctx.fillStyle = rightCore;
     ctx.fillRect(cx - radius * 1.2, cy - radius * 1.2, radius * 2.4, radius * 2.4);
 
-    const fusion = ctx.createRadialGradient(cx, cy + radius * 0.03, radius * 0.03, cx, cy, radius * 0.68);
-    fusion.addColorStop(0.00, rgba(palette.light, 0.48 + beatPulse * 0.35));
-    fusion.addColorStop(0.16, rgba(palette.fusion, 0.38 + beatPulse * 0.18));
-    fusion.addColorStop(0.52, rgba(palette.fusion, 0.08));
+    const fusion = ctx.createRadialGradient(cx, cy, radius * 0.02, cx, cy, radius * 0.55);
+    fusion.addColorStop(0.00, rgba("#ffffff", 0.64 + beatPulse * 0.36));
+    fusion.addColorStop(0.10, rgba(palette.light, 0.46 + beatPulse * 0.20));
+    fusion.addColorStop(0.24, rgba(palette.fusion, 0.28 + beatPulse * 0.10));
+    fusion.addColorStop(0.58, rgba(palette.fusion, 0.06));
     fusion.addColorStop(1.00, "rgba(0,0,0,0)");
     ctx.fillStyle = fusion;
     ctx.beginPath();
-    ctx.arc(cx, cy, radius * 0.78, 0, TAU);
+    ctx.arc(cx, cy, radius * 0.62, 0, TAU);
     ctx.fill();
 
-    drawFilaments(ctx, cx, cy, radius, t, palette, beatPulse);
+    drawFilamentSet(ctx, cx, cy, radius, t, palette, beatPulse, "warm");
+    drawFilamentSet(ctx, cx, cy, radius, t + 0.18, palette, beatPulse, "cold");
 
-    ctx.globalCompositeOperation = "screen";
+    ctx.globalCompositeOperation = "lighter";
 
-    const arcBands = 8;
+    const arcBands = 10;
     for (let i = 0; i < arcBands; i++) {
       const warmSide = i < arcBands / 2;
       const col = warmSide ? palette.warm : palette.cold;
-      const rr = radius * lerp(0.48, 0.95, i / (arcBands - 1));
-      const start = (warmSide ? PI * 0.88 : -0.02) + Math.sin(t * (0.9 + i * 0.07) + i) * 0.18;
-      const end = start + lerp(0.7, 1.55, 0.65 + flux * 0.25);
+      const rr = radius * lerp(0.50, 0.98, i / (arcBands - 1));
+      const start = (warmSide ? PI * 0.92 : -0.03) + Math.sin(t * (0.95 + i * 0.05) + i) * 0.12;
+      const end = start + lerp(0.78, 1.68, 0.65 + flux * 0.25);
       const grad = ctx.createLinearGradient(cx - rr, cy - rr, cx + rr, cy + rr);
       grad.addColorStop(0, rgba(col, 0));
-      grad.addColorStop(0.5, rgba(col, 0.18 + beatPulse * 0.10));
+      grad.addColorStop(0.5, rgba(col, 0.22 + beatPulse * 0.16));
       grad.addColorStop(1, rgba(col, 0));
       ctx.strokeStyle = grad;
-      ctx.lineWidth = lerp(1.2, 4.6, 1 - i / arcBands);
+      ctx.lineWidth = lerp(0.8, 3.6, 1 - i / arcBands);
       ctx.beginPath();
       ctx.arc(cx, cy, rr, start, end);
       ctx.stroke();
     }
 
-    const dustRand = mulberry32((orbSeed ^ ((ts / 80) | 0)) >>> 0);
-    const dustCount = Math.round(18 + depth * 10);
-    for (let i = 0; i < dustCount; i++) {
-      const a = dustRand() * TAU;
-      const rr = Math.pow(dustRand(), 0.88) * radius * 0.98;
+    const sparks = 12;
+    const rand = mulberry32((orbSeed ^ ((ts / 90) | 0)) >>> 0);
+    for (let i = 0; i < sparks; i++) {
+      const a = rand() * TAU;
+      const rr = Math.pow(rand(), 0.86) * radius * 0.92;
       const x = cx + Math.cos(a) * rr;
       const y = cy + Math.sin(a) * rr;
-      const r = lerp(0.7, 2.1, dustRand());
-      const col = dustRand() > 0.5 ? palette.light : palette.fusion;
-      ctx.fillStyle = rgba(col, lerp(0.06, 0.26, dustRand()));
+      const r = lerp(0.6, 1.8, rand());
+      const col = rand() > 0.5 ? palette.light : palette.fusion;
+      ctx.fillStyle = rgba(col, lerp(0.08, 0.24, rand()));
       ctx.beginPath();
       ctx.arc(x, y, r, 0, TAU);
       ctx.fill();
@@ -1019,26 +981,25 @@
 
     ctx.globalCompositeOperation = "source-over";
 
-    const core = ctx.createRadialGradient(cx, cy, radius * 0.03, cx, cy, radius * 0.45);
-    core.addColorStop(0.00, rgba(palette.light, 0.26 + beatPulse * 0.22));
-    core.addColorStop(0.22, rgba(palette.fusion, 0.14 + beatPulse * 0.10));
-    core.addColorStop(0.55, rgba(palette.bg, 0.10));
-    core.addColorStop(1.00, "rgba(0,0,0,0)");
-    ctx.fillStyle = core;
+    const coreHot = ctx.createRadialGradient(cx, cy, radius * 0.01, cx, cy, radius * 0.22);
+    coreHot.addColorStop(0.00, rgba("#ffffff", 0.62 + beatPulse * 0.32));
+    coreHot.addColorStop(0.22, rgba(palette.light, 0.30 + beatPulse * 0.14));
+    coreHot.addColorStop(1.00, "rgba(255,255,255,0)");
+    ctx.fillStyle = coreHot;
     ctx.beginPath();
-    ctx.arc(cx, cy, radius * 0.48, 0, TAU);
+    ctx.arc(cx, cy, radius * 0.24, 0, TAU);
     ctx.fill();
 
     ctx.restore();
 
-    ctx.strokeStyle = rgba(palette.light, 0.18 + beatPulse * 0.24);
-    ctx.lineWidth = 1.5 + orbTone.rim * 2.4;
+    ctx.strokeStyle = rgba("#ffffff", 0.18 + beatPulse * 0.24);
+    ctx.lineWidth = 1.4 + orbTone.rim * 2.0;
     ctx.beginPath();
-    ctx.arc(cx, cy, radius * (1 + beatPulse * 0.03), 0, TAU);
+    ctx.arc(cx, cy, radius * (1 + beatPulse * 0.02), 0, TAU);
     ctx.stroke();
 
-    ctx.strokeStyle = rgba(palette.cold, 0.05 + depth * 0.12);
-    ctx.lineWidth = 7 + beatPulse * 10;
+    ctx.strokeStyle = rgba(palette.cold, 0.08 + depth * 0.10);
+    ctx.lineWidth = 6 + beatPulse * 8;
     ctx.beginPath();
     ctx.arc(cx, cy, radius * 1.01, 0, TAU);
     ctx.stroke();
@@ -1055,12 +1016,7 @@
   async function syncAura() {
     let trackId = "";
     let artUrl = "";
-    let meta = {
-      track: "",
-      artist: "",
-      album: "",
-      durationMs: 0
-    };
+    let meta = { track: "", artist: "", album: "", durationMs: 0 };
 
     try {
       const player = await getPlayer();
@@ -1093,19 +1049,22 @@
       try {
         if (trackId) {
           const feats = await getAudioFeatures(trackId);
-          vibe = deriveVibeFromMetadata(meta);
           if (feats) {
-            const energy = normalize01(feats.energy, vibe.heat);
-            const tempo = Number(feats.tempo || 110);
+            const energy = normalize01(feats.energy, 0.55);
             const dance = normalize01(feats.danceability, 0.50);
+            const instr = normalize01(feats.instrumentalness, 0.18);
+            const acoustic = normalize01(feats.acousticness, 0.30);
+            const tempo = Number(feats.tempo || 110);
+
             vibe = {
-              heat: clamp01(energy * 0.55 + dance * 0.18 + normalize01(feats.valence, 0.45) * 0.08 + 0.20),
-              focus: clamp01((1 - dance) * 0.18 + normalize01(feats.instrumentalness, 0.22) * 0.34 + 0.28),
-              depth: clamp01(normalize01(feats.acousticness, 0.30) * 0.24 + normalize01(feats.instrumentalness, 0.22) * 0.24 + (1 - energy) * 0.14 + 0.28),
-              flux: clamp01(dance * 0.30 + energy * 0.26 + normalize01(feats.speechiness, 0.08) * 0.06 + 0.18),
+              heat: clamp01(0.24 + energy * 0.46 + dance * 0.18),
+              focus: clamp01(0.24 + instr * 0.30 + (1 - dance) * 0.12),
+              depth: clamp01(0.26 + acoustic * 0.16 + instr * 0.20 + (1 - energy) * 0.08),
+              flux: clamp01(0.20 + dance * 0.26 + energy * 0.22),
               valence: normalize01(feats.valence, 0.45),
-              acoustic: normalize01(feats.acousticness, 0.30)
+              acoustic
             };
+
             beatTempo = Math.max(60, Math.min(180, tempo || 110));
             beatEnergy = energy;
           }
@@ -1169,12 +1128,8 @@
   }
 
   closeBtn?.addEventListener("click", closeAura);
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) closeAura();
-  });
-  window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && open) closeAura();
-  });
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) closeAura(); });
+  window.addEventListener("keydown", (e) => { if (e.key === "Escape" && open) closeAura(); });
   window.addEventListener("resize", resizeCanvas, { passive: true });
 
   titleEl.addEventListener("click", openAura);

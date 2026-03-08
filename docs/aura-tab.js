@@ -2,7 +2,7 @@
    Listening Mirror — Aura Popup (title portal) + Spotify quick-sync
    ✅ Title: "listening mirror" (lowercase) + premium styling
    ✅ Tap title => Aura modal (orb + signals)
-   ✅ Keeps/ensures Spotify icon button at right of tabs (icon-only, no circle outline)
+   ✅ Keeps/ensures Spotify icon button at RIGHT OF HEADER (#headerActions), not tabs
    ✅ Spotify icon color:
       - Connected => BLACK icon (with subtle light drop-shadow so it's visible)
       - Disconnected => GREY icon
@@ -150,6 +150,7 @@
       cursor: pointer;
       line-height: 0;
       -webkit-tap-highlight-color: transparent;
+      flex: 0 0 auto;
     }
     .lmSpotifyIcoBtn:active{ transform: translateY(1px); }
     .lmSpotifyIcoBtn svg{
@@ -555,7 +556,6 @@
       "instrumental","interlude","theme","reprise","part","movement","solo","suite","op","nocturne"
     ];
 
-    // Strong seed-based base, not flat 0.5
     let H = seededRange(seed, 0x1111, 0.28, 0.78);
     let F = seededRange(seed, 0x2222, 0.22, 0.82);
     let D = seededRange(seed, 0x3333, 0.24, 0.84);
@@ -595,7 +595,6 @@
     V = clamp01(V);
     A = clamp01(A);
 
-    // push away from fake-neutral center if too flat
     const arr = [H, F, D, X];
     const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
     const variance = arr.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / arr.length;
@@ -1248,8 +1247,8 @@
   }
 
   function ensureSpotifyIconButton() {
-    const tabs = $(".tabs");
-    if (!tabs) return null;
+    const host = $("#headerActions") || $(".headerActions");
+    if (!host) return null;
 
     let btn = $("#lmSpotifyIcoBtn");
     if (!btn) {
@@ -1282,26 +1281,26 @@
 
     updateSpotifyBtnState(btn);
 
-    if (btn.parentElement !== tabs) {
-      tabs.appendChild(btn);
-    } else if (tabs.lastElementChild !== btn) {
-      tabs.appendChild(btn);
+    if (btn.parentElement !== host) {
+      host.appendChild(btn);
+    } else if (host.lastElementChild !== btn) {
+      host.appendChild(btn);
     }
 
     return btn;
   }
 
-  let tabsObserver = null;
-  function watchTabsForSpotifyButton() {
-    if (tabsObserver) return;
+  let headerObserver = null;
+  function watchHeaderForSpotifyButton() {
+    if (headerObserver) return;
     const root = document.body;
     if (!root) return;
 
-    tabsObserver = new MutationObserver(() => {
+    headerObserver = new MutationObserver(() => {
       ensureSpotifyIconButton();
     });
 
-    tabsObserver.observe(root, { childList: true, subtree: true });
+    headerObserver.observe(root, { childList: true, subtree: true });
   }
 
   // ---------- Boot ----------
@@ -1309,7 +1308,7 @@
     setBars();
 
     const spBtn = ensureSpotifyIconButton();
-    watchTabsForSpotifyButton();
+    watchHeaderForSpotifyButton();
 
     ensureTexture(hashStringToSeed("fallback-cosmic"), "cosmic", {
       glow: 0.72,
@@ -1336,8 +1335,8 @@
     }, 1200);
 
     setInterval(() => {
-      ensureSpotifyIconButton();
-      updateSpotifyBtnState(spBtn || $("#lmSpotifyIcoBtn"));
+      const liveBtn = ensureSpotifyIconButton();
+      updateSpotifyBtnState(liveBtn || spBtn || $("#lmSpotifyIcoBtn"));
     }, 2000);
 
     window.addEventListener("resize", () => {

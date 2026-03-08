@@ -1,5 +1,5 @@
-/* aura-tab.js (FULL FILE REPLACE) — 1 PART
-   Listening Mirror — Aura Popup (title portal) + Spotify quick-sync
+/* aura-tab.js (FULL FILE REPLACE) — PART 1/4
+   Listening Mirror — Aura Popup (title portal) + Premium Reactive Orb
    ✅ Title: "listening mirror" (lowercase) + premium styling
    ✅ Tap title => Aura modal (orb + signals)
    ✅ Keeps/ensures Spotify icon button at RIGHT OF HEADER (#headerActions), not tabs
@@ -12,6 +12,7 @@
    ✅ Same track = same core palette / same seed
    ✅ If /audio-features fails (403 etc), Aura still works from strong metadata fallback
    ✅ FIX: fallback is no longer flat 50/50/50/50
+   ✅ NEW: richer plasma orb / premium motion / stronger depth field
 */
 
 (() => {
@@ -28,15 +29,29 @@
 
   const PI = Math.PI;
   const TAU = Math.PI * 2;
-  const PHI = (1 + Math.sqrt(5)) / 2;
   const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
   const clamp01 = (x) => Math.max(0, Math.min(1, x));
   const lerp = (a, b, t) => a + (b - a) * t;
+  const invLerp = (a, b, v) => (v - a) / (b - a || 1);
+  const ease = (t) => t * t * (3 - 2 * t);
+  const easeOut = (t) => 1 - Math.pow(1 - t, 3);
+  const dist = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by);
   const $ = (sel, root = document) => root.querySelector(sel);
 
   function safeCall(fn) {
     try { return fn(); } catch { return undefined; }
+  }
+
+  function createEl(tag, attrs = {}, html = "") {
+    const el = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === "class") el.className = v;
+      else if (k === "style") el.style.cssText = v;
+      else el.setAttribute(k, v);
+    }
+    if (html) el.innerHTML = html;
+    return el;
   }
 
   // ---------- Spotify auth ----------
@@ -241,17 +256,20 @@
     .auraClose:active{ transform: translateY(1px); }
 
     .auraBody{ padding: 16px; }
-
-    .auraOrbWrap{
+.auraOrbWrap{
       border-radius: 20px;
       outline: 1px solid rgba(255,255,255,.08);
-      background: rgba(255,255,255,.02);
+      background:
+        radial-gradient(160px 160px at 50% 35%, rgba(120,150,255,.06), transparent 65%),
+        rgba(255,255,255,.02);
       overflow:hidden;
       position: relative;
       height: 260px;
       display:grid;
       place-items:center;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.06),
+        inset 0 -20px 40px rgba(0,0,0,.18);
     }
     .auraOrbHint{
       position:absolute;
@@ -331,11 +349,11 @@
   document.head.appendChild(style);
 
   // ---------- Modal ----------
-  const overlay = document.createElement("div");
-  overlay.className = "auraOverlay";
-  overlay.setAttribute("role", "dialog");
-  overlay.setAttribute("aria-label", "Aura");
-  overlay.innerHTML = `
+  const overlay = createEl("div", {
+    class: "auraOverlay",
+    role: "dialog",
+    "aria-label": "Aura"
+  }, `
     <div class="auraCard">
       <div class="auraTop">
         <div class="auraLabel">
@@ -389,14 +407,12 @@
         </div>
       </div>
     </div>
-  `;
+  `);
   document.body.appendChild(overlay);
 
   const closeBtn = $(".auraClose", overlay);
-  const card = $(".auraCard", overlay);
-
   const c = $("#auraOrbCanvas", overlay);
-  const ctx = c ? c.getContext("2d") : null;
+  const ctx = c ? c.getContext("2d", { alpha: true }) : null;
 
   const hint = $("#auraOrbHint", overlay);
 
@@ -544,7 +560,7 @@
       "pain","grave","blood","ghost","wolf","winter","storm","firewake"
     ];
     const warmWords = [
-      "sun","gold","light","love","honey","fire","heart","soul","rose","summer","warm","kiss","crazy","crazyz","heat"
+      "sun","gold","light","love","honey","fire","heart","soul","rose","summer","warm","kiss","crazy","heat"
     ];
     const kineticWords = [
       "run","burn","dance","electric","speed","motor","wild","riot","shake","move","crazy","fuerza","fast","drive"
@@ -578,7 +594,7 @@
     if (artistLc.includes("mono") || artistLc.includes("sigur") || artistLc.includes("olafur")) {
       D += 0.18; F += 0.12; A += 0.10; H -= 0.04; X -= 0.06;
     }
-    if (artistLc.includes("nightstalker") || artistLc.includes("metallica") || artistLc.includes("zeal & ardor")) {
+    if (artistLc.includes("nightstalker") || artistLc.includes("metallica") || artistLc.includes("zeal") || artistLc.includes("ardor")) {
       H += 0.16; X += 0.10; D += 0.06; V -= 0.03;
     }
     if (artistLc.includes("bonobo") || artistLc.includes("quantic") || artistLc.includes("thievery")) {
@@ -615,14 +631,13 @@
       acoustic: A
     };
   }
-
-  // ---------- Palettes ----------
+// ---------- Palettes ----------
   const PALETTES = {
-    deep:    ["#09091c", "#1b1547", "#41218a", "#ff8a38", "#ffd7b4"],
+    deep:    ["#060814", "#17143d", "#34247d", "#ff8a38", "#ffd7b4"],
     kinetic: ["#04101d", "#063f68", "#00d7d9", "#7e39ff", "#ff64b0"],
     warm:    ["#140b0b", "#3a1415", "#8d2b1f", "#ffc047", "#fff0c9"],
-    airy:    ["#0a1119", "#12303a", "#3eb9b4", "#b5ecd8", "#fff3dc"],
-    cosmic:  ["#060913", "#1a1152", "#432caa", "#2cc6ff", "#ffba66"]
+    airy:    ["#091219", "#12303a", "#3eb9b4", "#b5ecd8", "#fff3dc"],
+    cosmic:  ["#050812", "#1a1152", "#432caa", "#2cc6ff", "#ffba66"]
   };
 
   function choosePaletteFromVibe(vibe) {
@@ -637,716 +652,642 @@
   }
 
   function vibeToTone(vibe) {
+    const H = clamp01(vibe.heat);
+    const F = clamp01(vibe.focus);
+    const D = clamp01(vibe.depth);
+    const X = clamp01(vibe.flux);
+
     return {
-      glow: lerp(0.52, 1.00, clamp01(vibe.heat * 0.7 + vibe.flux * 0.3)),
-      turbulence: lerp(0.42, 1.00, clamp01(vibe.depth * 0.55 + vibe.flux * 0.45)),
-      starDensity: lerp(0.35, 1.00, clamp01(vibe.focus * 0.45 + vibe.heat * 0.20 + (1 - vibe.acoustic) * 0.35)),
-      rim: lerp(0.22, 0.78, clamp01(vibe.focus * 0.5 + vibe.heat * 0.5))
+      glow: clamp01(0.35 + H * 0.40 + D * 0.18),
+      turbulence: clamp01(0.20 + X * 0.65 + H * 0.10),
+      starDensity: clamp01(0.22 + D * 0.45 + F * 0.12),
+      rim: clamp01(0.18 + F * 0.40 + D * 0.18)
     };
   }
 
-  // ---------- Color helpers ----------
   function hexToRgb(hex) {
-    const h = String(hex).replace("#", "").trim();
-    const v = parseInt(h.length === 3 ? h.split("").map(x => x + x).join("") : h, 16);
-    return { r: (v >> 16) & 255, g: (v >> 8) & 255, b: v & 255 };
-  }
-
-  function mixRgb(a, b, t) {
+    const h = String(hex || "").replace("#", "").trim();
+    if (h.length !== 6) return { r: 255, g: 255, b: 255 };
     return {
-      r: Math.round(lerp(a.r, b.r, t)),
-      g: Math.round(lerp(a.g, b.g, t)),
-      b: Math.round(lerp(a.b, b.b, t))
+      r: parseInt(h.slice(0, 2), 16),
+      g: parseInt(h.slice(2, 4), 16),
+      b: parseInt(h.slice(4, 6), 16)
     };
   }
 
-  function smoothstep(t) {
-    t = clamp01(t);
-    return t * t * (3 - 2 * t);
+  function rgba(hex, a) {
+    const { r, g, b } = hexToRgb(hex);
+    return `rgba(${r},${g},${b},${a})`;
   }
 
-  // ---------- Noise ----------
-  function randAt(ix, iy, seed) {
-    let n = (ix * 374761393 + iy * 668265263) ^ (seed | 0);
-    n = (n ^ (n >>> 13)) >>> 0;
-    n = Math.imul(n, 1274126177) >>> 0;
-    return (n >>> 0) / 4294967296;
+  function mixHex(a, b, t) {
+    const A = hexToRgb(a);
+    const B = hexToRgb(b);
+    const r = Math.round(lerp(A.r, B.r, t));
+    const g = Math.round(lerp(A.g, B.g, t));
+    const b2 = Math.round(lerp(A.b, B.b, t));
+    return `rgb(${r},${g},${b2})`;
   }
 
-  function valueNoise2D(x, y, seed) {
-    const xi = Math.floor(x), yi = Math.floor(y);
-    const xf = x - xi, yf = y - yi;
+  // ---------- Texture builder ----------
+  function rebuildTextureIfNeeded() {
+    const sig = [
+      paletteName,
+      orbSeed,
+      Math.round(heat * 100),
+      Math.round(focus * 100),
+      Math.round(depth * 100),
+      Math.round(flux * 100)
+    ].join("|");
 
-    const v00 = randAt(xi, yi, seed);
-    const v10 = randAt(xi + 1, yi, seed);
-    const v01 = randAt(xi, yi + 1, seed);
-    const v11 = randAt(xi + 1, yi + 1, seed);
+    if (sig === texSignature && texReady) return;
 
-    const u = smoothstep(xf);
-    const v = smoothstep(yf);
+    texSignature = sig;
+    tex.width = 320;
+    tex.height = 320;
 
-    const x1 = lerp(v00, v10, u);
-    const x2 = lerp(v01, v11, u);
-    return lerp(x1, x2, v);
-  }
+    const w = tex.width;
+    const h = tex.height;
+    texCtx.clearRect(0, 0, w, h);
 
-  function fbm(x, y, seed, octaves = 5, lac = PHI + 0.42, gain = 1 / PHI) {
-    let amp = 0.5;
-    let f = 1.0;
-    let sum = 0.0;
-    for (let i = 0; i < octaves; i++) {
-      sum += amp * valueNoise2D(x * f, y * f, seed + i * 1013);
-      f *= lac;
-      amp *= gain;
-    }
-    return sum;
-  }
+    const pal = PALETTES[paletteName] || PALETTES.cosmic;
+    const rand = mulberry32(orbSeed ^ 0x91ab32cd);
 
-  // ---------- Nebula texture ----------
-  function buildNebulaTexture(seed, palName, tone) {
-    orbSeed = seed >>> 0;
-    paletteName = palName || "cosmic";
-    orbTone = tone || orbTone;
+    const bg = texCtx.createRadialGradient(w * 0.5, h * 0.5, 10, w * 0.5, h * 0.5, w * 0.52);
+    bg.addColorStop(0.00, rgba(pal[2], 0.15 + depth * 0.12));
+    bg.addColorStop(0.40, rgba(pal[1], 0.14 + heat * 0.08));
+    bg.addColorStop(1.00, "rgba(0,0,0,0)");
+    texCtx.fillStyle = bg;
+    texCtx.fillRect(0, 0, w, h);
 
-    const colors = (PALETTES[paletteName] || PALETTES.cosmic).map(hexToRgb);
-
-    const W = 256, H = 256;
-    tex.width = W;
-    tex.height = H;
-
-    const img = texCtx.createImageData(W, H);
-    const data = img.data;
-
-    const rand = mulberry32(orbSeed ^ 0xA53C9E3);
-    const swirl1 = lerp(0.75, 1.45, rand());
-    const swirl2 = lerp(0.85, 1.35, rand());
-    const warp = lerp(0.45, 1.30, rand()) * orbTone.turbulence;
-
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
-        const nx = (x / (W - 1)) * 2 - 1;
-        const ny = (y / (H - 1)) * 2 - 1;
-
-        const r = Math.sqrt(nx * nx + ny * ny);
-        const ang = Math.atan2(ny, nx);
-
-        const wx = nx + warp * 0.16 * Math.sin(ang * PHI + r * PI * 1.35 + orbSeed * 0.00017);
-        const wy = ny + warp * 0.16 * Math.cos(ang * (PHI + 0.22) - r * PI * 1.10 + orbSeed * 0.00013);
-
-        const n1 = fbm(wx * 1.10 + 12.4, wy * 1.10 - 3.7, orbSeed, 5);
-        const n2 = fbm(wx * PHI - 5.1, wy * PHI + 8.9, orbSeed ^ 0x9e3779b9, 4);
-        const n3 = fbm(wx * 0.82 + 1.7, wy * 0.82 + 11.2, orbSeed ^ 0x85ebca6b, 5);
-
-        const band1 = Math.abs(Math.sin(ang * swirl1 + r * PI * 1.8 + n2 * PI * 0.9));
-        const band2 = Math.abs(Math.cos(ang * swirl2 - r * PI * 1.45 + n1 * PI * 0.7));
-        const clouds = clamp01((n1 * 0.62 + n3 * 0.52) * 0.95 + band1 * 0.16 + band2 * 0.10);
-
-        const core1 = Math.exp(-Math.pow((r - 0.22 - n2 * 0.06) * 3.6, 2));
-        const core2 = Math.exp(-Math.pow((r - (0.22 * PHI) - n1 * 0.08) * 3.0, 2));
-        const glow = clamp01(core1 * 0.78 + core2 * 0.52) * orbTone.glow;
-
-        const t = clamp01(clouds * 0.76 + glow * 0.60);
-        const seg = t * 4;
-        const i0 = Math.max(0, Math.min(3, Math.floor(seg)));
-        const f = seg - i0;
-
-        const cA = colors[i0];
-        const cB = colors[i0 + 1];
-        let col = mixRgb(cA, cB, smoothstep(f));
-
-        const vign = smoothstep(1.0 - clamp01(r * 0.95));
-        col.r = Math.round(col.r * (0.14 + 0.86 * vign));
-        col.g = Math.round(col.g * (0.14 + 0.86 * vign));
-        col.b = Math.round(col.b * (0.14 + 0.86 * vign));
-
-        const sparks = Math.pow(n2, 5.3) * 0.85 * orbTone.glow;
-        col.r = Math.min(255, col.r + Math.round(255 * sparks * 0.24));
-        col.g = Math.min(255, col.g + Math.round(255 * sparks * 0.18));
-        col.b = Math.min(255, col.b + Math.round(255 * sparks * 0.32));
-
-        const st = valueNoise2D(wx * 10.0 + 100.0, wy * 10.0 - 50.0, orbSeed ^ 0x27d4eb2d);
-        const starProb = Math.pow(clamp01(st - 0.88) / 0.12, 2.8) * orbTone.starDensity;
-        const star = starProb * 0.9;
-
-        const alpha = r <= 1.0 ? 255 : 0;
-        const idx = (y * W + x) * 4;
-        const boost = 1.0 + glow * 0.25;
-
-        data[idx + 0] = Math.min(255, Math.round(col.r * boost + 255 * star));
-        data[idx + 1] = Math.min(255, Math.round(col.g * boost + 255 * star));
-        data[idx + 2] = Math.min(255, Math.round(col.b * boost + 255 * star));
-        data[idx + 3] = alpha;
-      }
-    }
-
-    texCtx.putImageData(img, 0, 0);
-
-    texCtx.save();
-    texCtx.globalCompositeOperation = "screen";
-
-    const starCount = Math.round(40 + 110 * orbTone.starDensity);
-    for (let i = 0; i < starCount; i++) {
-      const t = (i + 0.5) / starCount;
-      const rr = Math.sqrt(t) * 0.92;
-      const a = i * GOLDEN_ANGLE + (orbSeed % 1024) * 0.0007;
-
-      const x = W * 0.5 + Math.cos(a) * rr * W * 0.42;
-      const y = H * 0.5 + Math.sin(a) * rr * H * 0.42;
-
-      const bright = Math.pow(1 - t, 1 / PHI) * (0.25 + 0.75 * ((i % 7) / 6));
-      const rad = lerp(0.6, 2.2, bright) * (0.75 + 0.25 * orbTone.glow);
-
-      const g = texCtx.createRadialGradient(x, y, 0, x, y, rad * PHI * 2.4);
-      g.addColorStop(0, `rgba(255,255,255,${0.22 + bright * 0.78})`);
-      g.addColorStop(1, "rgba(255,255,255,0)");
+    const blobCount = Math.round(12 + heat * 10 + flux * 10);
+    for (let i = 0; i < blobCount; i++) {
+      const x = rand() * w;
+      const y = rand() * h;
+      const r = lerp(18, 74, rand()) * (0.85 + heat * 0.55);
+      const col = pal[1 + (i % 3)];
+      const g = texCtx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, rgba(col, 0.15 + rand() * 0.14));
+      g.addColorStop(0.55, rgba(col, 0.06 + rand() * 0.06));
+      g.addColorStop(1, "rgba(0,0,0,0)");
       texCtx.fillStyle = g;
       texCtx.beginPath();
-      texCtx.arc(x, y, rad * PHI * 2.4, 0, TAU);
+      texCtx.arc(x, y, r, 0, TAU);
       texCtx.fill();
     }
 
-    texCtx.restore();
+    const ringCount = Math.round(3 + depth * 4 + focus * 3);
+    for (let i = 0; i < ringCount; i++) {
+      const rr = lerp(42, 145, rand());
+      texCtx.strokeStyle = rgba(pal[(i + 2) % pal.length], 0.04 + rand() * 0.05);
+      texCtx.lineWidth = 0.7 + rand() * 1.2;
+      texCtx.beginPath();
+      texCtx.arc(w * 0.5 + rand() * 20 - 10, h * 0.5 + rand() * 20 - 10, rr, 0, TAU);
+      texCtx.stroke();
+    }
+
+    const threads = Math.round(34 + flux * 36 + heat * 16);
+    texCtx.lineCap = "round";
+    for (let i = 0; i < threads; i++) {
+      const a = rand() * TAU;
+      const len = lerp(32, 108, rand()) * (0.85 + flux * 0.35);
+      const ox = w * 0.5 + Math.cos(a) * lerp(12, 58, rand());
+      const oy = h * 0.5 + Math.sin(a) * lerp(12, 58, rand());
+      const ex = ox + Math.cos(a + rand() * 0.7 - 0.35) * len;
+      const ey = oy + Math.sin(a + rand() * 0.7 - 0.35) * len;
+      const grad = texCtx.createLinearGradient(ox, oy, ex, ey);
+      grad.addColorStop(0, rgba(pal[4], 0.10 + rand() * 0.08));
+      grad.addColorStop(1, rgba(pal[2], 0.00));
+      texCtx.strokeStyle = grad;
+      texCtx.lineWidth = 0.7 + rand() * 1.6;
+      texCtx.beginPath();
+      texCtx.moveTo(ox, oy);
+      texCtx.quadraticCurveTo(
+        lerp(ox, ex, 0.5) + rand() * 30 - 15,
+        lerp(oy, ey, 0.5) + rand() * 30 - 15,
+        ex,
+        ey
+      );
+      texCtx.stroke();
+    }
+
+    const starCount = Math.round(22 + orbTone.starDensity * 58 + depth * 24);
+    for (let i = 0; i < starCount; i++) {
+      const a = rand() * TAU;
+      const rr = lerp(10, 130, Math.pow(rand(), 0.85));
+      const x = w * 0.5 + Math.cos(a) * rr;
+      const y = h * 0.5 + Math.sin(a) * rr;
+      const r = lerp(0.4, 1.9, rand());
+      const alpha = lerp(0.10, 0.65, rand()) * (0.65 + depth * 0.40);
+      texCtx.fillStyle = rgba(rand() > 0.45 ? pal[4] : pal[3], alpha);
+      texCtx.beginPath();
+      texCtx.arc(x, y, r, 0, TAU);
+      texCtx.fill();
+    }
 
     texReady = true;
-    texSignature = `${orbSeed}|${paletteName}|${orbTone.glow.toFixed(3)}|${orbTone.turbulence.toFixed(3)}|${orbTone.starDensity.toFixed(3)}|${orbTone.rim.toFixed(3)}`;
   }
 
-  function ensureTexture(seed, palName, tone) {
-    const sig = `${seed >>> 0}|${palName}|${tone.glow.toFixed(3)}|${tone.turbulence.toFixed(3)}|${tone.starDensity.toFixed(3)}|${tone.rim.toFixed(3)}`;
-    if (!texReady || sig !== texSignature) {
-      buildNebulaTexture(seed, palName, tone);
+  // ---------- Audio features => vibe ----------
+  function vibeFromAudioFeatures(f) {
+    const energy = normalize01(f?.energy, 0.55);
+    const dance = normalize01(f?.danceability, 0.50);
+    const acoustic = normalize01(f?.acousticness, 0.30);
+    const instrumental = normalize01(f?.instrumentalness, 0.20);
+    const speech = normalize01(f?.speechiness, 0.08);
+    const valence = normalize01(f?.valence, 0.45);
+    const tempo = Number.isFinite(Number(f?.tempo)) ? Number(f.tempo) : 110;
+
+    const loudRaw = Number.isFinite(Number(f?.loudness)) ? Number(f.loudness) : -10;
+    const loudNorm = clamp01(invLerp(-32, -3, loudRaw));
+
+    const tempoNorm = clamp01(invLerp(60, 180, tempo));
+
+    const H = clamp01(
+      energy * 0.44 +
+      loudNorm * 0.22 +
+      tempoNorm * 0.14 +
+      dance * 0.10 +
+      (1 - acoustic) * 0.10
+    );
+
+    const F = clamp01(
+      instrumental * 0.30 +
+      (1 - speech) * 0.20 +
+      (1 - dance) * 0.10 +
+      acoustic * 0.12 +
+      (1 - Math.abs(valence - 0.50) * 1.45) * 0.12 +
+      (1 - tempoNorm) * 0.16
+    );
+
+    const D = clamp01(
+      acoustic * 0.20 +
+      instrumental * 0.24 +
+      (1 - valence) * 0.14 +
+      (1 - loudNorm) * 0.14 +
+      (1 - tempoNorm) * 0.16 +
+      energy * 0.12
+    );
+
+    const X = clamp01(
+      dance * 0.26 +
+      tempoNorm * 0.20 +
+      energy * 0.22 +
+      speech * 0.08 +
+      (1 - instrumental) * 0.10 +
+      loudNorm * 0.14
+    );
+
+    return {
+      heat: H,
+      focus: F,
+      depth: D,
+      flux: X,
+      valence,
+      acoustic
+    };
+  }
+
+  function applyVibe(vibe, meta, trackId) {
+    heat = clamp01(vibe.heat);
+    focus = clamp01(vibe.focus);
+    depth = clamp01(vibe.depth);
+    flux = clamp01(vibe.flux);
+
+    if (trackId && lockedTrackId === trackId && lockedPaletteName && lockedSeed && lockedTone) {
+      paletteName = lockedPaletteName;
+      orbSeed = lockedSeed;
+      orbTone = { ...lockedTone };
+      if (lockedHint) setHintText(lockedHint);
+    } else {
+      paletteName = choosePaletteFromVibe(vibe);
+      orbSeed = hashStringToSeed(`${trackId || ""}__${meta.artist || ""}__${meta.track || ""}__${paletteName}`);
+      orbTone = vibeToTone(vibe);
+
+      const newHint = [
+        meta.artist || "Unknown artist",
+        meta.track || "Unknown track"
+      ].filter(Boolean).join(" — ");
+
+      setHintText(newHint);
+
+      if (trackId) {
+        lockedTrackId = trackId;
+        lockedPaletteName = paletteName;
+        lockedSeed = orbSeed;
+        lockedTone = { ...orbTone };
+        lockedHint = newHint;
+      }
     }
+
+    setBars();
+    rebuildTextureIfNeeded();
   }
-
-  // ---------- Track lock helpers ----------
-  function lockTrackIdentity(trackId, palName, tone, artist, track) {
-    lockedTrackId = trackId;
-    lockedPaletteName = palName;
-    lockedSeed = hashStringToSeed(trackId);
-    lockedTone = { ...tone };
-    lockedHint = `${artist} — ${track}`;
-    ensureTexture(lockedSeed, lockedPaletteName, lockedTone);
-  }
-
-  function applyLockedIdentity() {
-    if (!lockedTrackId || !lockedTone) return false;
-    ensureTexture(lockedSeed, lockedPaletteName, lockedTone);
-    if (lockedHint) setHintText(lockedHint);
-    return true;
-  }
-
-  function clearLockedIdentity() {
-    lockedTrackId = "";
-    lockedPaletteName = "";
-    lockedSeed = 0;
-    lockedTone = null;
-    lockedHint = "";
-  }
-
-  function applyVibeToBars(vibe, strong = false) {
-    const k = strong ? 0.52 : 0.32;
-    heat = lerp(heat, vibe.heat, k);
-    focus = lerp(focus, vibe.focus, k);
-    depth = lerp(depth, vibe.depth, k);
-    flux = lerp(flux, vibe.flux, k);
-  }
-
-  // ---------- Spotify-driven vibe ----------
-  async function pollSpotify() {
-    try {
-      const st = await getPlayer();
-
-      if (st && st.__no_content) {
-        hasSpotifyPlayback = false;
-        setHintText("Open Spotify and press Play (no active playback).");
-        if (applyLockedIdentity()) {
-          setBars();
-          return false;
-        }
-        setBars();
-        return false;
-      }
-
-      if (!st || !st.item) {
-        hasSpotifyPlayback = false;
-        setHintText("Open Spotify and press Play (no active playback).");
-        if (applyLockedIdentity()) {
-          setBars();
-          return false;
-        }
-        setBars();
-        return false;
-      }
-
-      hasSpotifyPlayback = true;
-
-      const track = st.item?.name || "—";
-      const artist = st.item?.artists?.[0]?.name || "—";
-      const id = st.item?.id || "";
-      const album = st.item?.album?.name || "";
-      const durationMs = Number(st.item?.duration_ms || 0);
-
-      setHintText(`${artist} — ${track}`);
-
-      if (!id) {
-        if (applyLockedIdentity()) {
-          setBars();
-          return false;
-        }
-        setBars();
-        return false;
-      }
-
-      if (id === lockedTrackId && lockedTone) {
-        const vibe = deriveVibeFromMetadata({ track, artist, album, durationMs });
-        applyVibeToBars(vibe, false);
-        ensureTexture(lockedSeed, lockedPaletteName, lockedTone);
-        setHintText(lockedHint || `${artist} — ${track}`);
-        setBars();
-        return true;
-      }
-
-      let vibe = null;
-
-      try {
-        const af = await getAudioFeatures(id);
-        if (af && !af.__no_content) {
-          const e = normalize01(af.energy, heat);
-          const v = normalize01(af.valence, 0.5);
-          const da = normalize01(af.danceability, flux);
-          const ac = normalize01(af.acousticness, 0.45);
-          const ins = normalize01(af.instrumentalness, focus);
-          const tempo = Number(af.tempo || 0);
-
-          vibe = {
-            heat: clamp01(e * 0.82 + clamp01((tempo - 70) / 120) * 0.18),
-            focus: clamp01(ins * 0.70 + (1 - da) * 0.30),
-            depth: clamp01((1 - v) * 0.70 + ac * 0.30),
-            flux: clamp01(da * 0.68 + clamp01((tempo - 60) / 140) * 0.32),
-            valence: v,
-            acoustic: ac
-          };
-        }
-      } catch {
-        // metadata fallback below
-      }
-
-      if (!vibe) {
-        vibe = deriveVibeFromMetadata({ track, artist, album, durationMs });
-      }
-
-      applyVibeToBars(vibe, true);
-
-      const pal = choosePaletteFromVibe(vibe);
-      const tone = vibeToTone(vibe);
-
-      lockTrackIdentity(id, pal, tone, artist, track);
-      setBars();
-      return true;
-    } catch {
-      hasSpotifyPlayback = false;
-      setHintText("Aura waiting for Spotify…");
-
-      if (applyLockedIdentity()) {
-        setBars();
-        return false;
-      }
-
-      setBars();
-      return false;
-    }
-  }
-
-  // ---------- Burst / polling ----------
-  function clearBurst() {
-    if (!burstTimeouts.length) return;
-    for (const t of burstTimeouts) clearTimeout(t);
-    burstTimeouts = [];
-  }
-
-  function burstPoll() {
-    clearBurst();
-    for (const ms of BURST_STEPS) {
-      const t = setTimeout(async () => { await pollSpotify(); }, ms);
-      burstTimeouts.push(t);
-    }
-  }
-
-  function startPolling(isOpen) {
-    if (pollTimer) clearInterval(pollTimer);
-    pollTimer = setInterval(pollSpotify, isOpen ? OPEN_POLL_MS : CLOSED_POLL_MS);
-  }
-
-  // ---------- Draw ----------
+// ---------- Orb draw ----------
   function resizeCanvas() {
     if (!c || !ctx) return;
     const dpr = Math.min(MAX_DPR, window.devicePixelRatio || 1);
     const css = 240;
+    c.style.width = `${css}px`;
+    c.style.height = `${css}px`;
     const px = Math.round(css * dpr);
     if (c.width !== px || c.height !== px) {
       c.width = px;
       c.height = px;
     }
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
 
-  function fallbackPalette(ts) {
-    const t = (ts % 52000) / 52000;
-    if (t < 0.25) return "cosmic";
-    if (t < 0.50) return "kinetic";
-    if (t < 0.75) return "deep";
-    return "warm";
-  }
+  function drawOrb(ts) {
+    if (!ctx || !c) return;
 
-  function draw(ts) {
-    if (!ctx || !c) { rafId = 0; return; }
-
-    if (FPS_CAP > 0) {
-      const minFrame = 1000 / FPS_CAP;
-      if (ts - lastFrame < minFrame) {
-        rafId = requestAnimationFrame(draw);
-        return;
-      }
-      lastFrame = ts;
+    const minFrame = 1000 / FPS_CAP;
+    if (ts - lastFrame < minFrame) {
+      rafId = requestAnimationFrame(drawOrb);
+      return;
     }
+    lastFrame = ts;
 
-    resizeCanvas();
+    const w = c.width;
+    const h = c.height;
+    const cx = w * 0.5;
+    const cy = h * 0.5;
 
-    const dpr = Math.min(MAX_DPR, window.devicePixelRatio || 1);
-    const W = c.width, H = c.height;
-    const cx = W / 2, cy = H / 2;
+    const t = ts * 0.001;
+    const pal = PALETTES[paletteName] || PALETTES.cosmic;
 
-    ctx.clearRect(0, 0, W, H);
+    ctx.clearRect(0, 0, w, h);
 
-    if (lockedTrackId && lockedTone) {
-      ensureTexture(lockedSeed, lockedPaletteName, lockedTone);
-    } else if (!hasSpotifyPlayback) {
-      const pal = fallbackPalette(ts);
-      const seed = hashStringToSeed("fallback-" + pal);
-      const tone = { glow: 0.72, turbulence: 0.68, starDensity: 0.70, rim: 0.46 };
-      ensureTexture(seed, pal, tone);
-    }
+    const radius = w * lerp(0.30, 0.36, 0.55 + heat * 0.20);
+    const breathing = 1 + Math.sin(t * lerp(0.7, 1.8, 0.2 + flux * 0.5)) * (0.015 + heat * 0.020);
+    const turbulenceAmp = lerp(3, 16, orbTone.turbulence);
+    const rimAlpha = 0.10 + orbTone.rim * 0.30;
 
-    const activeTone = lockedTone || orbTone;
+    // far background halo
+    const farHalo = ctx.createRadialGradient(cx, cy, radius * 0.55, cx, cy, radius * 2.0);
+    farHalo.addColorStop(0.0, rgba(pal[2], 0.07 + heat * 0.06));
+    farHalo.addColorStop(0.32, rgba(pal[3], 0.05 + depth * 0.05));
+    farHalo.addColorStop(1.0, "rgba(0,0,0,0)");
+    ctx.fillStyle = farHalo;
+    ctx.fillRect(0, 0, w, h);
 
-    const baseR = Math.min(W, H) * 0.312;
-    const pulse = 0.5 + 0.5 * Math.sin(ts * 0.00185 * PI + flux * PHI);
-    const r = baseR * (0.965 + pulse * 0.042 + heat * 0.040);
-    const rInner = r / PHI;
-    const rHalo = r * PHI * 0.82;
-
-    const bg = ctx.createRadialGradient(cx, cy, rInner * 0.2, cx, cy, rHalo * 2.2);
-    bg.addColorStop(0, "rgba(255,255,255,0.05)");
-    bg.addColorStop(0.40, "rgba(120,140,255,0.05)");
-    bg.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = bg;
+    // outer glow
+    const outerGlow = ctx.createRadialGradient(cx, cy, radius * 0.42, cx, cy, radius * 1.30);
+    outerGlow.addColorStop(0, rgba(pal[4], 0.12 + orbTone.glow * 0.06));
+    outerGlow.addColorStop(0.45, rgba(pal[3], 0.08 + orbTone.glow * 0.06));
+    outerGlow.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = outerGlow;
     ctx.beginPath();
-    ctx.arc(cx, cy, rHalo * 2.2, 0, TAU);
+    ctx.arc(cx, cy, radius * 1.32, 0, TAU);
     ctx.fill();
 
-    ctx.save();
-    ctx.globalCompositeOperation = "screen";
-    const envStars = Math.round(16 + activeTone.starDensity * 24);
-    for (let i = 0; i < envStars; i++) {
-      const t = (i + 0.5) / envStars;
-      const rr = lerp(r * 1.12, r * 1.82, Math.pow(t, 0.88));
-      const ang = i * GOLDEN_ANGLE + ts * 0.00005 * PI / PHI;
-      const x = cx + Math.cos(ang) * rr;
-      const y = cy + Math.sin(ang) * rr * (0.96 + 0.04 * Math.sin(i));
-      const size = (0.9 + (i % 3) * 0.5) * dpr;
-      const alpha = 0.08 + 0.18 * (1 - t);
-
-      const g = ctx.createRadialGradient(x, y, 0, x, y, size * PHI * 4);
-      g.addColorStop(0, `rgba(255,255,255,${alpha + 0.10})`);
-      g.addColorStop(1, "rgba(255,255,255,0)");
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(x, y, size * PHI * 4, 0, TAU);
-      ctx.fill();
-    }
-    ctx.restore();
-
+    // orb shape with wavy perimeter
     ctx.save();
     ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, TAU);
+    const pts = 220;
+    for (let i = 0; i <= pts; i++) {
+      const a = (i / pts) * TAU;
+      const wobble =
+        Math.sin(a * 3 + t * 0.8) * turbulenceAmp * 0.18 +
+        Math.sin(a * 5 - t * 1.2) * turbulenceAmp * 0.10 +
+        Math.sin(a * 9 + t * 1.7) * turbulenceAmp * 0.05;
+      const rr = radius * breathing + wobble;
+      const x = cx + Math.cos(a) * rr;
+      const y = cy + Math.sin(a) * rr;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
     ctx.clip();
 
+    // internal base gradient
+    const base = ctx.createRadialGradient(
+      cx - radius * 0.22, cy - radius * 0.26, radius * 0.10,
+      cx, cy, radius * 1.02
+    );
+    base.addColorStop(0.00, rgba(pal[4], 0.80));
+    base.addColorStop(0.15, rgba(pal[3], 0.58));
+    base.addColorStop(0.42, rgba(pal[2], 0.46));
+    base.addColorStop(0.72, rgba(pal[1], 0.70));
+    base.addColorStop(1.00, rgba(pal[0], 0.98));
+    ctx.fillStyle = base;
+    ctx.fillRect(cx - radius * 1.2, cy - radius * 1.2, radius * 2.4, radius * 2.4);
+
+    // animated plasma texture layers
     if (texReady) {
-      const driftX = Math.sin(ts * 0.00021 * PI / PHI) * r * 0.10;
-      const driftY = Math.cos(ts * 0.00017 * TAU / PHI) * r * 0.10;
-      const scale = 1.18;
-      const dw = r * 2 * scale;
-      const dh = r * 2 * scale;
-      ctx.globalAlpha = 1.0;
-      ctx.drawImage(tex, cx - dw / 2 + driftX, cy - dh / 2 + driftY, dw, dh);
+      const driftA = Math.sin(t * 0.34 + orbSeed * 0.000001) * radius * 0.05;
+      const driftB = Math.cos(t * 0.41 + orbSeed * 0.0000017) * radius * 0.05;
+
+      ctx.globalCompositeOperation = "screen";
+      ctx.globalAlpha = 0.36 + heat * 0.14;
+      ctx.drawImage(tex, cx - radius - driftA, cy - radius - driftB, radius * 2, radius * 2);
+
+      ctx.globalAlpha = 0.22 + flux * 0.12;
+      ctx.drawImage(tex, cx - radius + driftB * 0.6, cy - radius - driftA * 0.6, radius * 2, radius * 2);
+
+      ctx.globalCompositeOperation = "overlay";
+      ctx.globalAlpha = 0.12 + depth * 0.10;
+      ctx.drawImage(tex, cx - radius * 0.96, cy - radius * 0.96, radius * 1.92, radius * 1.92);
+
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1;
     }
 
-    ctx.globalCompositeOperation = "multiply";
-    const lane = ctx.createRadialGradient(cx - r / PHI * 0.32, cy + r / PHI * 0.22, r * 0.08, cx, cy, r * 1.22);
-    lane.addColorStop(0, "rgba(0,0,0,0.0)");
-    lane.addColorStop(0.72, "rgba(0,0,0,0.17)");
-    lane.addColorStop(1, "rgba(0,0,0,0.34)");
-    ctx.fillStyle = lane;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r * 1.22, 0, TAU);
-    ctx.fill();
-
-    ctx.globalCompositeOperation = "screen";
-    const nodeG = ctx.createRadialGradient(cx, cy, 0, cx, cy, r / PHI);
-    nodeG.addColorStop(0, `rgba(255,255,255,${0.06 + activeTone.glow * 0.16})`);
-    nodeG.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = nodeG;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r / PHI, 0, TAU);
-    ctx.fill();
-
-    const bloom = ctx.createRadialGradient(cx - r * 0.19, cy - r * 0.22, r * 0.05, cx, cy, r * 1.15);
-    bloom.addColorStop(0, `rgba(255,255,255,${0.10 + heat * 0.12})`);
-    bloom.addColorStop(0.45, "rgba(255,255,255,0.05)");
-    bloom.addColorStop(1, "rgba(255,255,255,0.0)");
-    ctx.fillStyle = bloom;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r * 1.15, 0, TAU);
-    ctx.fill();
-
-    ctx.fillStyle = `rgba(255,255,255,${0.10 + heat * 0.10})`;
-    ctx.beginPath();
-    ctx.ellipse(cx - r * 0.18, cy - r * 0.30, r * (0.52 / PHI + 0.20), r * (0.34 / PHI + 0.13), -0.55, 0, TAU);
-    ctx.fill();
-
+    // flowing arcs
+    ctx.globalCompositeOperation = "lighter";
+    const arcCount = Math.round(4 + flux * 7 + heat * 2);
+    for (let i = 0; i < arcCount; i++) {
+      const n = (i + 1) / arcCount;
+      const a0 = t * (0.35 + i * 0.07) + i * 1.3;
+      const a1 = a0 + lerp(0.55, 1.35, 0.25 + flux * 0.65);
+      const rr = radius * lerp(0.38, 0.88, n) + Math.sin(t * 1.2 + i) * radius * 0.02;
+      const arcGrad = ctx.createLinearGradient(cx - rr, cy - rr, cx + rr, cy + rr);
+      arcGrad.addColorStop(0, rgba(pal[4], 0.00));
+      arcGrad.addColorStop(0.3, rgba(pal[3], 0.12 + heat * 0.10));
+      arcGrad.addColorStop(1, rgba(pal[2], 0.00));
+      ctx.strokeStyle = arcGrad;
+      ctx.lineWidth = lerp(0.7, 2.1, 0.2 + orbTone.glow * 0.7) * (0.8 + n * 0.6);
+      ctx.beginPath();
+      ctx.arc(cx, cy, rr, a0, a1);
+      ctx.stroke();
+    }
     ctx.globalCompositeOperation = "source-over";
-    const rim = ctx.createRadialGradient(cx, cy, r * 0.82, cx, cy, r);
-    rim.addColorStop(0, "rgba(255,255,255,0)");
-    rim.addColorStop(0.72, `rgba(255,255,255,${0.06 + activeTone.rim * 0.08})`);
-    rim.addColorStop(1, `rgba(255,255,255,${0.14 + activeTone.rim * 0.10})`);
-    ctx.fillStyle = rim;
+
+    // inner glow
+    const inner = ctx.createRadialGradient(cx, cy, radius * 0.04, cx, cy, radius * 0.65);
+    inner.addColorStop(0, rgba(pal[4], 0.16 + heat * 0.14));
+    inner.addColorStop(0.50, rgba(pal[3], 0.08 + depth * 0.06));
+    inner.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = inner;
     ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, TAU);
+    ctx.arc(cx, cy, radius * 0.68, 0, TAU);
     ctx.fill();
+
+    // deep core
+    const core = ctx.createRadialGradient(
+      cx - radius * 0.08, cy - radius * 0.10, radius * 0.02,
+      cx, cy, radius * 0.44
+    );
+    core.addColorStop(0, rgba(mixHex(pal[4], "#ffffff", 0.45), 0.22 + heat * 0.08));
+    core.addColorStop(0.22, rgba(pal[3], 0.16 + heat * 0.08));
+    core.addColorStop(0.72, rgba(pal[1], 0.14 + depth * 0.08));
+    core.addColorStop(1, rgba(pal[0], 0.0));
+    ctx.fillStyle = core;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius * 0.46, 0, TAU);
+    ctx.fill();
+
+    // noise sparks / stars inside orb
+    const rand = mulberry32((orbSeed ^ ((ts / 100) | 0)) >>> 0);
+    const sparkCount = Math.round(10 + orbTone.starDensity * 24);
+    for (let i = 0; i < sparkCount; i++) {
+      const a = rand() * TAU;
+      const rr = Math.pow(rand(), 0.92) * radius * 0.90;
+      const x = cx + Math.cos(a) * rr;
+      const y = cy + Math.sin(a) * rr;
+      const r = lerp(0.4, 1.7, rand()) * (0.75 + heat * 0.40);
+      const alpha = lerp(0.05, 0.45, rand()) * (0.70 + depth * 0.35);
+      ctx.fillStyle = rgba(rand() > 0.4 ? pal[4] : pal[3], alpha);
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, TAU);
+      ctx.fill();
+    }
 
     ctx.restore();
 
-    ctx.strokeStyle = `rgba(255,255,255,${0.05 + activeTone.rim * 0.10})`;
-    ctx.lineWidth = Math.max(1, Math.round(1.1 * dpr));
+    // rim light
+    ctx.strokeStyle = rgba(pal[4], rimAlpha);
+    ctx.lineWidth = 1.3 + orbTone.rim * 1.7;
     ctx.beginPath();
-    ctx.arc(cx, cy, r * 1.018, 0, TAU);
+    ctx.arc(cx, cy, radius * breathing, 0, TAU);
     ctx.stroke();
 
-    rafId = requestAnimationFrame(draw);
+    // secondary rim
+    ctx.strokeStyle = rgba(pal[3], 0.07 + orbTone.rim * 0.12);
+    ctx.lineWidth = 4 + orbTone.rim * 5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius * breathing * 1.02, 0, TAU);
+    ctx.stroke();
+
+    rafId = requestAnimationFrame(drawOrb);
   }
 
-  // ---------- Overlay ----------
-  function setOverlay(on) {
-    open = !!on;
-    if (open) {
-      overlay.classList.add("on");
-      titleEl.classList.add("auraHover");
-      pollSpotify();
-      burstPoll();
-      startPolling(true);
-      if (!rafId) rafId = requestAnimationFrame(draw);
-    } else {
-      overlay.classList.remove("on");
-      titleEl.classList.remove("auraHover");
-      startPolling(false);
+  function startOrb() {
+    if (!ctx || rafId) return;
+    resizeCanvas();
+    rebuildTextureIfNeeded();
+    rafId = requestAnimationFrame(drawOrb);
+  }
+
+  function stopOrb() {
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = 0;
+  }
+
+  // ---------- Spotify sync ----------
+  async function syncAura() {
+    let trackId = "";
+    let meta = {
+      track: "",
+      artist: "",
+      album: "",
+      durationMs: 0
+    };
+
+    try {
+      const player = await getPlayer();
+      if (!player || player.__no_content || !player.item) {
+        hasSpotifyPlayback = false;
+        const vibe = deriveVibeFromMetadata({ track: "", artist: "", album: "", durationMs: 0 });
+        applyVibe(vibe, meta, "");
+        return;
+      }
+
+      hasSpotifyPlayback = true;
+      const item = player.item || {};
+      trackId = String(item.id || "");
+      meta.track = String(item.name || "");
+      meta.artist = Array.isArray(item.artists) ? item.artists.map(a => a && a.name).filter(Boolean).join(", ") : "";
+      meta.album = item.album && item.album.name ? String(item.album.name) : "";
+      meta.durationMs = Number(item.duration_ms || 0);
+
+      let vibe = null;
+      try {
+        if (trackId) {
+          const feats = await getAudioFeatures(trackId);
+          vibe = vibeFromAudioFeatures(feats || {});
+        }
+      } catch {
+        vibe = null;
+      }
+
+      if (!vibe) {
+        vibe = deriveVibeFromMetadata(meta);
+      }
+
+      applyVibe(vibe, meta, trackId);
+    } catch {
+      hasSpotifyPlayback = false;
+      const vibe = deriveVibeFromMetadata(meta);
+      applyVibe(vibe, meta, trackId);
     }
   }
 
-  function toggleAura() {
-    setOverlay(!open);
+  function clearBurst() {
+    burstTimeouts.forEach(id => clearTimeout(id));
+    burstTimeouts = [];
   }
 
-  closeBtn?.addEventListener("click", () => setOverlay(false), { passive: true });
+  function scheduleBurstSync() {
+    clearBurst();
+    BURST_STEPS.forEach(ms => {
+      const id = setTimeout(() => { safeCall(() => syncAura()); }, ms);
+      burstTimeouts.push(id);
+    });
+  }
 
-  overlay.addEventListener("pointerdown", (e) => {
-    if (!open) return;
-    if (card && card.contains(e.target)) return;
-    setOverlay(false);
-  }, { passive: true });
+  function restartPolling() {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(() => {
+      safeCall(() => syncAura());
+    }, open ? OPEN_POLL_MS : CLOSED_POLL_MS);
+  }
 
-  document.addEventListener("keydown", (e) => {
-    if (!open) return;
-    if (e.key === "Escape") setOverlay(false);
+  // ---------- Modal open / close ----------
+  function openAura() {
+    open = true;
+    overlay.classList.add("on");
+    setBars();
+    resizeCanvas();
+    startOrb();
+    restartPolling();
+    scheduleBurstSync();
+    safeCall(() => syncAura());
+  }
+
+  function closeAura() {
+    open = false;
+    overlay.classList.remove("on");
+    stopOrb();
+    restartPolling();
+    clearBurst();
+  }
+
+  closeBtn?.addEventListener("click", closeAura);
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) closeAura();
   });
-
-  titleEl.addEventListener("click", (e) => {
-    e.preventDefault();
-    toggleAura();
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && open) closeAura();
   });
+  window.addEventListener("resize", resizeCanvas, { passive: true });
 
+  titleEl.addEventListener("click", openAura);
+  titleEl.addEventListener("mouseenter", () => titleEl.classList.add("auraHover"));
+  titleEl.addEventListener("mouseleave", () => titleEl.classList.remove("auraHover"));
   titleEl.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      toggleAura();
+      openAura();
     }
   });
 
-  // ---------- Spotify icon button ----------
+  // ---------- Spotify icon in header ----------
   function spotifySvg() {
     return `
       <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M12 2C6.48 2 2 6.49 2 12s4.48 10 10 10 10-4.49 10-10S17.52 2 12 2zm4.58 14.51c-.2.33-.63.44-.96.24-2.63-1.61-5.94-1.97-9.85-1.07-.38.09-.76-.15-.85-.53-.09-.38.15-.76.53-.85 4.28-.98 7.95-.57 10.88 1.23.33.2.44.63.25.98zm1.37-3.05c-.25.41-.78.54-1.19.29-3.01-1.85-7.6-2.39-11.17-1.31-.46.14-.95-.12-1.09-.58-.14-.46.12-.95.58-1.09 4.08-1.24 9.15-.64 12.63 1.49.41.25.54.78.24 1.2zm.12-3.18C14.66 8.24 8.98 8.1 5.77 9.08c-.55.17-1.13-.14-1.3-.69-.17-.55.14-1.13.69-1.3 3.69-1.12 9.83-.91 13.7 1.39.5.3.66.95.36 1.45-.3.5-.95.66-1.45.35z"/>
+        <path d="M12 1.75A10.25 10.25 0 1 0 22.25 12 10.26 10.26 0 0 0 12 1.75Zm4.7 14.78a.92.92 0 0 1-1.27.3 8.95 8.95 0 0 0-8.9-.45.92.92 0 1 1-.78-1.67 10.8 10.8 0 0 1 10.76.54.92.92 0 0 1 .19 1.28Zm1.8-3.02a1.12 1.12 0 0 1-1.53.37 11.78 11.78 0 0 0-11.67-.58 1.12 1.12 0 1 1-.97-2.02 14.02 14.02 0 0 1 13.88.68 1.12 1.12 0 0 1 .29 1.55Zm.15-3.18a1.34 1.34 0 0 1-1.82.46 14.9 14.9 0 0 0-14.69-.71 1.34 1.34 0 0 1-1.18-2.41 17.58 17.58 0 0 1 17.36.84 1.34 1.34 0 0 1 .33 1.82Z"/>
       </svg>
     `;
   }
 
-  function nukeSpotifyTokensBestEffort() {
-    try {
-      const keys = Object.keys(localStorage);
-      for (const k of keys) {
-        const lk = String(k).toLowerCase();
-        if (lk.includes("spotify") || lk.includes("sp_token") || lk.includes("access_token")) {
-          localStorage.removeItem(k);
-        }
-      }
-    } catch {}
-    try {
-      const keys = Object.keys(sessionStorage);
-      for (const k of keys) {
-        const lk = String(k).toLowerCase();
-        if (lk.includes("spotify") || lk.includes("sp_token") || lk.includes("access_token")) {
-          sessionStorage.removeItem(k);
-        }
-      }
-    } catch {}
+  function findHeaderActions() {
+    return $("#headerActions") || $(".header-actions") || $(".header__actions") || brandEl;
   }
 
-  function updateSpotifyBtnState(btn) {
+  function updateSpotifyBtnVisual(btn) {
     if (!btn) return;
-    const on = isConnected();
-    btn.dataset.state = on ? "on" : "off";
-    btn.setAttribute("aria-pressed", on ? "true" : "false");
-    btn.setAttribute("title", on ? "Spotify: connected (tap to disconnect)" : "Spotify: connect");
+    btn.setAttribute("data-state", isConnected() ? "on" : "off");
   }
 
-  async function connectSpotifyBestEffort() {
-    if (window.SpotifyAuth && typeof window.SpotifyAuth.login === "function") {
-      safeCall(() => window.SpotifyAuth.login());
+  async function handleSpotifyButtonTap(btn) {
+    if (!btn) return;
+
+    if (isConnected()) {
+      try {
+        if (window.SpotifyAuth && typeof window.SpotifyAuth.disconnect === "function") {
+          await window.SpotifyAuth.disconnect();
+        } else if (window.SpotifyPlayer && typeof window.SpotifyPlayer.disconnect === "function") {
+          await window.SpotifyPlayer.disconnect();
+        } else {
+          try {
+            const keys = Object.keys(localStorage);
+            keys.forEach(k => {
+              const lk = String(k || "").toLowerCase();
+              if (lk.includes("spotify")) localStorage.removeItem(k);
+            });
+          } catch {}
+        }
+      } catch {}
+      updateSpotifyBtnVisual(btn);
+      safeCall(() => syncAura());
       return;
     }
-    if (window.SpotifyAuth && typeof window.SpotifyAuth.startAuth === "function") {
-      safeCall(() => window.SpotifyAuth.startAuth());
-      return;
-    }
-    if (window.SpotifyPlayer && typeof window.SpotifyPlayer.connect === "function") {
-      safeCall(() => window.SpotifyPlayer.connect());
-      return;
-    }
+
+    try {
+      if (window.SpotifyAuth && typeof window.SpotifyAuth.connect === "function") {
+        await window.SpotifyAuth.connect();
+      } else if (window.SpotifyPlayer && typeof window.SpotifyPlayer.connect === "function") {
+        await window.SpotifyPlayer.connect();
+      } else if (window.SpotifyAuth && typeof window.SpotifyAuth.login === "function") {
+        await window.SpotifyAuth.login();
+      }
+    } catch {}
+
+    updateSpotifyBtnVisual(btn);
+    scheduleBurstSync();
   }
 
-  async function disconnectSpotifyBestEffort() {
-    if (window.SpotifyAuth && typeof window.SpotifyAuth.logout === "function") {
-      safeCall(() => window.SpotifyAuth.logout());
-    }
-    if (window.SpotifyPlayer && typeof window.SpotifyPlayer.logout === "function") {
-      safeCall(() => window.SpotifyPlayer.logout());
-    }
-    nukeSpotifyTokensBestEffort();
-    clearLockedIdentity();
-    try { window.dispatchEvent(new CustomEvent("spotify:disconnected")); } catch {}
-  }
-
-  function ensureSpotifyIconButton() {
-    const host = $("#headerActions") || $(".headerActions");
+  function ensureSpotifyButton() {
+    const host = findHeaderActions();
     if (!host) return null;
 
-    let btn = $("#lmSpotifyIcoBtn");
+    let btn = $(".lmSpotifyIcoBtn", host);
     if (!btn) {
-      btn = document.createElement("button");
-      btn.id = "lmSpotifyIcoBtn";
-      btn.className = "lmSpotifyIcoBtn";
-      btn.type = "button";
-      btn.setAttribute("aria-label", "Spotify connect");
-      btn.innerHTML = spotifySvg();
+      btn = createEl("button", {
+        class: "lmSpotifyIcoBtn",
+        type: "button",
+        "aria-label": "Spotify connection"
+      }, spotifySvg());
 
-      btn.addEventListener("click", async (e) => {
-        e.preventDefault();
-        const connected = isConnected();
-
-        if (connected) {
-          await disconnectSpotifyBestEffort();
-          updateSpotifyBtnState(btn);
-          setHintText("Aura waiting for Spotify…");
-          hasSpotifyPlayback = false;
-          burstPoll();
-          return;
-        }
-
-        await connectSpotifyBestEffort();
-        updateSpotifyBtnState(btn);
-        pollSpotify();
-        burstPoll();
-      });
-    }
-
-    updateSpotifyBtnState(btn);
-
-    if (btn.parentElement !== host) {
-      host.appendChild(btn);
-    } else if (host.lastElementChild !== btn) {
+      btn.addEventListener("click", () => handleSpotifyButtonTap(btn));
       host.appendChild(btn);
     }
 
+    updateSpotifyBtnVisual(btn);
     return btn;
   }
 
-  let headerObserver = null;
-  function watchHeaderForSpotifyButton() {
-    if (headerObserver) return;
-    const root = document.body;
-    if (!root) return;
+  let spotifyBtn = ensureSpotifyButton();
 
-    headerObserver = new MutationObserver(() => {
-      ensureSpotifyIconButton();
-    });
-
-    headerObserver.observe(root, { childList: true, subtree: true });
-  }
+  const mo = new MutationObserver(() => {
+    spotifyBtn = ensureSpotifyButton() || spotifyBtn;
+    if (spotifyBtn) updateSpotifyBtnVisual(spotifyBtn);
+  });
+  mo.observe(document.documentElement, {
+    childList: true,
+    subtree: true
+  });
 
   // ---------- Boot ----------
-  function boot() {
-    setBars();
+  setBars();
+  resizeCanvas();
+  rebuildTextureIfNeeded();
+  restartPolling();
+  scheduleBurstSync();
 
-    const spBtn = ensureSpotifyIconButton();
-    watchHeaderForSpotifyButton();
+  setInterval(() => {
+    if (spotifyBtn) updateSpotifyBtnVisual(spotifyBtn);
+  }, 2500);
 
-    ensureTexture(hashStringToSeed("fallback-cosmic"), "cosmic", {
-      glow: 0.72,
-      turbulence: 0.68,
-      starDensity: 0.70,
-      rim: 0.46
-    });
-
-    pollSpotify();
-
-    setOverlay(false);
-    startPolling(false);
-
-    let t = 0;
-    const invite = setInterval(() => {
-      t += 1;
-      if (t > 6) { clearInterval(invite); titleEl.classList.remove("auraHover"); return; }
-      titleEl.classList.toggle("auraHover", t % 2 === 1);
-    }, 200);
-
-    setTimeout(() => {
-      titleEl.classList.remove("auraHover");
-      clearInterval(invite);
-    }, 1200);
-
-    setInterval(() => {
-      const liveBtn = ensureSpotifyIconButton();
-      updateSpotifyBtnState(liveBtn || spBtn || $("#lmSpotifyIcoBtn"));
-    }, 2000);
-
-    window.addEventListener("resize", () => {
-      if (open) resizeCanvas();
-    }, { passive: true });
-  }
-
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", boot, { once: true });
-  } else {
-    boot();
-  }
+  safeCall(() => syncAura());
 })();

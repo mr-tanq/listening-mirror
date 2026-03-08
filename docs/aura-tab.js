@@ -1,7 +1,8 @@
 /* aura-tab.js (FULL FILE REPLACE) — PART 1/4
-   Listening Mirror — Aura Popup (title portal) + Premium Reactive Orb
+   Listening Mirror — Shared Main Orb + Aura Details Panel
+   ✅ ONE orb system only (main screen)
    ✅ Title: "listening mirror" (lowercase) + premium styling
-   ✅ Tap title => Aura modal (orb + signals)
+   ✅ Tap title => Aura modal (details only, NO second orb canvas)
    ✅ Keeps/ensures Spotify icon button at RIGHT OF HEADER (#headerActions), not tabs
    ✅ Spotify icon color:
       - Connected => BLACK icon (with subtle light drop-shadow so it's visible)
@@ -12,7 +13,7 @@
    ✅ Same track = same core palette / same seed
    ✅ If /audio-features fails (403 etc), Aura still works from strong metadata fallback
    ✅ FIX: fallback is no longer flat 50/50/50/50
-   ✅ NEW: richer plasma orb / premium motion / stronger depth field
+   ✅ NEW: shared premium plasma orb on main UI
 */
 
 (() => {
@@ -29,14 +30,10 @@
 
   const PI = Math.PI;
   const TAU = Math.PI * 2;
-  const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
   const clamp01 = (x) => Math.max(0, Math.min(1, x));
   const lerp = (a, b, t) => a + (b - a) * t;
   const invLerp = (a, b, v) => (v - a) / (b - a || 1);
-  const ease = (t) => t * t * (3 - 2 * t);
-  const easeOut = (t) => 1 - Math.pow(1 - t, 3);
-  const dist = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by);
   const $ = (sel, root = document) => root.querySelector(sel);
 
   function safeCall(fn) {
@@ -125,7 +122,7 @@
 
   // ---------- Styles ----------
   const style = document.createElement("style");
-  style.id = "auraTabStyles";
+  style.id = "auraTabStylesSharedOrb";
   style.textContent = `
     .wordmark .title{
       letter-spacing: 1.15px !important;
@@ -144,11 +141,11 @@
       content:"";
       position:absolute;
       inset:-8px -10px -10px -10px;
-      border-radius: 16px;
+      border-radius:16px;
       background:
         radial-gradient(120px 44px at 35% 40%, rgba(150,190,255,.10), transparent 60%),
         radial-gradient(120px 44px at 70% 55%, rgba(255,215,140,.06), transparent 62%);
-      opacity: 0;
+      opacity:0;
       transition: opacity .18s ease, transform .18s ease;
       transform: translateY(0px);
       pointer-events:none;
@@ -157,43 +154,43 @@
     .wordmark .title.auraHover:after{ opacity:.55; }
 
     .lmSpotifyIcoBtn{
-      margin-left: auto;
-      border: 0;
-      background: transparent;
-      padding: 8px 10px;
-      border-radius: 12px;
-      cursor: pointer;
-      line-height: 0;
-      -webkit-tap-highlight-color: transparent;
-      flex: 0 0 auto;
+      margin-left:auto;
+      border:0;
+      background:transparent;
+      padding:8px 10px;
+      border-radius:12px;
+      cursor:pointer;
+      line-height:0;
+      -webkit-tap-highlight-color:transparent;
+      flex:0 0 auto;
     }
     .lmSpotifyIcoBtn:active{ transform: translateY(1px); }
     .lmSpotifyIcoBtn svg{
-      width: 20px;
-      height: 20px;
+      width:20px;
+      height:20px;
       display:block;
       transition: opacity .15s ease, filter .15s ease;
     }
     .lmSpotifyIcoBtn[data-state="off"] svg{
       fill: rgba(255,255,255,.55);
-      opacity: .95;
-      filter: none;
+      opacity:.95;
+      filter:none;
     }
     .lmSpotifyIcoBtn[data-state="on"] svg{
-      fill: #000000;
-      opacity: 1;
+      fill:#000000;
+      opacity:1;
       filter: drop-shadow(0 0 1.5px rgba(255,255,255,.45));
     }
 
     .auraOverlay{
-      position: fixed;
-      inset: 0;
-      z-index: 999999;
-      display: none;
-      align-items: center;
-      justify-content: center;
-      padding: max(14px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right))
-               max(14px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+      position:fixed;
+      inset:0;
+      z-index:999999;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      padding:max(14px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right))
+              max(14px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
       background:
         radial-gradient(900px 600px at 30% 20%, rgba(255,255,255,.06), transparent 60%),
         radial-gradient(900px 600px at 70% 80%, rgba(255,255,255,.04), transparent 62%),
@@ -202,151 +199,178 @@
       -webkit-backdrop-filter: blur(10px);
     }
     .auraCard{
-      width: min(420px, calc(100vw - 26px));
-      border-radius: 22px;
+      width:min(420px, calc(100vw - 26px));
+      border-radius:22px;
       background: linear-gradient(180deg, rgba(18,20,24,.92), rgba(12,13,16,.92));
-      outline: 1px solid rgba(255,255,255,.10);
-      box-shadow: 0 30px 90px rgba(0,0,0,.68);
-      overflow: hidden;
+      outline:1px solid rgba(255,255,255,.10);
+      box-shadow:0 30px 90px rgba(0,0,0,.68);
+      overflow:hidden;
       transform: translateY(6px) scale(.985);
-      opacity: 0;
+      opacity:0;
       transition: transform .18s ease, opacity .18s ease;
       will-change: transform, opacity;
     }
     .auraOverlay.on{ display:flex; }
-    .auraOverlay.on .auraCard{ transform: translateY(0) scale(1); opacity: 1; }
+    .auraOverlay.on .auraCard{ transform: translateY(0) scale(1); opacity:1; }
 
     .auraTop{
-      padding: 14px 16px 10px 16px;
+      padding:14px 16px 10px 16px;
       display:flex;
       align-items:center;
       justify-content:space-between;
-      gap: 10px;
-      border-bottom: 1px solid rgba(255,255,255,.07);
+      gap:10px;
+      border-bottom:1px solid rgba(255,255,255,.07);
     }
     .auraLabel{
-      font-size: 11px;
-      letter-spacing: .34px;
-      text-transform: uppercase;
-      color: rgba(255,255,255,.62);
+      font-size:11px;
+      letter-spacing:.34px;
+      text-transform:uppercase;
+      color:rgba(255,255,255,.62);
       display:flex;
       align-items:center;
       gap:10px;
       min-width:0;
     }
     .auraDot{
-      width: 8px; height: 8px;
-      border-radius: 999px;
-      background: rgba(160,190,255,.65);
+      width:8px;
+      height:8px;
+      border-radius:999px;
+      background:rgba(160,190,255,.65);
       box-shadow: 0 0 0 3px rgba(160,190,255,.10);
-      outline: 1px solid rgba(255,255,255,.10);
-      flex: 0 0 auto;
+      outline:1px solid rgba(255,255,255,.10);
+      flex:0 0 auto;
     }
     .auraClose{
       border:0;
       cursor:pointer;
-      padding: 8px 10px;
-      border-radius: 999px;
-      font-size: 12px;
+      padding:8px 10px;
+      border-radius:999px;
+      font-size:12px;
       letter-spacing:.2px;
-      background: rgba(255,255,255,.06);
-      outline: 1px solid rgba(255,255,255,.10);
-      color: rgba(255,255,255,.90);
+      background:rgba(255,255,255,.06);
+      outline:1px solid rgba(255,255,255,.10);
+      color:rgba(255,255,255,.90);
     }
     .auraClose:active{ transform: translateY(1px); }
 
-    .auraBody{ padding: 16px; }
-.auraOrbWrap{
-      border-radius: 20px;
-      outline: 1px solid rgba(255,255,255,.08);
+    .auraBody{ padding:16px; }
+
+    .auraHero{
+      border-radius:20px;
+      outline:1px solid rgba(255,255,255,.08);
       background:
         radial-gradient(160px 160px at 50% 35%, rgba(120,150,255,.06), transparent 65%),
         rgba(255,255,255,.02);
       overflow:hidden;
-      position: relative;
-      height: 260px;
-      display:grid;
-      place-items:center;
+      position:relative;
+      min-height:106px;
       box-shadow:
         inset 0 1px 0 rgba(255,255,255,.06),
         inset 0 -20px 40px rgba(0,0,0,.18);
+      padding:14px 14px 12px 14px;
+    }
+    .auraHeroTitle{
+      font-size:11px;
+      letter-spacing:.22em;
+      text-transform:uppercase;
+      color:rgba(255,255,255,.52);
+      margin-bottom:10px;
     }
     .auraOrbHint{
-      position:absolute;
-      left: 14px;
-      bottom: 12px;
-      right: 14px;
-      font-size: 12px;
-      line-height: 1.4;
-      color: rgba(255,255,255,.66);
-      letter-spacing: .15px;
-      text-shadow: 0 6px 18px rgba(0,0,0,.55);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      opacity: .92;
+      font-size:13px;
+      line-height:1.5;
+      color:rgba(255,255,255,.82);
+      letter-spacing:.14px;
+      text-shadow:0 6px 18px rgba(0,0,0,.45);
+      word-break:break-word;
     }
-
+    .auraSubHint{
+      margin-top:8px;
+      font-size:12px;
+      line-height:1.45;
+      color:rgba(255,255,255,.56);
+    }
+  `;
+  document.head.appendChild(style);
+style.textContent += `
     .auraGrid{
-      margin-top: 14px;
+      margin-top:14px;
       display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
+      grid-template-columns:1fr 1fr;
+      gap:10px;
     }
     .auraBox{
-      border-radius: 16px;
-      background: rgba(255,255,255,.03);
-      outline: 1px solid rgba(255,255,255,.07);
-      padding: 12px;
+      border-radius:16px;
+      background:rgba(255,255,255,.03);
+      outline:1px solid rgba(255,255,255,.07);
+      padding:12px;
       overflow:hidden;
     }
-    .auraBoxWide{ grid-column: 1/-1; }
+    .auraBoxWide{ grid-column:1/-1; }
 
     .auraK{
-      font-size: 10px;
-      letter-spacing: .30px;
-      color: rgba(255,255,255,.58);
-      text-transform: uppercase;
+      font-size:10px;
+      letter-spacing:.30px;
+      color:rgba(255,255,255,.58);
+      text-transform:uppercase;
     }
     .auraRow{
-      margin-top: 9px;
+      margin-top:9px;
       display:flex;
       align-items:center;
-      gap: 10px;
+      gap:10px;
     }
     .auraBar{
-      flex: 1 1 auto;
-      height: 7px;
-      border-radius: 999px;
-      background: rgba(255,255,255,.06);
-      outline: 1px solid rgba(255,255,255,.06);
+      flex:1 1 auto;
+      height:7px;
+      border-radius:999px;
+      background:rgba(255,255,255,.06);
+      outline:1px solid rgba(255,255,255,.06);
       overflow:hidden;
     }
     .auraFill{
       display:block;
       height:100%;
-      width: 50%;
-      border-radius: 999px;
+      width:50%;
+      border-radius:999px;
       background: linear-gradient(180deg, rgba(255,255,255,.62), rgba(255,255,255,.34));
       box-shadow: inset 0 1px 0 rgba(255,255,255,.26);
     }
     .auraN{
-      font-size: 12px;
-      font-weight: 780;
-      color: rgba(255,255,255,.84);
-      white-space: nowrap;
-      min-width: 28px;
+      font-size:12px;
+      font-weight:780;
+      color:rgba(255,255,255,.84);
+      white-space:nowrap;
+      min-width:28px;
       text-align:right;
     }
     .auraLine{
-      margin-top: 12px;
-      color: rgba(255,255,255,.62);
-      font-size: 12.5px;
-      line-height: 1.45;
-      letter-spacing: .12px;
+      margin-top:12px;
+      color:rgba(255,255,255,.62);
+      font-size:12.5px;
+      line-height:1.45;
+      letter-spacing:.12px;
+    }
+
+    .lmOrbCanvasMain{
+      width:100%;
+      height:100%;
+      display:block;
+      border-radius:50%;
+    }
+    .orb-wrap{
+      position:relative;
+      overflow:visible;
+    }
+    .orb-wrap .lmOrbCanvasMain{
+      position:absolute;
+      inset:0;
+      width:100%;
+      height:100%;
+      border-radius:50%;
+      pointer-events:none;
     }
   `;
-  document.head.appendChild(style);
 
   // ---------- Modal ----------
   const overlay = createEl("div", {
@@ -363,9 +387,10 @@
         <button class="auraClose" type="button" aria-label="Close aura">Close</button>
       </div>
       <div class="auraBody">
-        <div class="auraOrbWrap">
-          <canvas id="auraOrbCanvas" width="320" height="320" style="width:240px;height:240px;display:block;"></canvas>
+        <div class="auraHero">
+          <div class="auraHeroTitle">Current field</div>
           <div id="auraOrbHint" class="auraOrbHint">—</div>
+          <div id="auraSubHint" class="auraSubHint">Shared main orb active</div>
         </div>
 
         <div class="auraGrid" aria-label="Aura signals">
@@ -411,10 +436,8 @@
   document.body.appendChild(overlay);
 
   const closeBtn = $(".auraClose", overlay);
-  const c = $("#auraOrbCanvas", overlay);
-  const ctx = c ? c.getContext("2d", { alpha: true }) : null;
-
   const hint = $("#auraOrbHint", overlay);
+  const subHint = $("#auraSubHint", overlay);
 
   const heatBar = $("#auraHeatBar", overlay);
   const focusBar = $("#auraFocusBar", overlay);
@@ -427,6 +450,26 @@
   const fluxNum = $("#auraFluxNum", overlay);
 
   const auraLine = $("#auraLine", overlay);
+
+  // ---------- Main orb host ----------
+  function ensureMainOrbCanvas() {
+    let canvas = $("#lmOrbCanvas");
+    if (canvas) return canvas;
+
+    const wrap = $(".orb-wrap");
+    if (!wrap) return null;
+
+    canvas = createEl("canvas", {
+      id: "lmOrbCanvas",
+      class: "lmOrbCanvasMain",
+      "aria-hidden": "true"
+    });
+    wrap.appendChild(canvas);
+    return canvas;
+  }
+
+  const c = ensureMainOrbCanvas();
+  const ctx = c ? c.getContext("2d", { alpha: true }) : null;
 
   // ---------- State ----------
   let open = false;
@@ -463,8 +506,10 @@
 
   // ---------- UI helpers ----------
   function setHintText(txt) {
-    if (!hint) return;
-    hint.textContent = txt || "—";
+    if (hint) hint.textContent = txt || "—";
+    if (subHint) subHint.textContent = hasSpotifyPlayback
+      ? "Live from Spotify playback"
+      : "Metadata-derived field";
   }
 
   function setBars() {
@@ -544,8 +589,7 @@
   function hasAny(set, arr) {
     return arr.some(x => set.has(x));
   }
-
-  // ---------- Strong metadata fallback ----------
+// ---------- Strong metadata fallback ----------
   function deriveVibeFromMetadata(meta) {
     const track = String(meta.track || "");
     const artist = String(meta.artist || "");
@@ -631,7 +675,8 @@
       acoustic: A
     };
   }
-// ---------- Palettes ----------
+
+  // ---------- Palettes ----------
   const PALETTES = {
     deep:    ["#060814", "#17143d", "#34247d", "#ff8a38", "#ffd7b4"],
     kinetic: ["#04101d", "#063f68", "#00d7d9", "#7e39ff", "#ff64b0"],
@@ -685,8 +730,8 @@
     const B = hexToRgb(b);
     const r = Math.round(lerp(A.r, B.r, t));
     const g = Math.round(lerp(A.g, B.g, t));
-    const b2 = Math.round(lerp(A.b, B.b, t));
-    return `rgb(${r},${g},${b2})`;
+    const bb = Math.round(lerp(A.b, B.b, t));
+    return `rgb(${r},${g},${bb})`;
   }
 
   // ---------- Texture builder ----------
@@ -736,16 +781,6 @@
       texCtx.fill();
     }
 
-    const ringCount = Math.round(3 + depth * 4 + focus * 3);
-    for (let i = 0; i < ringCount; i++) {
-      const rr = lerp(42, 145, rand());
-      texCtx.strokeStyle = rgba(pal[(i + 2) % pal.length], 0.04 + rand() * 0.05);
-      texCtx.lineWidth = 0.7 + rand() * 1.2;
-      texCtx.beginPath();
-      texCtx.arc(w * 0.5 + rand() * 20 - 10, h * 0.5 + rand() * 20 - 10, rr, 0, TAU);
-      texCtx.stroke();
-    }
-
     const threads = Math.round(34 + flux * 36 + heat * 16);
     texCtx.lineCap = "round";
     for (let i = 0; i < threads; i++) {
@@ -788,7 +823,6 @@
     texReady = true;
   }
 
-  // ---------- Audio features => vibe ----------
   function vibeFromAudioFeatures(f) {
     const energy = normalize01(f?.energy, 0.55);
     const dance = normalize01(f?.danceability, 0.50);
@@ -800,7 +834,6 @@
 
     const loudRaw = Number.isFinite(Number(f?.loudness)) ? Number(f.loudness) : -10;
     const loudNorm = clamp01(invLerp(-32, -3, loudRaw));
-
     const tempoNorm = clamp01(invLerp(60, 180, tempo));
 
     const H = clamp01(
@@ -883,17 +916,18 @@
     setBars();
     rebuildTextureIfNeeded();
   }
-// ---------- Orb draw ----------
+// ---------- Shared main orb draw ----------
   function resizeCanvas() {
     if (!c || !ctx) return;
+
+    const rect = c.getBoundingClientRect();
     const dpr = Math.min(MAX_DPR, window.devicePixelRatio || 1);
-    const css = 240;
-    c.style.width = `${css}px`;
-    c.style.height = `${css}px`;
-    const px = Math.round(css * dpr);
-    if (c.width !== px || c.height !== px) {
-      c.width = px;
-      c.height = px;
+    const w = Math.max(64, Math.round(rect.width * dpr));
+    const h = Math.max(64, Math.round(rect.height * dpr));
+
+    if (c.width !== w || c.height !== h) {
+      c.width = w;
+      c.height = h;
     }
   }
 
@@ -911,18 +945,16 @@
     const h = c.height;
     const cx = w * 0.5;
     const cy = h * 0.5;
-
     const t = ts * 0.001;
     const pal = PALETTES[paletteName] || PALETTES.cosmic;
 
     ctx.clearRect(0, 0, w, h);
 
-    const radius = w * lerp(0.30, 0.36, 0.55 + heat * 0.20);
+    const radius = Math.min(w, h) * lerp(0.40, 0.455, 0.55 + heat * 0.20);
     const breathing = 1 + Math.sin(t * lerp(0.7, 1.8, 0.2 + flux * 0.5)) * (0.015 + heat * 0.020);
     const turbulenceAmp = lerp(3, 16, orbTone.turbulence);
     const rimAlpha = 0.10 + orbTone.rim * 0.30;
 
-    // far background halo
     const farHalo = ctx.createRadialGradient(cx, cy, radius * 0.55, cx, cy, radius * 2.0);
     farHalo.addColorStop(0.0, rgba(pal[2], 0.07 + heat * 0.06));
     farHalo.addColorStop(0.32, rgba(pal[3], 0.05 + depth * 0.05));
@@ -930,7 +962,6 @@
     ctx.fillStyle = farHalo;
     ctx.fillRect(0, 0, w, h);
 
-    // outer glow
     const outerGlow = ctx.createRadialGradient(cx, cy, radius * 0.42, cx, cy, radius * 1.30);
     outerGlow.addColorStop(0, rgba(pal[4], 0.12 + orbTone.glow * 0.06));
     outerGlow.addColorStop(0.45, rgba(pal[3], 0.08 + orbTone.glow * 0.06));
@@ -940,7 +971,6 @@
     ctx.arc(cx, cy, radius * 1.32, 0, TAU);
     ctx.fill();
 
-    // orb shape with wavy perimeter
     ctx.save();
     ctx.beginPath();
     const pts = 220;
@@ -959,7 +989,6 @@
     ctx.closePath();
     ctx.clip();
 
-    // internal base gradient
     const base = ctx.createRadialGradient(
       cx - radius * 0.22, cy - radius * 0.26, radius * 0.10,
       cx, cy, radius * 1.02
@@ -972,7 +1001,6 @@
     ctx.fillStyle = base;
     ctx.fillRect(cx - radius * 1.2, cy - radius * 1.2, radius * 2.4, radius * 2.4);
 
-    // animated plasma texture layers
     if (texReady) {
       const driftA = Math.sin(t * 0.34 + orbSeed * 0.000001) * radius * 0.05;
       const driftB = Math.cos(t * 0.41 + orbSeed * 0.0000017) * radius * 0.05;
@@ -992,7 +1020,6 @@
       ctx.globalAlpha = 1;
     }
 
-    // flowing arcs
     ctx.globalCompositeOperation = "lighter";
     const arcCount = Math.round(4 + flux * 7 + heat * 2);
     for (let i = 0; i < arcCount; i++) {
@@ -1012,7 +1039,6 @@
     }
     ctx.globalCompositeOperation = "source-over";
 
-    // inner glow
     const inner = ctx.createRadialGradient(cx, cy, radius * 0.04, cx, cy, radius * 0.65);
     inner.addColorStop(0, rgba(pal[4], 0.16 + heat * 0.14));
     inner.addColorStop(0.50, rgba(pal[3], 0.08 + depth * 0.06));
@@ -1022,7 +1048,6 @@
     ctx.arc(cx, cy, radius * 0.68, 0, TAU);
     ctx.fill();
 
-    // deep core
     const core = ctx.createRadialGradient(
       cx - radius * 0.08, cy - radius * 0.10, radius * 0.02,
       cx, cy, radius * 0.44
@@ -1036,7 +1061,6 @@
     ctx.arc(cx, cy, radius * 0.46, 0, TAU);
     ctx.fill();
 
-    // noise sparks / stars inside orb
     const rand = mulberry32((orbSeed ^ ((ts / 100) | 0)) >>> 0);
     const sparkCount = Math.round(10 + orbTone.starDensity * 24);
     for (let i = 0; i < sparkCount; i++) {
@@ -1054,14 +1078,12 @@
 
     ctx.restore();
 
-    // rim light
     ctx.strokeStyle = rgba(pal[4], rimAlpha);
     ctx.lineWidth = 1.3 + orbTone.rim * 1.7;
     ctx.beginPath();
     ctx.arc(cx, cy, radius * breathing, 0, TAU);
     ctx.stroke();
 
-    // secondary rim
     ctx.strokeStyle = rgba(pal[3], 0.07 + orbTone.rim * 0.12);
     ctx.lineWidth = 4 + orbTone.rim * 5;
     ctx.beginPath();
@@ -1076,11 +1098,6 @@
     resizeCanvas();
     rebuildTextureIfNeeded();
     rafId = requestAnimationFrame(drawOrb);
-  }
-
-  function stopOrb() {
-    if (rafId) cancelAnimationFrame(rafId);
-    rafId = 0;
   }
 
   // ---------- Spotify sync ----------
@@ -1120,10 +1137,7 @@
         vibe = null;
       }
 
-      if (!vibe) {
-        vibe = deriveVibeFromMetadata(meta);
-      }
-
+      if (!vibe) vibe = deriveVibeFromMetadata(meta);
       applyVibe(vibe, meta, trackId);
     } catch {
       hasSpotifyPlayback = false;
@@ -1157,8 +1171,6 @@
     open = true;
     overlay.classList.add("on");
     setBars();
-    resizeCanvas();
-    startOrb();
     restartPolling();
     scheduleBurstSync();
     safeCall(() => syncAura());
@@ -1167,7 +1179,6 @@
   function closeAura() {
     open = false;
     overlay.classList.remove("on");
-    stopOrb();
     restartPolling();
     clearBurst();
   }
@@ -1272,7 +1283,9 @@
   const mo = new MutationObserver(() => {
     spotifyBtn = ensureSpotifyButton() || spotifyBtn;
     if (spotifyBtn) updateSpotifyBtnVisual(spotifyBtn);
+    resizeCanvas();
   });
+
   mo.observe(document.documentElement, {
     childList: true,
     subtree: true
@@ -1284,6 +1297,7 @@
   rebuildTextureIfNeeded();
   restartPolling();
   scheduleBurstSync();
+  startOrb();
 
   setInterval(() => {
     if (spotifyBtn) updateSpotifyBtnVisual(spotifyBtn);

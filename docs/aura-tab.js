@@ -1,11 +1,11 @@
-/* aura-tab.js (FULL FILE REPLACE) — PART 1/4
-   Listening Mirror — Aura Controller using external orb-engine.js
+/* aura-tab.js (FULL FILE REPLACE) — PART 1/3
+   Listening Mirror — Aura controller + external orb engine + live aura events
    ✅ Uses window.LMOrbEngine
    ✅ Shared main orb only
    ✅ Title portal
    ✅ Spotify button in header
    ✅ Aura modal = details only
-   ✅ Spotify sync + audio features + signals
+   ✅ Emits window event: "lm:aura"
 */
 
 (() => {
@@ -32,6 +32,13 @@
     }
     if (html) el.innerHTML = html;
     return el;
+  }
+
+  function normalize01(n, fallback) {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return fallback;
+    if (v > 1.001) return clamp01(v / 100);
+    return clamp01(v);
   }
 
   function getToken() {
@@ -102,7 +109,7 @@
   titleEl.setAttribute("aria-label", "Open aura");
 
   const style = document.createElement("style");
-  style.id = "auraTabStylesExternalEngine";
+  style.id = "auraTabStylesExternalEngineLiveAura";
   style.textContent = `
     .wordmark .title{
       letter-spacing:1.15px !important;
@@ -133,35 +140,6 @@
     .wordmark .title:active:after{ opacity:.85; transform:translateY(1px); }
     .wordmark .title.auraHover:after{ opacity:.55; }
 
-    .lmSpotifyIcoBtn{
-      margin-left:auto;
-      border:0;
-      background:transparent;
-      padding:8px 10px;
-      border-radius:12px;
-      cursor:pointer;
-      line-height:0;
-      -webkit-tap-highlight-color:transparent;
-      flex:0 0 auto;
-    }
-    .lmSpotifyIcoBtn:active{ transform:translateY(1px); }
-    .lmSpotifyIcoBtn svg{
-      width:20px;
-      height:20px;
-      display:block;
-      transition:opacity .15s ease, filter .15s ease;
-    }
-    .lmSpotifyIcoBtn[data-state="off"] svg{
-      fill:rgba(255,255,255,.55);
-      opacity:.95;
-      filter:none;
-    }
-    .lmSpotifyIcoBtn[data-state="on"] svg{
-      fill:#000000;
-      opacity:1;
-      filter:drop-shadow(0 0 1.5px rgba(255,255,255,.45));
-    }
-
     .auraOverlay{
       position:fixed;
       inset:0;
@@ -188,11 +166,12 @@
       transform:translateY(6px) scale(.985);
       opacity:0;
       transition:transform .18s ease, opacity .18s ease;
-      will-change:transform, opacity;
     }
     .auraOverlay.on{ display:flex; }
     .auraOverlay.on .auraCard{ transform:translateY(0) scale(1); opacity:1; }
-
+  `;
+  document.head.appendChild(style);
+   style.textContent += `
     .auraTop{
       padding:14px 16px 10px 16px;
       display:flex;
@@ -231,12 +210,7 @@
       outline:1px solid rgba(255,255,255,.10);
       color:rgba(255,255,255,.90);
     }
-  `;
-  document.head.appendChild(style);
-   style.textContent += `
-    .auraClose:active{ transform:translateY(1px); }
     .auraBody{ padding:16px; }
-
     .auraHero{
       border-radius:20px;
       outline:1px solid rgba(255,255,255,.08);
@@ -272,7 +246,6 @@
       line-height:1.45;
       color:rgba(255,255,255,.56);
     }
-
     .auraGrid{
       margin-top:14px;
       display:grid;
@@ -287,7 +260,6 @@
       overflow:hidden;
     }
     .auraBoxWide{ grid-column:1/-1; }
-
     .auraK{
       font-size:10px;
       letter-spacing:.30px;
@@ -342,7 +314,7 @@
       <div class="auraTop">
         <div class="auraLabel">
           <span class="auraDot" aria-hidden="true"></span>
-          <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;">Aura</span>
+          <span>Aura</span>
         </div>
         <button class="auraClose" type="button" aria-label="Close aura">Close</button>
       </div>
@@ -426,16 +398,24 @@
   let flux = 0.50;
   let hasSpotifyPlayback = false;
 
-  let currentTrackId = "";
-  let currentArtwork = "";
-  let currentHint = "";
+  function emitAura() {
+    try {
+      window.dispatchEvent(new CustomEvent("lm:aura", {
+        detail: {
+          heat: Math.round(clamp01(heat) * 100),
+          flux: Math.round(clamp01(flux) * 100),
+          focus: Math.round(clamp01(focus) * 100),
+          depth: Math.round(clamp01(depth) * 100)
+        }
+      }));
+    } catch {}
+  }
 
   function setHintText(txt) {
-    currentHint = txt || "—";
-    if (hint) hint.textContent = currentHint;
+    if (hint) hint.textContent = txt || "—";
     if (subHint) {
       subHint.textContent = hasSpotifyPlayback
-        ? (currentArtwork ? "Live from Spotify + album palette" : "Live from Spotify playback")
+        ? "Live from Spotify playback"
         : "Metadata-derived field";
     }
   }
@@ -466,14 +446,11 @@
         "Steady. Balanced field.";
       auraLine.textContent = line;
     }
+
+    emitAura();
   }
    function deriveVibeFromMetadata(meta) {
-    const track = String(meta.track || "");
-    const artist = String(meta.artist || "");
-    const album = String(meta.album || "");
-    const durationMs = Number(meta.durationMs || 0);
-
-    const words = `${track} ${artist} ${album}`.toLowerCase();
+    const words = `${meta.track || ""} ${meta.artist || ""} ${meta.album || ""}`.toLowerCase();
 
     let H = 0.42;
     let F = 0.48;
@@ -493,7 +470,7 @@
       F += 0.22; X -= 0.08;
     }
 
-    const durMin = durationMs / 60000;
+    const durMin = Number(meta.durationMs || 0) / 60000;
     if (durMin >= 7.5) { D += 0.16; F += 0.10; X -= 0.08; }
     else if (durMin > 0 && durMin <= 3.2) { X += 0.14; H += 0.08; }
 
@@ -503,19 +480,6 @@
       depth: clamp01(D),
       flux: clamp01(X)
     };
-  }
-
-  function applySignalsToOrb({ heat, focus, depth, flux, tempo, energy, seed, artwork }) {
-    if (!orbEngine) return;
-
-    orbEngine.setSignals({ heat, focus, depth, flux });
-    orbEngine.setBeat({ tempo, energy });
-
-    if (seed) orbEngine.setSeed(seed);
-
-    if (artwork) {
-      safeCall(() => orbEngine.setArtwork(artwork));
-    }
   }
 
   async function syncAura() {
@@ -528,8 +492,7 @@
 
       if (!player || player.__no_content || !player.item) {
         hasSpotifyPlayback = false;
-        currentArtwork = "";
-        const vibe = deriveVibeFromMetadata({ track: "", artist: "", album: "", durationMs: 0 });
+        const vibe = deriveVibeFromMetadata(meta);
 
         heat = vibe.heat;
         focus = vibe.focus;
@@ -539,16 +502,11 @@
         setHintText("No active Spotify playback");
         setBars();
 
-        applySignalsToOrb({
-          heat,
-          focus,
-          depth,
-          flux,
-          tempo: 96,
-          energy: heat,
-          seed: "idle-field",
-          artwork: ""
-        });
+        if (orbEngine) {
+          orbEngine.setSignals({ heat, focus, depth, flux });
+          orbEngine.setBeat({ tempo: 96, energy: heat });
+          orbEngine.setSeed("idle-field");
+        }
         return;
       }
 
@@ -561,9 +519,6 @@
       meta.album = item.album && item.album.name ? String(item.album.name) : "";
       meta.durationMs = Number(item.duration_ms || 0);
       artUrl = item?.album?.images?.[0]?.url || "";
-
-      currentTrackId = trackId;
-      currentArtwork = artUrl;
 
       let vibe = null;
       let tempo = 110;
@@ -605,21 +560,16 @@
       setHintText([meta.artist || "Unknown artist", meta.track || "Unknown track"].filter(Boolean).join(" — "));
       setBars();
 
-      applySignalsToOrb({
-        heat,
-        focus,
-        depth,
-        flux,
-        tempo,
-        energy,
-        seed: `${trackId}__${meta.artist}__${meta.track}`,
-        artwork: artUrl
-      });
+      if (orbEngine) {
+        orbEngine.setSignals({ heat, focus, depth, flux });
+        orbEngine.setBeat({ tempo, energy });
+        orbEngine.setSeed(`${trackId}__${meta.artist}__${meta.track}`);
+        if (artUrl) safeCall(() => orbEngine.setArtwork(artUrl));
+      }
     } catch {
       hasSpotifyPlayback = false;
-      currentArtwork = "";
-
       const vibe = deriveVibeFromMetadata(meta);
+
       heat = vibe.heat;
       focus = vibe.focus;
       depth = vibe.depth;
@@ -628,19 +578,15 @@
       setHintText("Spotify unavailable");
       setBars();
 
-      applySignalsToOrb({
-        heat,
-        focus,
-        depth,
-        flux,
-        tempo: 104 + Math.round(vibe.flux * 36),
-        energy: vibe.heat,
-        seed: "fallback-field",
-        artwork: ""
-      });
+      if (orbEngine) {
+        orbEngine.setSignals({ heat, focus, depth, flux });
+        orbEngine.setBeat({ tempo: 104 + Math.round(vibe.flux * 36), energy: vibe.heat });
+        orbEngine.setSeed("fallback-field");
+      }
     }
-    }
-   function clearBurst() {
+  }
+
+  function clearBurst() {
     burstTimeouts.forEach(id => clearTimeout(id));
     burstTimeouts = [];
   }
@@ -677,9 +623,7 @@
   }
 
   closeBtn?.addEventListener("click", closeAura);
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) closeAura();
-  });
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) closeAura(); });
 
   window.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && open) closeAura();
@@ -695,100 +639,8 @@
     }
   });
 
-  function spotifySvg() {
-    return `
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M12 1.75A10.25 10.25 0 1 0 22.25 12 10.26 10.26 0 0 0 12 1.75Zm4.7 14.78a.92.92 0 0 1-1.27.3 8.95 8.95 0 0 0-8.9-.45.92.92 0 1 1-.78-1.67 10.8 10.8 0 0 1 10.76.54.92.92 0 0 1 .19 1.28Zm1.8-3.02a1.12 1.12 0 0 1-1.53.37 11.78 11.78 0 0 0-11.67-.58 1.12 1.12 0 1 1-.97-2.02 14.02 14.02 0 0 1 13.88.68 1.12 1.12 0 0 1 .29 1.55Zm.15-3.18a1.34 1.34 0 0 1-1.82.46 14.9 14.9 0 0 0-14.69-.71 1.34 1.34 0 0 1-1.18-2.41 17.58 17.58 0 0 1 17.36.84 1.34 1.34 0 0 1 .33 1.82Z"/>
-      </svg>
-    `;
-  }
-
-  function findHeaderActions() {
-    return $("#headerActions") || $(".header-actions") || $(".header__actions") || brandEl;
-  }
-
-  function updateSpotifyBtnVisual(btn) {
-    if (!btn) return;
-    btn.setAttribute("data-state", isConnected() ? "on" : "off");
-  }
-
-  async function handleSpotifyButtonTap(btn) {
-    if (!btn) return;
-
-    if (isConnected()) {
-      try {
-        if (window.SpotifyAuth && typeof window.SpotifyAuth.disconnect === "function") {
-          await window.SpotifyAuth.disconnect();
-        } else if (window.SpotifyPlayer && typeof window.SpotifyPlayer.disconnect === "function") {
-          await window.SpotifyPlayer.disconnect();
-        } else {
-          try {
-            const keys = Object.keys(localStorage);
-            keys.forEach(k => {
-              const lk = String(k || "").toLowerCase();
-              if (lk.includes("spotify")) localStorage.removeItem(k);
-            });
-          } catch {}
-        }
-      } catch {}
-
-      updateSpotifyBtnVisual(btn);
-      safeCall(() => syncAura());
-      return;
-    }
-
-    try {
-      if (window.SpotifyAuth && typeof window.SpotifyAuth.connect === "function") {
-        await window.SpotifyAuth.connect();
-      } else if (window.SpotifyPlayer && typeof window.SpotifyPlayer.connect === "function") {
-        await window.SpotifyPlayer.connect();
-      } else if (window.SpotifyAuth && typeof window.SpotifyAuth.login === "function") {
-        await window.SpotifyAuth.login();
-      }
-    } catch {}
-
-    updateSpotifyBtnVisual(btn);
-    scheduleBurstSync();
-  }
-
-  function ensureSpotifyButton() {
-    const host = findHeaderActions();
-    if (!host) return null;
-
-    let btn = $(".lmSpotifyIcoBtn", host);
-    if (!btn) {
-      btn = createEl("button", {
-        class: "lmSpotifyIcoBtn",
-        type: "button",
-        "aria-label": "Spotify connection"
-      }, spotifySvg());
-
-      btn.addEventListener("click", () => handleSpotifyButtonTap(btn));
-      host.appendChild(btn);
-    }
-
-    updateSpotifyBtnVisual(btn);
-    return btn;
-  }
-
-  let spotifyBtn = ensureSpotifyButton();
-
-  const mo = new MutationObserver(() => {
-    spotifyBtn = ensureSpotifyButton() || spotifyBtn;
-    if (spotifyBtn) updateSpotifyBtnVisual(spotifyBtn);
-  });
-
-  mo.observe(document.documentElement, {
-    childList: true,
-    subtree: true
-  });
-
   setBars();
   restartPolling();
   scheduleBurstSync();
   safeCall(() => syncAura());
-
-  setInterval(() => {
-    if (spotifyBtn) updateSpotifyBtnVisual(spotifyBtn);
-  }, 2500);
 })();

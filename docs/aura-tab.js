@@ -1,12 +1,12 @@
 /* aura-tab.js (FULL FILE REPLACE) — PART 1/4
-   Listening Mirror — Shared Main Orb + Aura Details Panel + Plasma Renderer V2
+   Listening Mirror — Shared Main Orb + Aura Details Panel + Orb Renderer V3
    ✅ ONE orb system only (main screen)
    ✅ Title portal
    ✅ Spotify button in header
    ✅ Aura modal = details only
    ✅ Shared main orb
    ✅ Album art adaptive palette
-   ✅ V2: stronger plasma filaments / harder split / hotter center
+   ✅ V3: dark sphere + strong plasma bands + clear filaments + white-hot center
 */
 
 (() => {
@@ -112,7 +112,7 @@
   titleEl.setAttribute("aria-label", "Open aura");
 
   const style = document.createElement("style");
-  style.id = "auraTabStylesPlasmaRefV2";
+  style.id = "auraTabStylesPlasmaV3";
   style.textContent = `
     .wordmark .title{
       letter-spacing:1.15px !important;
@@ -244,7 +244,9 @@
     .auraClose:active{ transform:translateY(1px); }
 
     .auraBody{ padding:16px; }
-
+  `;
+  document.head.appendChild(style);
+   style.textContent += `
     .auraHero{
       border-radius:20px;
       outline:1px solid rgba(255,255,255,.08);
@@ -280,9 +282,7 @@
       line-height:1.45;
       color:rgba(255,255,255,.56);
     }
-  `;
-  document.head.appendChild(style);
-   style.textContent += `
+
     .auraGrid{
       margin-top:14px;
       display:grid;
@@ -472,20 +472,12 @@
   let hasSpotifyPlayback = false;
 
   let orbSeed = 1337;
-  let orbTone = {
-    glow: 0.92,
-    turbulence: 0.86,
-    starDensity: 0.50,
-    rim: 0.72
-  };
+  let beatTempo = 110;
+  let beatEnergy = 0.55;
 
   let lockedTrackId = "";
   let lockedSeed = 0;
-  let lockedTone = null;
   let lockedHint = "";
-
-  let beatTempo = 110;
-  let beatEnergy = 0.55;
 
   const albumPaletteCache = new Map();
   let albumPalette = null;
@@ -566,43 +558,32 @@
 
   function hasAny(set, arr) {
     return arr.some(x => set.has(x));
-        }
+         }
    function deriveVibeFromMetadata(meta) {
     const track = String(meta.track || "");
     const artist = String(meta.artist || "");
     const album = String(meta.album || "");
     const durationMs = Number(meta.durationMs || 0);
 
-    const seed = hashStringToSeed(`${artist}__${track}__${album}__${durationMs}`);
     const all = new Set([...words(track), ...words(artist), ...words(album)]);
-
-    const deepWords = [
-      "doom","slow","grief","ashes","dark","night","shadow","funeral","ocean","void","endless","sorrow","deep","black",
-      "pain","grave","blood","ghost","wolf","winter","storm","firewake"
-    ];
-    const warmWords = [
-      "sun","gold","light","love","honey","fire","heart","soul","rose","summer","warm","kiss","crazy","heat"
-    ];
-    const kineticWords = [
-      "run","burn","dance","electric","speed","motor","wild","riot","shake","move","crazy","fuerza","fast","drive"
-    ];
-    const airyWords = [
-      "sky","wind","air","sea","moon","cloud","dream","echo","ambient","mist","soft","blue","float","endless"
-    ];
-    const focusedWords = [
-      "instrumental","interlude","theme","reprise","part","movement","solo","suite","op","nocturne"
-    ];
 
     let H = 0.42;
     let F = 0.48;
     let D = 0.52;
     let X = 0.46;
 
-    if (hasAny(all, deepWords)) { D += 0.24; H -= 0.04; X -= 0.02; }
-    if (hasAny(all, warmWords)) { H += 0.20; }
-    if (hasAny(all, kineticWords)) { H += 0.12; X += 0.24; }
-    if (hasAny(all, airyWords)) { D -= 0.04; X += 0.02; }
-    if (hasAny(all, focusedWords)) { F += 0.22; X -= 0.08; }
+    if (hasAny(all, ["doom","slow","ashes","dark","night","shadow","funeral","void","grave"])) {
+      D += 0.24; H -= 0.04; X -= 0.02;
+    }
+    if (hasAny(all, ["sun","gold","light","love","fire","heart","soul","summer","warm"])) {
+      H += 0.20;
+    }
+    if (hasAny(all, ["run","burn","dance","electric","speed","wild","riot","move","fast","drive"])) {
+      H += 0.12; X += 0.24;
+    }
+    if (hasAny(all, ["instrumental","interlude","theme","reprise","solo","suite","nocturne"])) {
+      F += 0.22; X -= 0.08;
+    }
 
     const durMin = durationMs / 60000;
     if (durMin >= 7.5) { D += 0.16; F += 0.10; X -= 0.08; }
@@ -612,18 +593,7 @@
       heat: clamp01(H),
       focus: clamp01(F),
       depth: clamp01(D),
-      flux: clamp01(X),
-      valence: 0.45,
-      acoustic: 0.30
-    };
-  }
-
-  function vibeToTone(vibe) {
-    return {
-      glow: clamp01(0.72 + vibe.heat * 0.22 + vibe.depth * 0.10),
-      turbulence: clamp01(0.58 + vibe.flux * 0.26 + vibe.heat * 0.08),
-      starDensity: clamp01(0.10 + vibe.depth * 0.14),
-      rim: clamp01(0.55 + vibe.focus * 0.16 + vibe.depth * 0.08)
+      flux: clamp01(X)
     };
   }
 
@@ -724,12 +694,12 @@
             vibrantHex,
             warmHex: brighten(vibrantHex, 0.12),
             coldHex: rgbToHex(
-              Math.round(lerp(vibrant.r, 72, 0.76)),
-              Math.round(lerp(vibrant.g, 190, 0.76)),
-              Math.round(lerp(vibrant.b, 255, 0.82))
+              Math.round(lerp(vibrant.r, 70, 0.78)),
+              Math.round(lerp(vibrant.g, 188, 0.78)),
+              Math.round(lerp(vibrant.b, 255, 0.84))
             ),
-            darkHex: darken(dominantHex, 0.68),
-            lightHex: brighten(vibrantHex, 0.52)
+            darkHex: darken(dominantHex, 0.72),
+            lightHex: brighten(vibrantHex, 0.56)
           });
         } catch {
           resolve(null);
@@ -756,11 +726,11 @@
     }
 
     return {
-      bg: "#040814",
+      bg: "#050913",
       warm: "#ff8a38",
-      cold: "#49c9ff",
-      fusion: "#c378ff",
-      light: "#fff4e6"
+      cold: "#4ecaff",
+      fusion: "#bb77ff",
+      light: "#fff3e6"
     };
   }
 
@@ -770,13 +740,11 @@
     depth = clamp01(vibe.depth);
     flux = clamp01(vibe.flux);
 
-    if (trackId && lockedTrackId === trackId && lockedSeed && lockedTone) {
+    if (trackId && lockedTrackId === trackId && lockedSeed) {
       orbSeed = lockedSeed;
-      orbTone = { ...lockedTone };
       if (lockedHint) setHintText(lockedHint);
     } else {
       orbSeed = hashStringToSeed(`${trackId || ""}__${meta.artist || ""}__${meta.track || ""}`);
-      orbTone = vibeToTone(vibe);
       beatEnergy = heat;
 
       const newHint = [
@@ -789,13 +757,12 @@
       if (trackId) {
         lockedTrackId = trackId;
         lockedSeed = orbSeed;
-        lockedTone = { ...orbTone };
         lockedHint = newHint;
       }
     }
 
     setBars();
-       }
+                          }
    function resizeCanvas() {
     if (!c || !ctx) return;
     const rect = c.getBoundingClientRect();
@@ -808,48 +775,55 @@
     }
   }
 
-  function drawFilamentSet(ctx, cx, cy, r, t, palette, pulse, side) {
-    const count = 20;
+  function drawFilament(ctx, x1, y1, c1x, c1y, c2x, c2y, x2, y2, colorA, colorB, width, alpha) {
+    const grad = ctx.createLinearGradient(x1, y1, x2, y2);
+    grad.addColorStop(0.00, rgba(colorA, 0.00));
+    grad.addColorStop(0.16, rgba(colorA, alpha * 0.9));
+    grad.addColorStop(0.54, rgba(colorB, alpha));
+    grad.addColorStop(1.00, rgba(colorB, 0.00));
+
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = width;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.bezierCurveTo(c1x, c1y, c2x, c2y, x2, y2);
+    ctx.stroke();
+  }
+
+  function drawBand(ctx, cx, cy, r, t, palette, pulse, side) {
     const warm = side === "warm";
-    const baseCol = warm ? palette.warm : palette.cold;
-    const hiCol = warm ? palette.light : palette.light;
+    const base = warm ? palette.warm : palette.cold;
+    const hi = palette.light;
+    const sign = warm ? -1 : 1;
+    const count = 26;
 
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
 
     for (let i = 0; i < count; i++) {
       const frac = i / (count - 1);
-      const lane = warm ? -1 : 1;
 
-      const startA = (warm ? PI * 1.06 : -0.04) + Math.sin(t * (0.85 + frac * 0.55) + i * 0.6) * 0.22;
-      const endA   = (warm ? PI * 1.88 : PI * 0.88) + Math.cos(t * (0.95 + frac * 0.45) + i * 0.72) * 0.20;
+      const startA = (warm ? PI * 1.05 : -0.04) + Math.sin(t * (0.90 + frac * 0.45) + i * 0.52) * 0.18;
+      const endA   = (warm ? PI * 1.92 : PI * 0.90) + Math.cos(t * (1.00 + frac * 0.35) + i * 0.58) * 0.16;
 
-      const startR = r * lerp(0.54, 0.96, frac);
-      const endR   = r * lerp(0.88, 0.58, frac);
+      const startR = r * lerp(0.56, 0.98, frac);
+      const endR   = r * lerp(0.90, 0.54, frac);
 
       const x1 = cx + Math.cos(startA) * startR;
       const y1 = cy + Math.sin(startA) * startR;
-      const x4 = cx + Math.cos(endA) * endR;
-      const y4 = cy + Math.sin(endA) * endR;
+      const x2 = cx + Math.cos(endA) * endR;
+      const y2 = cy + Math.sin(endA) * endR;
 
-      const c1x = cx + lane * r * lerp(0.30, 0.44, frac) + Math.cos(startA + lane * 0.55) * r * 0.12;
-      const c1y = cy - r * lerp(0.26, 0.08, frac) + Math.sin(t * 0.8 + i) * r * 0.015;
-      const c2x = cx - lane * r * lerp(0.02, 0.16, frac) + Math.cos(endA - lane * 0.35) * r * 0.08;
-      const c2y = cy + r * lerp(0.06, 0.24, frac) + Math.cos(t * 0.9 + i) * r * 0.015;
+      const c1x = cx + sign * r * lerp(0.28, 0.42, frac) + Math.cos(startA + sign * 0.55) * r * 0.08;
+      const c1y = cy - r * lerp(0.24, 0.06, frac) + Math.sin(t * 0.7 + i) * r * 0.012;
+      const c2x = cx - sign * r * lerp(0.02, 0.12, frac) + Math.cos(endA - sign * 0.28) * r * 0.06;
+      const c2y = cy + r * lerp(0.08, 0.24, frac) + Math.cos(t * 0.85 + i) * r * 0.012;
 
-      const grad = ctx.createLinearGradient(x1, y1, x4, y4);
-      grad.addColorStop(0.00, rgba(baseCol, 0.00));
-      grad.addColorStop(0.16, rgba(baseCol, 0.30 + pulse * 0.20));
-      grad.addColorStop(0.55, rgba(hiCol, 0.32 + pulse * 0.24));
-      grad.addColorStop(1.00, rgba(baseCol, 0.00));
+      const width = lerp(0.8, 4.8, 1 - frac) * (0.90 + pulse * 0.40);
+      const alpha = lerp(0.10, 0.34, 1 - frac) + pulse * 0.12;
 
-      ctx.strokeStyle = grad;
-      ctx.lineWidth = lerp(0.9, 5.4, 1 - frac) * (0.82 + pulse * 0.42);
-      ctx.lineCap = "round";
-      ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.bezierCurveTo(c1x, c1y, c2x, c2y, x4, y4);
-      ctx.stroke();
+      drawFilament(ctx, x1, y1, c1x, c1y, c2x, c2y, x2, y2, base, hi, width, alpha);
     }
 
     ctx.restore();
@@ -874,32 +848,31 @@
 
     const bpm = Math.max(60, Math.min(180, beatTempo || 110));
     const beat = (t * bpm / 60) % 1;
-    const beatPulse = Math.pow(Math.max(0, 1 - beat), 4.2) * (0.14 + beatEnergy * 0.16);
+    const pulse = Math.pow(Math.max(0, 1 - beat), 4.0) * (0.14 + beatEnergy * 0.18);
 
     ctx.clearRect(0, 0, w, h);
 
-    const baseR = Math.min(w, h) * 0.405;
-    const radius = baseR * (1 + Math.sin(t * (0.85 + flux * 0.40)) * 0.010 + beatPulse * 0.07);
+    const baseR = Math.min(w, h) * 0.408;
+    const radius = baseR * (1 + Math.sin(t * (0.82 + flux * 0.36)) * 0.008 + pulse * 0.055);
 
-    const outerHalo = ctx.createRadialGradient(cx, cy, radius * 0.42, cx, cy, radius * 1.78);
-    outerHalo.addColorStop(0.00, rgba(palette.light, 0.12 + beatPulse * 0.14));
-    outerHalo.addColorStop(0.24, rgba(palette.warm, 0.18 + heat * 0.10));
-    outerHalo.addColorStop(0.42, rgba(palette.cold, 0.16 + depth * 0.08));
-    outerHalo.addColorStop(1.00, "rgba(0,0,0,0)");
-    ctx.fillStyle = outerHalo;
+    const halo = ctx.createRadialGradient(cx, cy, radius * 0.38, cx, cy, radius * 1.85);
+    halo.addColorStop(0.00, rgba(palette.light, 0.12 + pulse * 0.16));
+    halo.addColorStop(0.24, rgba(palette.warm, 0.16 + heat * 0.10));
+    halo.addColorStop(0.42, rgba(palette.cold, 0.16 + depth * 0.10));
+    halo.addColorStop(1.00, "rgba(0,0,0,0)");
+    ctx.fillStyle = halo;
     ctx.beginPath();
-    ctx.arc(cx, cy, radius * 1.78, 0, TAU);
+    ctx.arc(cx, cy, radius * 1.85, 0, TAU);
     ctx.fill();
 
     ctx.save();
     ctx.beginPath();
-    const pts = 280;
+    const pts = 260;
     for (let i = 0; i <= pts; i++) {
       const a = (i / pts) * TAU;
       const wobble =
-        Math.sin(a * 3 + t * 1.00) * radius * 0.010 * (0.65 + flux * 0.35) +
-        Math.sin(a * 6 - t * 1.45) * radius * 0.006 * (0.55 + heat * 0.30) +
-        Math.sin(a * 10 + t * 1.9) * radius * 0.003;
+        Math.sin(a * 3 + t * 0.95) * radius * 0.008 +
+        Math.sin(a * 7 - t * 1.35) * radius * 0.004;
       const rr = radius + wobble;
       const x = cx + Math.cos(a) * rr;
       const y = cy + Math.sin(a) * rr;
@@ -908,98 +881,97 @@
     ctx.closePath();
     ctx.clip();
 
-    const leftCore = ctx.createRadialGradient(
-      cx - radius * 0.36, cy - radius * 0.08, radius * 0.03,
-      cx - radius * 0.18, cy, radius * 1.00
-    );
-    leftCore.addColorStop(0.00, rgba(palette.light, 0.95));
-    leftCore.addColorStop(0.12, rgba(palette.warm, 0.88));
-    leftCore.addColorStop(0.42, rgba(palette.warm, 0.34));
-    leftCore.addColorStop(1.00, "rgba(0,0,0,0)");
-    ctx.fillStyle = leftCore;
+    const sphereBase = ctx.createRadialGradient(cx, cy, radius * 0.06, cx, cy, radius * 1.02);
+    sphereBase.addColorStop(0.00, rgba("#0b0f18", 0.02));
+    sphereBase.addColorStop(0.42, rgba(palette.bg, 0.58));
+    sphereBase.addColorStop(1.00, rgba("#03050a", 0.98));
+    ctx.fillStyle = sphereBase;
     ctx.fillRect(cx - radius * 1.2, cy - radius * 1.2, radius * 2.4, radius * 2.4);
 
-    const rightCore = ctx.createRadialGradient(
-      cx + radius * 0.32, cy - radius * 0.04, radius * 0.03,
-      cx + radius * 0.16, cy, radius * 1.00
+    const warmField = ctx.createRadialGradient(
+      cx - radius * 0.34, cy - radius * 0.04, radius * 0.03,
+      cx - radius * 0.18, cy, radius * 0.96
     );
-    rightCore.addColorStop(0.00, rgba(palette.light, 0.84));
-    rightCore.addColorStop(0.12, rgba(palette.cold, 0.92));
-    rightCore.addColorStop(0.42, rgba(palette.cold, 0.34));
-    rightCore.addColorStop(1.00, "rgba(0,0,0,0)");
-    ctx.fillStyle = rightCore;
+    warmField.addColorStop(0.00, rgba(palette.light, 0.78));
+    warmField.addColorStop(0.08, rgba(palette.warm, 0.88));
+    warmField.addColorStop(0.34, rgba(palette.warm, 0.36));
+    warmField.addColorStop(0.72, rgba(palette.warm, 0.05));
+    warmField.addColorStop(1.00, "rgba(0,0,0,0)");
+    ctx.fillStyle = warmField;
     ctx.fillRect(cx - radius * 1.2, cy - radius * 1.2, radius * 2.4, radius * 2.4);
 
-    const fusion = ctx.createRadialGradient(cx, cy, radius * 0.02, cx, cy, radius * 0.55);
-    fusion.addColorStop(0.00, rgba("#ffffff", 0.64 + beatPulse * 0.36));
-    fusion.addColorStop(0.10, rgba(palette.light, 0.46 + beatPulse * 0.20));
-    fusion.addColorStop(0.24, rgba(palette.fusion, 0.28 + beatPulse * 0.10));
-    fusion.addColorStop(0.58, rgba(palette.fusion, 0.06));
-    fusion.addColorStop(1.00, "rgba(0,0,0,0)");
-    ctx.fillStyle = fusion;
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius * 0.62, 0, TAU);
-    ctx.fill();
+    const coldField = ctx.createRadialGradient(
+      cx + radius * 0.30, cy - radius * 0.02, radius * 0.03,
+      cx + radius * 0.16, cy, radius * 0.96
+    );
+    coldField.addColorStop(0.00, rgba(palette.light, 0.72));
+    coldField.addColorStop(0.08, rgba(palette.cold, 0.92));
+    coldField.addColorStop(0.34, rgba(palette.cold, 0.38));
+    coldField.addColorStop(0.72, rgba(palette.cold, 0.05));
+    coldField.addColorStop(1.00, "rgba(0,0,0,0)");
+    ctx.fillStyle = coldField;
+    ctx.fillRect(cx - radius * 1.2, cy - radius * 1.2, radius * 2.4, radius * 2.4);
 
-    drawFilamentSet(ctx, cx, cy, radius, t, palette, beatPulse, "warm");
-    drawFilamentSet(ctx, cx, cy, radius, t + 0.18, palette, beatPulse, "cold");
+    drawBand(ctx, cx, cy, radius, t, palette, pulse, "warm");
+    drawBand(ctx, cx, cy, radius, t + 0.22, palette, pulse, "cold");
 
     ctx.globalCompositeOperation = "lighter";
 
-    const arcBands = 10;
-    for (let i = 0; i < arcBands; i++) {
-      const warmSide = i < arcBands / 2;
-      const col = warmSide ? palette.warm : palette.cold;
-      const rr = radius * lerp(0.50, 0.98, i / (arcBands - 1));
-      const start = (warmSide ? PI * 0.92 : -0.03) + Math.sin(t * (0.95 + i * 0.05) + i) * 0.12;
-      const end = start + lerp(0.78, 1.68, 0.65 + flux * 0.25);
+    const ringCount = 8;
+    for (let i = 0; i < ringCount; i++) {
+      const warm = i < ringCount / 2;
+      const col = warm ? palette.warm : palette.cold;
+      const rr = radius * lerp(0.54, 0.98, i / (ringCount - 1));
+      const start = (warm ? PI * 0.96 : -0.02) + Math.sin(t * (0.9 + i * 0.05) + i) * 0.10;
+      const end = start + lerp(0.86, 1.60, 0.60 + flux * 0.22);
       const grad = ctx.createLinearGradient(cx - rr, cy - rr, cx + rr, cy + rr);
       grad.addColorStop(0, rgba(col, 0));
-      grad.addColorStop(0.5, rgba(col, 0.22 + beatPulse * 0.16));
+      grad.addColorStop(0.5, rgba(col, 0.18 + pulse * 0.16));
       grad.addColorStop(1, rgba(col, 0));
       ctx.strokeStyle = grad;
-      ctx.lineWidth = lerp(0.8, 3.6, 1 - i / arcBands);
+      ctx.lineWidth = lerp(0.8, 2.8, 1 - i / ringCount);
       ctx.beginPath();
       ctx.arc(cx, cy, rr, start, end);
       ctx.stroke();
     }
 
-    const sparks = 12;
-    const rand = mulberry32((orbSeed ^ ((ts / 90) | 0)) >>> 0);
-    for (let i = 0; i < sparks; i++) {
+    const fusion = ctx.createRadialGradient(cx, cy, radius * 0.01, cx, cy, radius * 0.42);
+    fusion.addColorStop(0.00, rgba("#ffffff", 0.86 + pulse * 0.40));
+    fusion.addColorStop(0.10, rgba(palette.light, 0.54 + pulse * 0.22));
+    fusion.addColorStop(0.22, rgba(palette.warm, 0.20));
+    fusion.addColorStop(0.36, rgba(palette.cold, 0.18));
+    fusion.addColorStop(0.62, rgba("#ffffff", 0.03));
+    fusion.addColorStop(1.00, "rgba(255,255,255,0)");
+    ctx.fillStyle = fusion;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius * 0.44, 0, TAU);
+    ctx.fill();
+
+    const rand = mulberry32((orbSeed ^ ((ts / 100) | 0)) >>> 0);
+    for (let i = 0; i < 10; i++) {
       const a = rand() * TAU;
-      const rr = Math.pow(rand(), 0.86) * radius * 0.92;
+      const rr = Math.pow(rand(), 0.9) * radius * 0.92;
       const x = cx + Math.cos(a) * rr;
       const y = cy + Math.sin(a) * rr;
-      const r = lerp(0.6, 1.8, rand());
-      const col = rand() > 0.5 ? palette.light : palette.fusion;
-      ctx.fillStyle = rgba(col, lerp(0.08, 0.24, rand()));
+      const r = lerp(0.6, 1.6, rand());
+      const col = rand() > 0.5 ? palette.light : palette.warm;
+      ctx.fillStyle = rgba(col, lerp(0.06, 0.18, rand()));
       ctx.beginPath();
       ctx.arc(x, y, r, 0, TAU);
       ctx.fill();
     }
 
     ctx.globalCompositeOperation = "source-over";
-
-    const coreHot = ctx.createRadialGradient(cx, cy, radius * 0.01, cx, cy, radius * 0.22);
-    coreHot.addColorStop(0.00, rgba("#ffffff", 0.62 + beatPulse * 0.32));
-    coreHot.addColorStop(0.22, rgba(palette.light, 0.30 + beatPulse * 0.14));
-    coreHot.addColorStop(1.00, "rgba(255,255,255,0)");
-    ctx.fillStyle = coreHot;
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius * 0.24, 0, TAU);
-    ctx.fill();
-
     ctx.restore();
 
-    ctx.strokeStyle = rgba("#ffffff", 0.18 + beatPulse * 0.24);
-    ctx.lineWidth = 1.4 + orbTone.rim * 2.0;
+    ctx.strokeStyle = rgba("#ffffff", 0.16 + pulse * 0.22);
+    ctx.lineWidth = 1.3;
     ctx.beginPath();
-    ctx.arc(cx, cy, radius * (1 + beatPulse * 0.02), 0, TAU);
+    ctx.arc(cx, cy, radius, 0, TAU);
     ctx.stroke();
 
-    ctx.strokeStyle = rgba(palette.cold, 0.08 + depth * 0.10);
-    ctx.lineWidth = 6 + beatPulse * 8;
+    ctx.strokeStyle = rgba(palette.cold, 0.08 + pulse * 0.08);
+    ctx.lineWidth = 6 + pulse * 8;
     ctx.beginPath();
     ctx.arc(cx, cy, radius * 1.01, 0, TAU);
     ctx.stroke();
@@ -1057,12 +1029,10 @@
             const tempo = Number(feats.tempo || 110);
 
             vibe = {
-              heat: clamp01(0.24 + energy * 0.46 + dance * 0.18),
-              focus: clamp01(0.24 + instr * 0.30 + (1 - dance) * 0.12),
-              depth: clamp01(0.26 + acoustic * 0.16 + instr * 0.20 + (1 - energy) * 0.08),
-              flux: clamp01(0.20 + dance * 0.26 + energy * 0.22),
-              valence: normalize01(feats.valence, 0.45),
-              acoustic
+              heat: clamp01(0.26 + energy * 0.44 + dance * 0.18),
+              focus: clamp01(0.22 + instr * 0.28 + (1 - dance) * 0.12),
+              depth: clamp01(0.28 + acoustic * 0.14 + instr * 0.18 + (1 - energy) * 0.06),
+              flux: clamp01(0.22 + dance * 0.24 + energy * 0.22)
             };
 
             beatTempo = Math.max(60, Math.min(180, tempo || 110));

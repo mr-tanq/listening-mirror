@@ -191,9 +191,9 @@
       flex-direction:column;
       align-items:center;
       justify-content:flex-start;
-      gap:16px;
+      gap:10px;
       padding-top:6px;
-      padding-bottom:6px;
+      padding-bottom:0;
     }
 
     .orb-wrap{
@@ -267,13 +267,16 @@
     .audio-line{
       width:100%;
       max-width:320px;
-      height:22px;
+      height:16px;
       display:flex;
       align-items:flex-end;
       justify-content:center;
       gap:3px;
       opacity:.92;
+      margin-top:-4px;
+      margin-bottom:6px;
     }
+
     .audio-line span{
       width:3px;
       border-radius:999px;
@@ -311,8 +314,8 @@
       grid-template-columns:repeat(4, 1fr);
       gap:18px;
       align-items:center;
-      padding-top:10px;
-      margin-top:2px;
+      padding-top:0;
+      margin-top:0;
       margin-bottom:12px;
     }
 
@@ -606,6 +609,7 @@
         radial-gradient(circle at 70% 65%, rgba(100,190,255,.14), transparent 40%),
         linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.015));
     }
+
     .mid{
       min-width:0;
       display:flex;

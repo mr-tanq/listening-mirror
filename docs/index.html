@@ -2,10 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta
-    name="viewport"
-    content="width=device-width,initial-scale=1,viewport-fit=cover"
-  />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="theme-color" content="#05070A" />
   <title>Listening Mirror</title>
 
@@ -85,14 +82,8 @@
 
     .screen{
       min-height:100dvh;
-      display:grid;
-      grid-template-rows:
-        minmax(72px, 8dvh)
-        minmax(280px, 42dvh)
-        minmax(88px, 12dvh)
-        minmax(74px, 10dvh)
-        minmax(118px, 16dvh)
-        minmax(92px, 12dvh);
+      display:flex;
+      flex-direction:column;
       padding-top:calc(var(--safe-top) + 8px);
       padding-bottom:calc(var(--safe-bottom) + 8px);
       position:relative;
@@ -105,12 +96,13 @@
       position:relative;
     }
 
-    /* HEADER */
     .header{
+      min-height:72px;
       display:flex;
       align-items:center;
       justify-content:space-between;
       gap:16px;
+      flex:0 0 auto;
     }
 
     .brand{
@@ -161,7 +153,33 @@
       visibility:hidden;
     }
 
-    /* ORB STAGE */
+    .views{
+      flex:1 1 auto;
+      position:relative;
+      min-height:0;
+    }
+
+    .view{
+      position:absolute;
+      inset:0;
+      overflow:auto;
+      -webkit-overflow-scrolling:touch;
+      padding-bottom:12px;
+    }
+
+    .view[hidden]{
+      display:none !important;
+    }
+
+    .mirror-layout{
+      min-height:100%;
+      display:grid;
+      grid-template-rows:
+        minmax(280px, 42dvh)
+        minmax(88px, 12dvh)
+        minmax(74px, 10dvh)
+        minmax(118px, 16dvh);
+    }
     .orb-stage{
       display:flex;
       flex-direction:column;
@@ -238,7 +256,8 @@
         0 0 24px rgba(255,255,255,.02);
       backdrop-filter:blur(4px);
     }
-.audio-line{
+
+    .audio-line{
       width:100%;
       max-width:320px;
       height:22px;
@@ -252,12 +271,7 @@
     .audio-line span{
       width:3px;
       border-radius:999px;
-      background:linear-gradient(
-        180deg,
-        var(--heat) 0%,
-        #F0A8FF 52%,
-        var(--flux) 100%
-      );
+      background:linear-gradient(180deg, var(--heat) 0%, #F0A8FF 52%, var(--flux) 100%);
       box-shadow:0 0 10px rgba(122,215,255,.08);
       animation:pulseBars 1.4s ease-in-out infinite;
       transform-origin:bottom center;
@@ -286,7 +300,6 @@
     .audio-line span:nth-child(21){height:7px; animation-delay:1.60s;}
     .audio-line span:nth-child(22){height:5px; animation-delay:1.68s;}
 
-    /* METRICS */
     .metrics{
       display:grid;
       grid-template-columns:repeat(4, 1fr);
@@ -341,7 +354,6 @@
     .metric--depth .metric__value{ color:var(--depth); }
     .metric--depth .metric__line{ background:var(--depth); }
 
-    /* LYRICS */
     .lyric-rail{
       display:flex;
       flex-direction:column;
@@ -359,6 +371,7 @@
       color:rgba(255,255,255,.92);
       letter-spacing:.01em;
       text-wrap:balance;
+      min-height:24px;
     }
 
     .lyric-rail__meta{
@@ -367,6 +380,7 @@
       display:flex;
       align-items:center;
       gap:6px;
+      min-height:18px;
     }
 
     .dot{
@@ -377,8 +391,6 @@
       display:inline-block;
       opacity:.8;
     }
-
-    /* PLAYBACK */
     .playback{
       display:grid;
       grid-template-rows:auto auto;
@@ -408,12 +420,13 @@
       border-radius:999px;
       position:relative;
       overflow:visible;
+      cursor:pointer;
     }
 
     .timeline__fill{
       position:absolute;
       inset:0 auto 0 0;
-      width:28%;
+      width:0%;
       border-radius:999px;
       background:linear-gradient(90deg, rgba(255,255,255,.9), rgba(255,255,255,.72));
       box-shadow:0 0 12px rgba(255,255,255,.10);
@@ -422,7 +435,7 @@
     .timeline__thumb{
       position:absolute;
       top:50%;
-      left:28%;
+      left:0%;
       width:10px;
       height:10px;
       border-radius:50%;
@@ -474,8 +487,61 @@
       height:100%;
       display:block;
     }
-/* BOTTOM NAV */
+
+    .view-panel{
+      padding:18px 24px 110px;
+    }
+
+    .panel-title{
+      font-size:18px;
+      font-weight:600;
+      letter-spacing:.01em;
+      margin:0 0 14px;
+      color:rgba(255,255,255,.96);
+    }
+
+    .panel-sub{
+      font-size:13px;
+      line-height:1.5;
+      color:var(--muted);
+      margin:0 0 16px;
+    }
+
+    .stack{
+      display:grid;
+      gap:14px;
+    }
+
+    .card{
+      border-radius:18px;
+      background:rgba(255,255,255,.035);
+      outline:1px solid rgba(255,255,255,.07);
+      padding:14px;
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+    }
+
+    .card__title{
+      font-size:14px;
+      font-weight:600;
+      margin:0 0 10px;
+      color:rgba(255,255,255,.95);
+    }
+
+    .list{
+      display:grid;
+      gap:10px;
+    }
+
+    .list:empty::before{
+      content:"No data yet.";
+      display:block;
+      color:var(--muted);
+      font-size:13px;
+      padding:4px 0;
+    }
+
     .bottom-nav{
+      flex:0 0 auto;
       display:grid;
       grid-template-columns:repeat(4, 1fr);
       align-items:end;
@@ -533,14 +599,12 @@
     }
 
     @media (max-height:760px){
-      .screen{
+      .mirror-layout{
         grid-template-rows:
-          minmax(64px, 8dvh)
           minmax(250px, 38dvh)
           minmax(84px, 12dvh)
           minmax(68px, 9dvh)
-          minmax(110px, 15dvh)
-          minmax(86px, 11dvh);
+          minmax(110px, 15dvh);
       }
 
       .orb-wrap{
@@ -569,96 +633,158 @@
         <div id="headerActions"></div>
       </header>
 
-      <section class="section orb-stage" aria-label="Orb stage">
-        <div class="orb-wrap">
-          <div class="orb-shell" aria-hidden="true"></div>
-          <canvas id="lmOrbCanvas" aria-hidden="true"></canvas>
-          <div class="orb-core" aria-hidden="true"></div>
-        </div>
+      <section class="views">
 
-        <div class="audio-line" aria-hidden="true">
-          <span></span><span></span><span></span><span></span><span></span><span></span>
-          <span></span><span></span><span></span><span></span><span></span><span></span>
-          <span></span><span></span><span></span><span></span><span></span><span></span>
-          <span></span><span></span><span></span><span></span>
-        </div>
-      </section>
+        <section id="viewMirror" class="view" aria-label="Mirror view">
+          <div class="mirror-layout">
 
-      <section class="section metrics" aria-label="Aura metrics">
-        <article class="metric metric--heat">
-          <div class="metric__value">72<small>%</small></div>
-          <div class="metric__label">Heat</div>
-          <div class="metric__line"></div>
-        </article>
+            <section class="section orb-stage" aria-label="Orb stage">
+              <div class="orb-wrap">
+                <div class="orb-shell" aria-hidden="true"></div>
+                <canvas id="lmOrbCanvas" aria-hidden="true"></canvas>
+                <div class="orb-core" aria-hidden="true"></div>
+              </div>
 
-        <article class="metric metric--flux">
-          <div class="metric__value">48<small>%</small></div>
-          <div class="metric__label">Flux</div>
-          <div class="metric__line"></div>
-        </article>
+              <div id="audioLine" class="audio-line" aria-hidden="true">
+                <span></span><span></span><span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span>
+              </div>
+            </section>
 
-        <article class="metric metric--focus">
-          <div class="metric__value">81<small>%</small></div>
-          <div class="metric__label">Focus</div>
-          <div class="metric__line"></div>
-        </article>
+            <section class="section metrics" aria-label="Aura metrics">
+              <article class="metric metric--heat">
+                <div id="metricHeatValue" class="metric__value">—<small>%</small></div>
+                <div class="metric__label">Heat</div>
+                <div class="metric__line"></div>
+              </article>
 
-        <article class="metric metric--depth">
-          <div class="metric__value">63<small>%</small></div>
-          <div class="metric__label">Depth</div>
-          <div class="metric__line"></div>
-        </article>
-      </section>
+              <article class="metric metric--flux">
+                <div id="metricFluxValue" class="metric__value">—<small>%</small></div>
+                <div class="metric__label">Flux</div>
+                <div class="metric__line"></div>
+              </article>
 
-      <section class="section lyric-rail" aria-label="Current lyric">
-        <div class="lyric-rail__line">I saw the stars in the sky</div>
-        <div class="lyric-rail__meta">
-          <span class="dot" aria-hidden="true"></span>
-          <span>Playing from Spotify</span>
-        </div>
-      </section>
+              <article class="metric metric--focus">
+                <div id="metricFocusValue" class="metric__value">—<small>%</small></div>
+                <div class="metric__label">Focus</div>
+                <div class="metric__line"></div>
+              </article>
 
-      <section class="section playback" aria-label="Playback controls">
-        <div class="timeline">
-          <div class="timeline__time">0:56</div>
+              <article class="metric metric--depth">
+                <div id="metricDepthValue" class="metric__value">—<small>%</small></div>
+                <div class="metric__label">Depth</div>
+                <div class="metric__line"></div>
+              </article>
+            </section>
 
-          <div class="timeline__bar" aria-hidden="true">
-            <div class="timeline__fill"></div>
-            <div class="timeline__thumb"></div>
+            <section class="section lyric-rail" aria-label="Current lyric">
+              <div id="currentLyricLine" class="lyric-rail__line">—</div>
+              <div class="lyric-rail__meta">
+                <span class="dot" aria-hidden="true"></span>
+                <span id="currentLyricMeta">Waiting for playback…</span>
+              </div>
+            </section>
+            <section class="section playback" aria-label="Playback controls">
+              <div class="timeline">
+                <div id="currentTimeLabel" class="timeline__time">0:00</div>
+
+                <div id="progressBar" class="timeline__bar" aria-label="Playback progress" role="slider" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0">
+                  <div id="progressFill" class="timeline__fill"></div>
+                  <div id="progressThumb" class="timeline__thumb"></div>
+                </div>
+
+                <div id="durationLabel" class="timeline__time">0:00</div>
+              </div>
+
+              <div class="controls">
+                <button id="prevTrackBtn" class="ctrl ctrl--minor" aria-label="Previous track">
+                  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d="M6 6h2v12H6zM18 6v12l-8-6 8-6z"></path>
+                  </svg>
+                </button>
+
+                <button id="playPauseBtn" class="ctrl ctrl--major" aria-label="Play or pause">
+                  <svg id="playPauseIcon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d="M8 6h3v12H8zM13 6h3v12h-3z"></path>
+                  </svg>
+                </button>
+
+                <button id="nextTrackBtn" class="ctrl ctrl--minor" aria-label="Next track">
+                  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d="M16 6h2v12h-2zM6 18V6l8 6-8 6z"></path>
+                  </svg>
+                </button>
+              </div>
+            </section>
+
           </div>
+        </section>
 
-          <div class="timeline__time">3:46</div>
-        </div>
+        <section id="viewConcerts" class="view" aria-label="Concerts view" hidden>
+          <div class="view-panel">
+            <h2 class="panel-title">Concerts</h2>
+            <p class="panel-sub">Real concerts / recommendations / matches will render here.</p>
 
-        <div class="controls">
-          <button class="ctrl ctrl--minor" aria-label="Previous track">
-            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M6 6h2v12H6zM18 6v12l-8-6 8-6z"></path>
-            </svg>
-          </button>
+            <div class="stack">
+              <section class="card">
+                <h3 class="card__title">Upcoming</h3>
+                <div id="concertsList" class="list"></div>
+              </section>
 
-          <button class="ctrl ctrl--major" aria-label="Pause">
-            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M8 6h3v12H8zM13 6h3v12h-3z"></path>
-            </svg>
-          </button>
+              <section class="card">
+                <h3 class="card__title">Matches for you</h3>
+                <div id="concertMatchesList" class="list"></div>
+              </section>
+            </div>
+          </div>
+        </section>
 
-          <button class="ctrl ctrl--minor" aria-label="Next track">
-            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M16 6h2v12h-2zM6 18V6l8 6-8 6z"></path>
-            </svg>
-          </button>
-        </div>
+        <section id="viewIdentity" class="view" aria-label="Identity view" hidden>
+          <div class="view-panel">
+            <h2 class="panel-title">Identity</h2>
+            <p class="panel-sub">Recent listening and top listening containers live here for real binding.</p>
+
+            <div class="stack">
+              <section class="card">
+                <h3 class="card__title">Recent</h3>
+                <div id="recentList" class="list"></div>
+              </section>
+
+              <section class="card">
+                <h3 class="card__title">Top</h3>
+                <div id="topList" class="list"></div>
+              </section>
+            </div>
+          </div>
+        </section>
+
+        <section id="viewArchive" class="view" aria-label="Archive view" hidden>
+          <div class="view-panel">
+            <h2 class="panel-title">Archive</h2>
+            <p class="panel-sub">Saved sessions, history, or archived mirror states can render here.</p>
+
+            <div class="stack">
+              <section class="card">
+                <h3 class="card__title">Archive list</h3>
+                <div id="archiveList" class="list"></div>
+              </section>
+            </div>
+          </div>
+        </section>
+
       </section>
-<nav class="section bottom-nav" aria-label="Main navigation">
-        <button class="tab tab--active" aria-current="page">
+
+      <nav class="section bottom-nav" aria-label="Main navigation">
+        <button id="tabMirror" class="tab tab--active" aria-current="page" data-view="viewMirror">
           <svg class="tab__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
             <circle cx="12" cy="12" r="8"></circle>
           </svg>
           <span class="tab__label">Mirror</span>
         </button>
 
-        <button class="tab">
+        <button id="tabConcerts" class="tab" data-view="viewConcerts">
           <svg class="tab__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
             <path d="M6 7h12v10H6z"></path>
             <path d="M9 7V5h6v2"></path>
@@ -667,7 +793,7 @@
           <span class="tab__label">Concerts</span>
         </button>
 
-        <button class="tab">
+        <button id="tabIdentity" class="tab" data-view="viewIdentity">
           <svg class="tab__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="8" r="3.2"></circle>
             <path d="M6.8 18.5c1.4-2.7 3.2-4 5.2-4s3.8 1.3 5.2 4"></path>
@@ -675,7 +801,7 @@
           <span class="tab__label">Identity</span>
         </button>
 
-        <button class="tab">
+        <button id="tabArchive" class="tab" data-view="viewArchive">
           <svg class="tab__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
             <rect x="5" y="6" width="14" height="12" rx="1.8"></rect>
             <path d="M8 10h8M8 14h5"></path>
@@ -687,12 +813,12 @@
     </section>
   </main>
 
-<script src="./spotify-auth.js"></script>
-<script src="./spotify-player.js"></script>
-<script src="./spotify-click-play.js"></script>
-<script src="./spotify-ui.js"></script>
-<script src="./orb-engine.js"></script>
-<script src="./aura-tab.js"></script>
-<script src="./lyrics-ui.js"></script>
+  <script src="./spotify-auth.js"></script>
+  <script src="./spotify-player.js"></script>
+  <script src="./spotify-click-play.js"></script>
+  <script src="./spotify-ui.js"></script>
+  <script src="./orb-engine.js"></script>
+  <script src="./aura-tab.js"></script>
+  <script src="./lyrics-ui.js"></script>
 </body>
 </html>

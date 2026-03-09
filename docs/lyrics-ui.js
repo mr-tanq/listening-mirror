@@ -38,9 +38,24 @@
   const $ = (id) => document.getElementById(id);
 
   function setLine(text) {
-    const el = $("currentLyricLine");
-    if (el) el.textContent = text || "—";
-  }
+  const el = $("currentLyricLine");
+  if (!el) return;
+
+  const next = text || "—";
+  const prev = el.textContent || "";
+
+  if (prev === next) return;
+
+  el.classList.add("is-changing");
+
+  setTimeout(() => {
+    el.textContent = next;
+
+    requestAnimationFrame(() => {
+      el.classList.remove("is-changing");
+    });
+  }, 90);
+}
 
   function setMeta(text) {
     const el = $("currentLyricMeta");

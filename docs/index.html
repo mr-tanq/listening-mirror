@@ -729,11 +729,63 @@
       }
     }
 
+/* ===============================
+   LISTENING MIRROR — LYRICS FX
+   =============================== */
+
+#lyricsBlock{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  gap:8px;
+  padding-top:6px;
+}
+
 #currentLyricLine{
-  color:#9FDBFF;
+  font-size:20px;
+  font-weight:600;
+  letter-spacing:.3px;
+  line-height:1.35;
+  color:#AEE7FF;
+
   text-shadow:
-    0 0 8px rgba(159,219,255,.35),
-    0 0 18px rgba(159,219,255,.18);
+    0 0 6px rgba(174,231,255,.45),
+    0 0 14px rgba(174,231,255,.25),
+    0 0 26px rgba(174,231,255,.12);
+
+  transition:
+    opacity .26s ease,
+    transform .26s ease,
+    filter .26s ease,
+    color .26s ease,
+    text-shadow .26s ease;
+
+  opacity:1;
+  transform:translateY(0);
+  filter:blur(0);
+  will-change: opacity, transform, filter;
+}
+
+#currentLyricLine.is-changing{
+  opacity:.35;
+  transform:translateY(4px);
+  filter:blur(2px);
+}
+
+#currentLyricMeta{
+  font-size:13px;
+  font-weight:500;
+  color:rgba(210,230,255,.55);
+  letter-spacing:.6px;
+  text-shadow:0 0 6px rgba(180,200,255,.08);
+  transition: opacity .22s ease;
+}
+
+#currentLyricLine:empty::before{
+  content:"—";
+  opacity:.35;
 }
 
   </style>

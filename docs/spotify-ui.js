@@ -1,25 +1,162 @@
-/* spotify-ui.js (FULL REPLACE) — PART 1/2
-   Only changes added (exactly what I said):
-   - Add Android-safe fallback tap-zone left of the title to toggle play/pause
-   - Keep your Spotify icon transform untouched
-   - Keep everything else untouched
+/* spotify-ui.js (FULL FILE REPLACE) — PART 1/3
+   Listening Mirror — Real UI bridge
+   Binds:
+   - bottom tabs / views
+   - playback controls
+   - progress bar + seek
+   - live times
+   - live play/pause icon
+   - live Spotify glyph
+   - live metrics from aura / fallback state
 */
 
 (function () {
   "use strict";
 
-  const API_BASE = String(window.LISTENING_MIRROR_API || "https://i.errtanq9.workers.dev").replace(/\/+$/, "");
-
-  // ---------------- helpers ----------------
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
-  const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
+  const $ = (sel, root = document) => root.querySelector(sel);
 
-  function debounce(fn, ms) {
-    let t = null;
-    return (...args) => {
-      if (t) clearTimeout(t);
-      t = setTimeout(() => fn(...args), ms);
-    };
+  const state = {
+    playback: {
+      is_ready: false,
+      is_linked: false,
+      is_playing: false,
+      progress_ms: 0,
+      duration_ms: 0,
+      track_id: "",
+      track_name: "",
+      artist_name: "",
+      album_name: "",
+      album_image: "",
+      uri: ""
+    },
+    aura: {
+      heat: null,
+      flux: null,
+      focus: null,
+      depth: null
+    },
+    lyric: {
+      line: "",
+      meta: ""
+    }
+  };
+
+  function clamp(n, a, b) {
+    return Math.max(a, Math.min(b, n));
+  }
+
+  function formatMs(ms) {
+    const totalSec = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return `${m}:${String(s).padStart(2, "0")}`;
+  }
+
+  function setText(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+  }
+
+  function setMetric(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (value == null || !Number.isFinite(Number(value))) {
+      el.innerHTML = `—<small>%</small>`;
+      return;
+    }
+    el.innerHTML = `${Math.round(Number(value))}<small>%</small>`;
+  }
+
+  function ensureCss() {
+    if (document.getElementById("spotifyUiBridgeCss")) return;
+
+    const style = document.createElement("style");
+    style.id = "spotifyUiBridgeCss";
+    style.textContent = `
+      #progressBar{
+        touch-action:none;
+      }
+
+      #lmSpotifyBtn{
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+        width:18px;
+        height:18px;
+        border-radius:999px;
+        border:0;
+        padding:0;
+        margin:0;
+        background:transparent;
+        line-height:1;
+        cursor:pointer;
+        opacity:1;
+        user-select:none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      #lmSpotifyBtn svg{
+        width:18px;
+        height:18px;
+        display:block;
+      }
+      #lmSpotifyBtn.lmOff{
+        opacity:.35;
+        filter:grayscale(1);
+      }
+      #lmSpotifyBtn.lmOn{
+        opacity:.95;
+        filter:none;
+      }
+
+      .lmHeaderRow{
+        position:relative !important;
+      }
+
+      #lmSpotifyBtn{
+        position:absolute !important;
+        right:0 !important;
+        top:50% !important;
+        transform:translateY(-50%) !important;
+      }
+
+      .tab[hidden]{
+        display:none !important;
+      }
+    `.trim();
+
+    document.head.appendChild(style);
+  }
+
+  function svgSpotify() {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M12 2a10 10 0 1 0 .001 20.001A10 10 0 0 0 12 2zm4.59 14.37a.75.75 0 0 1-1.03.25c-2.82-1.72-6.37-2.11-10.55-1.15a.75.75 0 1 1-.34-1.46c4.55-1.05 8.45-.6 11.6 1.31.36.22.47.68.32 1.05zm1.05-2.6a.9.9 0 0 1-1.24.3c-3.23-1.98-8.16-2.55-11.99-1.38a.9.9 0 0 1-.53-1.72c4.37-1.33 9.81-.69 13.54 1.6.42.25.55.79.22 1.2zm.12-2.71c-3.73-2.22-9.9-2.43-13.45-1.35a1.05 1.05 0 0 1-.61-2.01c4.08-1.24 10.87-1 15.22 1.6a1.05 1.05 0 0 1-1.16 1.76z"/>
+      </svg>
+    `.trim();
+  }
+
+  function svgPause() {
+    return `
+      <svg id="playPauseIcon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M8 6h3v12H8zM13 6h3v12h-3z"></path>
+      </svg>
+    `.trim();
+  }
+
+  function svgPlay() {
+    return `
+      <svg id="playPauseIcon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M8 6.5v11l9-5.5-9-5.5z"></path>
+      </svg>
+    `.trim();
+  }
+
+  function getToken() {
+    if (window.SpotifyAuth && typeof window.SpotifyAuth.getAccessToken === "function") {
+      return window.SpotifyAuth.getAccessToken();
+    }
+    return null;
   }
 
   function safeCall(path, ...args) {
@@ -27,321 +164,25 @@
       const parts = path.split(".");
       let cur = window;
       for (const p of parts) {
-        if (!cur || !(p in cur)) return { ok: false, reason: `missing ${path}` };
+        if (!cur || !(p in cur)) return { ok: false };
         cur = cur[p];
       }
-      if (typeof cur !== "function") return { ok: false, reason: `not a function ${path}` };
+      if (typeof cur !== "function") return { ok: false };
       return { ok: true, value: cur(...args) };
-    } catch (e) {
-      return { ok: false, reason: String(e) };
-    }
-  }
-
-  function getToken() {
-    if (window.SpotifyAuth && typeof window.SpotifyAuth.getAccessToken === "function") {
-      return window.SpotifyAuth.getAccessToken();
-    }
-    try {
-      return (
-        localStorage.getItem("spotify_access_token") ||
-        localStorage.getItem("SPOTIFY_ACCESS_TOKEN") ||
-        sessionStorage.getItem("spotify_access_token") ||
-        null
-      );
     } catch {
-      return null;
+      return { ok: false };
     }
   }
-
-  function ensureCss() {
-    if (document.getElementById("spotifyUiCss")) return;
-
-    const css = `
-/* --- Click-to-play affordance --- */
-.spArtworkPlayable{ cursor: pointer !important; border-radius: 12px; }
-.spRowPlayable{ cursor: pointer !important; }
-
-/* --- Spotify icon button (always visible) --- */
-#lmSpotifyBtn{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  width:18px;
-  height:18px;
-  border-radius:999px;
-  border:0;
-  padding:0;
-  margin:0;
-  background:transparent;
-  line-height:1;
-  cursor:pointer;
-  opacity:1;
-  user-select:none;
-  -webkit-tap-highlight-color: transparent;
-}
-#lmSpotifyBtn svg{ width:18px; height:18px; display:block; }
-#lmSpotifyBtn.lmOff{ opacity:.35; filter: grayscale(1); }
-#lmSpotifyBtn.lmOn{ opacity:.95; filter:none; }
-
-/* Placement: keep YOUR current transform exactly */
-.lmOnlineRow{ position:relative !important; }
-#lmSpotifyBtn{
-  position:absolute !important;
-  top:50% !important;
-  transform: translate(290px, calc(-50% + 62px)) !important;
-  left:0 !important;
-}
-
-/* Important: NEVER block tabs */
-[data-lm-tab="1"], [data-lm-tab="1"] *{
-  pointer-events:auto !important;
-}
-
-/* Safety: don't let our injected button be blocked by any pointer-events rules */
-#lmSpotifyBtn, #lmSpotifyBtn *{ pointer-events:auto !important; }
-    `.trim();
-
-    const st = document.createElement("style");
-    st.id = "spotifyUiCss";
-    st.textContent = css;
-    document.head.appendChild(st);
+   function findHeaderRow() {
+    return document.getElementById("headerActions")?.parentElement || $(".header");
   }
 
-  // ---------------- Spotify Web API fallback ----------------
-  async function spotifyApi(endpoint, method = "GET", body = null) {
-    const token = getToken();
-    if (!token) return { ok: false, status: 401, json: null };
-    try {
-      const r = await fetch(`https://api.spotify.com/v1${endpoint}`, {
-        method,
-        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-        body: body ? JSON.stringify(body) : null
-      });
+  function ensureSpotifyGlyph() {
+    const row = findHeaderRow();
+    const actions = document.getElementById("headerActions");
+    if (!row || !actions) return null;
 
-      let json = null;
-      try { json = await r.json(); } catch {}
-      return { ok: r.ok, status: r.status, json };
-    } catch {
-      return { ok: false, status: 0, json: null };
-    }
-  }
-
-  async function apiPlayUri(uri) {
-    if (!uri || typeof uri !== "string") return false;
-    const m = uri.match(/^spotify:track:([A-Za-z0-9]{22})$/);
-    if (!m) return false;
-    return !!(await spotifyApi("/me/player/play", "PUT", { uris: [uri] })).ok;
-  }
-
-  async function apiTogglePlayPause() {
-    const st = await spotifyApi("/me/player", "GET");
-    if (!st.ok) return false;
-
-    const isPlaying = !!st.json?.is_playing;
-
-    if (isPlaying) {
-      const r = await spotifyApi("/me/player/pause", "PUT");
-      return !!r.ok;
-    } else {
-      const r = await spotifyApi("/me/player/play", "PUT");
-      return !!r.ok;
-    }
-  }
-
-  async function playUri(uri) {
-    let r = safeCall("SpotifyPlayer.playUri", uri);
-    if (r.ok) return true;
-    r = safeCall("SpotifyPlayer.play", { uri });
-    if (r.ok) return true;
-    r = safeCall("SpotifyPlayer.play", uri);
-    if (r.ok) return true;
-
-    const ok = await apiPlayUri(uri);
-    if (ok) return true;
-
-    console.warn("[Spotify UI] Cannot play URI:", uri);
-    return false;
-  }
-
-  async function togglePlayPause() {
-    let r = safeCall("SpotifyPlayer.togglePlay");
-    if (r.ok) return true;
-
-    const ok = await apiTogglePlayPause();
-    return !!ok;
-  }
-
-  // ---------------- Header / Glyph / Spotify icon ----------------
-
-  function findHeaderTitleNode() {
-    const nodes = $$("h1,h2,h3,div,span").slice(0, 1200);
-    for (const n of nodes) {
-      const t = (n.textContent || "").trim();
-      if (t === "Listening Mirror") {
-        const r = n.getBoundingClientRect?.();
-        if (r && r.width > 120 && r.height > 16 && r.bottom > 0 && r.top < window.innerHeight) return n;
-      }
-    }
-    for (const n of nodes) {
-      const t = (n.textContent || "").trim();
-      if (t.includes("Listening Mirror")) {
-        const r = n.getBoundingClientRect?.();
-        if (r && r.width > 120 && r.height > 16 && r.bottom > 0 && r.top < window.innerHeight) return n;
-      }
-    }
-    return null;
-  }
-
-  function pickCompactHeaderContainer(titleNode) {
-    if (!titleNode) return null;
-
-    const chain = [];
-    let cur = titleNode;
-    for (let i = 0; i < 8 && cur; i++) {
-      cur = cur.parentElement;
-      if (cur) chain.push(cur);
-    }
-
-    for (const el of chain) {
-      const r = el.getBoundingClientRect?.();
-      if (!r) continue;
-      if (r.height >= 40 && r.height <= 170) return el;
-    }
-
-    return (
-      titleNode.closest("header") ||
-      titleNode.closest("section") ||
-      titleNode.closest("article") ||
-      titleNode.closest("div") ||
-      titleNode.parentElement ||
-      null
-    );
-  }
-
-  function findOnlineLabelNode(headerEl) {
-    if (!headerEl) return null;
-
-    const candidates = $$("div,span,p", headerEl).slice(0, 300);
-    for (const n of candidates) {
-      const t = (n.textContent || "").trim().toLowerCase();
-      if (t === "online") return n;
-    }
-    return null;
-  }
-
-  function findGlyphLeftOfTitle(titleNode) {
-    if (!titleNode) return null;
-
-    const titleRect = titleNode.getBoundingClientRect?.();
-    if (!titleRect) return null;
-
-    const container =
-      titleNode.parentElement ||
-      titleNode.closest("header") ||
-      titleNode.closest("div") ||
-      null;
-
-    if (!container) return null;
-
-    const candidates = Array.from(container.children || []);
-    const pool = candidates.length ? candidates : $$("div,span,button,a", container).slice(0, 80);
-
-    let best = null;
-    let bestScore = Infinity;
-
-    for (const n of pool) {
-      if (!n || n === titleNode) continue;
-
-      const r = n.getBoundingClientRect?.();
-      if (!r) continue;
-
-      const small = r.width >= 10 && r.width <= 60 && r.height >= 10 && r.height <= 60;
-      if (!small) continue;
-
-      const cs = window.getComputedStyle(n);
-      const br = parseFloat(cs.borderRadius || "0");
-      const roundish = br > 12 || cs.borderRadius === "999px";
-      if (!roundish) continue;
-
-      const sameLine = Math.abs(((r.top + r.bottom) / 2) - ((titleRect.top + titleRect.bottom) / 2)) < 42;
-      if (!sameLine) continue;
-
-      const isLeft = r.right <= titleRect.left + 8;
-      if (!isLeft) continue;
-
-      const dx = Math.abs(titleRect.left - r.right);
-      const dy = Math.abs(((titleRect.top + titleRect.bottom) / 2) - ((r.top + r.bottom) / 2));
-      const score = dx + dy * 2;
-
-      if (score < bestScore) {
-        bestScore = score;
-        best = n;
-      }
-    }
-
-    return best;
-  }
-
-  function findOrbNearTitleFallback(titleNode, headerEl) {
-    if (!titleNode || !headerEl) return null;
-
-    const titleRect = titleNode.getBoundingClientRect?.();
-    if (!titleRect) return null;
-
-    const candidates = $$("div,span,button,a,svg", headerEl).slice(0, 260);
-
-    let best = null;
-    let bestScore = Infinity;
-
-    const titleMidY = (titleRect.top + titleRect.bottom) / 2;
-
-    for (const n of candidates) {
-      if (!n || n === titleNode) continue;
-
-      const r = n.getBoundingClientRect?.();
-      if (!r) continue;
-
-      const small = r.width >= 10 && r.width <= 60 && r.height >= 10 && r.height <= 60;
-      if (!small) continue;
-
-      const cs = window.getComputedStyle(n);
-      const br = parseFloat(cs.borderRadius || "0");
-      const roundish = br > 12 || cs.borderRadius === "999px";
-      if (!roundish) continue;
-
-      const midY = (r.top + r.bottom) / 2;
-      if (Math.abs(midY - titleMidY) > 46) continue;
-
-      if (r.right > titleRect.left + 24) continue;
-
-      const dx = Math.abs(titleRect.left - r.right);
-      const dy = Math.abs(titleMidY - midY);
-      const score = dx + dy * 2;
-
-      if (score < bestScore) {
-        bestScore = score;
-        best = n;
-      }
-    }
-
-    return best;
-  }
-
-  function svgSpotify() {
-    return `
-<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-  <path d="M12 2a10 10 0 1 0 .001 20.001A10 10 0 0 0 12 2zm4.59 14.37a.75.75 0 0 1-1.03.25c-2.82-1.72-6.37-2.11-10.55-1.15a.75.75 0 1 1-.34-1.46c4.55-1.05 8.45-.6 11.6 1.31.36.22.47.68.32 1.05zm1.05-2.6a.9.9 0 0 1-1.24.3c-3.23-1.98-8.16-2.55-11.99-1.38a.9.9 0 0 1-.53-1.72c4.37-1.33 9.81-.69 13.54 1.6.42.25.55.79.22 1.2zm.12-2.71c-3.73-2.22-9.9-2.43-13.45-1.35a1.05 1.05 0 0 1-.61-2.01c4.08-1.24 10.87-1 15.22 1.6a1.05 1.05 0 0 1-1.16 1.76z"/>
-</svg>`.trim();
-  }
-
-  function ensureSpotifyIconNearOnline(headerEl) {
-    if (!headerEl) return;
-
-    const onlineNode = findOnlineLabelNode(headerEl);
-    if (!onlineNode) return;
-
-    const row = onlineNode.parentElement || onlineNode;
-    row.classList.add("lmOnlineRow");
+    row.classList.add("lmHeaderRow");
 
     let btn = document.getElementById("lmSpotifyBtn");
     if (!btn) {
@@ -351,342 +192,280 @@
       btn.setAttribute("aria-label", "Spotify login/logout");
       btn.innerHTML = svgSpotify();
 
-      btn.addEventListener("click", (e) => {
+      btn.addEventListener("click", async (e) => {
         e.preventDefault();
         e.stopPropagation();
 
         const token = getToken();
 
         if (!token) {
-          if (window.SpotifyAuth) {
-            const r1 = safeCall("SpotifyAuth.login");
-            if (r1.ok) return;
-            const r2 = safeCall("SpotifyAuth.authorize");
-            if (r2.ok) return;
-            const r3 = safeCall("SpotifyAuth.connect");
-            if (r3.ok) return;
-          }
-          console.warn("[Spotify UI] No SpotifyAuth login method found.");
+          let r = safeCall("SpotifyAuth.login");
+          if (r.ok) return;
+          r = safeCall("SpotifyAuth.authorize");
+          if (r.ok) return;
+          r = safeCall("SpotifyAuth.connect");
+          if (r.ok) return;
           return;
-        } else {
-          if (window.SpotifyAuth) {
-            const r1 = safeCall("SpotifyAuth.logout");
-            if (r1.ok) return;
-            const r2 = safeCall("SpotifyAuth.disconnect");
-            if (r2.ok) return;
-          }
-          if (window.SpotifyAuth) {
-            safeCall("SpotifyAuth.login");
-          }
         }
+
+        let r = safeCall("SpotifyAuth.logout");
+        if (!r.ok) {
+          r = safeCall("SpotifyAuth.disconnect");
+        }
+
+        window.dispatchEvent(new CustomEvent("spotify:auth-changed"));
       }, { passive: false });
+
+      actions.appendChild(btn);
     }
 
-    if (btn.parentElement !== row) {
-      row.appendChild(btn);
+    const linked = !!getToken();
+    btn.classList.toggle("lmOn", linked);
+    btn.classList.toggle("lmOff", !linked);
+    return btn;
+  }
+
+  function bindTabs() {
+    const tabs = $$(".tab[data-view]");
+    const views = $$(".view");
+
+    function activate(viewId) {
+      views.forEach((view) => {
+        view.hidden = view.id !== viewId;
+      });
+
+      tabs.forEach((tab) => {
+        const active = tab.dataset.view === viewId;
+        tab.classList.toggle("tab--active", active);
+        if (active) tab.setAttribute("aria-current", "page");
+        else tab.removeAttribute("aria-current");
+      });
     }
 
-    const token = getToken();
-    btn.classList.toggle("lmOn", !!token);
-    btn.classList.toggle("lmOff", !token);
-  }
-
-  function markTabsClickable() {
-    const tabTexts = new Set(["now", "recent", "top", "econcerts"]);
-    const nodes = $$("button,a,div,span").slice(0, 1200);
-    for (const n of nodes) {
-      const t = (n.textContent || "").trim().toLowerCase();
-      if (!tabTexts.has(t)) continue;
-      const p = n.closest("[role=tablist], nav, header, section, div");
-      if (p) p.setAttribute("data-lm-tab", "1");
-    }
-  }
-
-  let LM_TITLE = null;
-  let LM_HEADER = null;
-  let LM_ORB = null;
-  let LM_TAP_FALLBACK_BOUND = false;
-
-  function bindOrbAsPlayPause() {
-  if (!LM_ORB) return;
-  if (LM_ORB.dataset && LM_ORB.dataset.lmOrbBound === "1") return;
-
-  LM_ORB.dataset.lmOrbBound = "1";
-
-  // --- force clickable on mobile ---
-  LM_ORB.style.position = "relative";
-  LM_ORB.style.zIndex = "9999";
-  LM_ORB.style.pointerEvents = "auto";
-  LM_ORB.style.touchAction = "manipulation";
-
-  LM_ORB.addEventListener("click", async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    if (!getToken()) return;
-    await togglePlayPause();
-  }, { passive: false });
-}
-
-  function refreshHeader() {
-    LM_TITLE = findHeaderTitleNode();
-    if (!LM_TITLE) {
-      LM_HEADER = null;
-      LM_ORB = null;
-      return;
-    }
-
-    LM_HEADER = pickCompactHeaderContainer(LM_TITLE);
-    if (!LM_HEADER) return;
-
-    LM_ORB =
-      findGlyphLeftOfTitle(LM_TITLE) ||
-      findOrbNearTitleFallback(LM_TITLE, LM_HEADER) ||
-      null;
-
-    bindOrbAsPlayPause();
-
-    ensureSpotifyIconNearOnline(LM_HEADER);
-    markTabsClickable();
-  }
-/* spotify-ui.js (FULL REPLACE) — PART 2/2 */
-
-  // ---------------- Click-to-play (delegated) ----------------
-
-  function isExplicitNoPlay(node) {
-    return !!(node?.closest?.("[data-sp-no-play='1']"));
-  }
-
-  function isInsideHeaderOrTabs(node) {
-    if (!node) return false;
-    if (node.closest && node.closest("#lmSpotifyBtn")) return true;
-    if (node.closest && node.closest("[data-lm-tab='1']")) return true;
-    if (LM_HEADER && node.closest && node.closest("*") && LM_HEADER.contains(node)) return true;
-    if (node.closest && node.closest("[role=tablist], nav")) return true;
-    return false;
-  }
-
-  function isUiControlTarget(node) {
-    if (!node) return false;
-    const tag = (node.tagName || "").toLowerCase();
-    if (tag === "button" || tag === "a" || tag === "input" || tag === "textarea" || tag === "select") return true;
-
-    const role = (node.getAttribute?.("role") || "").toLowerCase();
-    if (role === "tab" || role === "button" || role === "link") return true;
-
-    return false;
-  }
-
-  function extractSpotifyUriFromNode(node) {
-    const ds = node?.dataset || {};
-    const cand = ds.spotifyUri || ds.uri || ds.spotifyTrackUri || ds.spotifyId || null;
-
-    if (cand) {
-      if (cand.startsWith("spotify:")) return cand;
-      if (/^[A-Za-z0-9]{22}$/.test(cand)) return `spotify:track:${cand}`;
-    }
-
-    const a =
-      node?.querySelector?.("a[href*='open.spotify.com/track/'], a[href^='spotify:track:']") ||
-      node?.closest?.("a[href*='open.spotify.com/track/'], a[href^='spotify:track:']");
-    const href = a?.getAttribute?.("href") || "";
-    if (href.includes("open.spotify.com/track/")) {
-      const m = href.match(/track\/([A-Za-z0-9]{22})/);
-      if (m?.[1]) return `spotify:track:${m[1]}`;
-    }
-    if (href.startsWith("spotify:")) return href;
-
-    return null;
-  }
-
-  function cleanLine(s) {
-    let x = (s || "").replace(/\s+/g, " ").trim();
-    if (!x) return "";
-    x = x.replace(/^LIVE$/i, "").trim();
-    x = x.replace(/^\d+\.\s+/, "").trim();
-    x = x.replace(/\b\d{1,2}\s+[A-Za-z]{3}\s+\d{4}(,\s*\d{2}:\d{2})?\b/gi, "").trim();
-    x = x.replace(/\b\d{2}:\d{2}\b/g, "").trim();
-    if (/^\d+$/.test(x)) return "";
-    return x;
-  }
-
-  function normalizeArtistLine(line) {
-    const s = (line || "").trim();
-    if (!s) return "";
-    const parts = s.split("•").map(x => x.trim()).filter(Boolean);
-    return parts.length ? parts[0] : s;
-  }
-
-  function guessArtistTrackFromRow(row) {
-    const ds = row?.dataset || {};
-    const a1 = (ds.artist || ds.lastfmArtist || "").trim();
-    const t1 = (ds.track || ds.name || ds.lastfmTrack || "").trim();
-    if (a1 && t1) return { artist: a1, track: t1 };
-
-    const lines = (row?.innerText || "")
-      .split("\n")
-      .map(cleanLine)
-      .filter(Boolean);
-
-    const filtered = lines.filter(l => {
-      const u = l.toUpperCase();
-      if (u === "ONLINE") return false;
-      if (u === "NOW" || u === "RECENT" || u === "TOP" || u === "ECONCERTS") return false;
-      if (u === "TRACK" || u === "ARTIST" || u === "ALBUM") return false;
-      if (u === "TODAY" || u === "WEEK" || u === "YEAR") return false;
-      if (u.includes("SESSION COVERS")) return false;
-      return true;
+    tabs.forEach((tab) => {
+      tab.addEventListener("click", () => {
+        const viewId = tab.dataset.view;
+        if (!viewId) return;
+        activate(viewId);
+      });
     });
 
-    const track = cleanLine(filtered[0] || "");
-    const artist = normalizeArtistLine(cleanLine(filtered[1] || ""));
-    return { track, artist };
+    activate("viewMirror");
   }
 
-  function looksLikeArtistOnlyRow(row) {
-    const text = (row?.innerText || "").split("\n").map(cleanLine).filter(Boolean);
-    if (!text.length) return true;
-    if (text.length === 1) return true;
-    const l1 = (text[1] || "").trim();
-    if (l1 && /^[\d,.\s]+$/.test(l1)) return true;
-    return false;
+  function updateProgressUi() {
+    const fill = document.getElementById("progressFill");
+    const thumb = document.getElementById("progressThumb");
+    const bar = document.getElementById("progressBar");
+
+    const progress = Number(state.playback.progress_ms || 0);
+    const duration = Number(state.playback.duration_ms || 0);
+    const ratio = duration > 0 ? clamp(progress / duration, 0, 1) : 0;
+    const pct = ratio * 100;
+
+    if (fill) fill.style.width = `${pct}%`;
+    if (thumb) thumb.style.left = `${pct}%`;
+
+    setText("currentTimeLabel", formatMs(progress));
+    setText("durationLabel", formatMs(duration));
+
+    if (bar) {
+      bar.setAttribute("aria-valuenow", String(Math.round(pct)));
+    }
   }
 
-  async function resolveUriForRow(row) {
-    const u0 = extractSpotifyUriFromNode(row);
-    if (u0) return u0;
+  function updatePlayPauseUi() {
+    const btn = document.getElementById("playPauseBtn");
+    if (!btn) return;
 
-    const { artist, track } = guessArtistTrackFromRow(row);
-    const a = (artist || "").trim();
-    const t = (track || "").trim();
-    if (!a || !t) return "";
-    if (a.endsWith("…") || t.endsWith("…")) return "";
-
-    const q = `${a} ${t}`.trim();
-
-    try {
-      const r = await fetch(`${API_BASE}/resolve?q=${encodeURIComponent(q)}`, { method: "GET" });
-      if (!r.ok) return "";
-      const j = await r.json();
-      const id = j?.best?.id;
-      if (id && /^[A-Za-z0-9]{22}$/.test(id)) return `spotify:track:${id}`;
-    } catch {}
-
-    return "";
+    const playing = !!state.playback.is_playing;
+    btn.setAttribute("aria-label", playing ? "Pause" : "Play");
+    btn.innerHTML = playing ? svgPause() : svgPlay();
   }
 
-  function findRowFromTarget(target) {
-    if (!target) return null;
+  function updatePlaybackMeta() {
+    const track = state.playback.track_name || "";
+    const artist = state.playback.artist_name || "";
 
-    const row =
-      target.closest?.("li") ||
-      target.closest?.("[role='listitem']") ||
-      null;
+    const metaText = track && artist
+      ? `Playing from Spotify · ${artist}`
+      : (getToken() ? "Playing from Spotify" : "Spotify not linked");
 
-    if (!row) return null;
-
-    if (isInsideHeaderOrTabs(row)) return null;
-    if (isExplicitNoPlay(row)) return null;
-    if (looksLikeArtistOnlyRow(row)) return null;
-
-    return row;
+    if (!state.lyric.meta) {
+      setText("currentLyricMeta", metaText);
+    }
   }
 
-  async function handleDocumentClick(e) {
-    if (!getToken()) return;
-
-    const target = e.target;
-    if (!target) return;
-
-    if (isInsideHeaderOrTabs(target)) return;
-    if (isUiControlTarget(target)) return;
-    if (isExplicitNoPlay(target)) return;
-
-    const row = findRowFromTarget(target);
-    if (!row) return;
-
-    const innerControl = target.closest?.("a,button,input,[role='button'],[role='link'],[role='tab']");
-    if (innerControl) return;
-
-    row.classList.add("spRowPlayable");
-
-    e.preventDefault();
-    e.stopPropagation();
-
-    const uri = await resolveUriForRow(row);
-    if (uri) await playUri(uri);
+  function updateMetricsUi() {
+    setMetric("metricHeatValue", state.aura.heat);
+    setMetric("metricFluxValue", state.aura.flux);
+    setMetric("metricFocusValue", state.aura.focus);
+    setMetric("metricDepthValue", state.aura.depth);
   }
 
-  // ---------------- Boot / observers (no heavy loops) ----------------
+  function updateLyricUi() {
+    const line = state.lyric.line || "—";
+    const meta = state.lyric.meta || "";
 
-  let clickBound = false;
+    setText("currentLyricLine", line);
+    if (meta) setText("currentLyricMeta", meta);
+    else updatePlaybackMeta();
+  }
+
+  function renderAll() {
+    updateMetricsUi();
+    updateProgressUi();
+    updatePlayPauseUi();
+    updateLyricUi();
+    ensureSpotifyGlyph();
+  }
+
+  function bindPlaybackControls() {
+    const prevBtn = document.getElementById("prevTrackBtn");
+    const playPauseBtn = document.getElementById("playPauseBtn");
+    const nextBtn = document.getElementById("nextTrackBtn");
+    const progressBar = document.getElementById("progressBar");
+
+    prevBtn?.addEventListener("click", async () => {
+      safeCall("SpotifyPlayer.prev");
+    });
+
+    playPauseBtn?.addEventListener("click", async () => {
+      safeCall("SpotifyPlayer.togglePlay");
+    });
+
+    nextBtn?.addEventListener("click", async () => {
+      safeCall("SpotifyPlayer.next");
+    });
+
+    function seekFromClientX(clientX) {
+      const duration = Number(state.playback.duration_ms || 0);
+      if (!duration) return;
+
+      const rect = progressBar?.getBoundingClientRect();
+      if (!rect) return;
+
+      const ratio = clamp((clientX - rect.left) / rect.width, 0, 1);
+      const ms = Math.round(duration * ratio);
+      safeCall("SpotifyPlayer.seek", ms);
+    }
+
+    progressBar?.addEventListener("click", (e) => {
+      seekFromClientX(e.clientX);
+    });
+
+    let dragging = false;
+
+    progressBar?.addEventListener("pointerdown", (e) => {
+      dragging = true;
+      progressBar.setPointerCapture?.(e.pointerId);
+      seekFromClientX(e.clientX);
+    });
+
+    progressBar?.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      seekFromClientX(e.clientX);
+    });
+
+    const stopDrag = (e) => {
+      dragging = false;
+      progressBar?.releasePointerCapture?.(e.pointerId);
+    };
+
+    progressBar?.addEventListener("pointerup", stopDrag);
+    progressBar?.addEventListener("pointercancel", stopDrag);
+  }
+   function bindSpotifyState() {
+    if (window.SpotifyPlayer && typeof window.SpotifyPlayer.subscribe === "function") {
+      window.SpotifyPlayer.subscribe((next) => {
+        state.playback = {
+          ...state.playback,
+          ...next
+        };
+        renderAll();
+      });
+    }
+
+    window.addEventListener("spotify:state", (e) => {
+      if (!e.detail) return;
+      state.playback = {
+        ...state.playback,
+        ...e.detail
+      };
+      renderAll();
+    });
+
+    window.addEventListener("spotify:auth-changed", () => {
+      ensureSpotifyGlyph();
+      renderAll();
+    });
+  }
+
+  function bindAuraState() {
+    function tryReadAuraModalValues() {
+      const heatText = document.getElementById("auraHeatNum")?.textContent || "";
+      const focusText = document.getElementById("auraFocusNum")?.textContent || "";
+      const depthText = document.getElementById("auraDepthNum")?.textContent || "";
+      const fluxText = document.getElementById("auraFluxNum")?.textContent || "";
+
+      const heat = Number(heatText);
+      const focus = Number(focusText);
+      const depth = Number(depthText);
+      const flux = Number(fluxText);
+
+      if ([heat, focus, depth, flux].every((n) => Number.isFinite(n))) {
+        state.aura = { heat, flux, focus, depth };
+        updateMetricsUi();
+      }
+    }
+
+    setInterval(tryReadAuraModalValues, 1200);
+  }
+
+  function bindLyricsBridge() {
+    const lyricEl = document.getElementById("currentLyricLine");
+    const metaEl = document.getElementById("currentLyricMeta");
+
+    const syncFromDom = () => {
+      if (!lyricEl || !metaEl) return;
+      const line = (lyricEl.textContent || "").trim();
+      const meta = (metaEl.textContent || "").trim();
+
+      if (line && line !== "—") state.lyric.line = line;
+      if (meta) state.lyric.meta = meta;
+    };
+
+    setInterval(syncFromDom, 1500);
+  }
+
+  function bootEmptyLists() {
+    const ids = ["recentList", "topList", "concertsList", "concertMatchesList", "archiveList"];
+    ids.forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (!el.children.length) {
+        el.innerHTML = "";
+      }
+    });
+  }
 
   function boot() {
     ensureCss();
-    refreshHeader();
+    ensureSpotifyGlyph();
+    bindTabs();
+    bindPlaybackControls();
+    bindSpotifyState();
+    bindAuraState();
+    bindLyricsBridge();
+    bootEmptyLists();
+    renderAll();
 
-    // ✅ Android-safe fallback tap-zone (left of title) to toggle play/pause
-    if (!LM_TAP_FALLBACK_BOUND) {
-      LM_TAP_FALLBACK_BOUND = true;
+    setInterval(() => {
+      ensureSpotifyGlyph();
+      renderAll();
+    }, 2500);
 
-      window.addEventListener("pointerdown", async (e) => {
-        try {
-          if (!getToken()) return;
-          if (!LM_TITLE || !LM_HEADER) return;
-
-          // only inside header area
-          if (!LM_HEADER.contains(e.target)) return;
-
-          // never trigger if tapping spotify icon or tabs
-          if (e.target && e.target.closest && e.target.closest("#lmSpotifyBtn")) return;
-          if (e.target && e.target.closest && e.target.closest("[data-lm-tab='1']")) return;
-
-          const tr = LM_TITLE.getBoundingClientRect?.();
-          if (!tr) return;
-
-          const x = e.clientX;
-          const y = e.clientY;
-
-          // tap zone: rectangle just LEFT of the title (where the glyph is)
-          const zoneLeft = tr.left - 90;  // a bit generous for Android
-          const zoneRight = tr.left + 12; // slightly into title
-          const zoneTop = tr.top - 24;
-          const zoneBottom = tr.bottom + 24;
-
-          const inside =
-            x >= zoneLeft && x <= zoneRight &&
-            y >= zoneTop && y <= zoneBottom;
-
-          if (!inside) return;
-
-          e.preventDefault();
-          e.stopPropagation();
-          await togglePlayPause();
-        } catch {}
-      }, { capture: true, passive: false });
-    }
-
-    if (!clickBound) {
-      clickBound = true;
-      document.addEventListener("click", handleDocumentClick, { passive: false, capture: false });
-    }
-
-    const refreshDebounced = debounce(() => {
-      ensureCss();
-      refreshHeader();
-      const btn = document.getElementById("lmSpotifyBtn");
-      if (btn) {
-        const token = getToken();
-        btn.classList.toggle("lmOn", !!token);
-        btn.classList.toggle("lmOff", !token);
-      }
-    }, 120);
-
-    const mo = new MutationObserver(() => refreshDebounced());
-    mo.observe(document.documentElement, { subtree: true, childList: true });
-
-    window.addEventListener("resize", refreshDebounced, { passive: true });
-    window.addEventListener("orientationchange", refreshDebounced, { passive: true });
+    safeCall("SpotifyPlayer.refresh");
   }
 
   if (document.readyState === "loading") {

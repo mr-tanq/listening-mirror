@@ -1,6 +1,12 @@
 /* orb-engine.js (FULL FILE REPLACE) — PART 1/4
-   Listening Mirror — Orb Engine V1
-   Standalone plasma orb renderer for main canvas
+   Listening Mirror — Neural Orb Engine V2
+   ✅ Canvas core + PNG neural layers
+   ✅ Auto-injects assets into .orb-wrap
+   ✅ Uses:
+      ./orb-assets/orb-core-glow.png
+      ./orb-assets/orb-neural-threads.png
+      ./orb-assets/orb-particle-halo.png
+      ./orb-assets/orb-outer-halo.png
    Exposes: window.LMOrbEngine
 */
 
@@ -110,13 +116,10 @@
     };
   }
 
-  function extractPaletteFromArtwork(url) {
-    return new Promise((resolve) => {
-      if (!url) {
-        resolve(null);
-        return;
-      }
+  async function extractPaletteFromArtwork(url) {
+    if (!url) return null;
 
+    return await new Promise((resolve) => {
       const img = new Image();
       img.crossOrigin = "anonymous";
 
@@ -185,8 +188,8 @@
       img.onerror = () => resolve(null);
       img.src = url;
     });
-              }
-  class OrbEngine {
+           }
+   class OrbEngine {
     constructor(canvas, opts = {}) {
       this.canvas = canvas;
       this.ctx = canvas?.getContext("2d", { alpha: true }) || null;
@@ -217,6 +220,84 @@
 
       this.boundFrame = this.frame.bind(this);
       this.boundResize = this.resize.bind(this);
+
+      this.wrap = canvas?.closest(".orb-wrap") || null;
+      this.layers = null;
+
+      this.injectStyles();
+      this.ensureAssetLayers();
+    }
+
+    injectStyles() {
+      if (document.getElementById("lmOrbLayerStyles")) return;
+
+      const st = document.createElement("style");
+      st.id = "lmOrbLayerStyles";
+      st.textContent = `
+        .orb-wrap{
+          position:relative;
+          overflow:visible;
+        }
+
+        .lmOrbAssetLayer{
+          position:absolute;
+          inset:-10%;
+          width:120%;
+          height:120%;
+          object-fit:contain;
+          pointer-events:none;
+          user-select:none;
+          -webkit-user-drag:none;
+          mix-blend-mode:screen;
+          transform-origin:50% 50%;
+          will-change:transform, opacity, filter;
+        }
+
+        .lmOrbLayerCore{
+          z-index:4;
+        }
+
+        .lmOrbLayerThreads{
+          z-index:5;
+        }
+
+        .lmOrbLayerParticles{
+          z-index:6;
+        }
+
+        .lmOrbLayerHalo{
+          z-index:3;
+        }
+      `;
+      document.head.appendChild(st);
+    }
+
+    ensureAssetLayers() {
+      if (!this.wrap) return;
+      if (this.layers) return this.layers;
+
+      const makeImg = (cls, src) => {
+        let img = this.wrap.querySelector(`.${cls}`);
+        if (!img) {
+          img = document.createElement("img");
+          img.className = `lmOrbAssetLayer ${cls}`;
+          img.alt = "";
+          img.decoding = "async";
+          img.loading = "eager";
+          img.src = src;
+          this.wrap.appendChild(img);
+        }
+        return img;
+      };
+
+      this.layers = {
+        halo: makeImg("lmOrbLayerHalo", "./orb-assets/orb-outer-halo.png"),
+        core: makeImg("lmOrbLayerCore", "./orb-assets/orb-core-glow.png"),
+        threads: makeImg("lmOrbLayerThreads", "./orb-assets/orb-neural-threads.png"),
+        particles: makeImg("lmOrbLayerParticles", "./orb-assets/orb-particle-halo.png")
+      };
+
+      return this.layers;
     }
 
     setSeed(seed) {
@@ -292,67 +373,55 @@
       this.stop();
       this.canvas = null;
       this.ctx = null;
+      this.layers = null;
+      this.wrap = null;
+          }
+      updateAssetLayers(ts, pulse) {
+      const layers = this.ensureAssetLayers();
+      if (!layers) return;
+
+      const t = ts * 0.001;
+      const heat = this.heat;
+      const flux = this.flux;
+      const focus = this.focus;
+      const depth = this.depth;
+
+      const coreScale = 0.90 + focus * 0.10 + pulse * 0.06;
+      const threadScale = 1.00 + flux * 0.04 + Math.sin(t * 0.9) * 0.01;
+      const particleScale = 1.02 + depth * 0.05 + pulse * 0.03;
+      const haloScale = 1.06 + depth * 0.08 + Math.sin(t * 0.5) * 0.01;
+
+      const threadRot = t * (2.5 + flux * 7.0);
+      const particleRot = -t * (1.4 + flux * 4.5);
+      const haloRot = t * 0.8;
+      const coreRot = Math.sin(t * 0.6) * 2.4;
+
+      const coreOpacity = 0.42 + heat * 0.42 + pulse * 0.20;
+      const threadsOpacity = 0.20 + flux * 0.42 + focus * 0.08;
+      const particlesOpacity = 0.12 + depth * 0.26 + flux * 0.12 + pulse * 0.10;
+      const haloOpacity = 0.10 + depth * 0.34 + pulse * 0.08;
+
+      const warmGlow = `drop-shadow(0 0 ${18 + heat * 30}px ${rgba(this.palette.warm, 0.25 + heat * 0.20)})`;
+      const coolGlow = `drop-shadow(0 0 ${18 + depth * 32}px ${rgba(this.palette.cold, 0.18 + depth * 0.18)})`;
+
+      layers.core.style.opacity = `${coreOpacity}`;
+      layers.core.style.transform = `scale(${coreScale}) rotate(${coreRot}deg)`;
+      layers.core.style.filter = `${warmGlow} ${coolGlow}`;
+
+      layers.threads.style.opacity = `${threadsOpacity}`;
+      layers.threads.style.transform = `scale(${threadScale}) rotate(${threadRot}deg)`;
+      layers.threads.style.filter = `drop-shadow(0 0 ${14 + flux * 20}px ${rgba(this.palette.light, 0.18 + flux * 0.12)})`;
+
+      layers.particles.style.opacity = `${particlesOpacity}`;
+      layers.particles.style.transform = `scale(${particleScale}) rotate(${particleRot}deg)`;
+      layers.particles.style.filter = `drop-shadow(0 0 ${10 + depth * 16}px ${rgba(this.palette.fusion, 0.16 + depth * 0.12)})`;
+
+      layers.halo.style.opacity = `${haloOpacity}`;
+      layers.halo.style.transform = `scale(${haloScale}) rotate(${haloRot}deg)`;
+      layers.halo.style.filter = `drop-shadow(0 0 ${22 + depth * 22}px ${rgba(this.palette.cold, 0.16 + depth * 0.12)})`;
     }
 
-    filamentCurve(ctx, x1, y1, c1x, c1y, c2x, c2y, x2, y2, cA, cB, width, alpha) {
-      const grad = ctx.createLinearGradient(x1, y1, x2, y2);
-      grad.addColorStop(0.00, rgba(cA, 0.00));
-      grad.addColorStop(0.14, rgba(cA, alpha * 0.95));
-      grad.addColorStop(0.52, rgba(cB, alpha));
-      grad.addColorStop(1.00, rgba(cB, 0.00));
-
-      ctx.strokeStyle = grad;
-      ctx.lineWidth = width;
-      ctx.lineCap = "round";
-      ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.bezierCurveTo(c1x, c1y, c2x, c2y, x2, y2);
-      ctx.stroke();
-    }
-
-    drawBand(ctx, cx, cy, r, t, pulse, side) {
-      const palette = this.palette;
-      const warm = side === "warm";
-      const base = warm ? palette.warm : palette.cold;
-      const hi = palette.light;
-      const sign = warm ? -1 : 1;
-
-      const count = 38;
-
-      ctx.save();
-      ctx.globalCompositeOperation = "lighter";
-
-      for (let i = 0; i < count; i++) {
-        const frac = i / (count - 1);
-
-        const startA = (warm ? Math.PI * 1.05 : -0.03) +
-          Math.sin(t * (0.92 + frac * 0.35) + i * 0.44 + this.orbitPhase) * 0.16;
-
-        const endA = (warm ? Math.PI * 1.94 : Math.PI * 0.90) +
-          Math.cos(t * (1.02 + frac * 0.30) + i * 0.48 + this.orbitPhase * 0.7) * 0.14;
-
-        const startR = r * lerp(0.56, 0.995, frac);
-        const endR = r * lerp(0.92, 0.50, frac);
-
-        const x1 = cx + Math.cos(startA) * startR;
-        const y1 = cy + Math.sin(startA) * startR;
-        const x2 = cx + Math.cos(endA) * endR;
-        const y2 = cy + Math.sin(endA) * endR;
-
-        const c1x = cx + sign * r * lerp(0.26, 0.42, frac) + Math.cos(startA + sign * 0.50) * r * 0.05;
-        const c1y = cy - r * lerp(0.22, 0.04, frac) + Math.sin(t * 0.62 + i + this.noisePhase) * r * 0.009;
-        const c2x = cx - sign * r * lerp(0.01, 0.10, frac) + Math.cos(endA - sign * 0.24) * r * 0.04;
-        const c2y = cy + r * lerp(0.08, 0.24, frac) + Math.cos(t * 0.76 + i + this.noisePhase) * r * 0.009;
-
-        const width = lerp(0.65, 4.2, 1 - frac) * (0.92 + pulse * 0.42);
-        const alpha = lerp(0.12, 0.40, 1 - frac) + pulse * 0.18;
-
-        this.filamentCurve(ctx, x1, y1, c1x, c1y, c2x, c2y, x2, y2, base, hi, width, alpha);
-      }
-
-      ctx.restore();
-                         }
-    drawOrb(ts) {
+    drawCore(ts) {
       if (!this.ctx || !this.canvas) return;
 
       const w = this.canvas.width;
@@ -360,8 +429,8 @@
       const cx = w * 0.5;
       const cy = h * 0.5;
       const t = ts * 0.001;
-      const palette = this.palette;
 
+      const palette = this.palette;
       const bpm = Math.max(60, Math.min(180, this.beatTempo || 110));
       const beat = (t * bpm / 60) % 1;
       const pulse = Math.pow(Math.max(0, 1 - beat), 4.4) * (0.16 + this.beatEnergy * 0.20);
@@ -370,144 +439,75 @@
       this.noisePhase += 0.006 + this.heat * 0.0015;
       this.fusionPhase += 0.008 + this.depth * 0.001;
 
+      const radiusBase = Math.min(w, h) * 0.32;
+      const radius = radiusBase * (1 + Math.sin(t * (0.82 + this.flux * 0.34)) * 0.008 + pulse * 0.06);
+
       this.ctx.clearRect(0, 0, w, h);
 
-      const baseR = Math.min(w, h) * 0.408;
-      const radius = baseR * (1 + Math.sin(t * (0.82 + this.flux * 0.34)) * 0.006 + pulse * 0.045);
-
-      const halo = this.ctx.createRadialGradient(cx, cy, radius * 0.34, cx, cy, radius * 1.95);
-      halo.addColorStop(0.00, rgba(palette.light, 0.14 + pulse * 0.18));
-      halo.addColorStop(0.22, rgba(palette.warm, 0.20 + this.heat * 0.12));
-      halo.addColorStop(0.40, rgba(palette.cold, 0.20 + this.depth * 0.12));
-      halo.addColorStop(1.00, "rgba(0,0,0,0)");
-      this.ctx.fillStyle = halo;
+      const outer = this.ctx.createRadialGradient(cx, cy, radius * 0.10, cx, cy, radius * 1.55);
+      outer.addColorStop(0.00, rgba(palette.light, 0.10 + pulse * 0.10));
+      outer.addColorStop(0.22, rgba(palette.warm, 0.12 + this.heat * 0.08));
+      outer.addColorStop(0.46, rgba(palette.cold, 0.12 + this.depth * 0.08));
+      outer.addColorStop(1.00, "rgba(0,0,0,0)");
+      this.ctx.fillStyle = outer;
       this.ctx.beginPath();
-      this.ctx.arc(cx, cy, radius * 1.95, 0, TAU);
+      this.ctx.arc(cx, cy, radius * 1.55, 0, TAU);
       this.ctx.fill();
 
-      this.ctx.save();
+      const core = this.ctx.createRadialGradient(cx, cy, radius * 0.01, cx, cy, radius * 0.95);
+      core.addColorStop(0.00, rgba("#ffffff", 0.95));
+      core.addColorStop(0.05, rgba(palette.light, 0.85));
+      core.addColorStop(0.12, rgba(palette.warm, 0.34));
+      core.addColorStop(0.22, rgba(palette.cold, 0.28));
+      core.addColorStop(0.42, rgba(palette.fusion, 0.14));
+      core.addColorStop(0.70, rgba(palette.bg, 0.06));
+      core.addColorStop(1.00, "rgba(0,0,0,0)");
+      this.ctx.fillStyle = core;
       this.ctx.beginPath();
-
-      const pts = 260;
-      for (let i = 0; i <= pts; i++) {
-        const a = (i / pts) * TAU;
-        const wobble =
-          Math.sin(a * 3 + t * 0.95) * radius * 0.006 +
-          Math.sin(a * 7 - t * 1.20) * radius * 0.003;
-        const rr = radius + wobble;
-        const x = cx + Math.cos(a) * rr;
-        const y = cy + Math.sin(a) * rr;
-        if (i === 0) this.ctx.moveTo(x, y); else this.ctx.lineTo(x, y);
-      }
-
-      this.ctx.closePath();
-      this.ctx.clip();
-
-      const sphereBase = this.ctx.createRadialGradient(cx, cy, radius * 0.04, cx, cy, radius * 1.02);
-      sphereBase.addColorStop(0.00, rgba("#0a0d14", 0.02));
-      sphereBase.addColorStop(0.48, rgba(palette.bg, 0.48));
-      sphereBase.addColorStop(1.00, rgba("#020409", 0.98));
-      this.ctx.fillStyle = sphereBase;
-      this.ctx.fillRect(cx - radius * 1.2, cy - radius * 1.2, radius * 2.4, radius * 2.4);
-
-      const warmField = this.ctx.createRadialGradient(
-        cx - radius * 0.34, cy - radius * 0.03, radius * 0.02,
-        cx - radius * 0.16, cy, radius * 0.94
-      );
-      warmField.addColorStop(0.00, rgba(palette.light, 0.92));
-      warmField.addColorStop(0.06, rgba(palette.warm, 0.96));
-      warmField.addColorStop(0.28, rgba(palette.warm, 0.40));
-      warmField.addColorStop(0.60, rgba(palette.warm, 0.06));
-      warmField.addColorStop(1.00, "rgba(0,0,0,0)");
-      this.ctx.fillStyle = warmField;
-      this.ctx.fillRect(cx - radius * 1.2, cy - radius * 1.2, radius * 2.4, radius * 2.4);
-
-      const coldField = this.ctx.createRadialGradient(
-        cx + radius * 0.30, cy - radius * 0.01, radius * 0.02,
-        cx + radius * 0.15, cy, radius * 0.94
-      );
-      coldField.addColorStop(0.00, rgba(palette.light, 0.88));
-      coldField.addColorStop(0.06, rgba(palette.cold, 0.98));
-      coldField.addColorStop(0.28, rgba(palette.cold, 0.42));
-      coldField.addColorStop(0.60, rgba(palette.cold, 0.06));
-      coldField.addColorStop(1.00, "rgba(0,0,0,0)");
-      this.ctx.fillStyle = coldField;
-      this.ctx.fillRect(cx - radius * 1.2, cy - radius * 1.2, radius * 2.4, radius * 2.4);
-
-      this.drawBand(this.ctx, cx, cy, radius, t, pulse, "warm");
-      this.drawBand(this.ctx, cx, cy, radius, t + 0.20, pulse, "cold");
-
-      this.ctx.globalCompositeOperation = "lighter";
-
-      const ringCount = 10;
-      for (let i = 0; i < ringCount; i++) {
-        const warm = i < ringCount / 2;
-        const col = warm ? palette.warm : palette.cold;
-        const rr = radius * lerp(0.56, 0.99, i / (ringCount - 1));
-        const start = (warm ? Math.PI * 0.98 : -0.01) + Math.sin(t * (0.9 + i * 0.04) + i) * 0.08;
-        const end = start + lerp(0.90, 1.56, 0.58 + this.flux * 0.18);
-
-        const grad = this.ctx.createLinearGradient(cx - rr, cy - rr, cx + rr, cy + rr);
-        grad.addColorStop(0, rgba(col, 0));
-        grad.addColorStop(0.5, rgba(col, 0.22 + pulse * 0.18));
-        grad.addColorStop(1, rgba(col, 0));
-
-        this.ctx.strokeStyle = grad;
-        this.ctx.lineWidth = lerp(0.7, 2.3, 1 - i / ringCount);
-        this.ctx.beginPath();
-        this.ctx.arc(cx, cy, rr, start, end);
-        this.ctx.stroke();
-      }
-      const fusion = this.ctx.createRadialGradient(cx, cy, radius * 0.005, cx, cy, radius * 0.46);
-      fusion.addColorStop(0.00, rgba("#ffffff", 0.98));
-      fusion.addColorStop(0.05, rgba("#ffffff", 0.94));
-      fusion.addColorStop(0.12, rgba(palette.light, 0.72 + pulse * 0.24));
-      fusion.addColorStop(0.20, rgba(palette.warm, 0.24));
-      fusion.addColorStop(0.28, rgba(palette.cold, 0.24));
-      fusion.addColorStop(0.44, rgba("#ffffff", 0.06));
-      fusion.addColorStop(1.00, "rgba(255,255,255,0)");
-      this.ctx.fillStyle = fusion;
-      this.ctx.beginPath();
-      this.ctx.arc(cx, cy, radius * 0.48, 0, TAU);
+      this.ctx.arc(cx, cy, radius, 0, TAU);
       this.ctx.fill();
 
-      const rand = mulberry32((this.seed ^ ((ts / 100) | 0)) >>> 0);
-      for (let i = 0; i < 8; i++) {
+      const rand = mulberry32((this.seed ^ ((ts / 80) | 0)) >>> 0);
+      for (let i = 0; i < 16; i++) {
         const a = rand() * TAU;
-        const rr = Math.pow(rand(), 0.92) * radius * 0.88;
+        const rr = Math.pow(rand(), 0.85) * radius * (0.72 + this.focus * 0.18);
         const x = cx + Math.cos(a) * rr;
         const y = cy + Math.sin(a) * rr;
-        const r = lerp(0.5, 1.2, rand());
-        const col = rand() > 0.5 ? palette.light : palette.warm;
-        this.ctx.fillStyle = rgba(col, lerp(0.04, 0.12, rand()));
+        const r = lerp(0.8, 2.2, rand());
+        const col = rand() > 0.5 ? palette.light : (rand() > 0.5 ? palette.warm : palette.cold);
+
+        this.ctx.fillStyle = rgba(col, lerp(0.08, 0.22, rand()));
         this.ctx.beginPath();
         this.ctx.arc(x, y, r, 0, TAU);
         this.ctx.fill();
       }
 
-      this.ctx.globalCompositeOperation = "source-over";
-      this.ctx.restore();
+      const innerRing = this.ctx.createRadialGradient(cx, cy, radius * 0.4, cx, cy, radius * 1.02);
+      innerRing.addColorStop(0.00, "rgba(255,255,255,0)");
+      innerRing.addColorStop(0.70, rgba(palette.light, 0.08 + this.focus * 0.06));
+      innerRing.addColorStop(1.00, rgba(palette.cold, 0.14 + this.depth * 0.08));
 
-      this.ctx.strokeStyle = rgba("#ffffff", 0.12 + pulse * 0.20);
-      this.ctx.lineWidth = 1.1;
+      this.ctx.strokeStyle = rgba(palette.light, 0.10 + pulse * 0.20);
+      this.ctx.lineWidth = 1.1 + this.focus * 0.7;
       this.ctx.beginPath();
-      this.ctx.arc(cx, cy, radius, 0, TAU);
+      this.ctx.arc(cx, cy, radius * (1 + pulse * 0.02), 0, TAU);
       this.ctx.stroke();
 
-      this.ctx.strokeStyle = rgba(palette.cold, 0.06 + pulse * 0.08);
+      this.ctx.strokeStyle = innerRing;
       this.ctx.lineWidth = 5 + pulse * 7;
       this.ctx.beginPath();
-      this.ctx.arc(cx, cy, radius * 1.01, 0, TAU);
+      this.ctx.arc(cx, cy, radius * 0.98, 0, TAU);
       this.ctx.stroke();
-    }
 
-    frame(ts) {
+      this.updateAssetLayers(ts, pulse);
+                                                                    }
+      frame(ts) {
       if (!this.running || !this.ctx) return;
 
       const minFrame = 1000 / this.fpsCap;
       if (ts - this.lastFrame >= minFrame) {
         this.lastFrame = ts;
-        this.drawOrb(ts);
+        this.drawCore(ts);
       }
 
       this.rafId = requestAnimationFrame(this.boundFrame);

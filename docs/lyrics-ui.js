@@ -344,8 +344,8 @@ setMeta(`${a} — ${t}`);
     if (activeIndex < 0) {
       activeIndex = targetIdx;
       setLine(timedLines[activeIndex]?.text || "—");
-      setMeta(`Synced lyrics · ${syncedArtist || ""}`.trim());
-      lastProgressMs = pos;
+setMeta(`${a} — ${t}`);
+       lastProgressMs = pos;
       lastTickTs = nowTs;
       return;
     }
@@ -383,8 +383,8 @@ setMeta(`${a} — ${t}`);
 
       const line = timedLines[activeIndex]?.text || "—";
       setLine(line);
-      setMeta(`Synced lyrics · ${syncedArtist || ""}`.trim());
-    }
+setMeta(`${a} — ${t}`);
+   }
 
     lastProgressMs = pos;
     lastTickTs = nowTs;

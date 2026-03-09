@@ -1,8 +1,8 @@
 /* lyrics-ui.js (FULL FILE REPLACE) — PART 1/2
-   Listening Mirror — Lyrics bridge with stable synced behavior
+   Listening Mirror — Lyrics bridge
    ✅ Top line = lyric / loading / unavailable
    ✅ Bottom line = ALWAYS "Artist — Track"
-   ✅ No "Synced lyrics · ..." status text anymore
+   ✅ Synced lyrics start from CURRENT progress, not first line
 */
 
 (() => {
@@ -15,7 +15,6 @@
   const PLAYER_POLL_MS = 900;
   const MIN_TEXT_LEN = 20;
 
-  // stability tuning
   const SWITCH_EARLY_MS = 40;
   const SWITCH_HOLD_MS = 140;
   const BACKWARD_TOLERANCE_MS = 900;
@@ -26,8 +25,8 @@
   let lastSongKey = "";
   let lastRenderedKey = "";
 
-  let timedLines = null;      // [{timeMs, text}]
-  let plainLines = null;      // string[]
+  let timedLines = null;
+  let plainLines = null;
   let currentTrackId = "";
 
   let activeIndex = -1;
@@ -158,18 +157,29 @@
     }
   }
 
-  async function syncTrackIdFromSpotify() {
+  async function getPlaybackSnapshot() {
     if (window.SpotifyPlayer && typeof window.SpotifyPlayer.getState === "function") {
       const st = window.SpotifyPlayer.getState();
-      if (st?.track_id) {
-        currentTrackId = st.track_id;
-        return;
+      if (st && (st.track_id || st.track_name || st.progress_ms != null)) {
+        return {
+          trackId: st.track_id || "",
+          progressMs: Number(st.progress_ms || 0)
+        };
       }
     }
 
     const st = await spotifyMePlayer();
-    if (!st || !st.item) return;
-    currentTrackId = st.item.id || "";
+    if (!st || !st.item) {
+      return {
+        trackId: "",
+        progressMs: 0
+      };
+    }
+
+    return {
+      trackId: st.item.id || "",
+      progressMs: Number(st.progress_ms || 0)
+    };
   }
 
   function readCurrentTrack() {
@@ -244,15 +254,18 @@ async function fetchLyrics(artist, track, album) {
         if (norm.length) {
           timedLines = norm;
           plainLines = norm.map(x => x.text);
-          await syncTrackIdFromSpotify();
 
-          activeIndex = 0;
+          const snap = await getPlaybackSnapshot();
+          currentTrackId = snap.trackId || "";
+
+          const startIdx = Math.max(0, findActiveIndex(snap.progressMs + SWITCH_EARLY_MS));
+          activeIndex = startIdx;
           candidateIndex = -1;
           candidateSince = 0;
-          lastProgressMs = 0;
+          lastProgressMs = Number(snap.progressMs || 0);
           lastTrackIdSeen = currentTrackId || "";
 
-          setLine(norm[0]?.text || "—");
+          setLine(norm[startIdx]?.text || norm[0]?.text || "—");
           setMeta(metaText);
           lastRenderedKey = songKey;
           return;
@@ -299,19 +312,9 @@ async function fetchLyrics(artist, track, album) {
   async function progressTick() {
     if (!timedLines || !timedLines.length) return;
 
-    let pos = 0;
-    let trackId = "";
-
-    if (window.SpotifyPlayer && typeof window.SpotifyPlayer.getState === "function") {
-      const st = window.SpotifyPlayer.getState();
-      pos = Number(st?.progress_ms || 0);
-      trackId = st?.track_id || "";
-    } else {
-      const st = await spotifyMePlayer();
-      if (!st || !st.item) return;
-      pos = Number(st.progress_ms || 0);
-      trackId = st.item.id || "";
-    }
+    const snap = await getPlaybackSnapshot();
+    let pos = Number(snap.progressMs || 0);
+    const trackId = snap.trackId || "";
 
     if (currentTrackId && trackId && currentTrackId !== trackId) return;
 
@@ -347,6 +350,16 @@ async function fetchLyrics(artist, track, album) {
       return;
     }
 
+    // Αν το jump είναι μεγάλο, πήγαινε κατευθείαν στη σωστή σειρά
+    if (Math.abs(targetIdx - activeIndex) > 1) {
+      activeIndex = targetIdx;
+      candidateIndex = -1;
+      candidateSince = 0;
+      setLine(timedLines[activeIndex]?.text || "—");
+      lastProgressMs = pos;
+      return;
+    }
+
     if (targetIdx === activeIndex) {
       candidateIndex = -1;
       candidateSince = 0;
@@ -375,15 +388,10 @@ async function fetchLyrics(artist, track, album) {
     const { track, artist, album } = readCurrentTrack();
     const metaText = makeArtistTrackMeta(artist, track);
 
-    // Να γράφει ΠΑΝΤΑ artist — track, όσο υπάρχει playback info
     setMeta(metaText);
 
     if (!track || !artist) {
-      if (getToken()) {
-        setLine("—");
-      } else {
-        setLine("—");
-      }
+      setLine("—");
       return;
     }
 

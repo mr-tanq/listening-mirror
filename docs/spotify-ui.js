@@ -1,13 +1,9 @@
 /* spotify-ui.js (FULL FILE REPLACE) — PART 1/3
-   Listening Mirror — Real UI bridge
-   Binds:
-   - bottom tabs / views
-   - playback controls
-   - progress bar + seek
-   - live times
-   - live play/pause icon
-   - live Spotify glyph
-   - live metrics from aura / fallback state
+   Listening Mirror — Real UI bridge v2
+   ✅ Live metrics from lm:aura event
+   ✅ Live progress / times / controls
+   ✅ Real tabs / views
+   ✅ Spotify glyph
 */
 
 (function () {
@@ -61,18 +57,20 @@
   function setMetric(id, value) {
     const el = document.getElementById(id);
     if (!el) return;
+
     if (value == null || !Number.isFinite(Number(value))) {
       el.innerHTML = `—<small>%</small>`;
       return;
     }
+
     el.innerHTML = `${Math.round(Number(value))}<small>%</small>`;
   }
 
   function ensureCss() {
-    if (document.getElementById("spotifyUiBridgeCss")) return;
+    if (document.getElementById("spotifyUiBridgeCssV2")) return;
 
     const style = document.createElement("style");
-    style.id = "spotifyUiBridgeCss";
+    style.id = "spotifyUiBridgeCssV2";
     style.textContent = `
       #progressBar{
         touch-action:none;
@@ -95,15 +93,18 @@
         user-select:none;
         -webkit-tap-highlight-color: transparent;
       }
+
       #lmSpotifyBtn svg{
         width:18px;
         height:18px;
         display:block;
       }
+
       #lmSpotifyBtn.lmOff{
         opacity:.35;
         filter:grayscale(1);
       }
+
       #lmSpotifyBtn.lmOn{
         opacity:.95;
         filter:none;
@@ -209,9 +210,7 @@
         }
 
         let r = safeCall("SpotifyAuth.logout");
-        if (!r.ok) {
-          r = safeCall("SpotifyAuth.disconnect");
-        }
+        if (!r.ok) r = safeCall("SpotifyAuth.disconnect");
 
         window.dispatchEvent(new CustomEvent("spotify:auth-changed"));
       }, { passive: false });
@@ -269,9 +268,7 @@
     setText("currentTimeLabel", formatMs(progress));
     setText("durationLabel", formatMs(duration));
 
-    if (bar) {
-      bar.setAttribute("aria-valuenow", String(Math.round(pct)));
-    }
+    if (bar) bar.setAttribute("aria-valuenow", String(Math.round(pct)));
   }
 
   function updatePlayPauseUi() {
@@ -402,24 +399,18 @@
   }
 
   function bindAuraState() {
-    function tryReadAuraModalValues() {
-      const heatText = document.getElementById("auraHeatNum")?.textContent || "";
-      const focusText = document.getElementById("auraFocusNum")?.textContent || "";
-      const depthText = document.getElementById("auraDepthNum")?.textContent || "";
-      const fluxText = document.getElementById("auraFluxNum")?.textContent || "";
+    window.addEventListener("lm:aura", (e) => {
+      if (!e.detail) return;
 
-      const heat = Number(heatText);
-      const focus = Number(focusText);
-      const depth = Number(depthText);
-      const flux = Number(fluxText);
+      state.aura = {
+        heat: Number.isFinite(Number(e.detail.heat)) ? Number(e.detail.heat) : state.aura.heat,
+        flux: Number.isFinite(Number(e.detail.flux)) ? Number(e.detail.flux) : state.aura.flux,
+        focus: Number.isFinite(Number(e.detail.focus)) ? Number(e.detail.focus) : state.aura.focus,
+        depth: Number.isFinite(Number(e.detail.depth)) ? Number(e.detail.depth) : state.aura.depth
+      };
 
-      if ([heat, focus, depth, flux].every((n) => Number.isFinite(n))) {
-        state.aura = { heat, flux, focus, depth };
-        updateMetricsUi();
-      }
-    }
-
-    setInterval(tryReadAuraModalValues, 1200);
+      updateMetricsUi();
+    });
   }
 
   function bindLyricsBridge() {
@@ -428,6 +419,7 @@
 
     const syncFromDom = () => {
       if (!lyricEl || !metaEl) return;
+
       const line = (lyricEl.textContent || "").trim();
       const meta = (metaEl.textContent || "").trim();
 

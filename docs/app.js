@@ -1,75 +1,36 @@
-/* Listening Mirror — app.js (FULL REPLACE)
-   - Stable NOW + Top + Recent
-   - Mirror card always visible
-   - Adds Orb breathing when LISTENING
+/* app.js (FULL FILE REPLACE) — PART 1/3
+   Listening Mirror — Data bridge for new layout
+   ✅ Loads Recent / Top from Worker
+   ✅ Fills:
+      - #recentList
+      - #topList
+      - #concertsList
+      - #concertMatchesList
+      - #archiveList
+   ✅ Compatible with spotify-click-play.js row parsing
 */
 
 (() => {
   "use strict";
 
   const API_BASE = "https://i.errtanq9.workers.dev";
-  const NOW_POLL_MS = 12_000;
 
   const TOP_LIMIT_DEFAULT = 10;
   const RECENT_LIMIT_DEFAULT = 20;
 
-  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
-  const $ = (sel, root = document) => root.querySelector(sel);
+  const $ = (id) => document.getElementById(id);
 
-  const statusDot = $("#statusDot");
-  const statusLine = $("#statusLine");
-
-  const tabBtns = $$(".tabBtn");
-  const panels = $$(".panel");
-
-  // NOW
-  const nowAmbient = $("#nowAmbient");
-  const nowBadge = $("#nowBadge");
-  const nowBadgeText = $("#nowBadgeText");
-
-  const nowImg = $("#nowImg");
-  const nowFallback = $("#nowFallback");
-  const nowCoverWrap = $("#nowCoverWrap");
-
-  const nowTrack = $("#nowTrack");
-  const nowArtist = $("#nowArtist");
-  const nowAlbum = $("#nowAlbum");
-  const nowMsg = $("#nowMsg");
-
-  const nowTrackWrap = $("#nowTrackWrap");
-  const nowArtistWrap = $("#nowArtistWrap");
-  const nowAlbumWrap = $("#nowAlbumWrap");
-
-  // TOP
-  const topList = $("#topList");
-  const topTypeBtns = $$("[data-top-type]");
-  const topPeriodBtns = $$("[data-top-period]");
-
-  // RECENT
-  const recentList = $("#recentList");
-
-  // MIRROR
-  const mirrorPill = $("#mirrorPill");
-  const mirrorPillText = $("#mirrorPillText");
-  const mirrorState = $("#mirrorState");
-  const mirrorOrb = $("#mirrorOrb");
-
-  const mEnergy = $("#mEnergy");
-  const mMood = $("#mMood");
-  const mReplay = $("#mReplay");
-  const mEnergyNum = $("#mEnergyNum");
-  const mMoodNum = $("#mMoodNum");
-  const mReplayNum = $("#mReplayNum");
-  const mDot = $("#mDot");
-  const mCovers = $("#mCovers");
+  const topList = $("topList");
+  const recentList = $("recentList");
+  const concertsList = $("concertsList");
+  const concertMatchesList = $("concertMatchesList");
+  const archiveList = $("archiveList");
 
   const state = {
-    activeTab: "now",
     topType: "tracks",
     topPeriod: "today",
-    online: false,
-    nowTimer: null,
-    lastRecentForMirror: [],
+    lastRecent: [],
+    lastTop: []
   };
 
   function absApi(urlOrPath) {
@@ -79,12 +40,6 @@
     return API_BASE + "/" + urlOrPath;
   }
 
-  function setOnline(on) {
-    state.online = !!on;
-    statusDot.classList.toggle("on", state.online);
-    statusLine.textContent = state.online ? "Online" : "Offline";
-  }
-
   async function apiGet(path) {
     const url = absApi(path);
     const r = await fetch(url, { cache: "no-store" });
@@ -92,43 +47,8 @@
     return await r.json();
   }
 
-  function setSelected(btns, activeBtn) {
-    btns.forEach(b => b.setAttribute("aria-selected", b === activeBtn ? "true" : "false"));
-  }
-
-  function showPanel(name) {
-    state.activeTab = name;
-    tabBtns.forEach(b => b.setAttribute("aria-selected", b.dataset.tab === name ? "true" : "false"));
-    panels.forEach(p => p.classList.toggle("hidden", p.dataset.panel !== name));
-  }
-
-  function safeText(el, v, fallback = "—") {
-    el.textContent = (v && String(v).trim().length) ? String(v) : fallback;
-  }
-
-  function enableMarqueeIfNeeded(wrapEl, spanEl) {
-    requestAnimationFrame(() => {
-      const wrap = wrapEl;
-      const span = spanEl;
-      if (!wrap || !span) return;
-
-      const overflow = span.scrollWidth > wrap.clientWidth + 8;
-      wrap.classList.toggle("marqOn", overflow);
-
-      if (overflow) {
-        const shift = span.scrollWidth - wrap.clientWidth + 18;
-        wrap.style.setProperty("--marqShift", `${shift}px`);
-        const dur = Math.min(22, Math.max(10, shift / 22));
-        wrap.style.setProperty("--marqDur", `${dur}s`);
-      } else {
-        wrap.style.removeProperty("--marqShift");
-        wrap.style.removeProperty("--marqDur");
-      }
-    });
-  }
-
   function escapeHtml(s) {
-    return String(s)
+    return String(s ?? "")
       .replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;")
       .replaceAll(">", "&gt;")
@@ -136,252 +56,62 @@
       .replaceAll("'", "&#039;");
   }
 
-  function rowHTML({ idx, title, sub, img, right, rightClass = "right" }) {
-    const imgHtml = img
-      ? `<img src="${img}" alt="" loading="lazy" decoding="async" />`
-      : `<div class="thumbFallback">♪</div>`;
+  function renderThumb(img) {
+    const u = absApi(img || "");
+    if (!u) return `<div class="thumbFallback">♪</div>`;
+    return `<img src="${escapeHtml(u)}" alt="" loading="lazy" decoding="async" />`;
+  }
+
+  function rowHTML({ idx, title, sub, img, right = "", uri = "" }) {
+    const safeTitle = escapeHtml(title || "—");
+    const safeSub = escapeHtml(sub || "");
+    const safeRight = escapeHtml(String(right || ""));
+    const safeUri = escapeHtml(uri || "");
 
     return `
-      <div class="row" role="listitem" aria-label="${idx}. ${escapeHtml(title)}">
-        <div class="thumb" aria-hidden="true">${imgHtml}</div>
+      <div
+        class="row"
+        role="listitem"
+        aria-label="${idx}. ${safeTitle}"
+        ${safeUri ? `data-spotify-uri="${safeUri}"` : ""}
+      >
+        <div class="thumb" aria-hidden="true">${renderThumb(img)}</div>
         <div class="mid">
-          <div class="title">${escapeHtml(`${idx}. ${title}`)}</div>
-          <div class="sub">${escapeHtml(sub || "")}</div>
+          <div class="title">${escapeHtml(`${idx}. ${title || "—"}`)}</div>
+          <div class="sub">${safeSub}</div>
         </div>
-        <div class="${rightClass}">${escapeHtml(String(right ?? ""))}</div>
+        <div class="right">${safeRight}</div>
       </div>
     `;
   }
 
-  // -------- MIRROR (visual-only) --------
-  function clamp01(x) {
-    const n = Number(x);
-    if (!Number.isFinite(n)) return 0.5;
-    return Math.max(0, Math.min(1, n));
-  }
-
-  function mirrorFromNowItem(item) {
-    if (!item) {
-      return { live: false, energy: 0.28, mood: 0.42, replay: 0.18, axis01: 0.42 };
-    }
-    const t = (item.name || "").length;
-    const a = (item.artist || "").length;
-    const al = (item.album || "").length;
-    const seed = (t * 13 + a * 7 + al * 5) % 100;
-
-    const energy = 0.45 + (seed / 100) * 0.35;
-    const mood = 0.30 + ((100 - seed) / 100) * 0.45;
-    const replay = 0.35 + ((seed % 37) / 37) * 0.45;
-    const axis01 = 0.35 + ((seed % 61) / 61) * 0.45;
-
-    return { live: true, energy, mood, replay, axis01 };
-  }
-
-  function updateMirrorCoversFromRecent() {
-    return (state.lastRecentForMirror || [])
-      .map(it => it?.image || "")
-      .filter(Boolean);
-  }
-
-  function setMirror({ live, energy, mood, replay, axis01, covers }) {
-    mirrorPill.classList.toggle("on", !!live);
-    mirrorPillText.textContent = live ? "LISTENING" : "IDLE";
-    mirrorState.textContent = live ? "LISTENING" : "IDLE";
-
-    // ✅ Orb breathing
-    mirrorOrb.classList.toggle("on", !!live);
-
-    const e = clamp01(energy);
-    const m = clamp01(mood);
-    const r = clamp01(replay);
-
-    mEnergy.style.width = `${Math.round(e * 100)}%`;
-    mMood.style.width = `${Math.round(m * 100)}%`;
-    mReplay.style.width = `${Math.round(r * 100)}%`;
-
-    mEnergyNum.textContent = `${Math.round(e * 100)}`;
-    mMoodNum.textContent = `${Math.round(m * 100)}`;
-    mReplayNum.textContent = `${Math.round(r * 100)}`;
-
-    const ax = clamp01(axis01);
-    mDot.style.left = `${Math.round(ax * 100)}%`;
-
-    const list = Array.isArray(covers) ? covers.slice(0, 6) : [];
-    mCovers.innerHTML = list.map(url => {
-      const u = absApi(url || "");
-      if (!u) return `<div class="cvr" aria-hidden="true"></div>`;
-      return `<div class="cvr" aria-hidden="true"><img src="${u}" alt="" loading="lazy" decoding="async" /></div>`;
-    }).join("");
-  }
-
-  // -------- NOW --------
-  function setNowVisual({ live, item }) {
-    nowBadge.classList.toggle("live", !!live);
-    nowBadgeText.textContent = live ? "LIVE" : "OFF";
-
-    if (!item) {
-      nowAmbient.classList.remove("on");
-      nowCoverWrap.style.removeProperty("--cover-url");
-      nowAmbient.style.removeProperty("--ambient-url");
-
-      nowImg.style.display = "none";
-      nowImg.removeAttribute("src");
-      nowFallback.style.display = "grid";
-
-      safeText(nowTrack, "—");
-      safeText(nowArtist, "—");
-      safeText(nowAlbum, "—");
-      safeText(nowMsg, "Not playing now", "Not playing now");
-
-      enableMarqueeIfNeeded(nowTrackWrap, nowTrack);
-      enableMarqueeIfNeeded(nowArtistWrap, nowArtist);
-      enableMarqueeIfNeeded(nowAlbumWrap, nowAlbum);
-      return;
-    }
-
-    const img = absApi(item.image || "");
-    safeText(nowTrack, item.name || "—");
-    safeText(nowArtist, item.artist || "—");
-    safeText(nowAlbum, item.album || "—");
-    safeText(nowMsg, "", "");
-
-    if (img) {
-      nowImg.src = img;
-      nowImg.style.display = "block";
-      nowFallback.style.display = "none";
-
-      nowCoverWrap.style.setProperty("--cover-url", `url("${img}")`);
-      nowAmbient.style.setProperty("--ambient-url", `url("${img}")`);
-      nowAmbient.classList.add("on");
-    } else {
-      nowImg.style.display = "none";
-      nowImg.removeAttribute("src");
-      nowFallback.style.display = "grid";
-      nowAmbient.classList.remove("on");
-      nowAmbient.style.removeProperty("--ambient-url");
-    }
-
-    enableMarqueeIfNeeded(nowTrackWrap, nowTrack);
-    enableMarqueeIfNeeded(nowArtistWrap, nowArtist);
-    enableMarqueeIfNeeded(nowAlbumWrap, nowAlbum);
-  }
-
-  async function loadNow() {
-    try {
-      const j = await apiGet("/api/now");
-      setOnline(true);
-
-      const item = (j && j.ok) ? (j.item || null) : null;
-      const live = !!item;
-
-      setNowVisual({ live, item });
-
-      const base = mirrorFromNowItem(item);
-      setMirror({ ...base, covers: updateMirrorCoversFromRecent() });
-
-      return true;
-    } catch (e) {
-      setOnline(false);
-
-      setNowVisual({ live: false, item: null });
-      setMirror({
-        live: false,
-        energy: 0.22,
-        mood: 0.38,
-        replay: 0.12,
-        axis01: 0.40,
-        covers: updateMirrorCoversFromRecent(),
-      });
-
-      return false;
-    }
-  }
-
-  function startNowPolling() {
-    stopNowPolling();
-    state.nowTimer = setInterval(() => {
-      if (state.activeTab === "now") loadNow();
-    }, NOW_POLL_MS);
-  }
-
-  function stopNowPolling() {
-    if (state.nowTimer) clearInterval(state.nowTimer);
-    state.nowTimer = null;
-  }
-
-  // -------- TOP --------
-  function setTopLoading() {
-    topList.innerHTML = `
-      <div class="row">
+  function cardMessageHTML(title, sub = "") {
+    return `
+      <div class="row" role="listitem">
         <div class="mid">
-          <div class="title">Loading…</div>
-          <div class="sub">Fetching your top…</div>
+          <div class="title">${escapeHtml(title)}</div>
+          <div class="sub">${escapeHtml(sub)}</div>
         </div>
       </div>
     `;
   }
 
-  async function loadTop() {
-    try {
-      setTopLoading();
-      const type = state.topType;
-      const period = state.topPeriod;
-      const limit = TOP_LIMIT_DEFAULT;
-
-      const j = await apiGet(`/api/top?type=${encodeURIComponent(type)}&period=${encodeURIComponent(period)}&limit=${limit}`);
-      setOnline(true);
-
-      const items = (j && j.ok && Array.isArray(j.items)) ? j.items : [];
-      if (!items.length) {
-        topList.innerHTML = `
-          <div class="row">
-            <div class="mid">
-              <div class="title">No data</div>
-              <div class="sub">Try another period.</div>
-            </div>
-          </div>
-        `;
-        return true;
-      }
-
-      const html = items.map((it, i) => {
-        const idx = i + 1;
-        const title = it.name || "—";
-        const sub = (type === "artists") ? "" : (it.artist || "");
-        const img = absApi(it.image || "");
-        const right = (it.playcount != null) ? it.playcount : "";
-        return rowHTML({ idx, title, sub, img, right, rightClass: "right count" });
-      }).join("");
-
-      topList.innerHTML = html;
-      return true;
-    } catch (e) {
-      setOnline(false);
-      topList.innerHTML = `
-        <div class="row">
-          <div class="mid">
-            <div class="title">Couldn’t load Top.</div>
-            <div class="sub">Check connection / Worker.</div>
-          </div>
-        </div>
-      `;
-      return false;
-    }
+  function setLoading(el, title, sub) {
+    if (!el) return;
+    el.innerHTML = cardMessageHTML(title, sub);
   }
 
-  // -------- RECENT --------
-  function setRecentLoading() {
-    recentList.innerHTML = `
-      <div class="row">
-        <div class="mid">
-          <div class="title">Loading…</div>
-          <div class="sub">Fetching recent…</div>
-        </div>
-      </div>
-    `;
+  function setEmpty(el, title, sub) {
+    if (!el) return;
+    el.innerHTML = cardMessageHTML(title, sub);
   }
 
-  function normalizeRecent(j) {
+  function setError(el, title, sub) {
+    if (!el) return;
+    el.innerHTML = cardMessageHTML(title, sub);
+  }
+
+  function normalizeRecentPayload(j) {
     return (
       (j && j.ok && Array.isArray(j.items) && j.items) ||
       (j && j.ok && Array.isArray(j.history) && j.history) ||
@@ -389,104 +119,263 @@
     );
   }
 
-  async function loadRecent() {
+  function normalizeTopPayload(j) {
+    return (
+      (j && j.ok && Array.isArray(j.items) && j.items) ||
+      []
+    );
+  }
+   async function loadRecent() {
+    if (!recentList) return false;
+
     try {
-      setRecentLoading();
+      setLoading(recentList, "Loading…", "Fetching recent listening…");
+
       const limit = RECENT_LIMIT_DEFAULT;
-
       const j = await apiGet(`/api/history?limit=${limit}`);
-      setOnline(true);
+      const items = normalizeRecentPayload(j);
 
-      const items = normalizeRecent(j);
-      state.lastRecentForMirror = items.slice(0, 10);
+      state.lastRecent = items.slice();
 
       if (!items.length) {
-        recentList.innerHTML = `
-          <div class="row">
-            <div class="mid">
-              <div class="title">No recent tracks</div>
-              <div class="sub">Play something and refresh.</div>
-            </div>
-          </div>
-        `;
+        setEmpty(recentList, "No recent tracks", "Play something and refresh.");
         return true;
       }
 
       const html = items.map((it, i) => {
         const idx = i + 1;
         const title = it.name || "—";
-        const sub = `${it.artist || ""}${it.album ? " • " + it.album : ""}`.trim();
-        const img = absApi(it.image || "");
+        const artist = it.artist || "";
+        const album = it.album || "";
+        const sub = `${artist}${album ? " • " + album : ""}`.trim();
+        const img = it.image || "";
         const right = it.time || it.date || "";
-        return rowHTML({ idx, title, sub, img, right, rightClass: "right" });
+        const uri = it.uri || it.spotify_uri || "";
+
+        return rowHTML({
+          idx,
+          title,
+          sub,
+          img,
+          right,
+          uri
+        });
       }).join("");
 
       recentList.innerHTML = html;
-
-      // refresh mirror cover stack quickly
-      const base = mirrorFromNowItem(null);
-      setMirror({ ...base, covers: updateMirrorCoversFromRecent() });
-
       return true;
     } catch (e) {
-      setOnline(false);
-      recentList.innerHTML = `
-        <div class="row">
-          <div class="mid">
-            <div class="title">Couldn’t load Recent.</div>
-            <div class="sub">Check connection / Worker.</div>
-          </div>
-        </div>
-      `;
+      setError(recentList, "Couldn’t load Recent.", "Check connection / Worker.");
       return false;
     }
   }
 
-  // -------- Wiring --------
-  function wireTabs() {
-    tabBtns.forEach(btn => {
-      btn.addEventListener("click", async () => {
-        const name = btn.dataset.tab;
-        showPanel(name);
+  async function loadTop() {
+    if (!topList) return false;
 
-        if (name === "now") await loadNow();
-        if (name === "top") await loadTop();
-        if (name === "recent") await loadRecent();
-      });
-    });
+    try {
+      setLoading(topList, "Loading…", "Fetching your top listening…");
+
+      const type = state.topType;
+      const period = state.topPeriod;
+      const limit = TOP_LIMIT_DEFAULT;
+
+      const j = await apiGet(`/api/top?type=${encodeURIComponent(type)}&period=${encodeURIComponent(period)}&limit=${limit}`);
+      const items = normalizeTopPayload(j);
+
+      state.lastTop = items.slice();
+
+      if (!items.length) {
+        setEmpty(topList, "No data", "Try another period.");
+        return true;
+      }
+
+      const html = items.map((it, i) => {
+        const idx = i + 1;
+        const title = it.name || "—";
+        const sub = (type === "artists")
+          ? ""
+          : (it.artist || "");
+        const img = it.image || "";
+        const right = (it.playcount != null) ? it.playcount : "";
+        const uri = it.uri || it.spotify_uri || "";
+
+        return rowHTML({
+          idx,
+          title,
+          sub,
+          img,
+          right,
+          uri
+        });
+      }).join("");
+
+      topList.innerHTML = html;
+      return true;
+    } catch (e) {
+      setError(topList, "Couldn’t load Top.", "Check connection / Worker.");
+      return false;
+    }
   }
 
-  function wireTopControls() {
-    topTypeBtns.forEach(btn => {
-      btn.addEventListener("click", async () => {
-        state.topType = btn.dataset.topType;
-        setSelected(topTypeBtns, btn);
-        await loadTop();
+  function loadConcertPlaceholders() {
+    if (concertsList && !concertsList.children.length) {
+      concertsList.innerHTML = cardMessageHTML(
+        "Concert feed not wired yet",
+        "Your real concerts source can be connected next."
+      );
+    }
+
+    if (concertMatchesList && !concertMatchesList.children.length) {
+      concertMatchesList.innerHTML = cardMessageHTML(
+        "No matches yet",
+        "Matches will appear here when the concerts feed is connected."
+      );
+    }
+  }
+
+  function loadArchivePlaceholder() {
+    if (archiveList && !archiveList.children.length) {
+      archiveList.innerHTML = cardMessageHTML(
+        "Archive ready",
+        "Saved mirror states or history can render here later."
+      );
+    }
+  }
+
+  function bindTopPanelControls() {
+    const identityView = $("viewIdentity");
+    if (!identityView) return;
+
+    let controls = $("topControlsBar");
+    if (controls) return;
+
+    const wrap = document.createElement("div");
+    wrap.id = "topControlsBar";
+    wrap.className = "card";
+    wrap.style.marginBottom = "14px";
+    wrap.innerHTML = `
+      <div style="display:grid;gap:12px;">
+        <div>
+          <div style="font-size:12px;color:rgba(255,255,255,.62);letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px;">Top type</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button type="button" class="lmTopBtn" data-top-type="tracks">Tracks</button>
+            <button type="button" class="lmTopBtn" data-top-type="artists">Artists</button>
+          </div>
+        </div>
+
+        <div>
+          <div style="font-size:12px;color:rgba(255,255,255,.62);letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px;">Period</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button type="button" class="lmPeriodBtn" data-top-period="today">Today</button>
+            <button type="button" class="lmPeriodBtn" data-top-period="week">Week</button>
+            <button type="button" class="lmPeriodBtn" data-top-period="month">Month</button>
+            <button type="button" class="lmPeriodBtn" data-top-period="year">Year</button>
+            <button type="button" class="lmPeriodBtn" data-top-period="overall">Overall</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const recentCard = recentList?.closest(".card");
+    if (recentCard && recentCard.parentElement) {
+      recentCard.parentElement.insertBefore(wrap, recentCard);
+    } else {
+      identityView.prepend(wrap);
+    }
+
+    const styleId = "lmTopControlsCss";
+    if (!document.getElementById(styleId)) {
+      const st = document.createElement("style");
+      st.id = styleId;
+      st.textContent = `
+        .lmTopBtn,.lmPeriodBtn{
+          border:1px solid rgba(255,255,255,.12);
+          background:rgba(255,255,255,.04);
+          color:rgba(255,255,255,.88);
+          border-radius:999px;
+          padding:8px 12px;
+          font:inherit;
+          font-size:13px;
+          cursor:pointer;
+        }
+        .lmTopBtn.is-active,.lmPeriodBtn.is-active{
+          background:rgba(255,255,255,.12);
+          border-color:rgba(255,255,255,.22);
+          color:#fff;
+        }
+      `;
+      document.head.appendChild(st);
+    }
+     function syncButtons() {
+      document.querySelectorAll(".lmTopBtn").forEach((btn) => {
+        btn.classList.toggle("is-active", btn.dataset.topType === state.topType);
       });
+      document.querySelectorAll(".lmPeriodBtn").forEach((btn) => {
+        btn.classList.toggle("is-active", btn.dataset.topPeriod === state.topPeriod);
+      });
+    }
+
+    wrap.addEventListener("click", async (e) => {
+      const typeBtn = e.target.closest(".lmTopBtn");
+      const periodBtn = e.target.closest(".lmPeriodBtn");
+
+      if (typeBtn) {
+        state.topType = typeBtn.dataset.topType || "tracks";
+        syncButtons();
+        await loadTop();
+        return;
+      }
+
+      if (periodBtn) {
+        state.topPeriod = periodBtn.dataset.topPeriod || "today";
+        syncButtons();
+        await loadTop();
+      }
     });
 
-    topPeriodBtns.forEach(btn => {
-      btn.addEventListener("click", async () => {
-        state.topPeriod = btn.dataset.topPeriod;
-        setSelected(topPeriodBtns, btn);
+    syncButtons();
+  }
+
+  function bindTabPrefetch() {
+    const tabConcerts = $("tabConcerts");
+    const tabIdentity = $("tabIdentity");
+    const tabArchive = $("tabArchive");
+
+    tabIdentity?.addEventListener("click", async () => {
+      if (!recentList?.children.length || recentList.textContent.includes("No data")) {
+        await loadRecent();
+      }
+      if (!topList?.children.length || topList.textContent.includes("No data")) {
         await loadTop();
-      });
+      }
+    });
+
+    tabConcerts?.addEventListener("click", () => {
+      loadConcertPlaceholders();
+    });
+
+    tabArchive?.addEventListener("click", () => {
+      loadArchivePlaceholder();
     });
   }
 
   async function boot() {
-    wireTabs();
-    wireTopControls();
+    bindTopPanelControls();
+    bindTabPrefetch();
 
-    showPanel("now");
+    loadConcertPlaceholders();
+    loadArchivePlaceholder();
 
-    // fast + stable
-    await loadRecent(); // mirror gets covers early
-    await loadNow();    // now + mirror correct
-    loadTop();          // background
-
-    startNowPolling();
+    await Promise.all([
+      loadRecent(),
+      loadTop()
+    ]);
   }
 
-  boot();
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot, { once: true });
+  } else {
+    boot();
+  }
 })();

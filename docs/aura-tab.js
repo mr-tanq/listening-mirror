@@ -1,32 +1,22 @@
 /* aura-tab.js (FULL FILE REPLACE) — PART 1/4
-   Listening Mirror — Shared Main Orb + Aura Details Panel + Orb Renderer V4
-   ✅ ONE orb system only (main screen)
+   Listening Mirror — Aura Controller using external orb-engine.js
+   ✅ Uses window.LMOrbEngine
+   ✅ Shared main orb only
    ✅ Title portal
    ✅ Spotify button in header
    ✅ Aura modal = details only
-   ✅ Shared main orb
-   ✅ Album art adaptive palette
-   ✅ V4: denser filaments / hotter center / stronger plasma identity
+   ✅ Spotify sync + audio features + signals
 */
 
 (() => {
   "use strict";
 
   const SPOTIFY_API = "https://api.spotify.com/v1";
-
   const OPEN_POLL_MS = 8000;
   const CLOSED_POLL_MS = 60000;
   const BURST_STEPS = [0, 350, 900, 1800, 3200, 5200];
 
-  const MAX_DPR = 2.25;
-  const FPS_CAP = 60;
-
-  const PI = Math.PI;
-  const TAU = Math.PI * 2;
-
   const clamp01 = (x) => Math.max(0, Math.min(1, x));
-  const lerp = (a, b, t) => a + (b - a) * t;
-  const invLerp = (a, b, v) => (v - a) / (b - a || 1);
   const $ = (sel, root = document) => root.querySelector(sel);
 
   function safeCall(fn) {
@@ -112,7 +102,7 @@
   titleEl.setAttribute("aria-label", "Open aura");
 
   const style = document.createElement("style");
-  style.id = "auraTabStylesPlasmaV4";
+  style.id = "auraTabStylesExternalEngine";
   style.textContent = `
     .wordmark .title{
       letter-spacing:1.15px !important;
@@ -241,12 +231,12 @@
       outline:1px solid rgba(255,255,255,.10);
       color:rgba(255,255,255,.90);
     }
-    .auraClose:active{ transform:translateY(1px); }
-
-    .auraBody{ padding:16px; }
   `;
   document.head.appendChild(style);
    style.textContent += `
+    .auraClose:active{ transform:translateY(1px); }
+    .auraBody{ padding:16px; }
+
     .auraHero{
       border-radius:20px;
       outline:1px solid rgba(255,255,255,.08);
@@ -341,25 +331,6 @@
       line-height:1.45;
       letter-spacing:.12px;
     }
-
-    .lmOrbCanvasMain{
-      width:100%;
-      height:100%;
-      display:block;
-      border-radius:50%;
-    }
-    .orb-wrap{
-      position:relative;
-      overflow:visible;
-    }
-    .orb-wrap .lmOrbCanvasMain{
-      position:absolute;
-      inset:0;
-      width:100%;
-      height:100%;
-      border-radius:50%;
-      pointer-events:none;
-    }
   `;
 
   const overlay = createEl("div", {
@@ -440,28 +411,12 @@
 
   const auraLine = $("#auraLine", overlay);
 
-  function ensureMainOrbCanvas() {
-    let canvas = $("#lmOrbCanvas");
-    if (canvas) return canvas;
-
-    const wrap = $(".orb-wrap");
-    if (!wrap) return null;
-
-    canvas = createEl("canvas", {
-      id: "lmOrbCanvas",
-      class: "lmOrbCanvasMain",
-      "aria-hidden": "true"
-    });
-    wrap.appendChild(canvas);
-    return canvas;
-  }
-
-  const c = ensureMainOrbCanvas();
-  const ctx = c ? c.getContext("2d", { alpha: true }) : null;
+  const c = $("#lmOrbCanvas");
+  const orbEngine = (window.LMOrbEngine && c)
+    ? window.LMOrbEngine.mount(c, { seed: "listening-mirror" })
+    : null;
 
   let open = false;
-  let rafId = 0;
-  let lastFrame = 0;
   let pollTimer = 0;
   let burstTimeouts = [];
 
@@ -471,23 +426,16 @@
   let flux = 0.50;
   let hasSpotifyPlayback = false;
 
-  let orbSeed = 1337;
-  let beatTempo = 110;
-  let beatEnergy = 0.55;
-
-  let lockedTrackId = "";
-  let lockedSeed = 0;
-  let lockedHint = "";
-
-  const albumPaletteCache = new Map();
-  let albumPalette = null;
-  let albumPaletteTrackId = "";
+  let currentTrackId = "";
+  let currentArtwork = "";
+  let currentHint = "";
 
   function setHintText(txt) {
-    if (hint) hint.textContent = txt || "—";
+    currentHint = txt || "—";
+    if (hint) hint.textContent = currentHint;
     if (subHint) {
       subHint.textContent = hasSpotifyPlayback
-        ? (albumPalette ? "Live from Spotify + album palette" : "Live from Spotify playback")
+        ? (currentArtwork ? "Live from Spotify + album palette" : "Live from Spotify playback")
         : "Metadata-derived field";
     }
   }
@@ -519,69 +467,29 @@
       auraLine.textContent = line;
     }
   }
-
-  function normalize01(n, fallback) {
-    const v = Number(n);
-    if (!Number.isFinite(v)) return fallback;
-    if (v > 1.001) return clamp01(v / 100);
-    return clamp01(v);
-  }
-
-  function hashStringToSeed(str) {
-    const s = String(str || "");
-    let h = 2166136261 >>> 0;
-    for (let i = 0; i < s.length; i++) {
-      h ^= s.charCodeAt(i);
-      h = Math.imul(h, 16777619);
-    }
-    return h >>> 0;
-  }
-
-  function mulberry32(a) {
-    return function() {
-      let t = a += 0x6D2B79F5;
-      t = Math.imul(t ^ (t >>> 15), t | 1);
-      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-  }
-
-  function words(str) {
-    return String(str || "")
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9&+\- ]+/g, " ")
-      .split(/\s+/)
-      .filter(Boolean);
-  }
-
-  function hasAny(set, arr) {
-    return arr.some(x => set.has(x));
-  }
    function deriveVibeFromMetadata(meta) {
     const track = String(meta.track || "");
     const artist = String(meta.artist || "");
     const album = String(meta.album || "");
     const durationMs = Number(meta.durationMs || 0);
 
-    const all = new Set([...words(track), ...words(artist), ...words(album)]);
+    const words = `${track} ${artist} ${album}`.toLowerCase();
 
     let H = 0.42;
     let F = 0.48;
     let D = 0.52;
     let X = 0.46;
 
-    if (hasAny(all, ["doom","slow","ashes","dark","night","shadow","funeral","void","grave"])) {
+    if (/(doom|slow|ashes|dark|night|shadow|funeral|void|grave)/.test(words)) {
       D += 0.24; H -= 0.04; X -= 0.02;
     }
-    if (hasAny(all, ["sun","gold","light","love","fire","heart","soul","summer","warm"])) {
+    if (/(sun|gold|light|love|fire|heart|soul|summer|warm)/.test(words)) {
       H += 0.20;
     }
-    if (hasAny(all, ["run","burn","dance","electric","speed","wild","riot","move","fast","drive"])) {
+    if (/(run|burn|dance|electric|speed|wild|riot|move|fast|drive)/.test(words)) {
       H += 0.12; X += 0.24;
     }
-    if (hasAny(all, ["instrumental","interlude","theme","reprise","solo","suite","nocturne"])) {
+    if (/(instrumental|interlude|theme|reprise|solo|suite|nocturne)/.test(words)) {
       F += 0.22; X -= 0.08;
     }
 
@@ -597,394 +505,17 @@
     };
   }
 
-  function hexToRgb(hex) {
-    const h = String(hex || "").replace("#", "").trim();
-    if (h.length !== 6) return { r: 255, g: 255, b: 255 };
-    return {
-      r: parseInt(h.slice(0, 2), 16),
-      g: parseInt(h.slice(2, 4), 16),
-      b: parseInt(h.slice(4, 6), 16)
-    };
-  }
+  function applySignalsToOrb({ heat, focus, depth, flux, tempo, energy, seed, artwork }) {
+    if (!orbEngine) return;
 
-  function rgba(hex, a) {
-    const { r, g, b } = hexToRgb(hex);
-    return `rgba(${r},${g},${b},${a})`;
-  }
+    orbEngine.setSignals({ heat, focus, depth, flux });
+    orbEngine.setBeat({ tempo, energy });
 
-  function rgbToHex(r, g, b) {
-    return "#" + [r, g, b].map(v => Math.max(0, Math.min(255, v)).toString(16).padStart(2, "0")).join("");
-  }
+    if (seed) orbEngine.setSeed(seed);
 
-  function brighten(hex, amt = 0.18) {
-    const c = hexToRgb(hex);
-    return rgbToHex(
-      Math.round(lerp(c.r, 255, amt)),
-      Math.round(lerp(c.g, 255, amt)),
-      Math.round(lerp(c.b, 255, amt))
-    );
-  }
-
-  function darken(hex, amt = 0.35) {
-    const c = hexToRgb(hex);
-    return rgbToHex(
-      Math.round(c.r * (1 - amt)),
-      Math.round(c.g * (1 - amt)),
-      Math.round(c.b * (1 - amt))
-    );
-  }
-
-  async function extractPaletteFromImage(url) {
-    if (!url) return null;
-    if (albumPaletteCache.has(url)) return albumPaletteCache.get(url);
-
-    const promise = new Promise((resolve) => {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-
-      img.onload = () => {
-        try {
-          const canvas = document.createElement("canvas");
-          const ctx2 = canvas.getContext("2d", { willReadFrequently: true });
-          const size = 48;
-          canvas.width = size;
-          canvas.height = size;
-          ctx2.drawImage(img, 0, 0, size, size);
-
-          const data = ctx2.getImageData(0, 0, size, size).data;
-
-          let rs = 0, gs = 0, bs = 0, count = 0;
-          let bestSat = -1;
-          let vibrant = { r: 255, g: 180, b: 90 };
-
-          for (let i = 0; i < data.length; i += 16) {
-            const r = data[i];
-            const g = data[i + 1];
-            const b = data[i + 2];
-            const a = data[i + 3];
-            if (a < 120) continue;
-
-            rs += r; gs += g; bs += b; count++;
-
-            const max = Math.max(r, g, b);
-            const min = Math.min(r, g, b);
-            const sat = max - min;
-            const bright = (r + g + b) / 3;
-
-            if (sat > bestSat && bright > 26 && bright < 235) {
-              bestSat = sat;
-              vibrant = { r, g, b };
-            }
-          }
-
-          if (!count) {
-            resolve(null);
-            return;
-          }
-
-          const ar = Math.round(rs / count);
-          const ag = Math.round(gs / count);
-          const ab = Math.round(bs / count);
-
-          const dominantHex = rgbToHex(ar, ag, ab);
-          const vibrantHex = rgbToHex(vibrant.r, vibrant.g, vibrant.b);
-
-          resolve({
-            dominantHex,
-            vibrantHex,
-            warmHex: brighten(vibrantHex, 0.12),
-            coldHex: rgbToHex(
-              Math.round(lerp(vibrant.r, 70, 0.78)),
-              Math.round(lerp(vibrant.g, 188, 0.78)),
-              Math.round(lerp(vibrant.b, 255, 0.84))
-            ),
-            darkHex: darken(dominantHex, 0.74),
-            lightHex: brighten(vibrantHex, 0.60)
-          });
-        } catch {
-          resolve(null);
-        }
-      };
-
-      img.onerror = () => resolve(null);
-      img.src = url;
-    });
-
-    albumPaletteCache.set(url, promise);
-    return promise;
-  }
-
-  function getRenderPalette() {
-    if (albumPalette) {
-      return {
-        bg: albumPalette.darkHex,
-        warm: albumPalette.warmHex,
-        cold: albumPalette.coldHex,
-        fusion: albumPalette.vibrantHex,
-        light: albumPalette.lightHex
-      };
+    if (artwork) {
+      safeCall(() => orbEngine.setArtwork(artwork));
     }
-
-    return {
-      bg: "#050913",
-      warm: "#ff8a38",
-      cold: "#4ecaff",
-      fusion: "#bb77ff",
-      light: "#fff5ea"
-    };
-  }
-
-  function applyVibe(vibe, meta, trackId) {
-    heat = clamp01(vibe.heat);
-    focus = clamp01(vibe.focus);
-    depth = clamp01(vibe.depth);
-    flux = clamp01(vibe.flux);
-
-    if (trackId && lockedTrackId === trackId && lockedSeed) {
-      orbSeed = lockedSeed;
-      if (lockedHint) setHintText(lockedHint);
-    } else {
-      orbSeed = hashStringToSeed(`${trackId || ""}__${meta.artist || ""}__${meta.track || ""}`);
-      beatEnergy = heat;
-
-      const newHint = [
-        meta.artist || "Unknown artist",
-        meta.track || "Unknown track"
-      ].filter(Boolean).join(" — ");
-
-      setHintText(newHint);
-
-      if (trackId) {
-        lockedTrackId = trackId;
-        lockedSeed = orbSeed;
-        lockedHint = newHint;
-      }
-    }
-
-    setBars();
-                                                }
-   function resizeCanvas() {
-    if (!c || !ctx) return;
-    const rect = c.getBoundingClientRect();
-    const dpr = Math.min(MAX_DPR, window.devicePixelRatio || 1);
-    const w = Math.max(64, Math.round(rect.width * dpr));
-    const h = Math.max(64, Math.round(rect.height * dpr));
-    if (c.width !== w || c.height !== h) {
-      c.width = w;
-      c.height = h;
-    }
-  }
-
-  function filamentCurve(ctx, x1, y1, c1x, c1y, c2x, c2y, x2, y2, cA, cB, width, alpha) {
-    const grad = ctx.createLinearGradient(x1, y1, x2, y2);
-    grad.addColorStop(0.00, rgba(cA, 0.00));
-    grad.addColorStop(0.14, rgba(cA, alpha * 0.95));
-    grad.addColorStop(0.52, rgba(cB, alpha));
-    grad.addColorStop(1.00, rgba(cB, 0.00));
-
-    ctx.strokeStyle = grad;
-    ctx.lineWidth = width;
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.bezierCurveTo(c1x, c1y, c2x, c2y, x2, y2);
-    ctx.stroke();
-  }
-
-  function drawBand(ctx, cx, cy, r, t, palette, pulse, side) {
-    const warm = side === "warm";
-    const base = warm ? palette.warm : palette.cold;
-    const hi = palette.light;
-    const sign = warm ? -1 : 1;
-
-    const count = 36;
-
-    ctx.save();
-    ctx.globalCompositeOperation = "lighter";
-
-    for (let i = 0; i < count; i++) {
-      const frac = i / (count - 1);
-
-      const startA = (warm ? PI * 1.05 : -0.03) + Math.sin(t * (0.92 + frac * 0.35) + i * 0.44) * 0.16;
-      const endA   = (warm ? PI * 1.94 : PI * 0.90) + Math.cos(t * (1.02 + frac * 0.30) + i * 0.48) * 0.14;
-
-      const startR = r * lerp(0.56, 0.995, frac);
-      const endR   = r * lerp(0.92, 0.50, frac);
-
-      const x1 = cx + Math.cos(startA) * startR;
-      const y1 = cy + Math.sin(startA) * startR;
-      const x2 = cx + Math.cos(endA) * endR;
-      const y2 = cy + Math.sin(endA) * endR;
-
-      const c1x = cx + sign * r * lerp(0.26, 0.42, frac) + Math.cos(startA + sign * 0.50) * r * 0.05;
-      const c1y = cy - r * lerp(0.22, 0.04, frac) + Math.sin(t * 0.62 + i) * r * 0.009;
-      const c2x = cx - sign * r * lerp(0.01, 0.10, frac) + Math.cos(endA - sign * 0.24) * r * 0.04;
-      const c2y = cy + r * lerp(0.08, 0.24, frac) + Math.cos(t * 0.76 + i) * r * 0.009;
-
-      const width = lerp(0.65, 4.2, 1 - frac) * (0.92 + pulse * 0.42);
-      const alpha = lerp(0.12, 0.40, 1 - frac) + pulse * 0.18;
-
-      filamentCurve(ctx, x1, y1, c1x, c1y, c2x, c2y, x2, y2, base, hi, width, alpha);
-    }
-
-    ctx.restore();
-  }
-
-  function drawOrb(ts) {
-    if (!ctx || !c) return;
-
-    const minFrame = 1000 / FPS_CAP;
-    if (ts - lastFrame < minFrame) {
-      rafId = requestAnimationFrame(drawOrb);
-      return;
-    }
-    lastFrame = ts;
-
-    const w = c.width;
-    const h = c.height;
-    const cx = w * 0.5;
-    const cy = h * 0.5;
-    const t = ts * 0.001;
-    const palette = getRenderPalette();
-
-    const bpm = Math.max(60, Math.min(180, beatTempo || 110));
-    const beat = (t * bpm / 60) % 1;
-    const pulse = Math.pow(Math.max(0, 1 - beat), 4.4) * (0.16 + beatEnergy * 0.20);
-
-    ctx.clearRect(0, 0, w, h);
-
-    const baseR = Math.min(w, h) * 0.408;
-    const radius = baseR * (1 + Math.sin(t * (0.82 + flux * 0.34)) * 0.006 + pulse * 0.045);
-
-    const halo = ctx.createRadialGradient(cx, cy, radius * 0.34, cx, cy, radius * 1.95);
-    halo.addColorStop(0.00, rgba(palette.light, 0.14 + pulse * 0.18));
-    halo.addColorStop(0.22, rgba(palette.warm, 0.20 + heat * 0.12));
-    halo.addColorStop(0.40, rgba(palette.cold, 0.20 + depth * 0.12));
-    halo.addColorStop(1.00, "rgba(0,0,0,0)");
-    ctx.fillStyle = halo;
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius * 1.95, 0, TAU);
-    ctx.fill();
-
-    ctx.save();
-    ctx.beginPath();
-    const pts = 260;
-    for (let i = 0; i <= pts; i++) {
-      const a = (i / pts) * TAU;
-      const wobble =
-        Math.sin(a * 3 + t * 0.95) * radius * 0.006 +
-        Math.sin(a * 7 - t * 1.20) * radius * 0.003;
-      const rr = radius + wobble;
-      const x = cx + Math.cos(a) * rr;
-      const y = cy + Math.sin(a) * rr;
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    }
-    ctx.closePath();
-    ctx.clip();
-
-    const sphereBase = ctx.createRadialGradient(cx, cy, radius * 0.04, cx, cy, radius * 1.02);
-    sphereBase.addColorStop(0.00, rgba("#0a0d14", 0.02));
-    sphereBase.addColorStop(0.48, rgba(palette.bg, 0.48));
-    sphereBase.addColorStop(1.00, rgba("#020409", 0.98));
-    ctx.fillStyle = sphereBase;
-    ctx.fillRect(cx - radius * 1.2, cy - radius * 1.2, radius * 2.4, radius * 2.4);
-
-    const warmField = ctx.createRadialGradient(
-      cx - radius * 0.34, cy - radius * 0.03, radius * 0.02,
-      cx - radius * 0.16, cy, radius * 0.94
-    );
-    warmField.addColorStop(0.00, rgba(palette.light, 0.92));
-    warmField.addColorStop(0.06, rgba(palette.warm, 0.96));
-    warmField.addColorStop(0.28, rgba(palette.warm, 0.40));
-    warmField.addColorStop(0.60, rgba(palette.warm, 0.06));
-    warmField.addColorStop(1.00, "rgba(0,0,0,0)");
-    ctx.fillStyle = warmField;
-    ctx.fillRect(cx - radius * 1.2, cy - radius * 1.2, radius * 2.4, radius * 2.4);
-
-    const coldField = ctx.createRadialGradient(
-      cx + radius * 0.30, cy - radius * 0.01, radius * 0.02,
-      cx + radius * 0.15, cy, radius * 0.94
-    );
-    coldField.addColorStop(0.00, rgba(palette.light, 0.88));
-    coldField.addColorStop(0.06, rgba(palette.cold, 0.98));
-    coldField.addColorStop(0.28, rgba(palette.cold, 0.42));
-    coldField.addColorStop(0.60, rgba(palette.cold, 0.06));
-    coldField.addColorStop(1.00, "rgba(0,0,0,0)");
-    ctx.fillStyle = coldField;
-    ctx.fillRect(cx - radius * 1.2, cy - radius * 1.2, radius * 2.4, radius * 2.4);
-
-    drawBand(ctx, cx, cy, radius, t, palette, pulse, "warm");
-    drawBand(ctx, cx, cy, radius, t + 0.20, palette, pulse, "cold");
-
-    ctx.globalCompositeOperation = "lighter";
-
-    const ringCount = 10;
-    for (let i = 0; i < ringCount; i++) {
-      const warm = i < ringCount / 2;
-      const col = warm ? palette.warm : palette.cold;
-      const rr = radius * lerp(0.56, 0.99, i / (ringCount - 1));
-      const start = (warm ? PI * 0.98 : -0.01) + Math.sin(t * (0.9 + i * 0.04) + i) * 0.08;
-      const end = start + lerp(0.90, 1.56, 0.58 + flux * 0.18);
-      const grad = ctx.createLinearGradient(cx - rr, cy - rr, cx + rr, cy + rr);
-      grad.addColorStop(0, rgba(col, 0));
-      grad.addColorStop(0.5, rgba(col, 0.22 + pulse * 0.18));
-      grad.addColorStop(1, rgba(col, 0));
-      ctx.strokeStyle = grad;
-      ctx.lineWidth = lerp(0.7, 2.3, 1 - i / ringCount);
-      ctx.beginPath();
-      ctx.arc(cx, cy, rr, start, end);
-      ctx.stroke();
-    }
-
-    const fusion = ctx.createRadialGradient(cx, cy, radius * 0.005, cx, cy, radius * 0.46);
-    fusion.addColorStop(0.00, rgba("#ffffff", 0.98));
-    fusion.addColorStop(0.05, rgba("#ffffff", 0.94));
-    fusion.addColorStop(0.12, rgba(palette.light, 0.72 + pulse * 0.24));
-    fusion.addColorStop(0.20, rgba(palette.warm, 0.24));
-    fusion.addColorStop(0.28, rgba(palette.cold, 0.24));
-    fusion.addColorStop(0.44, rgba("#ffffff", 0.06));
-    fusion.addColorStop(1.00, "rgba(255,255,255,0)");
-    ctx.fillStyle = fusion;
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius * 0.48, 0, TAU);
-    ctx.fill();
-
-    const rand = mulberry32((orbSeed ^ ((ts / 100) | 0)) >>> 0);
-    for (let i = 0; i < 8; i++) {
-      const a = rand() * TAU;
-      const rr = Math.pow(rand(), 0.92) * radius * 0.88;
-      const x = cx + Math.cos(a) * rr;
-      const y = cy + Math.sin(a) * rr;
-      const r = lerp(0.5, 1.2, rand());
-      const col = rand() > 0.5 ? palette.light : palette.warm;
-      ctx.fillStyle = rgba(col, lerp(0.04, 0.12, rand()));
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, TAU);
-      ctx.fill();
-    }
-
-    ctx.globalCompositeOperation = "source-over";
-    ctx.restore();
-
-    ctx.strokeStyle = rgba("#ffffff", 0.12 + pulse * 0.20);
-    ctx.lineWidth = 1.1;
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius, 0, TAU);
-    ctx.stroke();
-
-    ctx.strokeStyle = rgba(palette.cold, 0.06 + pulse * 0.08);
-    ctx.lineWidth = 5 + pulse * 7;
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius * 1.01, 0, TAU);
-    ctx.stroke();
-
-    rafId = requestAnimationFrame(drawOrb);
-  }
-
-  function startOrb() {
-    if (!ctx || rafId) return;
-    resizeCanvas();
-    rafId = requestAnimationFrame(drawOrb);
   }
 
   async function syncAura() {
@@ -994,18 +525,35 @@
 
     try {
       const player = await getPlayer();
+
       if (!player || player.__no_content || !player.item) {
         hasSpotifyPlayback = false;
-        albumPalette = null;
-        albumPaletteTrackId = "";
+        currentArtwork = "";
         const vibe = deriveVibeFromMetadata({ track: "", artist: "", album: "", durationMs: 0 });
-        beatTempo = 96;
-        beatEnergy = vibe.heat;
-        applyVibe(vibe, meta, "");
+
+        heat = vibe.heat;
+        focus = vibe.focus;
+        depth = vibe.depth;
+        flux = vibe.flux;
+
+        setHintText("No active Spotify playback");
+        setBars();
+
+        applySignalsToOrb({
+          heat,
+          focus,
+          depth,
+          flux,
+          tempo: 96,
+          energy: heat,
+          seed: "idle-field",
+          artwork: ""
+        });
         return;
       }
 
       hasSpotifyPlayback = true;
+
       const item = player.item || {};
       trackId = String(item.id || "");
       meta.track = String(item.name || "");
@@ -1014,21 +562,22 @@
       meta.durationMs = Number(item.duration_ms || 0);
       artUrl = item?.album?.images?.[0]?.url || "";
 
-      if (trackId !== albumPaletteTrackId) {
-        albumPaletteTrackId = trackId;
-        albumPalette = await extractPaletteFromImage(artUrl);
-      }
+      currentTrackId = trackId;
+      currentArtwork = artUrl;
 
       let vibe = null;
+      let tempo = 110;
+      let energy = 0.55;
+
       try {
         if (trackId) {
           const feats = await getAudioFeatures(trackId);
           if (feats) {
-            const energy = normalize01(feats.energy, 0.55);
+            energy = normalize01(feats.energy, 0.55);
             const dance = normalize01(feats.danceability, 0.50);
             const instr = normalize01(feats.instrumentalness, 0.18);
             const acoustic = normalize01(feats.acousticness, 0.30);
-            const tempo = Number(feats.tempo || 110);
+            tempo = Number(feats.tempo || 110);
 
             vibe = {
               heat: clamp01(0.28 + energy * 0.42 + dance * 0.18),
@@ -1036,9 +585,6 @@
               depth: clamp01(0.28 + acoustic * 0.14 + instr * 0.18 + (1 - energy) * 0.06),
               flux: clamp01(0.22 + dance * 0.24 + energy * 0.22)
             };
-
-            beatTempo = Math.max(60, Math.min(180, tempo || 110));
-            beatEnergy = energy;
           }
         }
       } catch {
@@ -1047,23 +593,54 @@
 
       if (!vibe) {
         vibe = deriveVibeFromMetadata(meta);
-        beatTempo = 104 + Math.round(vibe.flux * 36);
-        beatEnergy = vibe.heat;
+        tempo = 104 + Math.round(vibe.flux * 36);
+        energy = vibe.heat;
       }
 
-      applyVibe(vibe, meta, trackId);
+      heat = vibe.heat;
+      focus = vibe.focus;
+      depth = vibe.depth;
+      flux = vibe.flux;
+
+      setHintText([meta.artist || "Unknown artist", meta.track || "Unknown track"].filter(Boolean).join(" — "));
+      setBars();
+
+      applySignalsToOrb({
+        heat,
+        focus,
+        depth,
+        flux,
+        tempo,
+        energy,
+        seed: `${trackId}__${meta.artist}__${meta.track}`,
+        artwork: artUrl
+      });
     } catch {
       hasSpotifyPlayback = false;
-      albumPalette = null;
-      albumPaletteTrackId = "";
-      const vibe = deriveVibeFromMetadata(meta);
-      beatTempo = 104 + Math.round(vibe.flux * 36);
-      beatEnergy = vibe.heat;
-      applyVibe(vibe, meta, trackId);
-    }
-  }
+      currentArtwork = "";
 
-  function clearBurst() {
+      const vibe = deriveVibeFromMetadata(meta);
+      heat = vibe.heat;
+      focus = vibe.focus;
+      depth = vibe.depth;
+      flux = vibe.flux;
+
+      setHintText("Spotify unavailable");
+      setBars();
+
+      applySignalsToOrb({
+        heat,
+        focus,
+        depth,
+        flux,
+        tempo: 104 + Math.round(vibe.flux * 36),
+        energy: vibe.heat,
+        seed: "fallback-field",
+        artwork: ""
+      });
+    }
+    }
+   function clearBurst() {
     burstTimeouts.forEach(id => clearTimeout(id));
     burstTimeouts = [];
   }
@@ -1100,9 +677,13 @@
   }
 
   closeBtn?.addEventListener("click", closeAura);
-  overlay.addEventListener("click", (e) => { if (e.target === overlay) closeAura(); });
-  window.addEventListener("keydown", (e) => { if (e.key === "Escape" && open) closeAura(); });
-  window.addEventListener("resize", resizeCanvas, { passive: true });
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) closeAura();
+  });
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && open) closeAura();
+  });
 
   titleEl.addEventListener("click", openAura);
   titleEl.addEventListener("mouseenter", () => titleEl.classList.add("auraHover"));
@@ -1150,6 +731,7 @@
           } catch {}
         }
       } catch {}
+
       updateSpotifyBtnVisual(btn);
       safeCall(() => syncAura());
       return;
@@ -1194,7 +776,6 @@
   const mo = new MutationObserver(() => {
     spotifyBtn = ensureSpotifyButton() || spotifyBtn;
     if (spotifyBtn) updateSpotifyBtnVisual(spotifyBtn);
-    resizeCanvas();
   });
 
   mo.observe(document.documentElement, {
@@ -1203,14 +784,11 @@
   });
 
   setBars();
-  resizeCanvas();
   restartPolling();
   scheduleBurstSync();
-  startOrb();
+  safeCall(() => syncAura());
 
   setInterval(() => {
     if (spotifyBtn) updateSpotifyBtnVisual(spotifyBtn);
   }, 2500);
-
-  safeCall(() => syncAura());
 })();

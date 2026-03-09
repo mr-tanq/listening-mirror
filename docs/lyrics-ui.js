@@ -253,8 +253,8 @@ async function fetchLyrics(artist, track, album) {
           lastTickTs = 0;
 
           setLine(norm[0]?.text || "—");
-          setMeta(`Synced lyrics · ${a}`);
-          lastRenderedKey = songKey;
+setMeta(`${a} — ${t}`);
+           lastRenderedKey = songKey;
           return;
         }
       }

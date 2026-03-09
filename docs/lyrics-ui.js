@@ -1,13 +1,8 @@
 /* lyrics-ui.js (FULL FILE REPLACE) — PART 1/2
-   Listening Mirror — Lyrics bridge with sync stability fix
-   ✅ Writes directly into:
-      - #currentLyricLine
-      - #currentLyricMeta
-   ✅ Works with worker schema:
-      - type:"plain" + plain
-      - type:"plain" + lines[]
-      - type:"synced" + sync[]
-   ✅ Anti-jitter synced lyrics
+   Listening Mirror — Lyrics bridge with stable synced behavior
+   ✅ Top line = lyric / loading / unavailable
+   ✅ Bottom line = ALWAYS "Artist — Track"
+   ✅ No "Synced lyrics · ..." status text anymore
 */
 
 (() => {
@@ -21,10 +16,10 @@
   const MIN_TEXT_LEN = 20;
 
   // stability tuning
-  const SWITCH_EARLY_MS = 40;      // allow tiny early transition only
-  const SWITCH_HOLD_MS = 140;      // candidate line must remain valid briefly
-  const BACKWARD_TOLERANCE_MS = 900; // ignore tiny backward jumps from jitter
-  const MIN_PROGRESS_ADVANCE_MS = -120; // tolerate tiny regressions
+  const SWITCH_EARLY_MS = 40;
+  const SWITCH_HOLD_MS = 140;
+  const BACKWARD_TOLERANCE_MS = 900;
+  const MIN_PROGRESS_ADVANCE_MS = -120;
 
   let lyricsAbort = null;
 
@@ -34,14 +29,12 @@
   let timedLines = null;      // [{timeMs, text}]
   let plainLines = null;      // string[]
   let currentTrackId = "";
-  let syncedArtist = "";
 
   let activeIndex = -1;
   let candidateIndex = -1;
   let candidateSince = 0;
   let lastProgressMs = 0;
   let lastTrackIdSeen = "";
-  let lastTickTs = 0;
 
   const $ = (id) => document.getElementById(id);
 
@@ -53,6 +46,16 @@
   function setMeta(text) {
     const el = $("currentLyricMeta");
     if (el) el.textContent = text || "";
+  }
+
+  function makeArtistTrackMeta(artist, track) {
+    const a = cleanTitle(artist || "");
+    const t = cleanTitle(track || "");
+
+    if (a && t) return `${a} — ${t}`;
+    if (a) return a;
+    if (t) return t;
+    return getToken() ? "Waiting for playback…" : "Spotify not linked";
   }
 
   function cleanTitle(s) {
@@ -90,13 +93,11 @@
     timedLines = null;
     plainLines = null;
     currentTrackId = "";
-    syncedArtist = "";
     activeIndex = -1;
     candidateIndex = -1;
     candidateSince = 0;
     lastProgressMs = 0;
     lastTrackIdSeen = "";
-    lastTickTs = 0;
   }
 
   function normalizeTimedSync(sync) {
@@ -195,11 +196,12 @@ async function fetchLyrics(artist, track, album) {
     const a = cleanTitle(artist);
     const t = cleanTitle(track);
     const al = cleanTitle(album || "");
+    const metaText = makeArtistTrackMeta(a, t);
 
     if (!a || !t || a === "—" || t === "—") {
       clearLyricsState();
       setLine("—");
-      setMeta(getToken() ? "Waiting for playback…" : "Spotify not linked");
+      setMeta(metaText);
       return;
     }
 
@@ -209,11 +211,11 @@ async function fetchLyrics(artist, track, album) {
 
     clearLyricsState();
     setLine("Loading lyrics…");
-    setMeta(`Playing from Spotify · ${a}`);
+    setMeta(metaText);
 
     if (strongInstrumentalGuess(t)) {
       setLine("Instrumental / no lyrics available");
-      setMeta(`Playing from Spotify · ${a}`);
+      setMeta(metaText);
       lastRenderedKey = songKey;
       return;
     }
@@ -231,7 +233,7 @@ async function fetchLyrics(artist, track, album) {
 
       if (!data || !data.ok || !data.found) {
         setLine("Lyrics unavailable");
-        setMeta(`Playing from Spotify · ${a}`);
+        setMeta(metaText);
         lastRenderedKey = songKey;
         return;
       }
@@ -242,7 +244,6 @@ async function fetchLyrics(artist, track, album) {
         if (norm.length) {
           timedLines = norm;
           plainLines = norm.map(x => x.text);
-          syncedArtist = a;
           await syncTrackIdFromSpotify();
 
           activeIndex = 0;
@@ -250,11 +251,10 @@ async function fetchLyrics(artist, track, album) {
           candidateSince = 0;
           lastProgressMs = 0;
           lastTrackIdSeen = currentTrackId || "";
-          lastTickTs = 0;
 
           setLine(norm[0]?.text || "—");
-setMeta(`${a} — ${t}`);
-           lastRenderedKey = songKey;
+          setMeta(metaText);
+          lastRenderedKey = songKey;
           return;
         }
       }
@@ -267,7 +267,7 @@ setMeta(`${a} — ${t}`);
           .filter(Boolean);
 
         setLine(plainLines[0] || plain);
-        setMeta(`Lyrics loaded · ${a}`);
+        setMeta(metaText);
         lastRenderedKey = songKey;
         return;
       }
@@ -281,18 +281,18 @@ setMeta(`${a} — ${t}`);
         if (joined.length >= MIN_TEXT_LEN) {
           plainLines = lines;
           setLine(lines[0] || "—");
-          setMeta(`Lyrics loaded · ${a}`);
+          setMeta(metaText);
           lastRenderedKey = songKey;
           return;
         }
       }
 
       setLine("Lyrics unavailable");
-      setMeta(`Playing from Spotify · ${a}`);
+      setMeta(metaText);
     } catch (err) {
       if (err?.name === "AbortError") return;
       setLine("Lyrics unavailable");
-      setMeta(`Playing from Spotify · ${a}`);
+      setMeta(metaText);
     }
   }
 
@@ -301,7 +301,6 @@ setMeta(`${a} — ${t}`);
 
     let pos = 0;
     let trackId = "";
-    let nowTs = Date.now();
 
     if (window.SpotifyPlayer && typeof window.SpotifyPlayer.getState === "function") {
       const st = window.SpotifyPlayer.getState();
@@ -316,7 +315,6 @@ setMeta(`${a} — ${t}`);
 
     if (currentTrackId && trackId && currentTrackId !== trackId) return;
 
-    // reset guards on real track change
     if (trackId && lastTrackIdSeen && trackId !== lastTrackIdSeen) {
       activeIndex = -1;
       candidateIndex = -1;
@@ -325,7 +323,6 @@ setMeta(`${a} — ${t}`);
     }
     lastTrackIdSeen = trackId || lastTrackIdSeen;
 
-    // ignore micro backward jitter
     const delta = pos - lastProgressMs;
     if (lastProgressMs > 0 && delta < MIN_PROGRESS_ADVANCE_MS && Math.abs(delta) < BACKWARD_TOLERANCE_MS) {
       pos = lastProgressMs;
@@ -333,73 +330,59 @@ setMeta(`${a} — ${t}`);
 
     const targetIdx = findActiveIndex(pos + SWITCH_EARLY_MS);
 
-    // nothing valid yet
     if (targetIdx < 0) {
       lastProgressMs = pos;
-      lastTickTs = nowTs;
       return;
     }
 
-    // first lock
     if (activeIndex < 0) {
       activeIndex = targetIdx;
       setLine(timedLines[activeIndex]?.text || "—");
-setMeta(`${a} — ${t}`);
-       lastProgressMs = pos;
-      lastTickTs = nowTs;
+      lastProgressMs = pos;
       return;
     }
 
-    // prevent tiny backward flicker
     if (targetIdx < activeIndex && (lastProgressMs - pos) < BACKWARD_TOLERANCE_MS) {
       lastProgressMs = Math.max(lastProgressMs, pos);
-      lastTickTs = nowTs;
       return;
     }
 
-    // same line -> clear candidate
     if (targetIdx === activeIndex) {
       candidateIndex = -1;
       candidateSince = 0;
       lastProgressMs = pos;
-      lastTickTs = nowTs;
       return;
     }
 
-    // new candidate line
     if (candidateIndex !== targetIdx) {
       candidateIndex = targetIdx;
-      candidateSince = nowTs;
+      candidateSince = Date.now();
       lastProgressMs = pos;
-      lastTickTs = nowTs;
       return;
     }
 
-    // candidate must hold for a bit
-    if ((nowTs - candidateSince) >= SWITCH_HOLD_MS) {
+    if ((Date.now() - candidateSince) >= SWITCH_HOLD_MS) {
       activeIndex = candidateIndex;
       candidateIndex = -1;
       candidateSince = 0;
-
-      const line = timedLines[activeIndex]?.text || "—";
-      setLine(line);
-setMeta(`${a} — ${t}`);
-   }
+      setLine(timedLines[activeIndex]?.text || "—");
+    }
 
     lastProgressMs = pos;
-    lastTickTs = nowTs;
   }
 
   async function refreshLyricsForCurrentTrack() {
     const { track, artist, album } = readCurrentTrack();
+    const metaText = makeArtistTrackMeta(artist, track);
+
+    // Να γράφει ΠΑΝΤΑ artist — track, όσο υπάρχει playback info
+    setMeta(metaText);
 
     if (!track || !artist) {
       if (getToken()) {
         setLine("—");
-        setMeta("Waiting for playback…");
       } else {
         setLine("—");
-        setMeta("Spotify not linked");
       }
       return;
     }
@@ -411,7 +394,6 @@ setMeta(`${a} — ${t}`);
   }
 
   function boot() {
-    // single polling path for stability
     setInterval(() => {
       refreshLyricsForCurrentTrack();
     }, NOW_POLL_MS);

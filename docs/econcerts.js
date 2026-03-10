@@ -3,26 +3,19 @@
 
    ✅ Signals-only UI
    ✅ Auto-refresh on Concerts tab open
-   ✅ Mockup-style sections:
-      - Concerts You Should Not Miss
-      - Live Signal Detected
-      - This Week
-      - Upcoming Shows
-      - Concert Alert
-   ✅ Last.fm artist artwork via window.LASTFM_API_KEY
-   ✅ Artist lookup cleanup:
-      "Villagers of Ioannina City / My Diligence" -> "Villagers of Ioannina City"
-   ✅ Rejects obvious Last.fm placeholder/default images
-   ✅ Smart same-band same-day dedupe:
-      keeps only one event when same band same day appears twice
+   ✅ Uses images in this order:
+      1) event.imageUrl
+      2) Top/Recent images already loaded by app.js
+      3) Last.fm lookup via window.LASTFM_API_KEY
+      4) cinematic fallback
+   ✅ Artist lookup cleanup
+   ✅ Rejects bad Last.fm placeholder images
+   ✅ Same-band same-day smart dedupe
 */
 
 (() => {
   "use strict";
 
-  // ------------------------------------------------------------
-  // Helpers
-  // ------------------------------------------------------------
   const $ = (sel, root = document) => root.querySelector(sel);
 
   function safeStr(v) {
@@ -124,10 +117,7 @@
     }).format(d);
   }
 
-  // ------------------------------------------------------------
-  // Store
-  // ------------------------------------------------------------
-  const STORE_KEY = "lm_econcerts_ui_v40_signals_mockup_dedupe";
+  const STORE_KEY = "lm_econcerts_ui_v41_signals_with_app_images";
 
   function loadStore() {
     try {
@@ -138,7 +128,7 @@
           dismissedIds: [],
           lastRefreshAt: 0,
           baseApi: "",
-          activeTab: "announced", // announced | plan | dismissed
+          activeTab: "announced",
         };
       }
       const obj = JSON.parse(raw);
@@ -168,9 +158,6 @@
 
   let store = loadStore();
 
-  // ------------------------------------------------------------
-  // API
-  // ------------------------------------------------------------
   const FALLBACK_LIVE2_BASE = "https://live2.errtanq9.workers.dev";
 
   function getLive2Base() {
@@ -197,9 +184,6 @@
     return u.toString();
   }
 
-  // ------------------------------------------------------------
-  // Normalize
-  // ------------------------------------------------------------
   function normalizeLive2Event(ev) {
     const id = safeStr(ev?.id);
     const artist = safeStr(ev?.artist);
@@ -242,9 +226,6 @@
     };
   }
 
-  // ------------------------------------------------------------
-  // Artist normalization for images + dedupe
-  // ------------------------------------------------------------
   function normalizeArtistForLookup(raw) {
     let s = safeStr(raw);
     if (!s) return "";
@@ -289,7 +270,6 @@
       .trim();
 
     if (!v) return "";
-
     if (v.includes("tivolivredenburg")) return "tivolivredenburg";
     if (v === "tivoli") return "tivolivredenburg";
     if (v.includes("de helling")) return "de helling";
@@ -297,7 +277,6 @@
     if (v.includes("paradiso")) return "paradiso";
     if (v.includes("melkweg")) return "melkweg";
     if (v.includes("paard")) return "paard";
-
     return v;
   }
 
@@ -352,16 +331,12 @@
     if (venueA && venueB && venueA === venueB) return true;
     if (cityA && cityB && cityA === cityB) return true;
 
-    // Known same-show confusion examples / venue-family heuristics
     const tivoliFamily = new Set(["tivolivredenburg", "de helling"]);
     if (tivoliFamily.has(venueA) && tivoliFamily.has(venueB) && cityA === "utrecht" && cityB === "utrecht") {
       return true;
     }
 
-    // Same band same day in two different NL cities is suspicious enough for source noise.
-    // Prefer keeping the better metadata one.
     if (cityA && cityB && cityA !== cityB) return true;
-
     return false;
   }
 
@@ -381,9 +356,6 @@
     return Number(b.score || 0) > Number(a.score || 0) ? b : a;
   }
 
-  // ------------------------------------------------------------
-  // Base dedupe + smart same-band same-day collapse
-  // ------------------------------------------------------------
   function isVipUrl(url) {
     const u = lowerKey(url);
     return u.includes("vip") || u.includes("package") || u.includes("packages") || u.includes("hospitality") || u.includes("comfort");
@@ -425,7 +397,6 @@
   }
 
   function dedupeEvents(events) {
-    // pass 1: exact-ish
     const byId = new Map();
     for (const ev of events) {
       if (!ev || !ev.id) continue;
@@ -433,7 +404,6 @@
       else byId.set(ev.id, pickBetterEvent(byId.get(ev.id), ev));
     }
 
-    // pass 2: soft
     const bySoft = new Map();
     for (const ev of byId.values()) {
       const k = softKey(ev);
@@ -441,7 +411,6 @@
       else bySoft.set(k, pickBetterEvent(bySoft.get(k), ev));
     }
 
-    // pass 3: same-band same-day smart collapse
     const result = [];
     const groups = new Map();
 
@@ -463,7 +432,6 @@
         if (areLikelyDuplicateShows(kept, cur)) {
           kept = pickBetterDuplicate(kept, cur);
         } else {
-          // rare case: truly different same-day festivals/sets
           result.push(cur);
         }
       }
@@ -473,9 +441,6 @@
     return result;
   }
 
-  // ------------------------------------------------------------
-  // State actions
-  // ------------------------------------------------------------
   const isPlanned = (id) => store.planIds.includes(id);
   const isDismissed = (id) => store.dismissedIds.includes(id);
 
@@ -501,9 +466,6 @@
     saveStore(store);
   }
 
-  // ------------------------------------------------------------
-  // Matching buckets
-  // ------------------------------------------------------------
   function getMatchTier(event) {
     const score = Number(event?.score || 0);
     const plays = Number(event?.plays || 0);
@@ -607,9 +569,6 @@
     return ranked[0] || null;
   }
 
-  // ------------------------------------------------------------
-  // Last.fm artist artwork
-  // ------------------------------------------------------------
   const artistImageCache = new Map();
 
   function getLastfmApiKey() {
@@ -630,12 +589,86 @@
     );
   }
 
+  function getAppState() {
+    try {
+      return window.__LM_APP__?.getState?.() || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function scoreImageUrl(url) {
+    const u = safeStr(url);
+    if (!u) return 0;
+
+    let score = 1;
+    const low = lowerKey(u);
+
+    if (low.includes("i.errtanq9.workers.dev")) score += 4;
+    if (low.includes("spotify")) score += 3;
+    if (low.includes("scdn")) score += 3;
+    if (low.includes("lastfm")) score += 1;
+    if (/\.(jpg|jpeg|png|webp)(\?|$)/i.test(low)) score += 2;
+    if (!isBadLastfmImage(low)) score += 1;
+
+    return score;
+  }
+
+  function pickBestImage(candidates) {
+    const valid = candidates
+      .map((x) => safeStr(x))
+      .filter(Boolean);
+
+    if (!valid.length) return "";
+
+    valid.sort((a, b) => scoreImageUrl(b) - scoreImageUrl(a));
+    return valid[0] || "";
+  }
+
+  function findImageFromAppState(artistRaw) {
+    const appState = getAppState();
+    if (!appState) return "";
+
+    const artist = normalizeArtistForLookup(artistRaw);
+    const artistNorm = normalizeArtistForDedupe(artist);
+
+    const top = Array.isArray(appState.lastTop) ? appState.lastTop : [];
+    const recent = Array.isArray(appState.lastRecent) ? appState.lastRecent : [];
+
+    const topMatches = [];
+    const recentMatches = [];
+
+    for (const it of top) {
+      const topType = safeStr(appState.topType);
+      const name = safeStr(it?.name);
+      const subArtist = safeStr(it?.artist);
+      const img = safeStr(it?.image);
+
+      if (!img) continue;
+
+      if (topType === "artists") {
+        if (normalizeArtistForDedupe(name) === artistNorm) topMatches.push(img);
+      } else {
+        if (normalizeArtistForDedupe(subArtist) === artistNorm) topMatches.push(img);
+      }
+    }
+
+    for (const it of recent) {
+      const recentArtist = safeStr(it?.artist);
+      const img = safeStr(it?.image);
+      if (!img) continue;
+      if (normalizeArtistForDedupe(recentArtist) === artistNorm) recentMatches.push(img);
+    }
+
+    return pickBestImage([...topMatches, ...recentMatches]);
+  }
+
   async function resolveLastfmArtistImage(artistRaw) {
     const apiKey = getLastfmApiKey();
     const artist = normalizeArtistForLookup(artistRaw);
     if (!apiKey || !artist) return "";
 
-    const cacheKey = lowerKey(artist);
+    const cacheKey = `lastfm:${lowerKey(artist)}`;
     if (artistImageCache.has(cacheKey)) return artistImageCache.get(cacheKey) || "";
 
     try {
@@ -663,18 +696,23 @@
     }
   }
 
+  async function resolveImageForEvent(ev) {
+    if (safeStr(ev.imageUrl)) return safeStr(ev.imageUrl);
+
+    const appStateImg = findImageFromAppState(ev.artist);
+    if (appStateImg) return appStateImg;
+
+    return await resolveLastfmArtistImage(ev.artist);
+  }
+
   async function enrichEventsWithImages(events) {
     const out = await Promise.all(events.map(async (ev) => {
-      if (safeStr(ev.imageUrl)) return ev;
-      const imageUrl = await resolveLastfmArtistImage(ev.artist);
+      const imageUrl = await resolveImageForEvent(ev);
       return { ...ev, imageUrl: imageUrl || "" };
     }));
     return out;
   }
 
-  // ------------------------------------------------------------
-  // UI styles
-  // ------------------------------------------------------------
   function getFallbackVisual(seed) {
     const s = lowerKey(seed);
     let hue = 18;
@@ -713,335 +751,112 @@
     style.id = "lmConcertsMockupStyles";
     style.textContent = `
       #econcertsList{ display:block; }
-
-      .lmc-wrap{
-        display:flex;
-        flex-direction:column;
-        gap:16px;
-      }
-
-      .lmc-topbar{
-        display:flex;
-        flex-direction:column;
-        gap:10px;
-        margin-bottom:2px;
-      }
-
-      .lmc-heading{
-        margin:0;
-        font-size:1.12rem;
-        font-weight:900;
-        letter-spacing:.01em;
-        color:rgba(255,255,255,.98);
-      }
-
-      .lmc-pills{
-        display:flex;
-        flex-wrap:wrap;
-        gap:8px;
-      }
-
+      .lmc-wrap{ display:flex; flex-direction:column; gap:16px; }
+      .lmc-topbar{ display:flex; flex-direction:column; gap:10px; margin-bottom:2px; }
+      .lmc-heading{ margin:0; font-size:1.12rem; font-weight:900; letter-spacing:.01em; color:rgba(255,255,255,.98); }
+      .lmc-pills{ display:flex; flex-wrap:wrap; gap:8px; }
       .lmc-pill-btn{
-        appearance:none;
-        border:none;
-        outline:none;
-        border-radius:999px;
-        padding:9px 13px;
-        background:rgba(255,255,255,.05);
-        border:1px solid rgba(255,255,255,.08);
-        color:inherit;
-        font:inherit;
-        font-weight:800;
-        cursor:pointer;
+        appearance:none; border:none; outline:none; border-radius:999px; padding:9px 13px;
+        background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.08);
+        color:inherit; font:inherit; font-weight:800; cursor:pointer;
       }
-
       .lmc-pill-btn.is-on{
         background:linear-gradient(180deg, rgba(187,225,255,.16), rgba(125,175,255,.10));
         border-color:rgba(150,205,255,.22);
       }
-
       .lmc-signal{
-        border-radius:22px;
-        padding:14px 16px;
-        border:1px solid rgba(255,255,255,.08);
+        border-radius:22px; padding:14px 16px; border:1px solid rgba(255,255,255,.08);
         background:
           radial-gradient(circle at 18% 18%, rgba(106,181,255,.22), transparent 18%),
           linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03));
         box-shadow:0 18px 38px rgba(0,0,0,.24);
       }
-
       .lmc-signal-badge{
-        display:inline-flex;
-        align-items:center;
-        gap:8px;
-        border-radius:999px;
-        padding:7px 11px;
-        font-size:.82rem;
-        font-weight:900;
-        letter-spacing:.03em;
-        background:rgba(255,255,255,.06);
-        border:1px solid rgba(255,255,255,.08);
-        margin-bottom:8px;
+        display:inline-flex; align-items:center; gap:8px; border-radius:999px; padding:7px 11px;
+        font-size:.82rem; font-weight:900; letter-spacing:.03em;
+        background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08); margin-bottom:8px;
       }
-
-      .lmc-signal-text{
-        font-size:.98rem;
-        line-height:1.35;
-        color:rgba(255,255,255,.92);
+      .lmc-signal-text{ font-size:.98rem; line-height:1.35; color:rgba(255,255,255,.92); }
+      .lmc-section{ display:flex; flex-direction:column; gap:10px; }
+      .lmc-section-title{ margin:0; font-size:1.02rem; font-weight:900; }
+      .lmc-hero,.lmc-strong{
+        position:relative; overflow:hidden; border-radius:24px; min-height:218px;
+        border:1px solid rgba(255,255,255,.09); box-shadow:0 18px 42px rgba(0,0,0,.28);
       }
-
-      .lmc-section{
-        display:flex;
-        flex-direction:column;
-        gap:10px;
-      }
-
-      .lmc-section-title{
-        margin:0;
-        font-size:1.02rem;
-        font-weight:900;
-      }
-
-      .lmc-hero,
-      .lmc-strong{
-        position:relative;
-        overflow:hidden;
-        border-radius:24px;
-        min-height:218px;
-        border:1px solid rgba(255,255,255,.09);
-        box-shadow:0 18px 42px rgba(0,0,0,.28);
-      }
-
       .lmc-hero{ min-height:250px; }
-
       .lmc-cover{
-        position:absolute;
-        inset:0;
-        background-size:cover;
-        background-position:center center;
-        transform:scale(1.02);
+        position:absolute; inset:0; background-size:cover; background-position:center center; transform:scale(1.02);
       }
-
       .lmc-cover::after{
-        content:"";
-        position:absolute;
-        inset:0;
-        background:
-          linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.18) 34%, rgba(0,0,0,.72) 100%);
+        content:""; position:absolute; inset:0;
+        background:linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.18) 34%, rgba(0,0,0,.72) 100%);
       }
-
       .lmc-body{
-        position:relative;
-        z-index:1;
-        min-height:inherit;
-        display:flex;
-        flex-direction:column;
-        justify-content:flex-end;
-        gap:9px;
-        padding:14px;
+        position:relative; z-index:1; min-height:inherit; display:flex; flex-direction:column;
+        justify-content:flex-end; gap:9px; padding:14px;
       }
-
       .lmc-badge{
-        align-self:flex-start;
-        display:inline-flex;
-        align-items:center;
-        gap:7px;
-        padding:7px 12px;
-        border-radius:999px;
-        font-size:.79rem;
-        font-weight:900;
-        letter-spacing:.03em;
+        align-self:flex-start; display:inline-flex; align-items:center; gap:7px; padding:7px 12px;
+        border-radius:999px; font-size:.79rem; font-weight:900; letter-spacing:.03em;
         background:linear-gradient(180deg, rgba(195,72,35,.92), rgba(147,27,18,.82));
-        border:1px solid rgba(255,255,255,.10);
-        box-shadow:0 8px 20px rgba(110,20,12,.20);
+        border:1px solid rgba(255,255,255,.10); box-shadow:0 8px 20px rgba(110,20,12,.20);
       }
-
-      .lmc-title{
-        margin:0;
-        font-size:1.82rem;
-        line-height:1.02;
-        font-weight:900;
-        text-transform:uppercase;
-      }
-
-      .lmc-meta{
-        margin:0;
-        font-size:1rem;
-        font-weight:700;
-      }
-
-      .lmc-submeta{
-        margin:0;
-        font-size:.96rem;
-        opacity:.96;
-      }
-
-      .lmc-reason{
-        margin:0;
-        font-size:.92rem;
-        opacity:.88;
-      }
-
-      .lmc-actions{
-        display:flex;
-        flex-wrap:wrap;
-        gap:8px;
-        margin-top:2px;
-      }
-
+      .lmc-title{ margin:0; font-size:1.82rem; line-height:1.02; font-weight:900; text-transform:uppercase; }
+      .lmc-meta{ margin:0; font-size:1rem; font-weight:700; }
+      .lmc-submeta{ margin:0; font-size:.96rem; opacity:.96; }
+      .lmc-reason{ margin:0; font-size:.92rem; opacity:.88; }
+      .lmc-actions{ display:flex; flex-wrap:wrap; gap:8px; margin-top:2px; }
       .lmc-btn{
-        appearance:none;
-        border:none;
-        outline:none;
-        border-radius:12px;
-        padding:10px 13px;
-        font:inherit;
-        font-weight:800;
-        color:inherit;
-        cursor:pointer;
-        background:rgba(255,255,255,.09);
-        border:1px solid rgba(255,255,255,.08);
+        appearance:none; border:none; outline:none; border-radius:12px; padding:10px 13px;
+        font:inherit; font-weight:800; color:inherit; cursor:pointer;
+        background:rgba(255,255,255,.09); border:1px solid rgba(255,255,255,.08);
       }
-
-      .lmc-btn--primary{
-        background:linear-gradient(180deg, rgba(191,57,39,.96), rgba(149,24,14,.88));
-      }
-
+      .lmc-btn--primary{ background:linear-gradient(180deg, rgba(191,57,39,.96), rgba(149,24,14,.88)); }
       .lmc-upcoming-shell{
-        border-radius:22px;
-        border:1px solid rgba(255,255,255,.08);
+        border-radius:22px; border:1px solid rgba(255,255,255,.08);
         background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.03));
-        box-shadow:0 16px 34px rgba(0,0,0,.22);
-        overflow:hidden;
+        box-shadow:0 16px 34px rgba(0,0,0,.22); overflow:hidden;
       }
-
       .lmc-upcoming-head{
-        display:flex;
-        align-items:center;
-        justify-content:space-between;
-        gap:10px;
-        padding:14px 14px 10px;
-        border-bottom:1px solid rgba(255,255,255,.05);
+        display:flex; align-items:center; justify-content:space-between; gap:10px;
+        padding:14px 14px 10px; border-bottom:1px solid rgba(255,255,255,.05);
       }
-
-      .lmc-upcoming-title{
-        margin:0;
-        font-size:1rem;
-        font-weight:900;
-      }
-
-      .lmc-chevron{
-        opacity:.7;
-        font-weight:900;
-      }
-
-      .lmc-mini-list{
-        display:flex;
-        flex-direction:column;
-        gap:10px;
-        padding:12px;
-      }
-
+      .lmc-upcoming-title{ margin:0; font-size:1rem; font-weight:900; }
+      .lmc-chevron{ opacity:.7; font-weight:900; }
+      .lmc-mini-list{ display:flex; flex-direction:column; gap:10px; padding:12px; }
       .lmc-mini-card{
-        position:relative;
-        overflow:hidden;
-        min-height:96px;
-        border-radius:16px;
-        border:1px solid rgba(255,255,255,.08);
-        box-shadow:0 12px 26px rgba(0,0,0,.20);
+        position:relative; overflow:hidden; min-height:96px; border-radius:16px;
+        border:1px solid rgba(255,255,255,.08); box-shadow:0 12px 26px rgba(0,0,0,.20);
       }
-
       .lmc-mini-body{
-        position:relative;
-        z-index:1;
-        min-height:96px;
-        display:flex;
-        align-items:flex-end;
-        justify-content:space-between;
-        gap:12px;
-        padding:12px;
+        position:relative; z-index:1; min-height:96px; display:flex; align-items:flex-end;
+        justify-content:space-between; gap:12px; padding:12px;
       }
-
-      .lmc-mini-info{
-        min-width:0;
-        display:flex;
-        flex-direction:column;
-        gap:4px;
-      }
-
-      .lmc-mini-title{
-        margin:0;
-        font-size:1.38rem;
-        line-height:1.04;
-        font-weight:900;
-        text-transform:uppercase;
-      }
-
-      .lmc-mini-meta{
-        margin:0;
-        font-size:.95rem;
-        opacity:.96;
-      }
-
-      .lmc-mini-right{
-        display:flex;
-        align-items:center;
-        gap:8px;
-      }
-
+      .lmc-mini-info{ min-width:0; display:flex; flex-direction:column; gap:4px; }
+      .lmc-mini-title{ margin:0; font-size:1.38rem; line-height:1.04; font-weight:900; text-transform:uppercase; }
+      .lmc-mini-meta{ margin:0; font-size:.95rem; opacity:.96; }
+      .lmc-mini-right{ display:flex; align-items:center; gap:8px; }
       .lmc-alert{
-        border-radius:22px;
-        border:1px solid rgba(255,255,255,.08);
+        border-radius:22px; border:1px solid rgba(255,255,255,.08);
         background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.03));
-        box-shadow:0 16px 34px rgba(0,0,0,.22);
-        overflow:hidden;
+        box-shadow:0 16px 34px rgba(0,0,0,.22); overflow:hidden;
       }
-
       .lmc-alert-top{
-        display:flex;
-        align-items:center;
-        gap:9px;
-        padding:12px 14px 8px;
-        font-size:.88rem;
-        font-weight:900;
-        letter-spacing:.03em;
+        display:flex; align-items:center; gap:9px; padding:12px 14px 8px;
+        font-size:.88rem; font-weight:900; letter-spacing:.03em;
       }
-
-      .lmc-alert-body{
-        padding:0 14px 14px;
-      }
-
-      .lmc-alert-band{
-        font-size:1.18rem;
-        font-weight:900;
-        margin:0 0 6px;
-      }
-
-      .lmc-alert-text{
-        margin:0 0 10px;
-        color:rgba(255,255,255,.90);
-      }
-
-      .lmc-alert-dates{
-        margin:0 0 12px;
-        color:rgba(255,255,255,.85);
-        line-height:1.55;
-      }
-
+      .lmc-alert-body{ padding:0 14px 14px; }
+      .lmc-alert-band{ font-size:1.18rem; font-weight:900; margin:0 0 6px; }
+      .lmc-alert-text{ margin:0 0 10px; color:rgba(255,255,255,.90); }
+      .lmc-alert-dates{ margin:0 0 12px; color:rgba(255,255,255,.85); line-height:1.55; }
       .lmc-empty{
-        padding:16px 14px;
-        border-radius:18px;
-        background:rgba(255,255,255,.04);
-        border:1px solid rgba(255,255,255,.06);
-        color:rgba(255,255,255,.74);
+        padding:16px 14px; border-radius:18px; background:rgba(255,255,255,.04);
+        border:1px solid rgba(255,255,255,.06); color:rgba(255,255,255,.74);
       }
     `;
     document.head.appendChild(style);
   }
 
-  // ------------------------------------------------------------
-  // DOM + render
-  // ------------------------------------------------------------
   const listEl = $("#econcertsList");
   if (!listEl) return;
 
@@ -1500,9 +1315,6 @@
     renderAnnounced(split.announced);
   }
 
-  // ------------------------------------------------------------
-  // Refresh
-  // ------------------------------------------------------------
   async function refresh() {
     store.lastRefreshAt = Date.now();
     saveStore(store);
@@ -1518,9 +1330,6 @@
     render(enriched, payload?.meta || null);
   }
 
-  // ------------------------------------------------------------
-  // Auto refresh on Concerts tab open
-  // ------------------------------------------------------------
   function wireConcertsTabRefresh() {
     const btn =
       document.querySelector("#tabConcerts") ||

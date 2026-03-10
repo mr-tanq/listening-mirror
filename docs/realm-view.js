@@ -34,8 +34,15 @@
     return n;
   }
 
-  function byId(id, root = document) {
-    return root.getElementById(id);
+  function findById(id, root = document) {
+    if (!root) return null;
+    if (typeof root.getElementById === "function") {
+      return root.getElementById(id);
+    }
+    if (typeof root.querySelector === "function") {
+      return root.querySelector(`#${CSS.escape(id)}`);
+    }
+    return null;
   }
 
   class RealmView {
@@ -168,8 +175,8 @@
     }
 
     _bindButtons() {
-      const cycleBtn = byId("realmCycleBtn", this.mountEl);
-      const pulseBtn = byId("realmPulseBtn", this.mountEl);
+      const cycleBtn = findById("realmCycleBtn", this.mountEl);
+      const pulseBtn = findById("realmPulseBtn", this.mountEl);
 
       if (cycleBtn) {
         cycleBtn.addEventListener("click", () => {

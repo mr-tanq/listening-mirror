@@ -157,7 +157,7 @@ _applyText(state) {
       if (this.textEls.stateChip) this.textEls.stateChip.textContent = state.stateLabel;
       if (this.textEls.track) this.textEls.track.textContent = state.track;
       if (this.textEls.artist) this.textEls.artist.textContent = state.artist;
-      if (this.textEls.album) this.textEls.album.textContent = state.album || "Aura-synced artwork world";
+      if (this.textEls.album) this.textEls.album.textContent = state.album || "Album portal";
     }
 
     _applyArtwork(state) {
@@ -166,12 +166,12 @@ _applyText(state) {
 
       if (this.layers.artBlur) {
         this.layers.artBlur.style.backgroundImage = hasArt ? `url("${img}")` : "none";
-        this.layers.artBlur.style.opacity = hasArt ? String(0.32 + state.depth * 0.12) : "0";
+        this.layers.artBlur.style.opacity = hasArt ? String(0.14 + state.depth * 0.06) : "0";
       }
 
       if (this.layers.artMain) {
         this.layers.artMain.style.backgroundImage = hasArt ? `url("${img}")` : "none";
-        this.layers.artMain.style.opacity = hasArt ? String(0.34 + state.focus * 0.18) : "0";
+        this.layers.artMain.style.opacity = hasArt ? String(0.78 + state.focus * 0.14) : "0";
       }
     }
 
@@ -186,44 +186,49 @@ _applyText(state) {
       }
 
       const hue = Math.round(210 - heat * 150);
-      const sat = Math.round(56 + heat * 28);
-      const light = Math.round(24 + focus * 8);
+      const sat = Math.round(54 + heat * 24);
+      const light = Math.round(22 + focus * 8);
 
       if (this.layers.tint) {
         this.layers.tint.style.background = `
-          linear-gradient(180deg, hsla(${hue}, ${sat}%, ${light + 4}%, .20), hsla(${hue}, ${sat}%, ${light - 2}%, .28)),
-          radial-gradient(820px 360px at 50% 22%, hsla(${hue}, ${sat}%, ${light + 10}%, .14), transparent 66%)
+          linear-gradient(180deg,
+            hsla(${hue}, ${sat}%, ${light + 6}%, .05),
+            hsla(${hue}, ${sat}%, ${light - 2}%, .10)
+          ),
+          radial-gradient(900px 360px at 50% 20%,
+            hsla(${hue}, ${sat}%, ${light + 12}%, .05),
+            transparent 66%)
         `;
       }
 
       if (this.layers.vignette) {
-        this.layers.vignette.style.opacity = String(0.78 + depth * 0.10);
+        this.layers.vignette.style.opacity = String(0.64 + depth * 0.08);
       }
 
       if (this.layers.skyGlow) {
         this.layers.skyGlow.style.background = state.skyGlow;
-        this.layers.skyGlow.style.opacity = String(0.22 + heat * 0.24);
-        this.layers.skyGlow.style.filter = `blur(${18 + depth * 16}px)`;
+        this.layers.skyGlow.style.opacity = String(0.12 + heat * 0.16);
+        this.layers.skyGlow.style.filter = `blur(${14 + depth * 10}px)`;
       }
 
       if (this.layers.moon) {
         this.layers.moon.style.background = state.moon;
-        this.layers.moon.style.opacity = String(0.42 + focus * 0.24);
+        this.layers.moon.style.opacity = String(0.24 + focus * 0.18);
       }
 
       if (this.layers.groundLine) {
-        this.layers.groundLine.style.opacity = String(0.22 + (1 - focus) * 0.10);
+        this.layers.groundLine.style.opacity = String(0.22 + (1 - focus) * 0.08);
         this.layers.groundLine.style.transform = `translateX(${(flux - 0.5) * 4}px)`;
       }
 
       if (this.layers.fogBack) {
-        this.layers.fogBack.style.opacity = String(0.10 + depth * 0.16 + (1 - focus) * 0.06);
-        this.layers.fogBack.style.transform = `translateX(${(flux - 0.5) * -10}px)`;
+        this.layers.fogBack.style.opacity = String(0.06 + depth * 0.10 + (1 - focus) * 0.05);
+        this.layers.fogBack.style.transform = `translateX(${(flux - 0.5) * -8}px)`;
       }
 
       if (this.layers.fogFront) {
-        this.layers.fogFront.style.opacity = String(0.06 + depth * 0.12 + (1 - focus) * 0.04);
-        this.layers.fogFront.style.transform = `translateX(${(flux - 0.5) * 14}px)`;
+        this.layers.fogFront.style.opacity = String(0.04 + depth * 0.08 + (1 - focus) * 0.03);
+        this.layers.fogFront.style.transform = `translateX(${(flux - 0.5) * 10}px)`;
       }
     }
 
@@ -253,19 +258,19 @@ _applyText(state) {
 
       if (this.yoda.collar) {
         this.yoda.collar.style.background = `radial-gradient(circle, hsla(${hue}, ${sat}%, ${light}%, .96) 0%, hsla(${hue}, ${sat}%, ${light}%, .54) 36%, transparent 72%)`;
-        this.yoda.collar.style.filter = `blur(${5 + depth * 4}px)`;
-        this.yoda.collar.style.opacity = String(0.58 + heat * 0.28);
+        this.yoda.collar.style.filter = `blur(${5 + depth * 3}px)`;
+        this.yoda.collar.style.opacity = String(0.60 + heat * 0.26);
       }
 
       if (this.yoda.bleed) {
-        this.yoda.bleed.style.background = `radial-gradient(circle at 50% 50%, hsla(${hue}, ${sat}%, ${light}%, .18) 0%, hsla(${hue}, ${sat}%, ${light}%, .06) 42%, transparent 76%)`;
-        this.yoda.bleed.style.opacity = String(0.18 + heat * 0.14);
-        this.yoda.bleed.style.filter = `blur(${8 + depth * 8}px)`;
+        this.yoda.bleed.style.background = `radial-gradient(circle at 50% 50%, hsla(${hue}, ${sat}%, ${light}%, .14) 0%, hsla(${hue}, ${sat}%, ${light}%, .05) 42%, transparent 76%)`;
+        this.yoda.bleed.style.opacity = String(0.12 + heat * 0.10);
+        this.yoda.bleed.style.filter = `blur(${6 + depth * 5}px)`;
       }
 
       if (this.yoda.shadow) {
-        this.yoda.shadow.style.opacity = String(0.22 + (1 - focus) * 0.10);
-        this.yoda.shadow.style.transform = `translateX(-50%) scaleX(${1.06 + flux * 0.14})`;
+        this.yoda.shadow.style.opacity = String(0.20 + (1 - focus) * 0.08);
+        this.yoda.shadow.style.transform = `translateX(-50%) scaleX(${1.04 + flux * 0.12})`;
       }
     }
 
@@ -281,14 +286,14 @@ _applyText(state) {
       this._stopParticles();
       if (!this.particlesEl) return;
 
-      const every = Math.max(320, 1300 - flux * 720);
+      const every = Math.max(380, 1450 - flux * 700);
 
-      for (let i = 0; i < 5; i += 1) {
-        window.setTimeout(() => this._spawnParticle(color, 3600 + Math.random() * 1600), i * 180);
+      for (let i = 0; i < 4; i += 1) {
+        window.setTimeout(() => this._spawnParticle(color, 3200 + Math.random() * 1400), i * 220);
       }
 
       this.particleTimer = window.setInterval(() => {
-        this._spawnParticle(color, 3600 + Math.random() * 1600);
+        this._spawnParticle(color, 3200 + Math.random() * 1400);
       }, every);
     }
 
@@ -298,16 +303,16 @@ _applyText(state) {
       const el = document.createElement("span");
       el.className = "realmWorld__particle";
 
-      const left = 6 + Math.random() * 88;
-      const top = 12 + Math.random() * 68;
-      const size = 2 + Math.random() * 2.4;
+      const left = 8 + Math.random() * 84;
+      const top = 14 + Math.random() * 64;
+      const size = 2 + Math.random() * 2.2;
 
       el.style.left = `${left}%`;
       el.style.top = `${top}%`;
       el.style.width = `${size}px`;
       el.style.height = `${size}px`;
       el.style.background = color;
-      el.style.boxShadow = `0 0 10px ${color}`;
+      el.style.boxShadow = `0 0 8px ${color}`;
       el.style.animationDuration = `${duration}ms`;
 
       this.particlesEl.appendChild(el);
@@ -323,7 +328,7 @@ _startWalker() {
         const flux = this.currentState?.flux ?? 0.5;
         const isPaused = String(this.currentState?.stateLabel || "").toLowerCase() === "paused";
 
-        const pathSpeed = isPaused ? 0.0042 : 0.006 + flux * 0.0055;
+        const pathSpeed = isPaused ? 0.0042 : 0.006 + flux * 0.005;
         const cycle = (t * pathSpeed) % 2;
         const forward = cycle < 1;
         const p = forward ? cycle : (2 - cycle);
@@ -331,23 +336,23 @@ _startWalker() {
         const x = 14 + p * 72;
 
         const yTerrain =
-          Math.sin((x / 100) * Math.PI * 1.8) * 4.8 +
-          Math.sin((x / 100) * Math.PI * 4.4) * 1.8;
+          Math.sin((x / 100) * Math.PI * 1.8) * 3.2 +
+          Math.sin((x / 100) * Math.PI * 4.2) * 1.1;
 
-        const walkTempo = isPaused ? 1.7 : 4.8 + flux * 2.0;
+        const walkTempo = isPaused ? 1.7 : 4.6 + flux * 1.8;
         const step = Math.sin(t * walkTempo);
-        const bob = isPaused ? Math.sin(t * 1.6) * 0.6 : step * (0.8 + flux * 0.6);
+        const bob = isPaused ? Math.sin(t * 1.5) * 0.45 : step * (0.6 + flux * 0.4);
 
         this.yoda.actor.style.left = `${x}%`;
         this.yoda.actor.style.bottom = `${14 + yTerrain + bob}px`;
         this.yoda.actor.style.transform = `translateX(-50%) scaleX(${forward ? 1 : -1})`;
 
-        const tilt = isPaused ? Math.sin(t * 1.4) * 0.4 : step * 0.9;
-        this.yoda.body.style.transform = `translateY(${step * 0.55}px) rotate(${tilt}deg)`;
+        const tilt = isPaused ? Math.sin(t * 1.4) * 0.3 : step * 0.7;
+        this.yoda.body.style.transform = `translateY(${step * 0.4}px) rotate(${tilt}deg)`;
 
         const pulse = isPaused
           ? (0.96 + Math.sin(t * 1.7) * 0.03)
-          : (0.96 + Math.sin(t * (2.2 + flux * 5.8)) * (0.04 + flux * 0.05));
+          : (0.96 + Math.sin(t * (2.0 + flux * 4.6)) * (0.035 + flux * 0.04));
 
         this.yoda.collar.style.transform = `translate(-50%, -50%) scale(${pulse})`;
 
@@ -417,16 +422,16 @@ _startWalker() {
             .realmWorld__artBlur{
               background-position:center;
               background-size:cover;
-              filter:blur(30px) saturate(.92) brightness(.46);
-              transform:scale(1.12);
+              filter:blur(22px) saturate(.94) brightness(.56);
+              transform:scale(1.08);
               z-index:1;
             }
 
             .realmWorld__artMain{
               background-position:center;
               background-size:cover;
-              filter:saturate(.92) brightness(.56) contrast(.94);
-              transform:scale(1.01);
+              filter:saturate(.96) brightness(.84) contrast(.98);
+              transform:scale(1.005);
               z-index:2;
             }
 
@@ -434,16 +439,16 @@ _startWalker() {
 
             .realmWorld__vignette{
               background:
-                radial-gradient(90% 72% at 50% 40%, transparent 36%, rgba(0,0,0,.10) 64%, rgba(0,0,0,.28) 100%),
-                linear-gradient(180deg, rgba(0,0,0,.04), transparent 22%, transparent 72%, rgba(0,0,0,.16));
+                radial-gradient(90% 72% at 50% 40%, transparent 38%, rgba(0,0,0,.08) 66%, rgba(0,0,0,.20) 100%),
+                linear-gradient(180deg, rgba(0,0,0,.03), transparent 22%, transparent 72%, rgba(0,0,0,.10));
               z-index:4;
             }
 
             .realmWorld__skyGlow{
-              width:62%;
-              height:60%;
-              left:19%;
-              top:5%;
+              width:58%;
+              height:56%;
+              left:21%;
+              top:6%;
               border-radius:50%;
               mix-blend-mode:screen;
               z-index:5;
@@ -451,28 +456,28 @@ _startWalker() {
             }
 
             .realmWorld__moon{
-              width:10%;
+              width:9%;
               aspect-ratio:1;
               right:12%;
               top:15%;
               border-radius:50%;
-              box-shadow:0 0 18px rgba(255,255,255,.16);
+              box-shadow:0 0 12px rgba(255,255,255,.12);
               z-index:6;
             }
 
             .realmWorld__groundLine{
-              left:7%;
-              right:7%;
+              left:8%;
+              right:8%;
               bottom:24px;
               height:1px;
-              background:linear-gradient(90deg, transparent, rgba(255,255,255,.18), rgba(255,255,255,.12), transparent);
+              background:linear-gradient(90deg, transparent, rgba(255,255,255,.14), rgba(255,255,255,.10), transparent);
               z-index:8;
             }
 
             .realmWorld__fogBack{
               background:
-                radial-gradient(620px 150px at 34% 82%, rgba(230,236,250,.08), transparent 72%),
-                radial-gradient(520px 140px at 72% 78%, rgba(230,236,250,.05), transparent 70%);
+                radial-gradient(620px 150px at 34% 82%, rgba(230,236,250,.06), transparent 72%),
+                radial-gradient(520px 140px at 72% 78%, rgba(230,236,250,.04), transparent 70%);
               mix-blend-mode:screen;
               z-index:7;
               animation: realmFogBackPan 20s ease-in-out infinite alternate;
@@ -480,7 +485,7 @@ _startWalker() {
 
             .realmWorld__fogFront{
               background:
-                radial-gradient(520px 130px at 48% 86%, rgba(230,236,250,.05), transparent 68%);
+                radial-gradient(520px 130px at 48% 86%, rgba(230,236,250,.04), transparent 68%);
               mix-blend-mode:screen;
               z-index:11;
               animation: realmFogFrontPan 14s ease-in-out infinite alternate;
@@ -491,7 +496,7 @@ _startWalker() {
             .realmWorld__particle{
               position:absolute;
               border-radius:50%;
-              opacity:.66;
+              opacity:.62;
               animation: realmParticleFloat linear forwards;
             }
 
@@ -508,11 +513,11 @@ _startWalker() {
               position:absolute;
               left:50%;
               bottom:-2px;
-              width:26px;
-              height:6px;
+              width:24px;
+              height:5px;
               transform:translateX(-50%);
               border-radius:50%;
-              background:rgba(0,0,0,.40);
+              background:rgba(0,0,0,.34);
               filter:blur(2px);
             }
 
@@ -520,11 +525,11 @@ _startWalker() {
               position:absolute;
               left:50%;
               bottom:-3px;
-              width:34px;
-              height:12px;
+              width:30px;
+              height:10px;
               transform:translateX(-50%);
               border-radius:50%;
-              opacity:.22;
+              opacity:.18;
             }
 
             .realmYoda__body{
@@ -545,8 +550,8 @@ _startWalker() {
               position:absolute;
               left:57%;
               top:49%;
-              width:14px;
-              height:14px;
+              width:13px;
+              height:13px;
               transform:translate(-50%, -50%);
               border-radius:50%;
               mix-blend-mode:screen;
@@ -566,21 +571,21 @@ _startWalker() {
             }
 
             @keyframes realmSkyBreath{
-              from{ transform:translateX(-8px) scale(.985); }
-              to{ transform:translateX(10px) scale(1.02); }
+              from{ transform:translateX(-8px) scale(.988); }
+              to{ transform:translateX(8px) scale(1.015); }
             }
             @keyframes realmFogBackPan{
-              from{ transform:translateX(-3%) translateY(0); }
-              to{ transform:translateX(4%) translateY(-1%); }
+              from{ transform:translateX(-2.5%) translateY(0); }
+              to{ transform:translateX(3%) translateY(-1%); }
             }
             @keyframes realmFogFrontPan{
-              from{ transform:translateX(2%) translateY(0); }
-              to{ transform:translateX(-3%) translateY(-1%); }
+              from{ transform:translateX(1.5%) translateY(0); }
+              to{ transform:translateX(-2%) translateY(-1%); }
             }
             @keyframes realmParticleFloat{
-              0%{ transform:translateY(0) scale(.75); opacity:0; }
-              14%{ opacity:.74; }
-              100%{ transform:translateY(-30px) scale(1.06); opacity:0; }
+              0%{ transform:translateY(0) scale(.78); opacity:0; }
+              14%{ opacity:.68; }
+              100%{ transform:translateY(-24px) scale(1.04); opacity:0; }
             }
 
             @media (max-width:420px){
@@ -624,7 +629,7 @@ _startWalker() {
               <div>
                 <p class="realm-track" data-realm-text="track">The Listening Realm</p>
                 <p class="realm-artist" data-realm-text="artist">Prototype Track • Realm Portal v1</p>
-                <p class="realmAlbum" data-realm-text="album">Aura-synced artwork world</p>
+                <p class="realmAlbum" data-realm-text="album">Album portal</p>
               </div>
 
               <div class="realm-status">

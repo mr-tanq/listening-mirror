@@ -4,6 +4,8 @@
   let realmViewInstance = null;
   let booted = false;
   let unsubscribeSpotify = null;
+  let lastPlayerState = null;
+  let lastAuraState = null;
   let lastRealmTrackId = "";
   let lastRealmFallbackKey = "";
 
@@ -23,7 +25,6 @@
         lastRealmFallbackKey = fallbackKey;
         return true;
       }
-
       return false;
     }
 
@@ -36,21 +37,30 @@
     return false;
   }
 
-  function applyTrackToRealm(playerState, { force = false } = {}) {
+  function applyRealmFromSources(playerState, auraState, { force = false } = {}) {
     if (!realmViewInstance) return;
-    if (!window.RealmEngine || typeof window.RealmEngine.fromTrack !== "function") return;
+    if (!window.RealmEngine || typeof window.RealmEngine.fromTrackAndAura !== "function") return;
 
     const hasTrack = !!(playerState?.track_id || playerState?.track_name);
     if (!hasTrack) return;
 
-    if (!force && !shouldApplyNewRealm(playerState)) {
-      const currentRealm = window.RealmEngine.fromTrack(playerState);
-      realmViewInstance.applyState(currentRealm);
-      return;
-    }
+    const state = window.RealmEngine.fromTrackAndAura(playerState, auraState || {});
+    realmViewInstance.applyState(state);
 
-    const nextRealmState = window.RealmEngine.fromTrack(playerState);
-    realmViewInstance.applyState(nextRealmState);
+    if (!force) {
+      shouldApplyNewRealm(playerState);
+    } else {
+      const trackId = playerState?.track_id || "";
+      lastRealmTrackId = trackId;
+      lastRealmFallbackKey = buildFallbackKey(playerState);
+    }
+  }
+
+  function onAuraEvent(e) {
+    lastAuraState = e?.detail || null;
+    if (lastPlayerState) {
+      applyRealmFromSources(lastPlayerState, lastAuraState);
+    }
   }
 
   function bindSpotify() {
@@ -60,15 +70,14 @@
     }
 
     unsubscribeSpotify = window.SpotifyPlayer.subscribe((playerState) => {
-      applyTrackToRealm(playerState);
+      lastPlayerState = playerState;
+      applyRealmFromSources(playerState, lastAuraState);
     });
 
     if (typeof window.SpotifyPlayer.getState === "function") {
-      const initialPlayerState = window.SpotifyPlayer.getState();
-      applyTrackToRealm(initialPlayerState, { force: true });
+      lastPlayerState = window.SpotifyPlayer.getState();
     }
   }
-
   function initRealmTab() {
     if (booted) return;
     booted = true;
@@ -91,20 +100,11 @@
     }
 
     bindSpotify();
-  }
+    window.addEventListener("lm:aura", onAuraEvent);
 
-  function getRealmView() {
-    return realmViewInstance;
-  }
-
-  function applyRealmState(state) {
-    if (!realmViewInstance || !state) return;
-    realmViewInstance.applyState(state);
-  }
-
-  function pulseRealm() {
-    if (!realmViewInstance) return;
-    realmViewInstance.peakPulse();
+    if (lastPlayerState) {
+      applyRealmFromSources(lastPlayerState, lastAuraState, { force: true });
+    }
   }
 
   function destroyRealm() {
@@ -113,12 +113,16 @@
       unsubscribeSpotify = null;
     }
 
+    window.removeEventListener("lm:aura", onAuraEvent);
+
     if (realmViewInstance && typeof realmViewInstance.unmount === "function") {
       realmViewInstance.unmount();
     }
 
     realmViewInstance = null;
     booted = false;
+    lastPlayerState = null;
+    lastAuraState = null;
     lastRealmTrackId = "";
     lastRealmFallbackKey = "";
   }
@@ -131,9 +135,12 @@
 
   window.RealmTab = {
     init: initRealmTab,
-    getView: getRealmView,
-    applyState: applyRealmState,
-    pulse: pulseRealm,
-    destroy: destroyRealm
+    destroy: destroyRealm,
+    getView() {
+      return realmViewInstance;
+    },
+    pulse() {
+      if (realmViewInstance) realmViewInstance.peakPulse();
+    }
   };
 })();

@@ -347,17 +347,7 @@
       border-radius:999px;
       opacity:.95;
     }
-
-    .metric--heat .metric__value{ color:var(--heat); }
-    .metric--heat .metric__line{ background:var(--heat); }
-    .metric--flux .metric__value{ color:var(--flux); }
-    .metric--flux .metric__line{ background:var(--flux); }
-    .metric--focus .metric__value{ color:var(--focus); }
-    .metric--focus .metric__line{ background:var(--focus); }
-    .metric--depth .metric__value{ color:var(--depth); }
-    .metric--depth .metric__line{ background:var(--depth); }
-
-    .lyric-rail{
+.lyric-rail{
       display:flex;
       flex-direction:column;
       align-items:center;
@@ -650,7 +640,7 @@
     .bottom-nav{
       flex:0 0 auto;
       display:grid;
-      grid-template-columns:repeat(4, 1fr);
+      grid-template-columns:repeat(5, 1fr);
       align-items:end;
       padding-bottom:8px;
       border-top:1px solid rgba(255,255,255,.04);
@@ -728,67 +718,9 @@
         margin-bottom:12px;
       }
     }
-
-/* ===============================
-   LISTENING MIRROR — LYRICS FX
-   =============================== */
-
-#lyricsBlock{
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  justify-content:center;
-  text-align:center;
-  gap:8px;
-  padding-top:6px;
-}
-
-#currentLyricLine{
-  font-size:20px;
-  font-weight:600;
-  letter-spacing:.3px;
-  line-height:1.35;
-  color:#AEE7FF;
-
-  text-shadow:
-    0 0 6px rgba(174,231,255,.45),
-    0 0 14px rgba(174,231,255,.25),
-    0 0 26px rgba(174,231,255,.12);
-
-  transition:
-    opacity .26s ease,
-    transform .26s ease,
-    filter .26s ease,
-    color .26s ease,
-    text-shadow .26s ease;
-
-  opacity:1;
-  transform:translateY(0);
-  filter:blur(0);
-  will-change: opacity, transform, filter;
-}
-
-#currentLyricLine.is-changing{
-  opacity:.35;
-  transform:translateY(4px);
-  filter:blur(2px);
-}
-
-#currentLyricMeta{
-  font-size:13px;
-  font-weight:500;
-  color:rgba(210,230,255,.55);
-  letter-spacing:.6px;
-  text-shadow:0 0 6px rgba(180,200,255,.08);
-  transition: opacity .22s ease;
-}
-
-#currentLyricLine:empty::before{
-  content:"—";
-  opacity:.35;
-}
-
   </style>
+
+  <link rel="stylesheet" href="./realm.css" />
 </head>
 <body>
   <main class="app-shell">
@@ -896,6 +828,28 @@
           </div>
         </section>
 
+    .metric--heat .metric__value{ color:var(--heat); }
+    .metric--heat .metric__line{ background:var(--heat); }
+    .metric--flux .metric__value{ color:var(--flux); }
+    .metric--flux .metric__line{ background:var(--flux); }
+    .metric--focus .metric__value{ color:var(--focus); }
+    .metric--focus .metric__line{ background:var(--focus); }
+    .metric--depth .metric__value{ color:var(--depth); }
+    .metric--depth .metric__line{ background:var(--depth); }
+<section id="viewRealm" class="view" aria-label="Realm view" hidden>
+          <div class="view-panel">
+            <h2 class="panel-title">Realm</h2>
+            <p class="panel-sub">Portal realm prototype will render here while we build it in isolation.</p>
+
+            <div class="stack">
+              <section class="card">
+                <h3 class="card__title">Realm portal</h3>
+                <div id="realmMount"></div>
+              </section>
+            </div>
+          </div>
+        </section>
+
         <section id="viewConcerts" class="view" aria-label="Concerts view" hidden>
           <div class="view-panel">
             <h2 class="panel-title">Concerts</h2>
@@ -958,6 +912,15 @@
           <span class="tab__label">Mirror</span>
         </button>
 
+        <button id="tabRealm" class="tab" data-view="viewRealm">
+          <svg class="tab__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="7.5"></circle>
+            <path d="M7.2 13.4c1.2-2.3 3-3.4 4.8-3.4 1.9 0 3.6 1.1 4.8 3.4"></path>
+            <path d="M9.1 9.2h5.8"></path>
+          </svg>
+          <span class="tab__label">Realm</span>
+        </button>
+
         <button id="tabConcerts" class="tab" data-view="viewConcerts">
           <svg class="tab__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
             <path d="M6 7h12v10H6z"></path>
@@ -986,14 +949,16 @@
 
     </section>
   </main>
-
-  <script src="./spotify-auth.js"></script>
+<script src="./spotify-auth.js"></script>
   <script src="./spotify-player.js"></script>
   <script src="./spotify-click-play.js"></script>
   <script src="./spotify-ui.js"></script>
   <script src="./orb-engine.js"></script>
   <script src="./aura-tab.js"></script>
   <script src="./lyrics-ui.js"></script>
+  <script src="./realm-engine.js"></script>
+  <script src="./realm-view.js"></script>
+  <script src="./realm-tab.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

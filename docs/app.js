@@ -372,7 +372,16 @@
       loadTop()
     ]);
   }
-
+window.__LM_APP__ = {
+  getState() {
+    return {
+      topType: state.topType,
+      topPeriod: state.topPeriod,
+      lastRecent: Array.isArray(state.lastRecent) ? state.lastRecent.slice() : [],
+      lastTop: Array.isArray(state.lastTop) ? state.lastTop.slice() : [],
+    };
+  }
+};
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", boot, { once: true });
   } else {

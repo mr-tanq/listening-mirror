@@ -303,8 +303,7 @@
     .audio-line span:nth-child(20){height:9px; animation-delay:1.52s;}
     .audio-line span:nth-child(21){height:6px; animation-delay:1.60s;}
     .audio-line span:nth-child(22){height:4px; animation-delay:1.68s;}
-
-    .metrics{
+.metrics{
       display:grid;
       grid-template-columns:repeat(4, 1fr);
       gap:18px;
@@ -398,6 +397,7 @@
       display:inline-block;
       opacity:.8;
     }
+
     .playback{
       display:grid;
       grid-template-rows:auto auto;
@@ -568,8 +568,7 @@
     }
 
     .row:active{ transform:scale(.988); }
-
-    .thumb{
+.thumb{
       width:52px;
       height:52px;
       border-radius:14px;
@@ -728,10 +727,6 @@
       }
     }
 
-    /* ===============================
-       LISTENING MIRROR — LYRICS FX
-       =============================== */
-
     #lyricsBlock{
       display:flex;
       flex-direction:column;
@@ -748,23 +743,20 @@
       letter-spacing:.3px;
       line-height:1.35;
       color:#AEE7FF;
-
       text-shadow:
         0 0 6px rgba(174,231,255,.45),
         0 0 14px rgba(174,231,255,.25),
         0 0 26px rgba(174,231,255,.12);
-
       transition:
         opacity .26s ease,
         transform .26s ease,
         filter .26s ease,
         color .26s ease,
         text-shadow .26s ease;
-
       opacity:1;
       transform:translateY(0);
       filter:blur(0);
-      will-change: opacity, transform, filter;
+      will-change:opacity, transform, filter;
     }
 
     #currentLyricLine.is-changing{
@@ -779,7 +771,7 @@
       color:rgba(210,230,255,.55);
       letter-spacing:.6px;
       text-shadow:0 0 6px rgba(180,200,255,.08);
-      transition: opacity .22s ease;
+      transition:opacity .22s ease;
     }
 
     #currentLyricLine:empty::before{
@@ -895,22 +887,21 @@
 
           </div>
         </section>
-        https://mr-tanq.github.io/listening-mirror/?v=3
-            </div>
+
+        <section id="viewRealm" class="view" aria-label="Realm view" hidden>
+          <div class="view-panel" style="padding-top:10px;">
+            <div id="realmMount"></div>
           </div>
         </section>
 
         <section id="viewConcerts" class="view" aria-label="Concerts view" hidden>
-  <div class="view-panel">
-    <h2 class="panel-title">Concerts</h2>
-    <p class="panel-sub">Signals from your listening. Live shows you might actually care about.</p>
-
-    <div id="econcertsList"></div>
-
-  </div>
-</section>
-
-        <section id="viewIdentity" class="view" aria-label="Identity view" hidden>
+          <div class="view-panel">
+            <h2 class="panel-title">Concerts</h2>
+            <p class="panel-sub">Signals from your listening. Live shows you might actually care about.</p>
+            <div id="econcertsList"></div>
+          </div>
+        </section>
+<section id="viewIdentity" class="view" aria-label="Identity view" hidden>
           <div class="view-panel">
             <h2 class="panel-title">Identity</h2>
             <p class="panel-sub">Recent listening and top listening containers live here for real binding.</p>
@@ -990,6 +981,7 @@
 
     </section>
   </main>
+
   <script src="./spotify-auth.js"></script>
   <script src="./spotify-player.js"></script>
   <script src="./spotify-click-play.js"></script>
@@ -1001,7 +993,7 @@
   <script src="./realm-view.js"></script>
   <script src="./realm-tab.js"></script>
   <script>
-  window.LASTFM_API_KEY = "76526b85fd02f82307b3a226144a9f84";
+    window.LASTFM_API_KEY = "76526b85fd02f82307b3a226144a9f84";
   </script>
   <script src="./econcerts.js"></script>
   <script src="./app.js"></script>

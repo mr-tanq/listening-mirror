@@ -102,7 +102,7 @@
     if (n > 1.001) return clamp01(n / 100);
     return clamp01(n);
   }
-  function biomeFromSeed(seed) {
+function biomeFromSeed(seed) {
     const biomeIndex = seed % BIOMES.length;
     return BIOMES[biomeIndex];
   }
@@ -111,6 +111,8 @@
     const trackId = playerState?.track_id || "";
     const trackName = playerState?.track_name || "Unknown Track";
     const artistName = playerState?.artist_name || "Unknown Artist";
+    const albumName = playerState?.album_name || "";
+    const albumImage = playerState?.album_image || "";
     const isPlaying = !!playerState?.is_playing;
 
     const seedSource = trackId || `${trackName}::${artistName}`;
@@ -129,6 +131,8 @@
       motion: biomeBase.motion,
       track: trackName,
       artist: artistName,
+      album: albumName,
+      albumImage,
       stateLabel: isPlaying ? "Now Playing" : "Paused",
       heat: Number(heat.toFixed(2)),
       focus: Number(focus.toFixed(2)),
@@ -159,6 +163,8 @@
       motion: biome.motion,
       track: "The Listening Realm",
       artist: "Prototype Track • Realm Portal v1",
+      album: "",
+      albumImage: "",
       stateLabel: "Now Playing",
       heat: 0.64,
       focus: 0.72,
@@ -197,7 +203,7 @@
     demoIndex = 0;
     return getCurrentState();
   }
-  function getAllDemoStates() {
+function getAllDemoStates() {
     return BIOMES.map((_, i) => getStateAt(i));
   }
 

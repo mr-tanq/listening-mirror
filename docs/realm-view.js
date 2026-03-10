@@ -56,8 +56,9 @@
 
       this.layers = {
         artBlur: null,
-        artSharp: null,
+        artTexture: null,
         tint: null,
+        vignette: null,
         skyGlow: null,
         moon: null,
         far: null,
@@ -78,8 +79,8 @@
       this.currentState = { ...DEFAULT_STATE };
       this.isMounted = false;
       this.particleTimer = null;
-      this.walkFrame = 0;
       this.walkStart = performance.now();
+      this._walkerRaf = 0;
     }
 
     mount() {
@@ -109,8 +110,9 @@
       this.metricValues.flux = this.mountEl.querySelector('[data-realm-value="flux"]');
 
       this.layers.artBlur = this.mountEl.querySelector(".realmWorld__artBlur");
-      this.layers.artSharp = this.mountEl.querySelector(".realmWorld__artSharp");
+      this.layers.artTexture = this.mountEl.querySelector(".realmWorld__artTexture");
       this.layers.tint = this.mountEl.querySelector(".realmWorld__tint");
+      this.layers.vignette = this.mountEl.querySelector(".realmWorld__vignette");
       this.layers.skyGlow = this.mountEl.querySelector(".realmWorld__skyGlow");
       this.layers.moon = this.mountEl.querySelector(".realmWorld__moon");
       this.layers.far = this.mountEl.querySelector(".realmWorld__far");
@@ -164,19 +166,22 @@ _applyText(state) {
       if (this.textEls.track) this.textEls.track.textContent = state.track;
       if (this.textEls.artist) this.textEls.artist.textContent = state.artist;
       if (this.textEls.album) {
-        this.textEls.album.textContent = state.album ? state.album : "Aura-synced world";
+        this.textEls.album.textContent = state.album || "Aura-synced world";
       }
     }
 
     _applyArtwork(state) {
       const img = state.albumImage || "";
+      const hasArt = !!img;
+
       if (this.layers.artBlur) {
-        this.layers.artBlur.style.backgroundImage = img ? `url("${img}")` : "none";
-        this.layers.artBlur.style.opacity = img ? String(0.28 + state.depth * 0.18) : "0";
+        this.layers.artBlur.style.backgroundImage = hasArt ? `url("${img}")` : "none";
+        this.layers.artBlur.style.opacity = hasArt ? String(0.14 + state.depth * 0.10) : "0";
       }
-      if (this.layers.artSharp) {
-        this.layers.artSharp.style.backgroundImage = img ? `url("${img}")` : "none";
-        this.layers.artSharp.style.opacity = img ? String(0.08 + state.focus * 0.18) : "0";
+
+      if (this.layers.artTexture) {
+        this.layers.artTexture.style.backgroundImage = hasArt ? `url("${img}")` : "none";
+        this.layers.artTexture.style.opacity = hasArt ? String(0.04 + state.focus * 0.08) : "0";
       }
     }
 
@@ -190,38 +195,43 @@ _applyText(state) {
         this.worldEl.style.background = state.sky;
       }
 
+      const hue = Math.round(210 - heat * 145);
+      const sat = Math.round(52 + heat * 28);
+      const light = Math.round(26 + focus * 8);
+
       if (this.layers.tint) {
-        const hue = Math.round(212 - heat * 150);
-        const sat = Math.round(60 + heat * 30);
-        const light = Math.round(42 + focus * 10);
         this.layers.tint.style.background = `
-          radial-gradient(900px 460px at 50% 35%, hsla(${hue}, ${sat}%, ${light}%, .18), transparent 70%),
-          radial-gradient(700px 360px at 75% 68%, hsla(${hue}, ${sat}%, ${light + 8}%, .10), transparent 72%),
-          linear-gradient(180deg, rgba(0,0,0,.02), rgba(0,0,0,.18))
+          radial-gradient(900px 420px at 52% 32%, hsla(${hue}, ${sat}%, ${light + 10}%, .15), transparent 68%),
+          radial-gradient(700px 300px at 78% 70%, hsla(${hue}, ${sat}%, ${light + 4}%, .08), transparent 70%),
+          linear-gradient(180deg, rgba(0,0,0,.02), rgba(0,0,0,.16))
         `;
+      }
+
+      if (this.layers.vignette) {
+        this.layers.vignette.style.opacity = String(0.70 + depth * 0.12);
       }
 
       if (this.layers.skyGlow) {
         this.layers.skyGlow.style.background = state.skyGlow;
-        this.layers.skyGlow.style.opacity = String(0.36 + heat * 0.42);
-        this.layers.skyGlow.style.filter = `blur(${22 + depth * 18}px)`;
+        this.layers.skyGlow.style.opacity = String(0.28 + heat * 0.30);
+        this.layers.skyGlow.style.filter = `blur(${20 + depth * 18}px)`;
       }
 
       if (this.layers.moon) {
         this.layers.moon.style.background = state.moon;
-        this.layers.moon.style.opacity = String(0.55 + focus * 0.34);
+        this.layers.moon.style.opacity = String(0.46 + focus * 0.26);
       }
 
       if (this.layers.far) {
         this.layers.far.style.background = state.far;
-        this.layers.far.style.opacity = String(0.72 + depth * 0.20);
-        this.layers.far.style.transform = `translateX(${(flux - 0.5) * 6}px)`;
+        this.layers.far.style.opacity = String(0.84 + depth * 0.10);
+        this.layers.far.style.transform = `translateX(${(flux - 0.5) * 5}px)`;
       }
 
       if (this.layers.mid) {
         this.layers.mid.style.background = state.mid;
-        this.layers.mid.style.opacity = String(0.80 + focus * 0.14);
-        this.layers.mid.style.transform = `translateX(${(flux - 0.5) * 10}px)`;
+        this.layers.mid.style.opacity = String(0.88 + focus * 0.08);
+        this.layers.mid.style.transform = `translateX(${(flux - 0.5) * 8}px)`;
       }
 
       if (this.layers.ground) {
@@ -229,13 +239,13 @@ _applyText(state) {
       }
 
       if (this.layers.fogBack) {
-        this.layers.fogBack.style.opacity = String(0.16 + depth * 0.22 + (1 - focus) * 0.12);
-        this.layers.fogBack.style.transform = `translateX(${(flux - 0.5) * -12}px)`;
+        this.layers.fogBack.style.opacity = String(0.10 + depth * 0.18 + (1 - focus) * 0.08);
+        this.layers.fogBack.style.transform = `translateX(${(flux - 0.5) * -10}px)`;
       }
 
       if (this.layers.fogFront) {
-        this.layers.fogFront.style.opacity = String(0.10 + depth * 0.18 + (1 - focus) * 0.08);
-        this.layers.fogFront.style.transform = `translateX(${(flux - 0.5) * 18}px)`;
+        this.layers.fogFront.style.opacity = String(0.06 + depth * 0.14 + (1 - focus) * 0.06);
+        this.layers.fogFront.style.transform = `translateX(${(flux - 0.5) * 14}px)`;
       }
     }
 
@@ -260,24 +270,24 @@ _applyText(state) {
       const flux = state.flux;
 
       const hue = Math.round(205 - heat * 150);
-      const sat = Math.round(70 + heat * 20);
-      const light = Math.round(60 + focus * 10);
+      const sat = Math.round(72 + heat * 18);
+      const light = Math.round(62 + focus * 10);
 
       if (this.yoda.collar) {
-        this.yoda.collar.style.background = `radial-gradient(circle, hsla(${hue}, ${sat}%, ${light}%, .96) 0%, hsla(${hue}, ${sat}%, ${light}%, .56) 36%, transparent 72%)`;
-        this.yoda.collar.style.filter = `blur(${5 + depth * 5}px)`;
-        this.yoda.collar.style.opacity = String(0.55 + heat * 0.35);
+        this.yoda.collar.style.background = `radial-gradient(circle, hsla(${hue}, ${sat}%, ${light}%, .96) 0%, hsla(${hue}, ${sat}%, ${light}%, .54) 36%, transparent 72%)`;
+        this.yoda.collar.style.filter = `blur(${5 + depth * 4}px)`;
+        this.yoda.collar.style.opacity = String(0.58 + heat * 0.30);
       }
 
       if (this.yoda.bleed) {
-        this.yoda.bleed.style.background = `radial-gradient(circle at 50% 50%, hsla(${hue}, ${sat}%, ${light}%, .28) 0%, hsla(${hue}, ${sat}%, ${light}%, .10) 44%, transparent 78%)`;
-        this.yoda.bleed.style.opacity = String(0.28 + heat * 0.24);
-        this.yoda.bleed.style.filter = `blur(${10 + depth * 10}px)`;
+        this.yoda.bleed.style.background = `radial-gradient(circle at 50% 50%, hsla(${hue}, ${sat}%, ${light}%, .22) 0%, hsla(${hue}, ${sat}%, ${light}%, .08) 42%, transparent 76%)`;
+        this.yoda.bleed.style.opacity = String(0.22 + heat * 0.18);
+        this.yoda.bleed.style.filter = `blur(${8 + depth * 8}px)`;
       }
 
       if (this.yoda.shadow) {
-        this.yoda.shadow.style.opacity = String(0.20 + (1 - focus) * 0.18);
-        this.yoda.shadow.style.transform = `translateX(-50%) scaleX(${1.05 + flux * 0.20})`;
+        this.yoda.shadow.style.opacity = String(0.24 + (1 - focus) * 0.12);
+        this.yoda.shadow.style.transform = `translateX(-50%) scaleX(${1.08 + flux * 0.16})`;
       }
     }
 
@@ -293,14 +303,14 @@ _applyText(state) {
       this._stopParticles();
       if (!this.particlesEl) return;
 
-      const every = Math.max(260, 1100 - flux * 760);
+      const every = Math.max(280, 1180 - flux * 760);
 
-      for (let i = 0; i < 8; i += 1) {
-        window.setTimeout(() => this._spawnParticle(color, 4600 + Math.random() * 2000), i * 120);
+      for (let i = 0; i < 6; i += 1) {
+        window.setTimeout(() => this._spawnParticle(color, 4200 + Math.random() * 1800), i * 150);
       }
 
       this.particleTimer = window.setInterval(() => {
-        this._spawnParticle(color, 4600 + Math.random() * 2000);
+        this._spawnParticle(color, 4200 + Math.random() * 1800);
       }, every);
     }
 
@@ -310,20 +320,20 @@ _applyText(state) {
       const el = document.createElement("span");
       el.className = "realmWorld__particle";
 
-      const left = 4 + Math.random() * 92;
-      const top = 10 + Math.random() * 72;
-      const size = 2 + Math.random() * 3.2;
+      const left = 5 + Math.random() * 90;
+      const top = 12 + Math.random() * 68;
+      const size = 2 + Math.random() * 2.8;
 
       el.style.left = `${left}%`;
       el.style.top = `${top}%`;
       el.style.width = `${size}px`;
       el.style.height = `${size}px`;
       el.style.background = color;
-      el.style.boxShadow = `0 0 12px ${color}`;
+      el.style.boxShadow = `0 0 10px ${color}`;
       el.style.animationDuration = `${duration}ms`;
 
       this.particlesEl.appendChild(el);
-      window.setTimeout(() => el.remove(), duration + 1200);
+      window.setTimeout(() => el.remove(), duration + 1000);
     }
 _startWalker() {
       this._stopWalker();
@@ -335,32 +345,32 @@ _startWalker() {
         const flux = this.currentState?.flux ?? 0.5;
         const isPaused = String(this.currentState?.stateLabel || "").toLowerCase() === "paused";
 
-        const pathSpeed = isPaused ? 0.0045 : 0.008 + flux * 0.008;
+        const pathSpeed = isPaused ? 0.0045 : 0.007 + flux * 0.006;
         const cycle = (t * pathSpeed) % 2;
         const forward = cycle < 1;
-        const p = forward ? cycle : (2 - cycle); // 0..1..0
+        const p = forward ? cycle : (2 - cycle);
 
-        const x = 12 + p * 76;
+        const x = 13 + p * 74;
 
         const yTerrain =
-          Math.sin((x / 100) * Math.PI * 2.0) * 8 +
-          Math.sin((x / 100) * Math.PI * 5.1) * 3.4 +
-          Math.cos((x / 100) * Math.PI * 1.35) * 2.2;
+          Math.sin((x / 100) * Math.PI * 2.0) * 7 +
+          Math.sin((x / 100) * Math.PI * 4.9) * 2.8 +
+          Math.cos((x / 100) * Math.PI * 1.2) * 1.8;
 
-        const walkTempo = isPaused ? 1.8 : 5.8 + flux * 2.8;
+        const walkTempo = isPaused ? 1.8 : 5.2 + flux * 2.4;
         const step = Math.sin(t * walkTempo);
-        const bob = isPaused ? Math.sin(t * 1.8) * 1.0 : step * (1.2 + flux * 1.0);
+        const bob = isPaused ? Math.sin(t * 1.7) * 0.8 : step * (1.0 + flux * 0.8);
 
         this.yoda.actor.style.left = `${x}%`;
-        this.yoda.actor.style.bottom = `${18 + yTerrain + bob}px`;
+        this.yoda.actor.style.bottom = `${16 + yTerrain + bob}px`;
         this.yoda.actor.style.transform = `translateX(-50%) scaleX(${forward ? 1 : -1})`;
 
-        const tilt = isPaused ? Math.sin(t * 1.6) * 0.8 : step * 1.4;
-        this.yoda.body.style.transform = `translateY(${step * 0.8}px) rotate(${tilt}deg)`;
+        const tilt = isPaused ? Math.sin(t * 1.5) * 0.5 : step * 1.1;
+        this.yoda.body.style.transform = `translateY(${step * 0.7}px) rotate(${tilt}deg)`;
 
         const pulse = isPaused
-          ? (0.96 + Math.sin(t * 1.8) * 0.04)
-          : (0.96 + Math.sin(t * (2.6 + flux * 7.2)) * (0.06 + flux * 0.08));
+          ? (0.96 + Math.sin(t * 1.7) * 0.04)
+          : (0.96 + Math.sin(t * (2.4 + flux * 6.8)) * (0.05 + flux * 0.06));
 
         this.yoda.collar.style.transform = `translate(-50%, -50%) scale(${pulse})`;
 
@@ -382,15 +392,17 @@ _startWalker() {
         <div class="realmHeroView">
           <style>
             .realmHeroView{ display:grid; gap:14px; }
+
             .realmHero{
               border-radius:26px;
               overflow:hidden;
-              outline:1px solid rgba(255,255,255,.08);
-              background:rgba(255,255,255,.03);
+              outline:1px solid rgba(255,255,255,.07);
+              background:rgba(255,255,255,.02);
               box-shadow:
-                inset 0 1px 0 rgba(255,255,255,.04),
-                0 18px 40px rgba(0,0,0,.18);
+                inset 0 1px 0 rgba(255,255,255,.03),
+                0 18px 40px rgba(0,0,0,.16);
             }
+
             .realmHero__top{
               padding:12px 14px 0;
               display:flex;
@@ -400,18 +412,20 @@ _startWalker() {
               position:relative;
               z-index:3;
             }
+
             .realmWorld{
               position:relative;
               width:100%;
-              aspect-ratio:16/9.6;
+              aspect-ratio:16/9.8;
               overflow:hidden;
               border-radius:0 0 26px 26px;
               isolation:isolate;
             }
 
             .realmWorld__artBlur,
-            .realmWorld__artSharp,
+            .realmWorld__artTexture,
             .realmWorld__tint,
+            .realmWorld__vignette,
             .realmWorld__skyGlow,
             .realmWorld__moon,
             .realmWorld__far,
@@ -428,97 +442,115 @@ _startWalker() {
             .realmWorld__artBlur{
               background-position:center;
               background-size:cover;
-              filter:blur(36px) saturate(1.12) brightness(.62);
-              transform:scale(1.16);
+              filter:blur(42px) saturate(0.88) brightness(.42);
+              transform:scale(1.18);
               z-index:1;
             }
-            .realmWorld__artSharp{
+
+            .realmWorld__artTexture{
               background-position:center;
               background-size:cover;
-              filter:blur(2px) saturate(1.04) brightness(.56);
-              transform:scale(1.04);
-              z-index:2;
+              filter:blur(5px) grayscale(.18) saturate(.72) brightness(.34);
+              transform:scale(1.07);
               mix-blend-mode:soft-light;
+              z-index:2;
             }
+
             .realmWorld__tint{ z-index:3; }
+
+            .realmWorld__vignette{
+              background:
+                radial-gradient(90% 72% at 50% 40%, transparent 32%, rgba(0,0,0,.12) 64%, rgba(0,0,0,.34) 100%),
+                linear-gradient(180deg, rgba(0,0,0,.05), transparent 22%, transparent 70%, rgba(0,0,0,.18));
+              z-index:4;
+            }
+
             .realmWorld__skyGlow{
               width:64%;
               height:62%;
               left:18%;
-              top:4%;
+              top:5%;
               border-radius:50%;
               mix-blend-mode:screen;
-              z-index:4;
+              z-index:5;
               animation: realmSkyBreath 18s ease-in-out infinite alternate;
             }
+
             .realmWorld__moon{
-              width:11%;
+              width:10%;
               aspect-ratio:1;
               right:12%;
               top:15%;
               border-radius:50%;
-              box-shadow:0 0 28px rgba(255,255,255,.22);
-              z-index:6;
+              box-shadow:0 0 22px rgba(255,255,255,.18);
+              z-index:7;
             }
+
             .realmWorld__far{
               left:-3%;
               right:-3%;
-              top:43%;
-              bottom:23%;
-              clip-path:polygon(0% 100%, 0% 66%, 10% 60%, 18% 70%, 30% 48%, 44% 68%, 56% 54%, 68% 72%, 82% 46%, 100% 62%, 100% 100%);
-              z-index:7;
+              top:45%;
+              bottom:24%;
+              clip-path:polygon(0% 100%, 0% 68%, 11% 61%, 20% 70%, 31% 50%, 44% 69%, 56% 56%, 67% 72%, 82% 47%, 100% 63%, 100% 100%);
+              z-index:8;
               animation: realmFarPan 38s ease-in-out infinite alternate;
             }
+
             .realmWorld__mid{
               left:-4%;
               right:-4%;
-              top:56%;
+              top:58%;
               bottom:14%;
-              clip-path:polygon(0% 100%, 0% 72%, 9% 63%, 18% 72%, 28% 56%, 40% 76%, 51% 51%, 61% 68%, 72% 55%, 82% 73%, 92% 61%, 100% 70%, 100% 100%);
-              z-index:8;
+              clip-path:polygon(0% 100%, 0% 74%, 9% 66%, 18% 74%, 29% 59%, 40% 78%, 51% 54%, 61% 69%, 72% 57%, 83% 75%, 93% 63%, 100% 71%, 100% 100%);
+              z-index:9;
               animation: realmMidPan 28s ease-in-out infinite alternate;
             }
+
             .realmWorld__ground{
               left:-3%;
               right:-3%;
               bottom:-1%;
-              height:24%;
-              clip-path:polygon(0% 100%, 0% 45%, 9% 50%, 18% 42%, 29% 52%, 39% 40%, 51% 50%, 60% 38%, 70% 49%, 80% 41%, 90% 53%, 100% 44%, 100% 100%);
-              z-index:9;
+              height:22%;
+              clip-path:polygon(0% 100%, 0% 46%, 9% 51%, 18% 43%, 30% 53%, 40% 41%, 52% 51%, 61% 39%, 71% 50%, 81% 42%, 91% 54%, 100% 45%, 100% 100%);
+              z-index:10;
               animation: realmGroundPan 18s ease-in-out infinite alternate;
             }
+
             .realmWorld__fogBack{
               background:
-                radial-gradient(600px 160px at 35% 82%, rgba(225,235,255,.11), transparent 72%),
-                radial-gradient(520px 150px at 70% 78%, rgba(225,235,255,.08), transparent 72%);
+                radial-gradient(620px 150px at 34% 82%, rgba(230,236,250,.08), transparent 72%),
+                radial-gradient(520px 140px at 72% 78%, rgba(230,236,250,.06), transparent 70%);
               mix-blend-mode:screen;
-              z-index:10;
+              z-index:11;
               animation: realmFogBackPan 20s ease-in-out infinite alternate;
             }
+
             .realmWorld__fogFront{
               background:
-                radial-gradient(520px 140px at 48% 86%, rgba(225,235,255,.08), transparent 68%);
+                radial-gradient(520px 130px at 48% 86%, rgba(230,236,250,.06), transparent 68%);
               mix-blend-mode:screen;
-              z-index:13;
+              z-index:14;
               animation: realmFogFrontPan 14s ease-in-out infinite alternate;
             }
 
-            .realmWorld__particles{ z-index:12; }
+            .realmWorld__particles{ z-index:13; }
+
             .realmWorld__particle{
               position:absolute;
               border-radius:50%;
-              opacity:.72;
+              opacity:.68;
               animation: realmParticleFloat linear forwards;
             }
 
             .realmYoda{
               position:absolute;
-              z-index:11;
-              width:38px;
-              height:30px;
+              z-index:12;
+              width:40px;
+              height:31px;
               pointer-events:none;
               will-change:left,bottom,transform;
             }
+
             .realmYoda__shadow{
               position:absolute;
               left:50%;
@@ -527,38 +559,42 @@ _startWalker() {
               height:7px;
               transform:translateX(-50%);
               border-radius:50%;
-              background:rgba(0,0,0,.44);
+              background:rgba(0,0,0,.42);
               filter:blur(2px);
             }
+
             .realmYoda__bleed{
               position:absolute;
               left:50%;
               bottom:-4px;
-              width:44px;
-              height:16px;
+              width:40px;
+              height:14px;
               transform:translateX(-50%);
               border-radius:50%;
-              opacity:.32;
+              opacity:.26;
             }
+
             .realmYoda__body{
               position:absolute;
               inset:0;
               transform-origin:50% 100%;
             }
+
             .realmYoda__body::before{
               content:"";
               position:absolute;
               inset:0;
               background:#090a0d;
-              clip-path:polygon(7% 66%, 10% 42%, 20% 26%, 27% 6%, 37% 26%, 54% 14%, 63% 5%, 70% 22%, 84% 35%, 94% 56%, 87% 74%, 78% 76%, 73% 95%, 61% 95%, 59% 77%, 42% 77%, 38% 95%, 25% 95%, 22% 76%, 12% 74%);
-              filter:drop-shadow(0 1px 0 rgba(255,255,255,.02));
+              clip-path:polygon(8% 67%, 11% 44%, 21% 28%, 28% 7%, 38% 27%, 54% 16%, 63% 7%, 70% 22%, 84% 36%, 94% 57%, 87% 74%, 79% 77%, 73% 95%, 61% 95%, 59% 77%, 42% 77%, 38% 95%, 25% 95%, 22% 77%, 12% 74%);
+              filter:drop-shadow(0 1px 0 rgba(255,255,255,.015));
             }
+
             .realmYoda__collar{
               position:absolute;
               left:57%;
               top:49%;
-              width:16px;
-              height:16px;
+              width:15px;
+              height:15px;
               transform:translate(-50%, -50%);
               border-radius:50%;
               mix-blend-mode:screen;
@@ -569,28 +605,29 @@ _startWalker() {
               display:grid;
               gap:12px;
             }
+
             .realmAlbum{
               font-size:12px;
               line-height:1.35;
-              color:rgba(255,255,255,.52);
+              color:rgba(255,255,255,.50);
               margin:2px 0 0;
             }
 
             @keyframes realmSkyBreath{
-              from{ transform:translateX(-8px) scale(.98); }
-              to{ transform:translateX(10px) scale(1.03); }
+              from{ transform:translateX(-8px) scale(.985); }
+              to{ transform:translateX(10px) scale(1.02); }
             }
             @keyframes realmFarPan{
-              from{ transform:translateX(-1.2%); }
-              to{ transform:translateX(1.4%); }
+              from{ transform:translateX(-1.0%); }
+              to{ transform:translateX(1.2%); }
             }
             @keyframes realmMidPan{
-              from{ transform:translateX(-2.4%); }
-              to{ transform:translateX(2.8%); }
+              from{ transform:translateX(-2.0%); }
+              to{ transform:translateX(2.3%); }
             }
             @keyframes realmGroundPan{
-              from{ transform:translateX(-1.6%); }
-              to{ transform:translateX(1.6%); }
+              from{ transform:translateX(-1.2%); }
+              to{ transform:translateX(1.2%); }
             }
             @keyframes realmFogBackPan{
               from{ transform:translateX(-3%) translateY(0); }
@@ -602,12 +639,12 @@ _startWalker() {
             }
             @keyframes realmParticleFloat{
               0%{ transform:translateY(0) scale(.7); opacity:0; }
-              12%{ opacity:.82; }
-              100%{ transform:translateY(-40px) scale(1.12); opacity:0; }
+              14%{ opacity:.78; }
+              100%{ transform:translateY(-36px) scale(1.08); opacity:0; }
             }
 
             @media (max-width:420px){
-              .realmYoda{ width:34px; height:27px; }
+              .realmYoda{ width:36px; height:28px; }
             }
           </style>
 
@@ -622,8 +659,9 @@ _startWalker() {
 
             <div class="realmWorld">
               <div class="realmWorld__artBlur"></div>
-              <div class="realmWorld__artSharp"></div>
+              <div class="realmWorld__artTexture"></div>
               <div class="realmWorld__tint"></div>
+              <div class="realmWorld__vignette"></div>
               <div class="realmWorld__skyGlow"></div>
               <div class="realmWorld__moon"></div>
               <div class="realmWorld__far"></div>

@@ -305,12 +305,11 @@
       window.setTimeout(() => {
         p.remove();
       }, duration + 1800);
-                   }
-_template() {
+    }
+    _template() {
       return `
         <div class="realm-view">
           <div class="realm-stack">
-
             <section class="realm-card realm-card--portal">
               <div class="realm-status">
                 <div class="realm-badge">
@@ -353,10 +352,8 @@ _template() {
                   </div>
                 </div>
               </div>
-            </section>
 
-            <section class="realm-card">
-              <div class="realm-meta">
+              <div class="realm-meta" style="margin-top:16px;">
                 <div>
                   <p class="realm-track" data-realm-text="track">The Listening Realm</p>
                   <p class="realm-artist" data-realm-text="artist">Prototype Track • Realm Portal v1</p>
@@ -367,8 +364,6 @@ _template() {
                     <span class="realm-badge__dot" aria-hidden="true"></span>
                     <span class="realm-badge__text" data-realm-text="state">Now Playing</span>
                   </div>
-
-                  <div class="realm-chip">Portal v1</div>
                 </div>
 
                 <div class="realm-metrics">
@@ -411,7 +406,6 @@ _template() {
                 </div>
               </div>
             </section>
-
           </div>
         </div>
       `;

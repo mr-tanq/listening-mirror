@@ -1,25 +1,27 @@
 /* econcerts.js (FULL FILE REPLACE) — PART 1/4
-   Listening Mirror — Concerts tab (premium signals layout)
+   Listening Mirror — Concerts tab (mockup-style, signals-only)
 
-   ✅ Signals mode (LIVE2) + Explore mode (AICON city feed)
-   ✅ Announced / Plan / Dismissed
-   ✅ Premium sections for Announced:
-      - Hero signal
-      - Strong Matches
-      - Suggested for You
-      - Alerts
-   ✅ No "All NL" section
-   ✅ Suggested includes low-listen artists too
-   ✅ Keeps: plan/dismiss, sort, dedupe, AICON refresh
-   ✅ Supports image-backed cards via event.imageUrl if available
-   ✅ Safe fallback visuals if no image exists
+   ✅ Signals-only UI (no Explore, no Refresh AICON button)
+   ✅ Auto-refresh when Concerts tab opens
+   ✅ Layout closer to approved mockup
+   ✅ Sections:
+      - Live Signal / hero
+      - This Week
+      - Upcoming Shows
+      - Concert Alert
+      - Plan / Dismissed
+   ✅ Artist artwork resolution:
+      1) event-provided image
+      2) Spotify artist image (if token exists)
+      3) Last.fm artist image (if API key exists)
+      4) cinematic fallback
 */
 
 (() => {
   "use strict";
 
   // ------------------------------------------------------------
-  // Basic helpers
+  // Helpers
   // ------------------------------------------------------------
   const $ = (sel, root = document) => root.querySelector(sel);
 
@@ -29,10 +31,6 @@
 
   function lowerKey(v) {
     return safeStr(v).toLowerCase();
-  }
-
-  function clamp(n, min, max) {
-    return Math.max(min, Math.min(max, n));
   }
 
   function isValidDate(d) {
@@ -46,45 +44,54 @@
     return isValidDate(d) ? d : null;
   }
 
-  function fetchJson(url) {
-    return fetch(url, { method: "GET" }).then(async (res) => {
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const msg = (data && (data.error || data.message))
-          ? String(data.error || data.message)
-          : `HTTP ${res.status}`;
-        throw new Error(msg);
-      }
-      if (data && data.ok === false) {
-        const msg = safeStr(data.error || data.message || "Unknown error");
-        throw new Error(msg || "Unknown error");
-      }
-      return data;
-    });
+  function clamp(n, min, max) {
+    return Math.max(min, Math.min(max, n));
   }
 
-  // ------------------------------------------------------------
-  // Formatting helpers
-  // ------------------------------------------------------------
-  function formatDateTime(d) {
-    if (!isValidDate(d)) return "";
-    const parts = new Intl.DateTimeFormat("en-GB", {
-      timeZone: "Europe/Amsterdam",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).formatToParts(d);
+  async function fetchJson(url, init = undefined) {
+    const res = await fetch(url, init);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = safeStr(data?.error || data?.message || `HTTP ${res.status}`);
+      throw new Error(msg);
+    }
+    if (data && data.ok === false) {
+      const msg = safeStr(data?.error || data?.message || "Unknown error");
+      throw new Error(msg);
+    }
+    return data;
+  }
 
-    const get = (type) => parts.find((p) => p.type === type)?.value || "00";
-    const dd = get("day");
-    const mm = get("month");
-    const yyyy = get("year");
-    const hh = get("hour");
-    const min = get("minute");
-    return `${dd}.${mm}.${yyyy} • ${hh}:${min}`;
+  function titleCaseArtist(input) {
+    const s0 = safeStr(input);
+    if (!s0) return "";
+
+    const KEEP_UPPER = new Set([
+      "DJ","MC","II","III","IV","V","VI","VII","VIII","IX","X",
+      "USA","UK","EU","EP","LP","TV","DJ'S","IDM","EDM"
+    ]);
+
+    const parts = s0.split(/(\s+|[-–—/&+])/);
+
+    const fixed = parts.map((tok) => {
+      if (!tok) return tok;
+      if (/^\s+$/.test(tok)) return tok;
+      if (/^[-–—/&+]$/.test(tok)) return tok;
+
+      const up = tok.toUpperCase();
+      if (KEEP_UPPER.has(up)) return up;
+      if (tok.includes(".") && tok === tok.toUpperCase()) return tok;
+
+      const m = tok.match(/^([("'[\{]*)([A-Za-zÀ-ÖØ-öø-ÿ])([\s\S]*)$/u);
+      if (!m) return tok;
+
+      const lead = m[1] || "";
+      const first = m[2] || "";
+      const rest = (m[3] || "").toLowerCase();
+      return lead + first.toUpperCase() + rest;
+    });
+
+    return fixed.join("");
   }
 
   function formatShortDayDate(d) {
@@ -106,52 +113,32 @@
     }).format(d);
   }
 
+  function formatDateTime(d) {
+    if (!isValidDate(d)) return "";
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/Amsterdam",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(d);
+
+    const get = (type) => parts.find((p) => p.type === type)?.value || "00";
+    return `${get("day")}.${get("month")}.${get("year")} • ${get("hour")}:${get("minute")}`;
+  }
+
   function daysUntil(d) {
     if (!isValidDate(d)) return null;
-    const now = Date.now();
-    const diff = d.getTime() - now;
+    const diff = d.getTime() - Date.now();
     return Math.floor(diff / 86400000);
   }
 
-  // Strict-ish Title Case for artist display
-  function titleCaseArtist(input) {
-    const s0 = safeStr(input);
-    if (!s0) return "";
-
-    const KEEP_UPPER = new Set([
-      "DJ","MC","II","III","IV","V","VI","VII","VIII","IX","X",
-      "USA","UK","EU","EP","LP","TV","DJ'S","IDM","EDM"
-    ]);
-
-    const parts = s0.split(/(\s+|[-–—/&+])/);
-
-    const fixed = parts.map((tok) => {
-      if (!tok) return tok;
-      if (/^\s+$/.test(tok)) return tok;
-      if (/^[-–—/&+]$/.test(tok)) return tok;
-
-      const up = tok.toUpperCase();
-      if (KEEP_UPPER.has(up)) return up;
-
-      if (tok.includes(".") && tok === tok.toUpperCase()) return tok;
-
-      const m = tok.match(/^([("'[\{]*)([A-Za-zÀ-ÖØ-öø-ÿ])([\s\S]*)$/u);
-      if (!m) return tok;
-
-      const lead = m[1] || "";
-      const first = m[2] || "";
-      const rest = (m[3] || "").toLowerCase();
-
-      return lead + first.toUpperCase() + rest;
-    });
-
-    return fixed.join("");
-  }
-
   // ------------------------------------------------------------
-  // Persistent UI store
+  // Storage
   // ------------------------------------------------------------
-  const STORE_KEY = "lm_econcerts_ui_v20_premium_signals";
+  const STORE_KEY = "lm_econcerts_ui_v30_mockup_signals_only";
 
   function loadStore() {
     try {
@@ -162,15 +149,11 @@
           dismissedIds: [],
           lastRefreshAt: 0,
           baseApi: "",
-          activeTab: "announced",  // announced | plan | dismissed
-          sortMode: "date",        // date | city
-          mode: "signals",         // signals | explore
-          aiconCity: "utrecht",
+          activeTab: "announced", // announced | plan | dismissed
+          sortMode: "date",       // date | city
         };
       }
-
       const obj = JSON.parse(raw);
-
       return {
         planIds: Array.isArray(obj.planIds) ? obj.planIds : [],
         dismissedIds: Array.isArray(obj.dismissedIds) ? obj.dismissedIds : [],
@@ -182,10 +165,6 @@
         sortMode: (String(obj.sortMode) === "city" || String(obj.sortMode) === "date")
           ? String(obj.sortMode)
           : "date",
-        mode: (String(obj.mode) === "explore" || String(obj.mode) === "signals")
-          ? String(obj.mode)
-          : "signals",
-        aiconCity: safeStr(obj.aiconCity) ? String(obj.aiconCity) : "utrecht",
       };
     } catch {
       return {
@@ -195,8 +174,6 @@
         baseApi: "",
         activeTab: "announced",
         sortMode: "date",
-        mode: "signals",
-        aiconCity: "utrecht",
       };
     }
   }
@@ -214,82 +191,40 @@
   const FALLBACK_AICON_BASE = "https://aicon.errtanq9.workers.dev";
 
   function getLive2Base() {
-    const w = (typeof window !== "undefined") ? window : {};
+    const w = typeof window !== "undefined" ? window : {};
     const fromWindow = typeof w.LIVE2_BASE_API === "string"
       ? w.LIVE2_BASE_API
       : (typeof w.BASE_API === "string" ? w.BASE_API : "");
     const fromStore = safeStr(store?.baseApi || "");
-    const base = (fromWindow || fromStore || FALLBACK_LIVE2_BASE).trim();
-    return base.replace(/\/+$/, "");
+    return (fromWindow || fromStore || FALLBACK_LIVE2_BASE).replace(/\/+$/, "");
   }
 
   function getAiconBase() {
-    const w = (typeof window !== "undefined") ? window : {};
+    const w = typeof window !== "undefined" ? window : {};
     const fromWindow = typeof w.AICON_BASE_API === "string" ? w.AICON_BASE_API : "";
-    const base = (fromWindow || FALLBACK_AICON_BASE).trim();
-    return base.replace(/\/+$/, "");
+    return (fromWindow || FALLBACK_AICON_BASE).replace(/\/+$/, "");
   }
 
-  // ------------------------------------------------------------
-  // Source URLs
-  // ------------------------------------------------------------
+  // LIVE2 is the visible, listening-based feed.
+  // AICON is only used as optional hidden enrichment source if you later want it.
   const LIVE2_DEFAULTS = {
     size: 400,
     tasteArtists: 2000,
-    scoreMin: 1, // very permissive: if user listened even 2x, still allow as suggestion
+    scoreMin: 1,
     reco: false,
   };
 
   function buildSignalsUrl() {
-    const base = getLive2Base();
-    const u = new URL(base + "/econcerts");
+    const u = new URL(getLive2Base() + "/econcerts");
     u.searchParams.set("size", String(LIVE2_DEFAULTS.size));
     u.searchParams.set("tasteArtists", String(LIVE2_DEFAULTS.tasteArtists));
     u.searchParams.set("scoreMin", String(LIVE2_DEFAULTS.scoreMin));
     return u.toString();
   }
-
-  function buildAiconCityUrl(city) {
-    const base = getAiconBase();
-    const u = new URL(base + "/events");
-    u.searchParams.set("city", String(city || "").trim().toLowerCase());
-    return u.toString();
-  }
-
-  // ------------------------------------------------------------
-  // NL cities for AICON refresh / explore
-  // ------------------------------------------------------------
-  const NL_CITIES = [
-    "amsterdam",
-    "utrecht",
-    "rotterdam",
-    "den haag",
-    "eindhoven",
-    "tilburg",
-    "groningen",
-    "nijmegen",
-    "haarlem",
-    "arnhem",
-    "zwolle",
-    "breda",
-    "leiden",
-    "maastricht",
-    "enschede",
-    "zoetermeer",
-    "leeuwarden",
-  ];
-
-  function metalAgendaUrlForCity(citySlug) {
-    const title = citySlug
-      .split(" ")
-      .map((p) => p ? (p[0].toUpperCase() + p.slice(1)) : p)
-      .join(" ");
-    return `https://www.metalagenda.nl/p/${encodeURI(title)}`;
-  }
    /* econcerts.js (FULL FILE REPLACE) — PART 2/4 */
 
   // ------------------------------------------------------------
-  // Normalize LIVE2 / AICON events into one shape
+  // Normalization
   // ------------------------------------------------------------
   function normalizeLive2Event(ev) {
     const id = safeStr(ev?.id);
@@ -307,7 +242,6 @@
 
     if (!id || !artist || !isValidDate(start) || start.getTime() <= 0) return null;
 
-    // Future-ready image fields:
     const imageUrl =
       safeStr(ev?.imageUrl) ||
       safeStr(ev?.artistImage) ||
@@ -330,11 +264,11 @@
       star: !!ev?.star,
       matched: safeStr(ev?.matched || ""),
       source: safeStr(ev?.source || "live2"),
-      mode: "signals",
       imageUrl,
     };
   }
 
+  // Optional helper kept for future enrichment.
   function normalizeAiconEvent(ev, fallbackCity) {
     const rawId = safeStr(ev?.id || ev?.key || ev?.uid || "");
     const artist = safeStr(ev?.artist || ev?.title || ev?.name || "");
@@ -342,12 +276,10 @@
     const city = safeStr(ev?.city || fallbackCity || "");
     const url = safeStr(ev?.url || ev?.link || "");
     const source = safeStr(ev?.source || ev?.provider || "aicon");
-
     const startTs =
       Number(ev?.startTs || ev?.ts || ev?.time || 0) ||
       (parseIsoToDate(ev?.start || ev?.date || ev?.datetime || "")?.getTime() || 0);
-
-    const start = (startTs > 0) ? new Date(startTs) : null;
+    const start = startTs > 0 ? new Date(startTs) : null;
 
     const imageUrl =
       safeStr(ev?.imageUrl) ||
@@ -374,13 +306,12 @@
       star: !!ev?.star,
       matched: safeStr(ev?.matched || ""),
       source,
-      mode: "explore",
       imageUrl,
     };
   }
 
   // ------------------------------------------------------------
-  // Dedupe logic
+  // Dedupe
   // ------------------------------------------------------------
   function isVipUrl(url) {
     const u = lowerKey(url);
@@ -441,7 +372,7 @@
   }
 
   // ------------------------------------------------------------
-  // Plan / dismiss actions
+  // State actions
   // ------------------------------------------------------------
   const isPlanned = (id) => store.planIds.includes(id);
   const isDismissed = (id) => store.dismissedIds.includes(id);
@@ -469,40 +400,32 @@
   }
 
   // ------------------------------------------------------------
-  // Matching / premium UI derivation
+  // Matching buckets
   // ------------------------------------------------------------
   function getMatchTier(event) {
-    if (!event || event.mode !== "signals") return "none";
-
-    const score = Number(event.score || 0);
-    const plays = Number(event.plays || 0);
-    const matched = safeStr(event.matched);
-    const starred = !!event.star;
+    const score = Number(event?.score || 0);
+    const plays = Number(event?.plays || 0);
+    const matched = safeStr(event?.matched);
+    const starred = !!event?.star;
 
     if (starred || score >= 82 || plays >= 20) return "strong";
-    if (score >= 55 || plays >= 6 || matched) return "suggested";
-    if (score > 0 || plays > 0) return "suggested"; // permissive by design
+    if (score >= 55 || plays >= 2 || matched) return "suggested";
+    if (score > 0 || plays > 0) return "suggested";
     return "none";
   }
 
   function getReasonText(event) {
     if (!event) return "";
-
     const score = Number(event.score || 0);
     const plays = Number(event.plays || 0);
     const matched = safeStr(event.matched);
 
-    if (event.mode === "signals") {
-      if (plays >= 20) return "Top artist in your listening";
-      if (score >= 82) return "Very strong listening match";
-      if (plays >= 8) return `You played this artist ${plays} times`;
-      if (matched) return `Matched from your listening: ${matched}`;
-      if (plays > 0) return "You played this artist before";
-      if (score > 0) return "Detected in your listening radar";
-      return "Listening-linked recommendation";
-    }
-
-    return "Explore feed from selected city";
+    if (plays >= 20) return "Top artist in your listening";
+    if (score >= 82) return "Very strong listening match";
+    if (plays >= 8) return `You played this artist ${plays} times`;
+    if (matched) return `Matched from your listening: ${matched}`;
+    if (plays > 0) return "You played this artist before";
+    return "Listening-linked recommendation";
   }
 
   function isStrongMatch(event) {
@@ -511,61 +434,6 @@
 
   function isSuggestedMatch(event) {
     return getMatchTier(event) === "suggested";
-  }
-
-  function isAlertWorthy(event) {
-    if (!event) return false;
-    const d = daysUntil(event.start);
-    const score = Number(event.score || 0);
-    const plays = Number(event.plays || 0);
-
-    if (d !== null && d >= 0 && d <= 21) return true;
-    if (score >= 70) return true;
-    if (plays >= 10) return true;
-    return false;
-  }
-
-  function pickHeroEvent(events) {
-    if (!Array.isArray(events) || !events.length) return null;
-
-    const ranked = [...events].sort((a, b) => {
-      const aStrong = isStrongMatch(a) ? 1 : 0;
-      const bStrong = isStrongMatch(b) ? 1 : 0;
-      if (aStrong !== bStrong) return bStrong - aStrong;
-
-      const aScore = Number(a.score || 0);
-      const bScore = Number(b.score || 0);
-      if (aScore !== bScore) return bScore - aScore;
-
-      const aPlays = Number(a.plays || 0);
-      const bPlays = Number(b.plays || 0);
-      if (aPlays !== bPlays) return bPlays - aPlays;
-
-      return a.startTs - b.startTs;
-    });
-
-    return ranked[0] || null;
-  }
-
-  function splitVisibleEventsByState(events) {
-    const plannedIds = new Set(store.planIds);
-    const dismissedIds = new Set(store.dismissedIds);
-
-    const planned = [];
-    const dismissed = [];
-    const announced = [];
-
-    for (const ev of events) {
-      if (dismissedIds.has(ev.id)) {
-        dismissed.push(ev);
-      } else if (plannedIds.has(ev.id)) {
-        planned.push(ev);
-      } else {
-        announced.push(ev);
-      }
-    }
-
-    return { announced, planned, dismissed };
   }
 
   function sortChronoAsc(a, b) {
@@ -584,48 +452,179 @@
     return store.sortMode === "city" ? sortCityThenTimeAsc : sortChronoAsc;
   }
 
-  function filterSuggestedNotStrong(events) {
+  function splitVisibleEventsByState(events) {
+    const plannedIds = new Set(store.planIds);
+    const dismissedIds = new Set(store.dismissedIds);
+
+    const announced = [];
+    const planned = [];
+    const dismissed = [];
+
+    for (const ev of events) {
+      if (dismissedIds.has(ev.id)) dismissed.push(ev);
+      else if (plannedIds.has(ev.id)) planned.push(ev);
+      else announced.push(ev);
+    }
+
+    announced.sort(getSorter());
+    planned.sort(getSorter());
+    dismissed.sort(getSorter());
+
+    return { announced, planned, dismissed };
+  }
+
+  function getStrong(events) {
+    return events.filter(isStrongMatch);
+  }
+
+  function getSuggested(events) {
     return events.filter((ev) => isSuggestedMatch(ev) && !isStrongMatch(ev));
   }
 
-  function filterStrong(events) {
-    return events.filter((ev) => isStrongMatch(ev));
-  }
-
-  function buildAlerts(events, heroId) {
-    return events
-      .filter((ev) => ev.id !== heroId)
-      .filter((ev) => isAlertWorthy(ev))
-      .sort((a, b) => {
-        const ad = daysUntil(a.start);
-        const bd = daysUntil(b.start);
-        const aSoon = ad === null ? 9999 : ad;
-        const bSoon = bd === null ? 9999 : bd;
-        if (aSoon !== bSoon) return aSoon - bSoon;
-
-        const aScore = Number(a.score || 0);
-        const bScore = Number(b.score || 0);
-        return bScore - aScore;
+  function getAlertEvent(events) {
+    const candidates = events
+      .filter((ev) => {
+        const d = daysUntil(ev.start);
+        return d !== null && d >= 0 && d <= 45;
       })
-      .slice(0, 3);
+      .sort((a, b) => {
+        const ad = daysUntil(a.start) ?? 9999;
+        const bd = daysUntil(b.start) ?? 9999;
+        if (ad !== bd) return ad - bd;
+        return Number(b.score || 0) - Number(a.score || 0);
+      });
+
+    return candidates[0] || null;
   }
 
-  function getSignalSummary(strongCount, suggestedCount) {
-    if (strongCount > 0 && suggestedCount > 0) {
-      return `${strongCount} strong matches, ${suggestedCount} suggestions from your listening`;
-    }
-    if (strongCount > 0) {
-      return `${strongCount} strong matches from your listening`;
-    }
-    if (suggestedCount > 0) {
-      return `${suggestedCount} suggestions from artists you have played`;
-    }
-    return "No listening-linked concerts detected right now";
-}
+  function getHeroEvent(events) {
+    const ranked = [...events].sort((a, b) => {
+      const as = isStrongMatch(a) ? 1 : 0;
+      const bs = isStrongMatch(b) ? 1 : 0;
+      if (as !== bs) return bs - as;
+
+      const aScore = Number(a.score || 0);
+      const bScore = Number(b.score || 0);
+      if (aScore !== bScore) return bScore - aScore;
+
+      const aPlays = Number(a.plays || 0);
+      const bPlays = Number(b.plays || 0);
+      if (aPlays !== bPlays) return bPlays - aPlays;
+
+      return a.startTs - b.startTs;
+    });
+
+    return ranked[0] || null;
+         }
    /* econcerts.js (FULL FILE REPLACE) — PART 3/4 */
 
   // ------------------------------------------------------------
-  // Visual helpers / CSS injection
+  // Artist artwork resolution
+  // ------------------------------------------------------------
+  const artistImageCache = new Map();
+
+  function getSpotifyToken() {
+    const w = typeof window !== "undefined" ? window : {};
+    const candidates = [
+      w.SPOTIFY_ACCESS_TOKEN,
+      w.spotifyAccessToken,
+      localStorage.getItem("spotify_access_token"),
+      localStorage.getItem("spotifyAccessToken"),
+      sessionStorage.getItem("spotify_access_token"),
+      sessionStorage.getItem("spotifyAccessToken"),
+    ].map(safeStr).filter(Boolean);
+
+    return candidates[0] || "";
+  }
+
+  function getLastfmApiKey() {
+    const w = typeof window !== "undefined" ? window : {};
+    const candidates = [
+      w.LASTFM_API_KEY,
+      w.lastfmApiKey,
+      localStorage.getItem("lastfm_api_key"),
+      localStorage.getItem("LASTFM_API_KEY"),
+    ].map(safeStr).filter(Boolean);
+
+    return candidates[0] || "";
+  }
+
+  async function resolveSpotifyArtistImage(artist) {
+    const token = getSpotifyToken();
+    if (!token || !artist) return "";
+
+    try {
+      const q = encodeURIComponent(artist);
+      const url = `https://api.spotify.com/v1/search?type=artist&limit=1&q=${q}`;
+      const data = await fetchJson(url, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const item = data?.artists?.items?.[0];
+      const images = Array.isArray(item?.images) ? item.images : [];
+      return safeStr(images?.[0]?.url || images?.[1]?.url || "");
+    } catch {
+      return "";
+    }
+  }
+
+  async function resolveLastfmArtistImage(artist) {
+    const apiKey = getLastfmApiKey();
+    if (!apiKey || !artist) return "";
+
+    try {
+      const u = new URL("https://ws.audioscrobbler.com/2.0/");
+      u.searchParams.set("method", "artist.getinfo");
+      u.searchParams.set("artist", artist);
+      u.searchParams.set("api_key", apiKey);
+      u.searchParams.set("format", "json");
+
+      const data = await fetchJson(u.toString());
+      const imgs = Array.isArray(data?.artist?.image) ? data.artist.image : [];
+      const best =
+        imgs.find((x) => x?.size === "extralarge")?.["#text"] ||
+        imgs.find((x) => x?.size === "large")?.["#text"] ||
+        imgs.find((x) => x?.size === "medium")?.["#text"] ||
+        "";
+      return safeStr(best);
+    } catch {
+      return "";
+    }
+  }
+
+  async function resolveArtistImageForEvent(event) {
+    const existing =
+      safeStr(event?.imageUrl) ||
+      safeStr(event?.artistImage) ||
+      safeStr(event?.spotifyArtistImage) ||
+      safeStr(event?.lastfmArtistImage) ||
+      safeStr(event?.coverUrl);
+
+    if (existing) return existing;
+
+    const key = lowerKey(event?.artist);
+    if (!key) return "";
+    if (artistImageCache.has(key)) return artistImageCache.get(key) || "";
+
+    let img = "";
+    img = await resolveSpotifyArtistImage(event.artist);
+    if (!img) img = await resolveLastfmArtistImage(event.artist);
+
+    artistImageCache.set(key, img || "");
+    return img || "";
+  }
+
+  async function enrichEventsWithImages(events) {
+    const out = await Promise.all(
+      events.map(async (ev) => {
+        const imageUrl = await resolveArtistImageForEvent(ev);
+        return { ...ev, imageUrl: imageUrl || ev.imageUrl || "" };
+      })
+    );
+    return out;
+  }
+
+  // ------------------------------------------------------------
+  // UI styles
   // ------------------------------------------------------------
   function getFallbackVisual(seed) {
     const s = lowerKey(seed);
@@ -637,12 +636,12 @@
     }
 
     return `
-      radial-gradient(circle at 50% 25%, rgba(255,220,170,.28), transparent 28%),
-      linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.72)),
+      radial-gradient(circle at 50% 22%, rgba(255,220,170,.22), transparent 22%),
+      linear-gradient(180deg, rgba(0,0,0,.12), rgba(0,0,0,.70)),
       linear-gradient(135deg,
         hsla(${hue}, 65%, 20%, .98),
-        hsla(${(hue + 22) % 360}, 58%, 12%, .98) 45%,
-        hsla(${(hue + 220) % 360}, 55%, 10%, .98)
+        hsla(${(hue + 18) % 360}, 62%, 12%, .98) 44%,
+        hsla(${(hue + 220) % 360}, 58%, 10%, .98)
       )
     `;
   }
@@ -651,7 +650,7 @@
     const img = safeStr(event?.imageUrl);
     if (img) {
       return `
-        linear-gradient(180deg, rgba(0,0,0,.10), rgba(0,0,0,.72)),
+        linear-gradient(180deg, rgba(0,0,0,.06), rgba(0,0,0,.62)),
         url("${img.replace(/"/g, "%22")}")
       `;
     }
@@ -659,169 +658,115 @@
   }
 
   function injectStylesOnce() {
-    if (document.getElementById("lmEconcertsPremiumStyles")) return;
+    if (document.getElementById("lmConcertsMockupStyles")) return;
 
     const style = document.createElement("style");
-    style.id = "lmEconcertsPremiumStyles";
+    style.id = "lmConcertsMockupStyles";
     style.textContent = `
-      .lmECWrap{
+      #econcertsList{ display:block; }
+
+      .lmc-wrap{
         display:flex;
         flex-direction:column;
-        gap:14px;
+        gap:16px;
       }
 
-      .lmECControls{
-        display:flex;
-        flex-wrap:wrap;
-        gap:10px;
-        align-items:center;
-      }
-
-      .lmECSeg{
-        display:inline-flex;
-        gap:8px;
-        padding:6px;
-        border-radius:999px;
-        background:rgba(255,255,255,.045);
-        border:1px solid rgba(255,255,255,.08);
-        box-shadow:0 10px 30px rgba(0,0,0,.22);
-      }
-
-      .lmECBtn,
-      .lmECSelect{
-        appearance:none;
-        border:none;
-        outline:none;
-        border-radius:999px;
-        padding:10px 14px;
-        background:rgba(255,255,255,.055);
-        color:inherit;
-        font:inherit;
-        font-weight:700;
-        letter-spacing:.01em;
-        border:1px solid rgba(255,255,255,.08);
-        cursor:pointer;
-        transition:transform .16s ease, background .16s ease, border-color .16s ease, opacity .16s ease;
-      }
-
-      .lmECBtn:hover,
-      .lmECSelect:hover{
-        transform:translateY(-1px);
-        background:rgba(255,255,255,.08);
-      }
-
-      .lmECBtn.is-on{
-        background:linear-gradient(180deg, rgba(187,225,255,.18), rgba(125,175,255,.10));
-        border-color:rgba(150,205,255,.22);
-        box-shadow:0 10px 24px rgba(35,86,170,.16);
-      }
-
-      .lmECSelect{
-        min-width:136px;
-      }
-
-      .lmECStatus{
-        margin-left:auto;
-        max-width:100%;
-        white-space:nowrap;
-        overflow:hidden;
-        text-overflow:ellipsis;
-        font-size:.92rem;
-        opacity:.78;
-      }
-
-      .lmECHero{
-        position:relative;
-        overflow:hidden;
-        border-radius:24px;
-        background:
-          radial-gradient(circle at 20% 18%, rgba(184,233,255,.20), transparent 20%),
-          linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
-        border:1px solid rgba(255,255,255,.08);
-        box-shadow:0 20px 50px rgba(0,0,0,.30);
-        padding:16px;
-      }
-
-      .lmECHeroBadge{
-        display:inline-flex;
-        align-items:center;
-        gap:8px;
-        padding:8px 12px;
-        border-radius:999px;
-        font-size:.84rem;
-        font-weight:800;
-        letter-spacing:.03em;
-        background:rgba(255,255,255,.06);
-        border:1px solid rgba(255,255,255,.08);
-        margin-bottom:10px;
-      }
-
-      .lmECHeroTitle{
-        font-size:1.06rem;
-        font-weight:800;
-        margin:0 0 4px;
-        line-height:1.25;
-      }
-
-      .lmECHeroSub{
-        opacity:.84;
-        margin:0;
-        font-size:.96rem;
-      }
-
-      .lmECSection{
-        display:flex;
-        flex-direction:column;
-        gap:10px;
-      }
-
-      .lmECSectionHead{
+      .lmc-topbar{
         display:flex;
         align-items:center;
         justify-content:space-between;
         gap:10px;
+        margin-bottom:2px;
       }
 
-      .lmECSectionTitle{
+      .lmc-heading{
         margin:0;
-        font-size:1rem;
+        font-size:1.06rem;
         font-weight:900;
         letter-spacing:.01em;
+        color:rgba(255,255,255,.98);
       }
 
-      .lmECSectionMeta{
-        font-size:.84rem;
-        opacity:.68;
+      .lmc-pills{
+        display:flex;
+        flex-wrap:wrap;
+        gap:8px;
       }
 
-      .lmECGrid{
-        display:grid;
-        gap:12px;
+      .lmc-pill-btn{
+        appearance:none;
+        border:none;
+        outline:none;
+        border-radius:999px;
+        padding:9px 13px;
+        background:rgba(255,255,255,.05);
+        border:1px solid rgba(255,255,255,.08);
+        color:inherit;
+        font:inherit;
+        font-weight:800;
+        cursor:pointer;
       }
 
-      .lmECGrid--stack{
-        grid-template-columns:1fr;
+      .lmc-pill-btn.is-on{
+        background:linear-gradient(180deg, rgba(187,225,255,.16), rgba(125,175,255,.10));
+        border-color:rgba(150,205,255,.22);
       }
 
-      .lmECGrid--compact{
-        grid-template-columns:1fr;
+      .lmc-signal{
+        border-radius:22px;
+        padding:14px 16px;
+        border:1px solid rgba(255,255,255,.08);
+        background:
+          radial-gradient(circle at 18% 18%, rgba(106,181,255,.22), transparent 18%),
+          linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03));
+        box-shadow:0 18px 38px rgba(0,0,0,.24);
       }
 
-      .lmECCard{
+      .lmc-signal-badge{
+        display:inline-flex;
+        align-items:center;
+        gap:8px;
+        border-radius:999px;
+        padding:7px 11px;
+        font-size:.82rem;
+        font-weight:900;
+        letter-spacing:.03em;
+        background:rgba(255,255,255,.06);
+        border:1px solid rgba(255,255,255,.08);
+        margin-bottom:8px;
+      }
+
+      .lmc-signal-text{
+        font-size:.98rem;
+        line-height:1.35;
+        color:rgba(255,255,255,.92);
+      }
+
+      .lmc-section{
+        display:flex;
+        flex-direction:column;
+        gap:10px;
+      }
+
+      .lmc-section-title{
+        margin:0;
+        font-size:1.02rem;
+        font-weight:900;
+      }
+
+      .lmc-hero,
+      .lmc-strong{
         position:relative;
         overflow:hidden;
-        border-radius:22px;
-        background:rgba(255,255,255,.04);
-        border:1px solid rgba(255,255,255,.08);
-        box-shadow:0 18px 40px rgba(0,0,0,.26);
+        border-radius:24px;
+        min-height:218px;
+        border:1px solid rgba(255,255,255,.09);
+        box-shadow:0 18px 42px rgba(0,0,0,.28);
       }
 
-      .lmECCard--hero,
-      .lmECCard--strong{
-        min-height:240px;
-      }
+      .lmc-hero{ min-height:250px; }
 
-      .lmECCover{
+      .lmc-cover{
         position:absolute;
         inset:0;
         background-size:cover;
@@ -829,313 +774,260 @@
         transform:scale(1.02);
       }
 
-      .lmECShade{
+      .lmc-cover::after{
+        content:"";
         position:absolute;
         inset:0;
         background:
-          linear-gradient(180deg, rgba(0,0,0,.12), rgba(0,0,0,.20) 30%, rgba(0,0,0,.74) 100%);
+          linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.18) 34%, rgba(0,0,0,.72) 100%);
       }
 
-      .lmECBody{
+      .lmc-body{
         position:relative;
         z-index:1;
+        min-height:inherit;
         display:flex;
         flex-direction:column;
         justify-content:flex-end;
-        min-height:inherit;
+        gap:9px;
         padding:14px;
-        gap:10px;
       }
 
-      .lmECBadge{
+      .lmc-badge{
+        align-self:flex-start;
         display:inline-flex;
         align-items:center;
         gap:7px;
-        align-self:flex-start;
         padding:7px 12px;
         border-radius:999px;
-        font-size:.78rem;
+        font-size:.79rem;
         font-weight:900;
         letter-spacing:.03em;
+        background:linear-gradient(180deg, rgba(195,72,35,.92), rgba(147,27,18,.82));
         border:1px solid rgba(255,255,255,.10);
-        background:rgba(20,20,24,.36);
-        backdrop-filter:blur(5px);
+        box-shadow:0 8px 20px rgba(110,20,12,.20);
       }
 
-      .lmECBadge--strong{
-        background:linear-gradient(180deg, rgba(193,65,32,.84), rgba(145,25,16,.76));
-      }
-
-      .lmECBadge--suggested{
-        background:linear-gradient(180deg, rgba(89,120,188,.80), rgba(52,66,126,.72));
-      }
-
-      .lmECBadge--alert{
-        background:linear-gradient(180deg, rgba(164,132,37,.84), rgba(105,76,15,.76));
-      }
-
-      .lmECTitle{
-        font-size:1.65rem;
-        font-weight:900;
-        line-height:1.02;
+      .lmc-title{
         margin:0;
+        font-size:1.82rem;
+        line-height:1.02;
+        font-weight:900;
         text-transform:uppercase;
       }
 
-      .lmECMeta{
+      .lmc-meta{
         margin:0;
         font-size:1rem;
         font-weight:700;
       }
 
-      .lmECSubMeta{
+      .lmc-submeta{
         margin:0;
-        opacity:.92;
-        font-size:.95rem;
+        font-size:.96rem;
+        opacity:.96;
       }
 
-      .lmECReason{
+      .lmc-reason{
         margin:0;
-        opacity:.86;
         font-size:.92rem;
-        line-height:1.35;
+        opacity:.88;
       }
 
-      .lmECActions{
+      .lmc-actions{
         display:flex;
         flex-wrap:wrap;
         gap:8px;
-        align-items:center;
+        margin-top:2px;
       }
 
-      .lmECActionBtn{
+      .lmc-btn{
         appearance:none;
         border:none;
         outline:none;
         border-radius:12px;
-        padding:10px 12px;
+        padding:10px 13px;
         font:inherit;
         font-weight:800;
-        cursor:pointer;
         color:inherit;
-        background:rgba(255,255,255,.08);
+        cursor:pointer;
+        background:rgba(255,255,255,.09);
         border:1px solid rgba(255,255,255,.08);
       }
 
-      .lmECActionBtn--primary{
-        background:linear-gradient(180deg, rgba(184,54,39,.94), rgba(149,24,14,.88));
+      .lmc-btn--primary{
+        background:linear-gradient(180deg, rgba(191,57,39,.96), rgba(149,24,14,.88));
       }
 
-      .lmECMiniList{
+      .lmc-upcoming-shell{
+        border-radius:22px;
+        border:1px solid rgba(255,255,255,.08);
+        background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.03));
+        box-shadow:0 16px 34px rgba(0,0,0,.22);
+        overflow:hidden;
+      }
+
+      .lmc-upcoming-head{
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:10px;
+        padding:14px 14px 10px;
+        border-bottom:1px solid rgba(255,255,255,.05);
+      }
+
+      .lmc-upcoming-title{
+        margin:0;
+        font-size:1rem;
+        font-weight:900;
+      }
+
+      .lmc-chevron{
+        opacity:.7;
+        font-weight:900;
+      }
+
+      .lmc-mini-list{
         display:flex;
         flex-direction:column;
         gap:10px;
+        padding:12px;
       }
 
-      .lmECMiniCard{
+      .lmc-mini-card{
         position:relative;
         overflow:hidden;
-        min-height:108px;
-        border-radius:18px;
-        background:rgba(255,255,255,.04);
+        min-height:96px;
+        border-radius:16px;
         border:1px solid rgba(255,255,255,.08);
-        box-shadow:0 14px 34px rgba(0,0,0,.22);
+        box-shadow:0 12px 26px rgba(0,0,0,.20);
       }
 
-      .lmECMiniBody{
+      .lmc-mini-body{
         position:relative;
         z-index:1;
+        min-height:96px;
         display:flex;
         align-items:flex-end;
         justify-content:space-between;
         gap:12px;
-        min-height:108px;
         padding:12px;
       }
 
-      .lmECMiniInfo{
+      .lmc-mini-info{
+        min-width:0;
         display:flex;
         flex-direction:column;
-        gap:6px;
-        min-width:0;
+        gap:4px;
       }
 
-      .lmECMiniTitle{
+      .lmc-mini-title{
         margin:0;
-        font-size:1.35rem;
-        font-weight:900;
+        font-size:1.38rem;
         line-height:1.04;
+        font-weight:900;
         text-transform:uppercase;
       }
 
-      .lmECMiniMeta{
+      .lmc-mini-meta{
         margin:0;
         font-size:.95rem;
-        opacity:.95;
+        opacity:.96;
       }
 
-      .lmECMiniReason{
-        margin:0;
-        font-size:.84rem;
-        opacity:.82;
+      .lmc-mini-right{
+        display:flex;
+        align-items:center;
+        gap:8px;
       }
 
-      .lmECEmpty{
+      .lmc-alert{
+        border-radius:22px;
+        border:1px solid rgba(255,255,255,.08);
+        background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.03));
+        box-shadow:0 16px 34px rgba(0,0,0,.22);
+        overflow:hidden;
+      }
+
+      .lmc-alert-top{
+        display:flex;
+        align-items:center;
+        gap:9px;
+        padding:12px 14px 8px;
+        font-size:.88rem;
+        font-weight:900;
+        letter-spacing:.03em;
+      }
+
+      .lmc-alert-body{
+        padding:0 14px 14px;
+      }
+
+      .lmc-alert-band{
+        font-size:1.18rem;
+        font-weight:900;
+        margin:0 0 6px;
+      }
+
+      .lmc-alert-text{
+        margin:0 0 10px;
+        color:rgba(255,255,255,.90);
+      }
+
+      .lmc-alert-dates{
+        margin:0 0 12px;
+        color:rgba(255,255,255,.85);
+        line-height:1.55;
+      }
+
+      .lmc-empty{
         padding:16px 14px;
         border-radius:18px;
         background:rgba(255,255,255,.04);
         border:1px solid rgba(255,255,255,.06);
-        opacity:.78;
-      }
-
-      @media (min-width: 860px){
-        .lmECGrid--compact{
-          grid-template-columns:repeat(2, minmax(0,1fr));
-        }
+        color:rgba(255,255,255,.74);
       }
     `;
     document.head.appendChild(style);
   }
+   /* econcerts.js (FULL FILE REPLACE) — PART 4/4 */
 
   // ------------------------------------------------------------
-  // DOM bootstrapping
+  // DOM + render helpers
   // ------------------------------------------------------------
   const listEl = $("#econcertsList");
   if (!listEl) return;
 
   injectStylesOnce();
 
-  const legacyRefreshBtn = $("#econcertsRefresh");
-  const legacyGroupBtn = $("#econcertsToggleGroup");
-  if (legacyRefreshBtn) legacyRefreshBtn.style.display = "none";
-  if (legacyGroupBtn) legacyGroupBtn.style.display = "none";
-
   let lastEvents = [];
   let lastMeta = null;
 
   function setEmpty(msg) {
-    listEl.innerHTML = `<div class="lmECEmpty">${msg}</div>`;
+    listEl.innerHTML = `<div class="lmc-empty">${msg}</div>`;
   }
 
-  // ------------------------------------------------------------
-  // Controls rendering
-  // ------------------------------------------------------------
-  function makeBtn(label, onClick, isOn = false) {
+  function makeTopPill(label, tabKey) {
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = `lmECBtn${isOn ? " is-on" : ""}`;
+    btn.className = `lmc-pill-btn${store.activeTab === tabKey ? " is-on" : ""}`;
     btn.textContent = label;
-    btn.addEventListener("click", onClick);
+    btn.addEventListener("click", () => {
+      store.activeTab = tabKey;
+      saveStore(store);
+      render(lastEvents, lastMeta);
+    });
     return btn;
   }
 
-  function buildControls() {
-    const wrap = document.createElement("div");
-    wrap.className = "lmECControls";
-
-    const modeSeg = document.createElement("div");
-    modeSeg.className = "lmECSeg";
-
-    modeSeg.appendChild(makeBtn("Signals", () => {
-      store.mode = "signals";
-      saveStore(store);
-      refresh().catch(() => setEmpty("Failed to refresh."));
-    }, store.mode === "signals"));
-
-    modeSeg.appendChild(makeBtn("Explore", () => {
-      store.mode = "explore";
-      saveStore(store);
-      refresh().catch(() => setEmpty("Failed to refresh."));
-    }, store.mode === "explore"));
-
-    const stateSeg = document.createElement("div");
-    stateSeg.className = "lmECSeg";
-
-    stateSeg.appendChild(makeBtn(`Announced`, () => {
-      store.activeTab = "announced";
-      saveStore(store);
-      render(lastEvents, lastMeta);
-    }, store.activeTab === "announced"));
-
-    stateSeg.appendChild(makeBtn(`Plan`, () => {
-      store.activeTab = "plan";
-      saveStore(store);
-      render(lastEvents, lastMeta);
-    }, store.activeTab === "plan"));
-
-    stateSeg.appendChild(makeBtn(`Dismissed`, () => {
-      store.activeTab = "dismissed";
-      saveStore(store);
-      render(lastEvents, lastMeta);
-    }, store.activeTab === "dismissed"));
-
-    wrap.appendChild(modeSeg);
-    wrap.appendChild(stateSeg);
-
-    if (store.mode === "explore") {
-      const citySelect = document.createElement("select");
-      citySelect.className = "lmECSelect";
-
-      const cities = Array.from(new Set(NL_CITIES.concat([store.aiconCity || "utrecht"])))
-        .map((c) => lowerKey(c))
-        .filter(Boolean)
-        .sort((a, b) => a.localeCompare(b));
-
-      for (const c of cities) {
-        const opt = document.createElement("option");
-        opt.value = c;
-        opt.textContent = c;
-        if (c === lowerKey(store.aiconCity || "utrecht")) opt.selected = true;
-        citySelect.appendChild(opt);
-      }
-
-      citySelect.addEventListener("change", () => {
-        store.aiconCity = lowerKey(citySelect.value || "utrecht");
-        saveStore(store);
-        refresh().catch(() => setEmpty("Failed to refresh."));
-      });
-
-      wrap.appendChild(citySelect);
-    }
-
-    wrap.appendChild(makeBtn(
-      store.sortMode === "city" ? "Sort: City" : "Sort: Date",
-      () => {
-        store.sortMode = store.sortMode === "city" ? "date" : "city";
-        saveStore(store);
-        render(lastEvents, lastMeta);
-      },
-      false
-    ));
-
-    wrap.appendChild(makeBtn("Refresh NL (AICON)", () => {
-      refreshNlInAicon().catch((e) => {
-        setEmpty(`AICON refresh failed: ${String(e?.message || e)}`);
-      });
-    }));
-
-    const status = document.createElement("div");
-    status.className = "lmECStatus";
-    status.textContent = store.mode === "signals"
-      ? "Listening-linked concert radar"
-      : `Explore city feed: ${store.aiconCity || "utrecht"}`;
-    wrap.appendChild(status);
-
-    return wrap;
-       }
-   /* econcerts.js (FULL FILE REPLACE) — PART 4/4 */
-
-  // ------------------------------------------------------------
-  // Card rendering
-  // ------------------------------------------------------------
   function buildActionButtons(event, view) {
     const actions = document.createElement("div");
-    actions.className = "lmECActions";
+    actions.className = "lmc-actions";
 
     if (event.url) {
       const btnLink = document.createElement("button");
       btnLink.type = "button";
-      btnLink.className = "lmECActionBtn lmECActionBtn--primary";
+      btnLink.className = "lmc-btn lmc-btn--primary";
       btnLink.textContent = "Get Tickets";
       btnLink.addEventListener("click", () => {
         window.open(event.url, "_blank", "noopener,noreferrer");
@@ -1146,7 +1038,7 @@
     if (view === "announced") {
       const btnDismiss = document.createElement("button");
       btnDismiss.type = "button";
-      btnDismiss.className = "lmECActionBtn";
+      btnDismiss.className = "lmc-btn";
       btnDismiss.textContent = "Dismiss";
       btnDismiss.addEventListener("click", async () => {
         await dismiss(event.id);
@@ -1156,7 +1048,7 @@
 
       const btnPlan = document.createElement("button");
       btnPlan.type = "button";
-      btnPlan.className = "lmECActionBtn";
+      btnPlan.className = "lmc-btn";
       btnPlan.textContent = isPlanned(event.id) ? "Remove from Plan" : "Add to Plan";
       btnPlan.addEventListener("click", async () => {
         if (isPlanned(event.id)) await removeFromPlan(event.id);
@@ -1169,7 +1061,7 @@
     if (view === "plan") {
       const btnRemove = document.createElement("button");
       btnRemove.type = "button";
-      btnRemove.className = "lmECActionBtn";
+      btnRemove.className = "lmc-btn";
       btnRemove.textContent = "Remove";
       btnRemove.addEventListener("click", async () => {
         await removeFromPlan(event.id);
@@ -1179,7 +1071,7 @@
 
       const btnDismiss = document.createElement("button");
       btnDismiss.type = "button";
-      btnDismiss.className = "lmECActionBtn";
+      btnDismiss.className = "lmc-btn";
       btnDismiss.textContent = "Dismiss";
       btnDismiss.addEventListener("click", async () => {
         await dismiss(event.id);
@@ -1191,7 +1083,7 @@
     if (view === "dismissed") {
       const btnPlan = document.createElement("button");
       btnPlan.type = "button";
-      btnPlan.className = "lmECActionBtn";
+      btnPlan.className = "lmc-btn";
       btnPlan.textContent = isPlanned(event.id) ? "Remove from Plan" : "Add to Plan";
       btnPlan.addEventListener("click", async () => {
         if (isPlanned(event.id)) await removeFromPlan(event.id);
@@ -1202,7 +1094,7 @@
 
       const btnUndo = document.createElement("button");
       btnUndo.type = "button";
-      btnUndo.className = "lmECActionBtn lmECActionBtn--primary";
+      btnUndo.className = "lmc-btn lmc-btn--primary";
       btnUndo.textContent = "Undo Dismiss";
       btnUndo.addEventListener("click", async () => {
         await undismiss(event.id);
@@ -1214,39 +1106,35 @@
     return actions;
   }
 
-  function buildLargeCard(event, badgeText, badgeClass, view, isHero = false) {
+  function buildHeroCard(event, view) {
     const card = document.createElement("div");
-    card.className = `lmECCard ${isHero ? "lmECCard--hero" : "lmECCard--strong"}`;
-    card.style.minHeight = isHero ? "268px" : "232px";
+    card.className = "lmc-hero";
 
     const cover = document.createElement("div");
-    cover.className = "lmECCover";
+    cover.className = "lmc-cover";
     cover.style.backgroundImage = buildCoverStyle(event);
 
-    const shade = document.createElement("div");
-    shade.className = "lmECShade";
-
     const body = document.createElement("div");
-    body.className = "lmECBody";
+    body.className = "lmc-body";
 
     const badge = document.createElement("div");
-    badge.className = `lmECBadge ${badgeClass}`;
-    badge.textContent = badgeText;
+    badge.className = "lmc-badge";
+    badge.textContent = "🔥 STRONG MATCH";
 
     const title = document.createElement("h3");
-    title.className = "lmECTitle";
+    title.className = "lmc-title";
     title.textContent = titleCaseArtist(event.artist);
 
     const meta = document.createElement("p");
-    meta.className = "lmECMeta";
-    meta.textContent = [safeStr(event.city), safeStr(event.venue)].filter(Boolean).join(" • ");
+    meta.className = "lmc-meta";
+    meta.textContent = safeStr(event.city) || "";
 
     const subMeta = document.createElement("p");
-    subMeta.className = "lmECSubMeta";
-    subMeta.textContent = formatShortDayDate(event.start);
+    subMeta.className = "lmc-submeta";
+    subMeta.textContent = [safeStr(event.venue), formatShortDayDate(event.start)].filter(Boolean).join(" • ");
 
     const reason = document.createElement("p");
-    reason.className = "lmECReason";
+    reason.className = "lmc-reason";
     reason.textContent = getReasonText(event);
 
     body.appendChild(badge);
@@ -1257,189 +1145,242 @@
     body.appendChild(buildActionButtons(event, view));
 
     card.appendChild(cover);
-    card.appendChild(shade);
     card.appendChild(body);
-
     return card;
   }
 
-  function buildMiniCard(event, badgeText, badgeClass, view) {
+  function buildStrongCard(event, view) {
     const card = document.createElement("div");
-    card.className = "lmECMiniCard";
+    card.className = "lmc-strong";
 
     const cover = document.createElement("div");
-    cover.className = "lmECCover";
+    cover.className = "lmc-cover";
     cover.style.backgroundImage = buildCoverStyle(event);
 
-    const shade = document.createElement("div");
-    shade.className = "lmECShade";
-
     const body = document.createElement("div");
-    body.className = "lmECMiniBody";
-
-    const info = document.createElement("div");
-    info.className = "lmECMiniInfo";
+    body.className = "lmc-body";
 
     const badge = document.createElement("div");
-    badge.className = `lmECBadge ${badgeClass}`;
-    badge.textContent = badgeText;
+    badge.className = "lmc-badge";
+    badge.textContent = "🔥 STRONG MATCH";
 
-    const title = document.createElement("h4");
-    title.className = "lmECMiniTitle";
+    const title = document.createElement("h3");
+    title.className = "lmc-title";
+    title.style.fontSize = "1.48rem";
     title.textContent = titleCaseArtist(event.artist);
 
     const meta = document.createElement("p");
-    meta.className = "lmECMiniMeta";
-    meta.textContent = `${safeStr(event.city)} • ${formatMonthDay(event.start)}`;
+    meta.className = "lmc-meta";
+    meta.textContent = [safeStr(event.city), safeStr(event.venue)].filter(Boolean).join(" • ");
 
-    const reason = document.createElement("p");
-    reason.className = "lmECMiniReason";
-    reason.textContent = getReasonText(event);
+    const subMeta = document.createElement("p");
+    subMeta.className = "lmc-submeta";
+    subMeta.textContent = formatShortDayDate(event.start);
 
-    info.appendChild(badge);
-    info.appendChild(title);
-    info.appendChild(meta);
-    info.appendChild(reason);
-
-    body.appendChild(info);
+    body.appendChild(badge);
+    body.appendChild(title);
+    body.appendChild(meta);
+    body.appendChild(subMeta);
     body.appendChild(buildActionButtons(event, view));
 
     card.appendChild(cover);
-    card.appendChild(shade);
     card.appendChild(body);
-
     return card;
   }
 
-  function buildSection(titleText, metaText, children) {
-    const sec = document.createElement("section");
-    sec.className = "lmECSection";
+  function buildMiniCard(event, view) {
+    const card = document.createElement("div");
+    card.className = "lmc-mini-card";
 
-    const head = document.createElement("div");
-    head.className = "lmECSectionHead";
-
-    const title = document.createElement("h3");
-    title.className = "lmECSectionTitle";
-    title.textContent = titleText;
-
-    head.appendChild(title);
-
-    if (metaText) {
-      const meta = document.createElement("div");
-      meta.className = "lmECSectionMeta";
-      meta.textContent = metaText;
-      head.appendChild(meta);
-    }
-
-    sec.appendChild(head);
+    const cover = document.createElement("div");
+    cover.className = "lmc-cover";
+    cover.style.backgroundImage = buildCoverStyle(event);
 
     const body = document.createElement("div");
-    body.className = "lmECGrid lmECGrid--stack";
+    body.className = "lmc-mini-body";
 
-    for (const child of children) body.appendChild(child);
-    sec.appendChild(body);
+    const info = document.createElement("div");
+    info.className = "lmc-mini-info";
 
-    return sec;
+    const title = document.createElement("h4");
+    title.className = "lmc-mini-title";
+    title.textContent = titleCaseArtist(event.artist);
+
+    const meta = document.createElement("p");
+    meta.className = "lmc-mini-meta";
+    meta.textContent = `${safeStr(event.city)} | ${formatMonthDay(event.start)}`;
+
+    info.appendChild(title);
+    info.appendChild(meta);
+
+    const right = document.createElement("div");
+    right.className = "lmc-mini-right";
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "lmc-btn";
+    btn.textContent = view === "dismissed"
+      ? "Undo"
+      : isPlanned(event.id)
+        ? "Planned"
+        : "Add to Plan";
+
+    btn.addEventListener("click", async () => {
+      if (view === "dismissed") {
+        await undismiss(event.id);
+      } else if (isPlanned(event.id)) {
+        await removeFromPlan(event.id);
+      } else {
+        await addToPlan(event.id);
+      }
+      render(lastEvents, lastMeta);
+    });
+
+    right.appendChild(btn);
+    body.appendChild(info);
+    body.appendChild(right);
+
+    card.appendChild(cover);
+    card.appendChild(body);
+    return card;
+  }
+
+  function buildAlertCard(event) {
+    const shell = document.createElement("section");
+    shell.className = "lmc-alert";
+
+    const top = document.createElement("div");
+    top.className = "lmc-alert-top";
+    top.textContent = "⚠ CONCERT ALERT";
+
+    const body = document.createElement("div");
+    body.className = "lmc-alert-body";
+
+    const band = document.createElement("p");
+    band.className = "lmc-alert-band";
+    band.textContent = titleCaseArtist(event.artist);
+
+    const txt = document.createElement("p");
+    txt.className = "lmc-alert-text";
+    txt.textContent = "New Netherlands date detected";
+
+    const dates = document.createElement("p");
+    dates.className = "lmc-alert-dates";
+    dates.innerHTML = `${safeStr(event.city)} • ${formatMonthDay(event.start)}`;
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "lmc-btn lmc-btn--primary";
+    btn.textContent = "View Date";
+    btn.addEventListener("click", () => {
+      if (event.url) window.open(event.url, "_blank", "noopener,noreferrer");
+    });
+
+    body.appendChild(band);
+    body.appendChild(txt);
+    body.appendChild(dates);
+    body.appendChild(btn);
+
+    shell.appendChild(top);
+    shell.appendChild(body);
+    return shell;
   }
 
   function renderAnnounced(events) {
-    const wrap = document.createElement("div");
-    wrap.className = "lmECWrap";
-
-    const controls = buildControls();
-    wrap.appendChild(controls);
-
-    const strong = filterStrong(events).sort(getSorter());
-    const suggested = filterSuggestedNotStrong(events).sort(getSorter());
-    const hero = pickHeroEvent([...strong, ...suggested]);
+    const strong = getStrong(events);
+    const suggested = getSuggested(events);
+    const hero = getHeroEvent([...strong, ...suggested]);
     const heroId = hero?.id || "";
-    const alerts = buildAlerts(events, heroId);
+    const thisWeek = strong.filter((ev) => ev.id !== heroId).slice(0, 2);
+    const upcoming = [...suggested, ...strong.filter((ev) => ev.id !== heroId)].filter((ev, i, arr) => arr.findIndex(x => x.id === ev.id) === i).slice(0, 4);
+    const alertEvent = getAlertEvent(events);
 
-    const heroBlock = document.createElement("div");
-    heroBlock.className = "lmECHero";
+    const wrap = document.createElement("div");
+    wrap.className = "lmc-wrap";
 
-    const heroBadge = document.createElement("div");
-    heroBadge.className = "lmECHeroBadge";
-    heroBadge.textContent = "LIVE SIGNAL DETECTED";
+    const topbar = document.createElement("div");
+    topbar.className = "lmc-topbar";
 
-    const heroTitle = document.createElement("h2");
-    heroTitle.className = "lmECHeroTitle";
-    heroTitle.textContent = getSignalSummary(strong.length, suggested.length);
+    const heading = document.createElement("h2");
+    heading.className = "lmc-heading";
+    heading.textContent = "Concerts You Should Not Miss";
 
-    const heroSub = document.createElement("p");
-    heroSub.className = "lmECHeroSub";
-    heroSub.textContent = store.mode === "signals"
-      ? "Concert radar based on your real listening footprint."
-      : `Explore feed for ${store.aiconCity || "utrecht"}.`;
+    const pills = document.createElement("div");
+    pills.className = "lmc-pills";
+    pills.appendChild(makeTopPill("Announced", "announced"));
+    pills.appendChild(makeTopPill("Plan", "plan"));
+    pills.appendChild(makeTopPill("Dismissed", "dismissed"));
 
-    heroBlock.appendChild(heroBadge);
-    heroBlock.appendChild(heroTitle);
-    heroBlock.appendChild(heroSub);
-    wrap.appendChild(heroBlock);
+    topbar.appendChild(heading);
+    topbar.appendChild(pills);
+    wrap.appendChild(topbar);
+
+    const signal = document.createElement("section");
+    signal.className = "lmc-signal";
+
+    const badge = document.createElement("div");
+    badge.className = "lmc-signal-badge";
+    badge.textContent = "LIVE SIGNAL DETECTED";
+
+    const text = document.createElement("div");
+    text.className = "lmc-signal-text";
+    text.textContent = `${strong.length + suggested.length} concerts matching your listening`;
+
+    signal.appendChild(badge);
+    signal.appendChild(text);
+    wrap.appendChild(signal);
 
     if (hero) {
-      wrap.appendChild(buildSection("Featured Signal", "", [
-        buildLargeCard(
-          hero,
-          isStrongMatch(hero) ? "🔥 STRONG MATCH" : "✨ SUGGESTED FOR YOU",
-          isStrongMatch(hero) ? "lmECBadge--strong" : "lmECBadge--suggested",
-          "announced",
-          true
-        )
-      ]));
+      wrap.appendChild(buildHeroCard(hero, "announced"));
     }
 
-    if (strong.length) {
-      wrap.appendChild(buildSection("Strong Matches", `${strong.length} found`, strong
-        .filter((ev) => ev.id !== heroId)
-        .slice(0, 4)
-        .map((ev) => buildLargeCard(ev, "🔥 STRONG MATCH", "lmECBadge--strong", "announced"))
-      ));
-    }
-
-    if (suggested.length) {
-      const grid = document.createElement("section");
-      grid.className = "lmECSection";
-
-      const head = document.createElement("div");
-      head.className = "lmECSectionHead";
+    if (thisWeek.length) {
+      const sec = document.createElement("section");
+      sec.className = "lmc-section";
 
       const title = document.createElement("h3");
-      title.className = "lmECSectionTitle";
-      title.textContent = "Suggested for You";
+      title.className = "lmc-section-title";
+      title.textContent = "This Week";
+      sec.appendChild(title);
 
-      const meta = document.createElement("div");
-      meta.className = "lmECSectionMeta";
-      meta.textContent = `${suggested.length} from artists you have played`;
+      thisWeek.forEach((ev) => sec.appendChild(buildStrongCard(ev, "announced")));
+      wrap.appendChild(sec);
+    }
+
+    if (upcoming.length) {
+      const shell = document.createElement("section");
+      shell.className = "lmc-upcoming-shell";
+
+      const head = document.createElement("div");
+      head.className = "lmc-upcoming-head";
+
+      const title = document.createElement("h3");
+      title.className = "lmc-upcoming-title";
+      title.textContent = "Upcoming Shows";
+
+      const chev = document.createElement("div");
+      chev.className = "lmc-chevron";
+      chev.textContent = "›";
 
       head.appendChild(title);
-      head.appendChild(meta);
-      grid.appendChild(head);
+      head.appendChild(chev);
+      shell.appendChild(head);
 
-      const body = document.createElement("div");
-      body.className = "lmECGrid lmECGrid--compact";
+      const list = document.createElement("div");
+      list.className = "lmc-mini-list";
+      upcoming.forEach((ev) => list.appendChild(buildMiniCard(ev, "announced")));
+      shell.appendChild(list);
 
-      suggested
-        .filter((ev) => ev.id !== heroId)
-        .slice(0, 12)
-        .forEach((ev) => {
-          body.appendChild(buildMiniCard(ev, "✨ SUGGESTED", "lmECBadge--suggested", "announced"));
-        });
-
-      grid.appendChild(body);
-      wrap.appendChild(grid);
+      wrap.appendChild(shell);
     }
 
-    if (alerts.length) {
-      const section = buildSection("Alerts", `${alerts.length} worth checking`, alerts.map((ev) =>
-        buildMiniCard(ev, "⚠ ALERT", "lmECBadge--alert", "announced")
-      ));
-      wrap.appendChild(section);
+    if (alertEvent) {
+      wrap.appendChild(buildAlertCard(alertEvent));
     }
 
-    if (!hero && !strong.length && !suggested.length) {
+    if (!hero && !thisWeek.length && !upcoming.length) {
       const empty = document.createElement("div");
-      empty.className = "lmECEmpty";
+      empty.className = "lmc-empty";
       empty.textContent = "No listening-linked concerts found right now.";
       wrap.appendChild(empty);
     }
@@ -1448,32 +1389,45 @@
     listEl.appendChild(wrap);
   }
 
-  function renderStateList(events, titleText, view) {
+  function renderState(events, titleText, view) {
     const wrap = document.createElement("div");
-    wrap.className = "lmECWrap";
-    wrap.appendChild(buildControls());
+    wrap.className = "lmc-wrap";
 
-    const body = document.createElement("div");
-    body.className = "lmECMiniList";
+    const topbar = document.createElement("div");
+    topbar.className = "lmc-topbar";
+
+    const heading = document.createElement("h2");
+    heading.className = "lmc-heading";
+    heading.textContent = titleText;
+
+    const pills = document.createElement("div");
+    pills.className = "lmc-pills";
+    pills.appendChild(makeTopPill("Announced", "announced"));
+    pills.appendChild(makeTopPill("Plan", "plan"));
+    pills.appendChild(makeTopPill("Dismissed", "dismissed"));
+
+    topbar.appendChild(heading);
+    topbar.appendChild(pills);
+    wrap.appendChild(topbar);
+
+    const shell = document.createElement("section");
+    shell.className = "lmc-upcoming-shell";
+
+    const list = document.createElement("div");
+    list.className = "lmc-mini-list";
 
     if (!events.length) {
       const empty = document.createElement("div");
-      empty.className = "lmECEmpty";
+      empty.className = "lmc-empty";
       empty.textContent = "Empty";
-      body.appendChild(empty);
+      list.appendChild(empty);
     } else {
-      events.sort(getSorter()).forEach((ev) => {
-        const tier = getMatchTier(ev);
-        const badge = tier === "strong"
-          ? ["🔥 STRONG MATCH", "lmECBadge--strong"]
-          : tier === "suggested"
-            ? ["✨ SUGGESTED", "lmECBadge--suggested"]
-            : ["🎟 EVENT", "lmECBadge--alert"];
-        body.appendChild(buildMiniCard(ev, badge[0], badge[1], view));
-      });
+      events.forEach((ev) => list.appendChild(buildMiniCard(ev, view)));
     }
 
-    wrap.appendChild(buildSection(titleText, `${events.length} shows`, [body]));
+    shell.appendChild(list);
+    wrap.appendChild(shell);
+
     listEl.innerHTML = "";
     listEl.appendChild(wrap);
   }
@@ -1483,15 +1437,14 @@
     lastMeta = meta || null;
 
     const split = splitVisibleEventsByState(lastEvents);
-    const active = store.activeTab || "announced";
 
-    if (active === "plan") {
-      renderStateList(split.planned, "Saved Shows", "plan");
+    if (store.activeTab === "plan") {
+      renderState(split.planned, "Planned Shows", "plan");
       return;
     }
 
-    if (active === "dismissed") {
-      renderStateList(split.dismissed, "Dismissed Shows", "dismissed");
+    if (store.activeTab === "dismissed") {
+      renderState(split.dismissed, "Dismissed Shows", "dismissed");
       return;
     }
 
@@ -1499,86 +1452,45 @@
   }
 
   // ------------------------------------------------------------
-  // AICON refresh tooling
-  // ------------------------------------------------------------
-  async function aiconRefreshCity(citySlug) {
-    const base = getAiconBase();
-    const u = new URL(base + "/refresh");
-    u.searchParams.set("source", "metalagenda");
-    u.searchParams.set("city", citySlug);
-    u.searchParams.set("url", metalAgendaUrlForCity(citySlug));
-    return fetchJson(u.toString());
-  }
-
-  async function refreshNlInAicon() {
-    let ok = 0;
-    let fail = 0;
-
-    for (let i = 0; i < NL_CITIES.length; i++) {
-      const c = NL_CITIES[i];
-      try {
-        const r = await aiconRefreshCity(c);
-        if (r && r.ok !== false) ok++;
-        else fail++;
-      } catch {
-        fail++;
-      }
-    }
-
-    await refresh();
-    return { ok, fail };
-  }
-
-  // ------------------------------------------------------------
-  // Main refresh
+  // Refresh
   // ------------------------------------------------------------
   async function refresh() {
     store.lastRefreshAt = Date.now();
     saveStore(store);
 
-    if (store.mode === "explore") {
-      setEmpty(`Refreshing explore feed: ${store.aiconCity}…`);
-
-      const payload = await fetchJson(buildAiconCityUrl(store.aiconCity || "utrecht"));
-      const arr = Array.isArray(payload?.events) ? payload.events : (Array.isArray(payload) ? payload : []);
-      const mapped = arr.map((ev) => normalizeAiconEvent(ev, store.aiconCity)).filter(Boolean);
-      const events = dedupeEvents(mapped);
-
-      render(events, payload?.meta || null);
-      return;
-    }
-
-    setEmpty("Refreshing listening-linked concert signals…");
+    setEmpty("Refreshing concert signals…");
 
     const payload = await fetchJson(buildSignalsUrl());
     const arr = Array.isArray(payload?.events) ? payload.events : [];
     const mapped = arr.map(normalizeLive2Event).filter(Boolean);
-    const events = dedupeEvents(mapped);
+    const deduped = dedupeEvents(mapped);
+    const enriched = await enrichEventsWithImages(deduped);
 
-    render(events, payload?.meta || null);
+    render(enriched, payload?.meta || null);
   }
 
   // ------------------------------------------------------------
-  // Auto-refresh when tab opens
+  // Auto refresh when Concerts tab opens
   // ------------------------------------------------------------
-  function wireMainTabAutoRefresh() {
-    const tabBtn =
-      document.querySelector('.tabBtn[data-tab="econcerts"]') ||
-      document.querySelector('[data-tab="econcerts"]');
+  function wireConcertsTabRefresh() {
+    const btn =
+      document.querySelector('#tabConcerts') ||
+      document.querySelector('[data-view="viewConcerts"]');
 
-    if (!tabBtn) return;
+    if (!btn) return;
 
-    tabBtn.addEventListener("click", () => {
-      refresh().catch(() => {});
+    btn.addEventListener("click", () => {
+      refresh().catch((e) => {
+        setEmpty(`Failed to refresh. ${safeStr(e?.message || "")}`.trim());
+      });
     }, { passive: true });
   }
 
-  wireMainTabAutoRefresh();
+  wireConcertsTabRefresh();
 
   window.__LM_ECONCERTS__ = {
     get store() { return store; },
     get lastEvents() { return lastEvents; },
-    get lastMeta() { return lastMeta; },
     forceRefresh() { refresh().catch(() => {}); }
   };
 

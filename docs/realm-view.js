@@ -159,7 +159,7 @@
       this._applyYodaAura(merged);
       this._startParticles(merged.particle, merged.flux);
     }
-_applyText(state) {
+    _applyText(state) {
       if (this.textEls.biomeChip) this.textEls.biomeChip.textContent = state.biome;
       if (this.textEls.moodLine) this.textEls.moodLine.textContent = `${state.mood} • ${state.motion}`;
       if (this.textEls.stateChip) this.textEls.stateChip.textContent = state.stateLabel;
@@ -334,8 +334,8 @@ _applyText(state) {
 
       this.particlesEl.appendChild(el);
       window.setTimeout(() => el.remove(), duration + 1000);
-    }
-_startWalker() {
+        }
+    _startWalker() {
       this._stopWalker();
 
       const tick = (now) => {
@@ -723,8 +723,8 @@ _startWalker() {
         </div>
       `;
     }
-  }
-window.RealmView = {
+          }
+  window.RealmView = {
     create(mountEl) {
       const view = new RealmView(mountEl);
       view.mount();

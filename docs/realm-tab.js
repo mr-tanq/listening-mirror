@@ -1,146 +1,93 @@
 (() => {
   "use strict";
 
-  let realmViewInstance = null;
-  let booted = false;
-  let unsubscribeSpotify = null;
-  let lastPlayerState = null;
-  let lastAuraState = null;
-  let lastRealmTrackId = "";
-  let lastRealmFallbackKey = "";
+  let view = null;
+  let raf = null;
 
-  function buildFallbackKey(playerState) {
-    const trackName = playerState?.track_name || "";
-    const artistName = playerState?.artist_name || "";
-    return `${trackName}::${artistName}`;
+  const WALK_SPRITES = [
+    "./assets/yoda_walk_1.png",
+    "./assets/yoda_walk_2.png"
+  ];
+
+  let walkFrame = 0;
+  let lastSwap = 0;
+
+  function ensureView() {
+    if (view) return;
+
+    const mount = document.getElementById("realmMount");
+    if (!mount) return;
+
+    view = window.RealmView.create(mount);
   }
 
-  function shouldApplyNewRealm(playerState) {
-    const trackId = playerState?.track_id || "";
-    const fallbackKey = buildFallbackKey(playerState);
-
-    if (trackId) {
-      if (trackId !== lastRealmTrackId) {
-        lastRealmTrackId = trackId;
-        lastRealmFallbackKey = fallbackKey;
-        return true;
-      }
-      return false;
-    }
-
-    if (fallbackKey && fallbackKey !== lastRealmFallbackKey) {
-      lastRealmTrackId = "";
-      lastRealmFallbackKey = fallbackKey;
-      return true;
-    }
-
-    return false;
-  }
-
-  function applyRealmFromSources(playerState, auraState, { force = false } = {}) {
-    if (!realmViewInstance) return;
-    if (!window.RealmEngine || typeof window.RealmEngine.fromTrackAndAura !== "function") return;
-
-    const hasTrack = !!(playerState?.track_id || playerState?.track_name);
-    if (!hasTrack) return;
-
-    const state = window.RealmEngine.fromTrackAndAura(playerState, auraState || {});
-    realmViewInstance.applyState(state);
-
-    if (!force) {
-      shouldApplyNewRealm(playerState);
-    } else {
-      const trackId = playerState?.track_id || "";
-      lastRealmTrackId = trackId;
-      lastRealmFallbackKey = buildFallbackKey(playerState);
-    }
-  }
-
-  function onAuraEvent(e) {
-    lastAuraState = e?.detail || null;
-    if (lastPlayerState) {
-      applyRealmFromSources(lastPlayerState, lastAuraState);
-    }
-  }
-
-  function bindSpotify() {
-    if (!window.SpotifyPlayer || typeof window.SpotifyPlayer.subscribe !== "function") {
-      console.warn("[Realm] SpotifyPlayer is not available.");
+  function loop(ts) {
+    ensureView();
+    if (!view) {
+      raf = requestAnimationFrame(loop);
       return;
     }
 
-    unsubscribeSpotify = window.SpotifyPlayer.subscribe((playerState) => {
-      lastPlayerState = playerState;
-      applyRealmFromSources(playerState, lastAuraState);
+    const engine = window.realmEngine;
+    if (!engine) {
+      raf = requestAnimationFrame(loop);
+      return;
+    }
+
+    const s = engine.getState();
+
+    // WALK SPRITE SWITCH
+    if (ts - lastSwap > 320) {
+      walkFrame = (walkFrame + 1) % 2;
+      lastSwap = ts;
+    }
+
+    const progress = s.progress || 0;
+
+    // YODA POSITION BASED ON TRACK PROGRESS
+    let yodaX = 0.1 + progress * 0.8;
+
+    // MID TRACK RANDOM ACTION
+    let sprite = WALK_SPRITES[walkFrame];
+    let bob = Math.sin(ts * 0.004) * 3;
+
+    if (progress > 0.45 && progress < 0.6) {
+      sprite = "./assets/yoda_sniff.png";
+      bob = 0;
+    }
+
+    if (progress > 0.7 && progress < 0.85) {
+      sprite = "./assets/yoda_sit.png";
+      bob = 0;
+    }
+
+    if (progress > 0.92) {
+      sprite = "./assets/yoda_lay.png";
+      bob = 0;
+    }
+
+    view.applyState({
+      ...s,
+      yoda: {
+        x: yodaX,
+        direction: 1,
+        state: "auto",
+        sprite,
+        bob
+      }
     });
 
-    if (typeof window.SpotifyPlayer.getState === "function") {
-      lastPlayerState = window.SpotifyPlayer.getState();
-    }
-  }
-  function initRealmTab() {
-    if (booted) return;
-    booted = true;
-
-    const mountEl = document.getElementById("realmMount");
-    if (!mountEl) return;
-
-    if (!window.RealmView || typeof window.RealmView.create !== "function") {
-      console.warn("[Realm] RealmView is not available.");
-      return;
-    }
-
-    realmViewInstance = window.RealmView.create(mountEl);
-
-    if (window.RealmEngine && typeof window.RealmEngine.getCurrentState === "function") {
-      const initialState = window.RealmEngine.getCurrentState();
-      if (initialState) {
-        realmViewInstance.applyState(initialState);
-      }
-    }
-
-    bindSpotify();
-    window.addEventListener("lm:aura", onAuraEvent);
-
-    if (lastPlayerState) {
-      applyRealmFromSources(lastPlayerState, lastAuraState, { force: true });
-    }
+    raf = requestAnimationFrame(loop);
   }
 
-  function destroyRealm() {
-    if (unsubscribeSpotify) {
-      try { unsubscribeSpotify(); } catch {}
-      unsubscribeSpotify = null;
-    }
-
-    window.removeEventListener("lm:aura", onAuraEvent);
-
-    if (realmViewInstance && typeof realmViewInstance.unmount === "function") {
-      realmViewInstance.unmount();
-    }
-
-    realmViewInstance = null;
-    booted = false;
-    lastPlayerState = null;
-    lastAuraState = null;
-    lastRealmTrackId = "";
-    lastRealmFallbackKey = "";
+  function start() {
+    cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(loop);
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", initRealmTab, { once: true });
-  } else {
-    initRealmTab();
-  }
+  document.addEventListener("visibilitychange", start);
+  window.addEventListener("focus", start);
 
-  window.RealmTab = {
-    init: initRealmTab,
-    destroy: destroyRealm,
-    getView() {
-      return realmViewInstance;
-    },
-    pulse() {
-      if (realmViewInstance) realmViewInstance.peakPulse();
-    }
-  };
+  start();
+
 })();

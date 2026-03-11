@@ -58,10 +58,27 @@
   const YODA_ASSETS = {
     walk1: BASE + "yoda_walk_1.png",
     walk2: BASE + "yoda_walk_2.png",
+    walk3: BASE + "yoda_walk_3.png",
+    walk4: BASE + "yoda_walk_4.png",
+    walk5: BASE + "yoda_walk_5.png",
+    walk6: BASE + "yoda_walk_6.png",
     sniff: BASE + "yoda_sniff.png",
     stay: BASE + "yoda_stay.png",
     lay: BASE + "yoda_lay.png"
   };
+
+  const WALK_SEQUENCE = [
+    "walk1",
+    "walk2",
+    "walk3",
+    "walk4",
+    "walk5",
+    "walk6",
+    "walk5",
+    "walk4",
+    "walk3",
+    "walk2"
+  ];
 
   const yodaController = {
     assets: { ...YODA_ASSETS },
@@ -74,7 +91,7 @@
     maxX: 0.90,
     frameIndex: 0,
     frameTimer: 0,
-    frameMs: 240,
+    frameMs: 140,
     stateUntil: 0,
     bob: 0,
     initialized: false
@@ -85,29 +102,29 @@
 
     if (roll < 0.58) {
       yodaController.state = "walk";
-      yodaController.stateUntil = nowSec + rand(3.5, 6.5);
+      yodaController.stateUntil = nowSec + rand(3.6, 6.8);
       return;
     }
     if (roll < 0.76) {
       yodaController.state = "sniff";
-      yodaController.stateUntil = nowSec + rand(1.4, 2.4);
+      yodaController.stateUntil = nowSec + rand(1.4, 2.5);
       return;
     }
     if (roll < 0.90) {
       yodaController.state = "stay";
-      yodaController.stateUntil = nowSec + rand(3.2, 5.2);
+      yodaController.stateUntil = nowSec + rand(3.4, 5.4);
       return;
     }
 
     yodaController.state = "lay";
-    yodaController.stateUntil = nowSec + rand(4.6, 7.6);
+    yodaController.stateUntil = nowSec + rand(4.8, 7.8);
   }
 
   function updateYoda(progress, dtMs, nowSec) {
     if (!yodaController.initialized) {
       yodaController.initialized = true;
       yodaController.state = "walk";
-      yodaController.stateUntil = nowSec + rand(3.5, 5.5);
+      yodaController.stateUntil = nowSec + rand(3.6, 5.6);
       yodaController.direction = Math.random() > 0.5 ? 1 : -1;
     }
 
@@ -128,8 +145,13 @@
     const walking = yodaController.state === "walk";
     const baseSpeed = 0.000045;
 
-    yodaController.targetVelocity = walking ? (baseSpeed * yodaController.direction) : 0;
-    yodaController.velocity += (yodaController.targetVelocity - yodaController.velocity) * 0.08;
+    yodaController.targetVelocity = walking
+      ? (baseSpeed * yodaController.direction)
+      : 0;
+
+    yodaController.velocity +=
+      (yodaController.targetVelocity - yodaController.velocity) * 0.08;
+
     yodaController.x += yodaController.velocity * dtMs;
 
     if (yodaController.x <= yodaController.minX) {
@@ -146,7 +168,8 @@
 
     if (walking && yodaController.frameTimer >= yodaController.frameMs) {
       yodaController.frameTimer = 0;
-      yodaController.frameIndex = yodaController.frameIndex ? 0 : 1;
+      yodaController.frameIndex =
+        (yodaController.frameIndex + 1) % WALK_SEQUENCE.length;
     }
 
     if (!walking) {
@@ -161,7 +184,6 @@
 
     yodaController.bob = walkBob + stayBob + layBob + sniffBob;
   }
-
   function getYodaSprite() {
     switch (yodaController.state) {
       case "sniff":
@@ -171,10 +193,10 @@
       case "lay":
         return yodaController.assets.lay;
       case "walk":
-      default:
-        return yodaController.frameIndex === 0
-          ? yodaController.assets.walk1
-          : yodaController.assets.walk2;
+      default: {
+        const key = WALK_SEQUENCE[yodaController.frameIndex] || "walk1";
+        return yodaController.assets[key];
+      }
     }
   }
 
@@ -196,16 +218,38 @@
     const albumImage = playerState?.album_image || "";
     const isPlaying = !!playerState?.is_playing;
 
-    const heat = clamp01(auraState.heat != null ? (auraState.heat > 1 ? auraState.heat / 100 : auraState.heat) : 0.55);
-    const focus = clamp01(auraState.focus != null ? (auraState.focus > 1 ? auraState.focus / 100 : auraState.focus) : 0.55);
-    const depth = clamp01(auraState.depth != null ? (auraState.depth > 1 ? auraState.depth / 100 : auraState.depth) : 0.55);
-    const flux = clamp01(auraState.flux != null ? (auraState.flux > 1 ? auraState.flux / 100 : auraState.flux) : 0.50);
+    const heat = clamp01(
+      auraState.heat != null
+        ? (auraState.heat > 1 ? auraState.heat / 100 : auraState.heat)
+        : 0.55
+    );
+
+    const focus = clamp01(
+      auraState.focus != null
+        ? (auraState.focus > 1 ? auraState.focus / 100 : auraState.focus)
+        : 0.55
+    );
+
+    const depth = clamp01(
+      auraState.depth != null
+        ? (auraState.depth > 1 ? auraState.depth / 100 : auraState.depth)
+        : 0.55
+    );
+
+    const flux = clamp01(
+      auraState.flux != null
+        ? (auraState.flux > 1 ? auraState.flux / 100 : auraState.flux)
+        : 0.50
+    );
 
     const seed = hashString(trackId || `${trackName}::${artistName}`);
     const biome = BIOMES[seed % BIOMES.length];
 
     const currentMs = Number(runtime.currentMs || 0);
-    const durationMs = Math.max(1, Number(runtime.durationMs || playerState?.duration_ms || 1));
+    const durationMs = Math.max(
+      1,
+      Number(runtime.durationMs || playerState?.duration_ms || 1)
+    );
     const progress = clamp01(currentMs / durationMs);
     const nowSec = Number(runtime.nowSec || 0);
     const dtMs = Math.max(0, Number(runtime.dtMs || 16));

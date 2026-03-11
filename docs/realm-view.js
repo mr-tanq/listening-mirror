@@ -69,13 +69,17 @@
 
       this.yoda = {
         actor: null,
-        img: null,
+        imgA: null,
+        imgB: null,
         shadow: null,
         bleed: null,
-        collar: null
+        collar: null,
+        activeLayer: "A",
+        currentSprite: "",
+        currentState: ""
       };
 
-      this.currentState = structuredClone(DEFAULT_STATE);
+      this.currentState = JSON.parse(JSON.stringify(DEFAULT_STATE));
       this.isMounted = false;
       this.particleTimer = null;
     }
@@ -117,7 +121,8 @@
       this.layers.fogFront = this.mountEl.querySelector(".realmWorld__fogFront");
 
       this.yoda.actor = this.mountEl.querySelector(".realmYoda");
-      this.yoda.img = this.mountEl.querySelector(".realmYoda__img");
+      this.yoda.imgA = this.mountEl.querySelector(".realmYoda__img--a");
+      this.yoda.imgB = this.mountEl.querySelector(".realmYoda__img--b");
       this.yoda.shadow = this.mountEl.querySelector(".realmYoda__shadow");
       this.yoda.bleed = this.mountEl.querySelector(".realmYoda__bleed");
       this.yoda.collar = this.mountEl.querySelector(".realmYoda__collar");
@@ -248,34 +253,57 @@
       if (num) num.textContent = v.toFixed(2);
     }
 
+    _swapYodaSprite(nextSprite) {
+      if (!nextSprite || nextSprite === this.yoda.currentSprite) return;
+
+      const showA = this.yoda.activeLayer === "A";
+      const active = showA ? this.yoda.imgA : this.yoda.imgB;
+      const inactive = showA ? this.yoda.imgB : this.yoda.imgA;
+
+      if (!inactive) return;
+
+      inactive.src = nextSprite;
+      inactive.classList.add("is-visible");
+      active.classList.remove("is-visible");
+
+      this.yoda.activeLayer = showA ? "B" : "A";
+      this.yoda.currentSprite = nextSprite;
+    }
+
     _applyYoda(state) {
       const y = state.yoda || DEFAULT_STATE.yoda;
-      if (!this.yoda.actor || !this.yoda.img) return;
+      if (!this.yoda.actor || !this.yoda.imgA || !this.yoda.imgB) return;
 
       const xPct = clamp01(y.x) * 100;
       const bob = Number(y.bob || 0);
       const facing = Number(y.direction || 1) >= 0 ? 1 : -1;
+      const sprite = y.sprite || "./assets/yoda_walk_1.png";
 
       this.yoda.actor.style.left = `${xPct}%`;
       this.yoda.actor.style.bottom = `${14 + bob}px`;
       this.yoda.actor.style.transform = `translateX(-50%) scaleX(${facing})`;
 
-      if (this.yoda.img.getAttribute("src") !== y.sprite) {
-        this.yoda.img.setAttribute("src", y.sprite || "./assets/yoda_walk_1.png");
+      if (!this.yoda.currentSprite) {
+        this.yoda.imgA.src = sprite;
+        this.yoda.imgA.classList.add("is-visible");
+        this.yoda.imgB.classList.remove("is-visible");
+        this.yoda.activeLayer = "A";
+        this.yoda.currentSprite = sprite;
+      } else {
+        this._swapYodaSprite(sprite);
       }
 
-      this.yoda.img.setAttribute("data-state", y.state || "walk");
+      this.yoda.currentState = y.state || "walk";
 
       if (this.yoda.shadow) {
         this.yoda.shadow.style.left = `${xPct}%`;
-        this.yoda.shadow.style.transform = `translateX(-50%) scaleX(${1.02 + Math.abs(Number(y.bob || 0)) * 0.02})`;
+        this.yoda.shadow.style.transform = `translateX(-50%) scaleX(${1.04 + Math.abs(bob) * 0.02})`;
       }
     }
     _applyYodaAura(state) {
       const heat = clamp01(state.heat);
       const focus = clamp01(state.focus);
       const depth = clamp01(state.depth);
-      const flux = clamp01(state.flux);
 
       const hue = Math.round(205 - heat * 150);
       const sat = Math.round(72 + heat * 18);
@@ -475,7 +503,7 @@
               width:98px;
               height:98px;
               pointer-events:none;
-              will-change:left,bottom,transform;
+              will-change:left,bottom,transform,opacity;
             }
 
             .realmYoda__shadow{
@@ -513,6 +541,7 @@
               mix-blend-mode:screen;
               opacity:.9;
               pointer-events:none;
+              z-index:3;
             }
 
             .realmYoda__img{
@@ -524,7 +553,13 @@
               display:block;
               image-rendering:auto;
               pointer-events:none;
-              filter:drop-shadow(0 0 0 rgba(0,0,0,0));
+              opacity:0;
+              transition:opacity .18s ease;
+              z-index:2;
+            }
+
+            .realmYoda__img.is-visible{
+              opacity:1;
             }
 
             .realmMeta{
@@ -584,7 +619,8 @@
               <div class="realmYoda__shadow"></div>
 
               <div class="realmYoda">
-                <img class="realmYoda__img" src="./assets/yoda_walk_1.png" alt="" />
+                <img class="realmYoda__img realmYoda__img--a is-visible" src="./assets/yoda_walk_1.png" alt="" />
+                <img class="realmYoda__img realmYoda__img--b" src="./assets/yoda_walk_1.png" alt="" />
                 <div class="realmYoda__bleed"></div>
                 <div class="realmYoda__collar"></div>
               </div>
@@ -644,6 +680,6 @@
       view.mount();
       return view;
     },
-    defaults: structuredClone(DEFAULT_STATE)
+    defaults: JSON.parse(JSON.stringify(DEFAULT_STATE))
   };
 })();

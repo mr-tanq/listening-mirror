@@ -1,299 +1,693 @@
 (() => {
   "use strict";
 
-  const clamp01 = (v) => Math.max(0, Math.min(1, Number(v) || 0));
-  const rand = (a, b) => a + Math.random() * (b - a);
-
   const BASE = "/listening-mirror/assets/";
 
-  const BIOMES = [
-    {
-      biome: "Moonlit Ruins",
-      mood: "Melancholic",
-      motion: "Drift",
-      sky: "linear-gradient(180deg, #09111E 0%, #101827 48%, #13151A 100%)",
-      skyGlow: "radial-gradient(circle, rgba(122,215,255,.28), rgba(122,215,255,.06) 45%, transparent 70%)",
-      moon: "radial-gradient(circle at 35% 35%, rgba(255,255,255,.95), rgba(214,227,255,.72) 55%, rgba(159,187,228,.18) 75%, transparent 100%)",
-      particle: "rgba(210,233,255,.82)"
-    },
-    {
-      biome: "Ashen Keep",
-      mood: "Ominous",
-      motion: "March",
-      sky: "linear-gradient(180deg, #150B0B 0%, #241111 46%, #181212 100%)",
-      skyGlow: "radial-gradient(circle, rgba(255,138,74,.24), rgba(255,138,74,.05) 48%, transparent 74%)",
-      moon: "radial-gradient(circle at 35% 35%, rgba(255,213,184,.88), rgba(255,132,78,.52) 56%, rgba(255,91,76,.10) 78%, transparent 100%)",
-      particle: "rgba(255,176,120,.82)"
-    },
-    {
-      biome: "Frozen Peaks",
-      mood: "Majestic",
-      motion: "Bloom",
-      sky: "linear-gradient(180deg, #0C1726 0%, #102233 50%, #15181D 100%)",
-      skyGlow: "radial-gradient(circle, rgba(156,244,255,.22), rgba(156,244,255,.05) 48%, transparent 74%)",
-      moon: "radial-gradient(circle at 35% 35%, rgba(255,255,255,.98), rgba(225,239,255,.80) 54%, rgba(174,255,243,.15) 76%, transparent 100%)",
-      particle: "rgba(228,247,255,.88)"
-    },
-    {
-      biome: "Storm Coast",
-      mood: "Tense",
-      motion: "Surge",
-      sky: "linear-gradient(180deg, #08121B 0%, #0E1D2A 48%, #14161B 100%)",
-      skyGlow: "radial-gradient(circle, rgba(92,168,255,.22), rgba(92,168,255,.04) 45%, transparent 70%)",
-      moon: "radial-gradient(circle at 35% 35%, rgba(232,245,255,.85), rgba(136,176,225,.45) 58%, rgba(120,160,215,.10) 75%, transparent 100%)",
-      particle: "rgba(180,223,255,.78)"
+  const DEFAULT_STATE = {
+    biome: "Moonlit Ruins",
+    mood: "Melancholic",
+    motion: "Drift",
+    track: "The Listening Realm",
+    artist: "Prototype Track • Realm Portal v1",
+    album: "",
+    albumImage: "",
+    stateLabel: "Now Playing",
+    heat: 0.64,
+    focus: 0.72,
+    depth: 0.86,
+    flux: 0.41,
+    sky: "linear-gradient(180deg, #09111E 0%, #101827 48%, #13151A 100%)",
+    skyGlow: "radial-gradient(circle, rgba(122,215,255,.28), rgba(122,215,255,.06) 45%, transparent 70%)",
+    moon: "radial-gradient(circle at 35% 35%, rgba(255,255,255,.95), rgba(214,227,255,.72) 55%, rgba(159,187,228,.18) 75%, transparent 100%)",
+    particle: "rgba(210,233,255,.82)",
+    progress: 0,
+    yoda: {
+      x: 0.18,
+      direction: 1,
+      state: "walk",
+      sprite: BASE + "yoda_walk_1.png",
+      bob: 0
     }
-  ];
-
-  function hashString(input) {
-    const str = String(input || "");
-    let h = 2166136261 >>> 0;
-    for (let i = 0; i < str.length; i += 1) {
-      h ^= str.charCodeAt(i);
-      h = Math.imul(h, 16777619);
-    }
-    return h >>> 0;
-  }
-
-  const YODA_ASSETS = {
-    walk1: BASE + "yoda_walk_1.png",
-    walk2: BASE + "yoda_walk_2.png",
-    walk3: BASE + "yoda_walk_3.png",
-    walk4: BASE + "yoda_walk_4.png",
-    walk5: BASE + "yoda_walk_5.png",
-    walk6: BASE + "yoda_walk_6.png",
-    sniff: BASE + "yoda_sniff.png",
-    stay: BASE + "yoda_stay.png",
-    lay: BASE + "yoda_lay.png"
   };
 
-  const WALK_SEQUENCE = [
-    "walk1",
-    "walk2",
-    "walk3",
-    "walk4",
-    "walk5",
-    "walk6",
-    "walk5",
-    "walk4",
-    "walk3",
-    "walk2"
-  ];
-
-  const yodaController = {
-    assets: { ...YODA_ASSETS },
-    state: "walk",
-    direction: 1,
-    x: 0.18,
-    velocity: 0,
-    targetVelocity: 0,
-    minX: 0.10,
-    maxX: 0.90,
-    frameIndex: 0,
-    frameTimer: 0,
-    frameMs: 140,
-    stateUntil: 0,
-    bob: 0,
-    initialized: false
-  };
-
-  function chooseAmbientState(nowSec) {
-    const roll = Math.random();
-
-    if (roll < 0.58) {
-      yodaController.state = "walk";
-      yodaController.stateUntil = nowSec + rand(3.6, 6.8);
-      return;
-    }
-    if (roll < 0.76) {
-      yodaController.state = "sniff";
-      yodaController.stateUntil = nowSec + rand(1.4, 2.5);
-      return;
-    }
-    if (roll < 0.90) {
-      yodaController.state = "stay";
-      yodaController.stateUntil = nowSec + rand(3.4, 5.4);
-      return;
-    }
-
-    yodaController.state = "lay";
-    yodaController.stateUntil = nowSec + rand(4.8, 7.8);
+  function clamp01(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 0;
+    if (n < 0) return 0;
+    if (n > 1) return 1;
+    return n;
   }
 
-  function updateYoda(progress, dtMs, nowSec) {
-    if (!yodaController.initialized) {
-      yodaController.initialized = true;
-      yodaController.state = "walk";
-      yodaController.stateUntil = nowSec + rand(3.6, 5.6);
-      yodaController.direction = Math.random() > 0.5 ? 1 : -1;
+  class RealmView {
+    constructor(mountEl) {
+      this.mountEl = mountEl;
+      this.rootEl = null;
+      this.worldEl = null;
+      this.particlesEl = null;
+
+      this.textEls = {
+        biomeChip: null,
+        moodLine: null,
+        stateChip: null,
+        track: null,
+        artist: null,
+        album: null
+      };
+
+      this.metricFills = { heat: null, focus: null, depth: null, flux: null };
+      this.metricValues = { heat: null, focus: null, depth: null, flux: null };
+
+      this.layers = {
+        artBlur: null,
+        artMain: null,
+        tint: null,
+        vignette: null,
+        skyGlow: null,
+        moon: null,
+        groundLine: null,
+        fogBack: null,
+        fogFront: null
+      };
+
+      this.yoda = {
+        actor: null,
+        imgA: null,
+        imgB: null,
+        shadow: null,
+        bleed: null,
+        collar: null,
+        activeLayer: "A",
+        currentSprite: "",
+        currentState: ""
+      };
+
+      this.currentState = JSON.parse(JSON.stringify(DEFAULT_STATE));
+      this.isMounted = false;
+      this.particleTimer = null;
     }
 
-    if (progress < 0.50) {
-      if (nowSec >= yodaController.stateUntil) {
-        chooseAmbientState(nowSec);
+    mount() {
+      if (!this.mountEl || this.isMounted) return;
+
+      this.mountEl.innerHTML = this._template();
+
+      this.rootEl = this.mountEl.querySelector(".realmHeroView");
+      this.worldEl = this.mountEl.querySelector(".realmWorld");
+      this.particlesEl = this.mountEl.querySelector(".realmWorld__particles");
+
+      this.textEls.biomeChip = this.mountEl.querySelector('[data-realm-text="biome"]');
+      this.textEls.moodLine = this.mountEl.querySelector('[data-realm-text="moodLine"]');
+      this.textEls.stateChip = this.mountEl.querySelector('[data-realm-text="state"]');
+      this.textEls.track = this.mountEl.querySelector('[data-realm-text="track"]');
+      this.textEls.artist = this.mountEl.querySelector('[data-realm-text="artist"]');
+      this.textEls.album = this.mountEl.querySelector('[data-realm-text="album"]');
+
+      this.metricFills.heat = this.mountEl.querySelector('[data-realm-fill="heat"]');
+      this.metricFills.focus = this.mountEl.querySelector('[data-realm-fill="focus"]');
+      this.metricFills.depth = this.mountEl.querySelector('[data-realm-fill="depth"]');
+      this.metricFills.flux = this.mountEl.querySelector('[data-realm-fill="flux"]');
+
+      this.metricValues.heat = this.mountEl.querySelector('[data-realm-value="heat"]');
+      this.metricValues.focus = this.mountEl.querySelector('[data-realm-value="focus"]');
+      this.metricValues.depth = this.mountEl.querySelector('[data-realm-value="depth"]');
+      this.metricValues.flux = this.mountEl.querySelector('[data-realm-value="flux"]');
+
+      this.layers.artBlur = this.mountEl.querySelector(".realmWorld__artBlur");
+      this.layers.artMain = this.mountEl.querySelector(".realmWorld__artMain");
+      this.layers.tint = this.mountEl.querySelector(".realmWorld__tint");
+      this.layers.vignette = this.mountEl.querySelector(".realmWorld__vignette");
+      this.layers.skyGlow = this.mountEl.querySelector(".realmWorld__skyGlow");
+      this.layers.moon = this.mountEl.querySelector(".realmWorld__moon");
+      this.layers.groundLine = this.mountEl.querySelector(".realmWorld__groundLine");
+      this.layers.fogBack = this.mountEl.querySelector(".realmWorld__fogBack");
+      this.layers.fogFront = this.mountEl.querySelector(".realmWorld__fogFront");
+
+      this.yoda.actor = this.mountEl.querySelector(".realmYoda");
+      this.yoda.imgA = this.mountEl.querySelector(".realmYoda__img--a");
+      this.yoda.imgB = this.mountEl.querySelector(".realmYoda__img--b");
+      this.yoda.shadow = this.mountEl.querySelector(".realmYoda__shadow");
+      this.yoda.bleed = this.mountEl.querySelector(".realmYoda__bleed");
+      this.yoda.collar = this.mountEl.querySelector(".realmYoda__collar");
+
+      this.applyState(this.currentState);
+      this.isMounted = true;
+    }
+
+    unmount() {
+      this._stopParticles();
+      if (this.mountEl) this.mountEl.innerHTML = "";
+      this.isMounted = false;
+    }
+
+    applyState(nextState = {}) {
+      this.currentState = {
+        ...this.currentState,
+        ...nextState,
+        yoda: {
+          ...this.currentState.yoda,
+          ...(nextState.yoda || {})
+        }
+      };
+
+      if (!this.rootEl) return;
+
+      this._applyText(this.currentState);
+      this._applyArtwork(this.currentState);
+      this._applyWorld(this.currentState);
+      this._applyMetrics(this.currentState);
+      this._applyYoda(this.currentState);
+      this._applyYodaAura(this.currentState);
+      this._startParticles(this.currentState.particle, this.currentState.flux);
+    }
+
+    _applyText(state) {
+      if (this.textEls.biomeChip) this.textEls.biomeChip.textContent = state.biome || "Realm";
+      if (this.textEls.moodLine) this.textEls.moodLine.textContent = `${state.mood || "Calm"} • ${state.motion || "Drift"}`;
+      if (this.textEls.stateChip) this.textEls.stateChip.textContent = state.stateLabel || "Now Playing";
+      if (this.textEls.track) this.textEls.track.textContent = state.track || "Unknown Track";
+      if (this.textEls.artist) this.textEls.artist.textContent = state.artist || "Unknown Artist";
+      if (this.textEls.album) this.textEls.album.textContent = state.album || "Album portal";
+    }
+
+    _applyArtwork(state) {
+      const img = state.albumImage || "";
+      const hasArt = !!img;
+
+      if (this.layers.artBlur) {
+        this.layers.artBlur.style.backgroundImage = hasArt ? `url("${img}")` : "none";
+        this.layers.artBlur.style.opacity = hasArt ? String(0.14 + state.depth * 0.06) : "0";
       }
-    } else {
-      if (progress < 0.92) {
-        yodaController.state = "walk";
-        yodaController.stateUntil = nowSec + 999;
+
+      if (this.layers.artMain) {
+        this.layers.artMain.style.backgroundImage = hasArt ? `url("${img}")` : "none";
+        this.layers.artMain.style.opacity = hasArt ? String(0.78 + state.focus * 0.14) : "0";
+      }
+    }
+
+    _applyWorld(state) {
+      const heat = clamp01(state.heat);
+      const focus = clamp01(state.focus);
+      const depth = clamp01(state.depth);
+      const flux = clamp01(state.flux);
+
+      if (this.worldEl) {
+        this.worldEl.style.background = state.sky || DEFAULT_STATE.sky;
+      }
+
+      const hue = Math.round(210 - heat * 150);
+      const sat = Math.round(54 + heat * 24);
+      const light = Math.round(22 + focus * 8);
+
+      if (this.layers.tint) {
+        this.layers.tint.style.background = `
+          linear-gradient(180deg,
+            hsla(${hue}, ${sat}%, ${light + 6}%, .05),
+            hsla(${hue}, ${sat}%, ${light - 2}%, .10)
+          ),
+          radial-gradient(900px 360px at 50% 20%,
+            hsla(${hue}, ${sat}%, ${light + 12}%, .05),
+            transparent 66%)
+        `;
+      }
+
+      if (this.layers.vignette) {
+        this.layers.vignette.style.opacity = String(0.64 + depth * 0.08);
+      }
+
+      if (this.layers.skyGlow) {
+        this.layers.skyGlow.style.background = state.skyGlow || DEFAULT_STATE.skyGlow;
+        this.layers.skyGlow.style.opacity = String(0.12 + heat * 0.16);
+        this.layers.skyGlow.style.filter = `blur(${14 + depth * 10}px)`;
+      }
+
+      if (this.layers.moon) {
+        this.layers.moon.style.background = state.moon || DEFAULT_STATE.moon;
+        this.layers.moon.style.opacity = String(0.24 + focus * 0.18);
+      }
+
+      if (this.layers.groundLine) {
+        this.layers.groundLine.style.opacity = String(0.22 + (1 - focus) * 0.08);
+        this.layers.groundLine.style.transform = `translateX(${(flux - 0.5) * 4}px)`;
+      }
+
+      if (this.layers.fogBack) {
+        this.layers.fogBack.style.opacity = String(0.06 + depth * 0.10 + (1 - focus) * 0.05);
+        this.layers.fogBack.style.transform = `translateX(${(flux - 0.5) * -8}px)`;
+      }
+
+      if (this.layers.fogFront) {
+        this.layers.fogFront.style.opacity = String(0.04 + depth * 0.08 + (1 - focus) * 0.03);
+        this.layers.fogFront.style.transform = `translateX(${(flux - 0.5) * 10}px)`;
+      }
+    }
+
+    _applyMetrics(state) {
+      this._setMetric("heat", state.heat);
+      this._setMetric("focus", state.focus);
+      this._setMetric("depth", state.depth);
+      this._setMetric("flux", state.flux);
+    }
+
+    _setMetric(name, value) {
+      const fill = this.metricFills[name];
+      const num = this.metricValues[name];
+      const v = clamp01(value);
+      if (fill) fill.style.width = `${Math.round(v * 100)}%`;
+      if (num) num.textContent = v.toFixed(2);
+    }
+
+    _swapYodaSprite(nextSprite) {
+      if (!nextSprite || nextSprite === this.yoda.currentSprite) return;
+
+      const showA = this.yoda.activeLayer === "A";
+      const active = showA ? this.yoda.imgA : this.yoda.imgB;
+      const inactive = showA ? this.yoda.imgB : this.yoda.imgA;
+
+      if (!inactive) return;
+
+      inactive.src = nextSprite;
+      inactive.classList.add("is-visible");
+      active.classList.remove("is-visible");
+
+      this.yoda.activeLayer = showA ? "B" : "A";
+      this.yoda.currentSprite = nextSprite;
+    }
+
+    _applyYoda(state) {
+      const y = state.yoda || DEFAULT_STATE.yoda;
+      if (!this.yoda.actor || !this.yoda.imgA || !this.yoda.imgB) return;
+
+      const xPct = clamp01(y.x) * 100;
+      const bob = Number(y.bob || 0);
+      const facing = Number(y.direction || 1) >= 0 ? 1 : -1;
+      const sprite = y.sprite || (BASE + "yoda_walk_1.png");
+
+      this.yoda.actor.style.left = `${xPct}%`;
+      this.yoda.actor.style.bottom = `${8 + bob}px`;
+      this.yoda.actor.style.transform = `translateX(-50%) scaleX(${facing})`;
+
+      if (!this.yoda.currentSprite) {
+        this.yoda.imgA.src = sprite;
+        this.yoda.imgA.classList.add("is-visible");
+        this.yoda.imgB.classList.remove("is-visible");
+        this.yoda.activeLayer = "A";
+        this.yoda.currentSprite = sprite;
       } else {
-        yodaController.state = progress < 0.97 ? "stay" : "lay";
-        yodaController.stateUntil = nowSec + 999;
+        this._swapYodaSprite(sprite);
+      }
+
+      this.yoda.currentState = y.state || "walk";
+
+      if (this.yoda.shadow) {
+        this.yoda.shadow.style.left = `${xPct}%`;
+        this.yoda.shadow.style.transform = `translateX(-50%) scaleX(${1.12 + Math.abs(bob) * 0.02})`;
       }
     }
 
-    const walking = yodaController.state === "walk";
-    const baseSpeed = 0.000045;
+    _applyYodaAura(state) {
+      const heat = clamp01(state.heat);
+      const focus = clamp01(state.focus);
+      const depth = clamp01(state.depth);
 
-    yodaController.targetVelocity = walking
-      ? (baseSpeed * yodaController.direction)
-      : 0;
+      const hue = Math.round(205 - heat * 150);
+      const sat = Math.round(72 + heat * 18);
+      const light = Math.round(62 + focus * 10);
 
-    yodaController.velocity +=
-      (yodaController.targetVelocity - yodaController.velocity) * 0.08;
+      if (this.yoda.collar) {
+        this.yoda.collar.style.background = `radial-gradient(circle, hsla(${hue}, ${sat}%, ${light}%, .96) 0%, hsla(${hue}, ${sat}%, ${light}%, .54) 36%, transparent 72%)`;
+        this.yoda.collar.style.filter = `blur(${5 + depth * 3}px)`;
+        this.yoda.collar.style.opacity = String(0.60 + heat * 0.26);
+      }
 
-    yodaController.x += yodaController.velocity * dtMs;
-
-    if (yodaController.x <= yodaController.minX) {
-      yodaController.x = yodaController.minX;
-      yodaController.direction = 1;
-    }
-
-    if (yodaController.x >= yodaController.maxX) {
-      yodaController.x = yodaController.maxX;
-      yodaController.direction = -1;
-    }
-
-    yodaController.frameTimer += dtMs;
-
-    if (walking && yodaController.frameTimer >= yodaController.frameMs) {
-      yodaController.frameTimer = 0;
-      yodaController.frameIndex =
-        (yodaController.frameIndex + 1) % WALK_SEQUENCE.length;
-    }
-
-    if (!walking) {
-      yodaController.frameIndex = 0;
-      yodaController.frameTimer = 0;
-    }
-
-    const walkBob = walking ? Math.sin(nowSec * 8.2) * 1.6 : 0;
-    const stayBob = yodaController.state === "stay" ? Math.sin(nowSec * 1.8) * 0.8 : 0;
-    const layBob = yodaController.state === "lay" ? Math.sin(nowSec * 1.2) * 0.35 : 0;
-    const sniffBob = yodaController.state === "sniff" ? Math.sin(nowSec * 3.6) * 1.0 : 0;
-
-    yodaController.bob = walkBob + stayBob + layBob + sniffBob;
-  }
-  function getYodaSprite() {
-    switch (yodaController.state) {
-      case "sniff":
-        return yodaController.assets.sniff;
-      case "stay":
-        return yodaController.assets.stay;
-      case "lay":
-        return yodaController.assets.lay;
-      case "walk":
-      default: {
-        const key = WALK_SEQUENCE[yodaController.frameIndex] || "walk1";
-        return yodaController.assets[key];
+      if (this.yoda.bleed) {
+        this.yoda.bleed.style.background = `radial-gradient(circle at 50% 50%, hsla(${hue}, ${sat}%, ${light}%, .14) 0%, hsla(${hue}, ${sat}%, ${light}%, .05) 42%, transparent 76%)`;
+        this.yoda.bleed.style.opacity = String(0.12 + heat * 0.10);
+        this.yoda.bleed.style.filter = `blur(${6 + depth * 5}px)`;
       }
     }
+
+    _stopParticles() {
+      if (this.particleTimer) {
+        clearInterval(this.particleTimer);
+        this.particleTimer = null;
+      }
+      if (this.particlesEl) this.particlesEl.innerHTML = "";
+    }
+
+    _startParticles(color, flux) {
+      this._stopParticles();
+      if (!this.particlesEl) return;
+
+      const every = Math.max(380, 1450 - clamp01(flux) * 700);
+
+      for (let i = 0; i < 4; i += 1) {
+        window.setTimeout(() => this._spawnParticle(color, 3200 + Math.random() * 1400), i * 220);
+      }
+
+      this.particleTimer = window.setInterval(() => {
+        this._spawnParticle(color, 3200 + Math.random() * 1400);
+      }, every);
+    }
+
+    _spawnParticle(color, duration) {
+      if (!this.particlesEl) return;
+
+      const el = document.createElement("span");
+      el.className = "realmWorld__particle";
+
+      const left = 8 + Math.random() * 84;
+      const top = 14 + Math.random() * 64;
+      const size = 2 + Math.random() * 2.2;
+
+      el.style.left = `${left}%`;
+      el.style.top = `${top}%`;
+      el.style.width = `${size}px`;
+      el.style.height = `${size}px`;
+      el.style.background = color || DEFAULT_STATE.particle;
+      el.style.boxShadow = `0 0 8px ${color || DEFAULT_STATE.particle}`;
+      el.style.animationDuration = `${duration}ms`;
+
+      this.particlesEl.appendChild(el);
+      window.setTimeout(() => el.remove(), duration + 800);
+    }
+
+    _template() {
+      return `
+        <div class="realmHeroView">
+          <style>
+            .realmHeroView{ display:grid; gap:14px; }
+
+            .realmHero{
+              border-radius:26px;
+              overflow:hidden;
+              outline:1px solid rgba(255,255,255,.07);
+              background:rgba(255,255,255,.02);
+              box-shadow:
+                inset 0 1px 0 rgba(255,255,255,.03),
+                0 18px 40px rgba(0,0,0,.16);
+            }
+
+            .realmHero__top{
+              padding:12px 14px 0;
+              display:flex;
+              align-items:center;
+              justify-content:space-between;
+              gap:10px;
+              position:relative;
+              z-index:3;
+            }
+
+            .realmWorld{
+              position:relative;
+              width:100%;
+              aspect-ratio:16/9.8;
+              overflow:hidden;
+              border-radius:0 0 26px 26px;
+              isolation:isolate;
+            }
+
+            .realmWorld__artBlur,
+            .realmWorld__artMain,
+            .realmWorld__tint,
+            .realmWorld__vignette,
+            .realmWorld__skyGlow,
+            .realmWorld__moon,
+            .realmWorld__groundLine,
+            .realmWorld__fogBack,
+            .realmWorld__fogFront,
+            .realmWorld__particles{
+              position:absolute;
+              inset:0;
+              pointer-events:none;
+            }
+
+            .realmWorld__artBlur{
+              background-position:center;
+              background-size:cover;
+              filter:blur(22px) saturate(.94) brightness(.56);
+              transform:scale(1.08);
+              z-index:1;
+            }
+
+            .realmWorld__artMain{
+              background-position:center;
+              background-size:cover;
+              filter:saturate(.96) brightness(.84) contrast(.98);
+              transform:scale(1.005);
+              z-index:2;
+            }
+
+            .realmWorld__tint{ z-index:3; }
+
+            .realmWorld__vignette{
+              background:
+                radial-gradient(90% 72% at 50% 40%, transparent 38%, rgba(0,0,0,.08) 66%, rgba(0,0,0,.20) 100%),
+                linear-gradient(180deg, rgba(0,0,0,.03), transparent 22%, transparent 72%, rgba(0,0,0,.10));
+              z-index:4;
+            }
+
+            .realmWorld__skyGlow{
+              width:58%;
+              height:56%;
+              left:21%;
+              top:6%;
+              border-radius:50%;
+              mix-blend-mode:screen;
+              z-index:5;
+              animation: realmSkyBreath 18s ease-in-out infinite alternate;
+            }
+
+            .realmWorld__moon{
+              width:9%;
+              aspect-ratio:1;
+              right:12%;
+              top:15%;
+              border-radius:50%;
+              box-shadow:0 0 12px rgba(255,255,255,.12);
+              z-index:6;
+            }
+
+            .realmWorld__groundLine{
+              left:8%;
+              right:8%;
+              bottom:24px;
+              height:1px;
+              background:linear-gradient(90deg, transparent, rgba(255,255,255,.14), rgba(255,255,255,.10), transparent);
+              z-index:8;
+            }
+
+            .realmWorld__fogBack{
+              background:
+                radial-gradient(620px 150px at 34% 82%, rgba(230,236,250,.06), transparent 72%),
+                radial-gradient(520px 140px at 72% 78%, rgba(230,236,250,.04), transparent 70%);
+              mix-blend-mode:screen;
+              z-index:7;
+              animation: realmFogBackPan 20s ease-in-out infinite alternate;
+            }
+
+            .realmWorld__fogFront{
+              background:
+                radial-gradient(520px 130px at 48% 86%, rgba(230,236,250,.04), transparent 68%);
+              mix-blend-mode:screen;
+              z-index:11;
+              animation: realmFogFrontPan 14s ease-in-out infinite alternate;
+            }
+
+            .realmWorld__particles{ z-index:10; }
+
+            .realmWorld__particle{
+              position:absolute;
+              border-radius:50%;
+              opacity:.62;
+              animation: realmParticleFloat linear forwards;
+            }
+
+            .realmYoda{
+              position:absolute;
+              z-index:9;
+              width:150px;
+              height:150px;
+              pointer-events:none;
+              will-change:left,bottom,transform,opacity;
+            }
+
+            .realmYoda__shadow{
+              position:absolute;
+              z-index:8;
+              bottom:18px;
+              width:42px;
+              height:9px;
+              border-radius:50%;
+              background:rgba(0,0,0,.34);
+              filter:blur(3px);
+              pointer-events:none;
+            }
+
+            .realmYoda__bleed{
+              position:absolute;
+              left:50%;
+              bottom:16px;
+              width:46px;
+              height:18px;
+              transform:translateX(-50%);
+              border-radius:50%;
+              opacity:.18;
+              pointer-events:none;
+            }
+
+            .realmYoda__collar{
+              position:absolute;
+              left:58%;
+              top:54%;
+              width:16px;
+              height:16px;
+              transform:translate(-50%, -50%);
+              border-radius:50%;
+              mix-blend-mode:screen;
+              opacity:.9;
+              pointer-events:none;
+              z-index:3;
+            }
+
+            .realmYoda__img{
+              position:absolute;
+              inset:0;
+              width:100%;
+              height:100%;
+              object-fit:contain;
+              display:block;
+              image-rendering:auto;
+              pointer-events:none;
+              opacity:0;
+              transition:opacity .18s ease;
+              z-index:2;
+            }
+
+            .realmYoda__img.is-visible{
+              opacity:1;
+            }
+
+            .realmMeta{
+              display:grid;
+              gap:12px;
+            }
+
+            .realmAlbum{
+              font-size:12px;
+              line-height:1.35;
+              color:rgba(255,255,255,.50);
+              margin:2px 0 0;
+            }
+
+            @keyframes realmSkyBreath{
+              from{ transform:translateX(-8px) scale(.988); }
+              to{ transform:translateX(8px) scale(1.015); }
+            }
+
+            @keyframes realmFogBackPan{
+              from{ transform:translateX(-2.5%) translateY(0); }
+              to{ transform:translateX(3%) translateY(-1%); }
+            }
+
+            @keyframes realmFogFrontPan{
+              from{ transform:translateX(1.5%) translateY(0); }
+              to{ transform:translateX(-2%) translateY(-1%); }
+            }
+
+            @keyframes realmParticleFloat{
+              0%{ transform:translateY(0) scale(.78); opacity:0; }
+              14%{ opacity:.68; }
+              100%{ transform:translateY(-24px) scale(1.04); opacity:0; }
+            }
+
+            @media (max-width:420px){
+              .realmYoda{ width:132px; height:132px; }
+            }
+          </style>
+
+          <section class="realmHero">
+            <div class="realmHero__top">
+              <div class="realm-badge">
+                <span class="realm-badge__dot" aria-hidden="true"></span>
+                <span class="realm-badge__text" data-realm-text="moodLine">Melancholic • Drift</span>
+              </div>
+              <div class="realm-chip" data-realm-text="biome">Moonlit Ruins</div>
+            </div>
+
+            <div class="realmWorld">
+              <div class="realmWorld__artBlur"></div>
+              <div class="realmWorld__artMain"></div>
+              <div class="realmWorld__tint"></div>
+              <div class="realmWorld__vignette"></div>
+              <div class="realmWorld__skyGlow"></div>
+              <div class="realmWorld__moon"></div>
+              <div class="realmWorld__fogBack"></div>
+              <div class="realmWorld__groundLine"></div>
+
+              <div class="realmYoda__shadow"></div>
+
+              <div class="realmYoda">
+                <img class="realmYoda__img realmYoda__img--a is-visible" src="${BASE}yoda_walk_1.png" alt="" />
+                <img class="realmYoda__img realmYoda__img--b" src="${BASE}yoda_walk_1.png" alt="" />
+                <div class="realmYoda__bleed"></div>
+                <div class="realmYoda__collar"></div>
+              </div>
+
+              <div class="realmWorld__particles"></div>
+              <div class="realmWorld__fogFront"></div>
+            </div>
+          </section>
+
+          <section class="realm-card">
+            <div class="realmMeta">
+              <div>
+                <p class="realm-track" data-realm-text="track">The Listening Realm</p>
+                <p class="realm-artist" data-realm-text="artist">Prototype Track • Realm Portal v1</p>
+                <p class="realmAlbum" data-realm-text="album">Album portal</p>
+              </div>
+
+              <div class="realm-status">
+                <div class="realm-badge">
+                  <span class="realm-badge__dot" aria-hidden="true"></span>
+                  <span class="realm-badge__text" data-realm-text="state">Now Playing</span>
+                </div>
+              </div>
+
+              <div class="realm-metrics">
+                <div class="realm-metric">
+                  <div class="realm-metric__label">Heat</div>
+                  <div class="realm-metric__value" data-realm-value="heat">0.64</div>
+                  <div class="realm-bar"><div class="realm-bar__fill" data-realm-fill="heat"></div></div>
+                </div>
+                <div class="realm-metric">
+                  <div class="realm-metric__label">Focus</div>
+                  <div class="realm-metric__value" data-realm-value="focus">0.72</div>
+                  <div class="realm-bar"><div class="realm-bar__fill" data-realm-fill="focus"></div></div>
+                </div>
+                <div class="realm-metric">
+                  <div class="realm-metric__label">Depth</div>
+                  <div class="realm-metric__value" data-realm-value="depth">0.86</div>
+                  <div class="realm-bar"><div class="realm-bar__fill" data-realm-fill="depth"></div></div>
+                </div>
+                <div class="realm-metric">
+                  <div class="realm-metric__label">Flux</div>
+                  <div class="realm-metric__value" data-realm-value="flux">0.41</div>
+                  <div class="realm-bar"><div class="realm-bar__fill" data-realm-fill="flux"></div></div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      `;
+    }
   }
 
-  function getYodaSnapshot() {
-    return {
-      x: yodaController.x,
-      direction: yodaController.direction,
-      state: yodaController.state,
-      sprite: getYodaSprite(),
-      bob: yodaController.bob
-    };
-  }
-
-  function fromTrackAndAura(playerState, auraState = {}, runtime = {}) {
-    const trackId = playerState?.track_id || "";
-    const trackName = playerState?.track_name || "Unknown Track";
-    const artistName = playerState?.artist_name || "Unknown Artist";
-    const albumName = playerState?.album_name || "";
-    const albumImage = playerState?.album_image || "";
-    const isPlaying = !!playerState?.is_playing;
-
-    const heat = clamp01(
-      auraState.heat != null
-        ? (auraState.heat > 1 ? auraState.heat / 100 : auraState.heat)
-        : 0.55
-    );
-
-    const focus = clamp01(
-      auraState.focus != null
-        ? (auraState.focus > 1 ? auraState.focus / 100 : auraState.focus)
-        : 0.55
-    );
-
-    const depth = clamp01(
-      auraState.depth != null
-        ? (auraState.depth > 1 ? auraState.depth / 100 : auraState.depth)
-        : 0.55
-    );
-
-    const flux = clamp01(
-      auraState.flux != null
-        ? (auraState.flux > 1 ? auraState.flux / 100 : auraState.flux)
-        : 0.50
-    );
-
-    const seed = hashString(trackId || `${trackName}::${artistName}`);
-    const biome = BIOMES[seed % BIOMES.length];
-
-    const currentMs = Number(runtime.currentMs || 0);
-    const durationMs = Math.max(
-      1,
-      Number(runtime.durationMs || playerState?.duration_ms || 1)
-    );
-    const progress = clamp01(currentMs / durationMs);
-    const nowSec = Number(runtime.nowSec || 0);
-    const dtMs = Math.max(0, Number(runtime.dtMs || 16));
-
-    updateYoda(progress, dtMs, nowSec);
-
-    return {
-      biome: biome.biome,
-      mood: biome.mood,
-      motion: biome.motion,
-      track: trackName,
-      artist: artistName,
-      album: albumName,
-      albumImage,
-      stateLabel: isPlaying ? "Now Playing" : "Paused",
-      heat: Number(heat.toFixed(2)),
-      focus: Number(focus.toFixed(2)),
-      depth: Number(depth.toFixed(2)),
-      flux: Number(flux.toFixed(2)),
-      sky: biome.sky,
-      skyGlow: biome.skyGlow,
-      moon: biome.moon,
-      particle: biome.particle,
-      yoda: getYodaSnapshot(),
-      progress
-    };
-  }
-
-  function resetYoda() {
-    yodaController.state = "walk";
-    yodaController.direction = 1;
-    yodaController.x = 0.18;
-    yodaController.velocity = 0;
-    yodaController.targetVelocity = 0;
-    yodaController.frameIndex = 0;
-    yodaController.frameTimer = 0;
-    yodaController.stateUntil = 0;
-    yodaController.bob = 0;
-    yodaController.initialized = false;
-  }
-
-  window.RealmEngine = {
-    fromTrackAndAura,
-    resetYoda,
-    getYodaSnapshot
+  window.RealmView = {
+    create(mountEl) {
+      const view = new RealmView(mountEl);
+      view.mount();
+      return view;
+    },
+    defaults: JSON.parse(JSON.stringify(DEFAULT_STATE))
   };
 })();

@@ -1,6 +1,8 @@
 (() => {
   "use strict";
 
+  const BASE = "/listening-mirror/assets/";
+
   const DEFAULT_STATE = {
     biome: "Moonlit Ruins",
     mood: "Melancholic",
@@ -23,7 +25,7 @@
       x: 0.18,
       direction: 1,
       state: "walk",
-      sprite: "./assets/yoda_walk_1.png",
+      sprite: BASE + "yoda_walk_1.png",
       bob: 0
     }
   };
@@ -278,10 +280,10 @@
       const xPct = clamp01(y.x) * 100;
       const bob = Number(y.bob || 0);
       const facing = Number(y.direction || 1) >= 0 ? 1 : -1;
-      const sprite = y.sprite || "./assets/yoda_walk_1.png";
+      const sprite = y.sprite || (BASE + "yoda_walk_1.png");
 
       this.yoda.actor.style.left = `${xPct}%`;
-      this.yoda.actor.style.bottom = `${8 + bob}px`;
+      this.yoda.actor.style.bottom = `${6 + bob}px`;
       this.yoda.actor.style.transform = `translateX(-50%) scaleX(${facing})`;
 
       if (!this.yoda.currentSprite) {
@@ -298,7 +300,7 @@
 
       if (this.yoda.shadow) {
         this.yoda.shadow.style.left = `${xPct}%`;
-        this.yoda.shadow.style.transform = `translateX(-50%) scaleX(${1.12 + Math.abs(bob) * 0.02})`;
+        this.yoda.shadow.style.transform = `translateX(-50%) scaleX(${1.08 + Math.abs(bob) * 0.02})`;
       }
     }
 
@@ -313,14 +315,14 @@
 
       if (this.yoda.collar) {
         this.yoda.collar.style.background = `radial-gradient(circle, hsla(${hue}, ${sat}%, ${light}%, .96) 0%, hsla(${hue}, ${sat}%, ${light}%, .54) 36%, transparent 72%)`;
-        this.yoda.collar.style.filter = `blur(${5 + depth * 3}px)`;
+        this.yoda.collar.style.filter = `blur(${4 + depth * 2}px)`;
         this.yoda.collar.style.opacity = String(0.60 + heat * 0.26);
       }
 
       if (this.yoda.bleed) {
         this.yoda.bleed.style.background = `radial-gradient(circle at 50% 50%, hsla(${hue}, ${sat}%, ${light}%, .14) 0%, hsla(${hue}, ${sat}%, ${light}%, .05) 42%, transparent 76%)`;
-        this.yoda.bleed.style.opacity = String(0.12 + heat * 0.10);
-        this.yoda.bleed.style.filter = `blur(${6 + depth * 5}px)`;
+        this.yoda.bleed.style.opacity = String(0.10 + heat * 0.08);
+        this.yoda.bleed.style.filter = `blur(${4 + depth * 4}px)`;
       }
     }
 
@@ -503,8 +505,8 @@
             .realmYoda{
               position:absolute;
               z-index:9;
-              width:150px;
-              height:150px;
+              width:76px;
+              height:76px;
               pointer-events:none;
               will-change:left,bottom,transform,opacity;
             }
@@ -512,24 +514,24 @@
             .realmYoda__shadow{
               position:absolute;
               z-index:8;
-              bottom:18px;
-              width:42px;
-              height:9px;
+              bottom:10px;
+              width:24px;
+              height:6px;
               border-radius:50%;
               background:rgba(0,0,0,.34);
-              filter:blur(3px);
+              filter:blur(2px);
               pointer-events:none;
             }
 
             .realmYoda__bleed{
               position:absolute;
               left:50%;
-              bottom:16px;
-              width:46px;
-              height:18px;
+              bottom:9px;
+              width:24px;
+              height:10px;
               transform:translateX(-50%);
               border-radius:50%;
-              opacity:.18;
+              opacity:.16;
               pointer-events:none;
             }
 
@@ -537,8 +539,8 @@
               position:absolute;
               left:58%;
               top:54%;
-              width:16px;
-              height:16px;
+              width:10px;
+              height:10px;
               transform:translate(-50%, -50%);
               border-radius:50%;
               mix-blend-mode:screen;
@@ -599,7 +601,7 @@
             }
 
             @media (max-width:420px){
-              .realmYoda{ width:132px; height:132px; }
+              .realmYoda{ width:72px; height:72px; }
             }
           </style>
 
@@ -625,8 +627,8 @@
               <div class="realmYoda__shadow"></div>
 
               <div class="realmYoda">
-                <img class="realmYoda__img realmYoda__img--a is-visible" src="./assets/yoda_walk_1.png" alt="" />
-                <img class="realmYoda__img realmYoda__img--b" src="./assets/yoda_walk_1.png" alt="" />
+                <img class="realmYoda__img realmYoda__img--a is-visible" src="${BASE}yoda_walk_1.png" alt="" />
+                <img class="realmYoda__img realmYoda__img--b" src="${BASE}yoda_walk_1.png" alt="" />
                 <div class="realmYoda__bleed"></div>
                 <div class="realmYoda__collar"></div>
               </div>

@@ -23,7 +23,7 @@
       x: 0.18,
       direction: 1,
       state: "walk",
-      sprite: "./assets/yoda/yoda_walk_1.png",
+      sprite: "./assets/yoda_walk_1.png",
       bob: 0
     }
   };
@@ -261,7 +261,7 @@
       this.yoda.actor.style.transform = `translateX(-50%) scaleX(${facing})`;
 
       if (this.yoda.img.getAttribute("src") !== y.sprite) {
-        this.yoda.img.setAttribute("src", y.sprite || "./assets/yoda/yoda_walk_1.png");
+        this.yoda.img.setAttribute("src", y.sprite || "./assets/yoda_walk_1.png");
       }
 
       this.yoda.img.setAttribute("data-state", y.state || "walk");
@@ -584,7 +584,7 @@
               <div class="realmYoda__shadow"></div>
 
               <div class="realmYoda">
-                <img class="realmYoda__img" src="./assets/yoda/yoda_walk_1.png" alt="" />
+                <img class="realmYoda__img" src="./assets/yoda_walk_1.png" alt="" />
                 <div class="realmYoda__bleed"></div>
                 <div class="realmYoda__collar"></div>
               </div>

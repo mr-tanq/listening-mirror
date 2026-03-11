@@ -14,13 +14,18 @@
     focus: 0.72,
     depth: 0.86,
     flux: 0.41,
-    portalGlow: "rgba(122,215,255,.30)",
-    portalGlow2: "rgba(184,140,255,.18)",
-    portalEdge: "rgba(255,255,255,.18)",
     sky: "linear-gradient(180deg, #09111E 0%, #101827 48%, #13151A 100%)",
     skyGlow: "radial-gradient(circle, rgba(122,215,255,.28), rgba(122,215,255,.06) 45%, transparent 70%)",
     moon: "radial-gradient(circle at 35% 35%, rgba(255,255,255,.95), rgba(214,227,255,.72) 55%, rgba(159,187,228,.18) 75%, transparent 100%)",
-    particle: "rgba(210,233,255,.82)"
+    particle: "rgba(210,233,255,.82)",
+    progress: 0,
+    yoda: {
+      x: 0.18,
+      direction: 1,
+      state: "walk",
+      sprite: "./assets/yoda/yoda_walk_1.png",
+      bob: 0
+    }
   };
 
   function clamp01(value) {
@@ -64,17 +69,15 @@
 
       this.yoda = {
         actor: null,
+        img: null,
         shadow: null,
         bleed: null,
-        body: null,
         collar: null
       };
 
-      this.currentState = { ...DEFAULT_STATE };
+      this.currentState = structuredClone(DEFAULT_STATE);
       this.isMounted = false;
       this.particleTimer = null;
-      this.walkStart = performance.now();
-      this._walkerRaf = 0;
     }
 
     mount() {
@@ -114,49 +117,47 @@
       this.layers.fogFront = this.mountEl.querySelector(".realmWorld__fogFront");
 
       this.yoda.actor = this.mountEl.querySelector(".realmYoda");
+      this.yoda.img = this.mountEl.querySelector(".realmYoda__img");
       this.yoda.shadow = this.mountEl.querySelector(".realmYoda__shadow");
       this.yoda.bleed = this.mountEl.querySelector(".realmYoda__bleed");
-      this.yoda.body = this.mountEl.querySelector(".realmYoda__body");
       this.yoda.collar = this.mountEl.querySelector(".realmYoda__collar");
 
       this.applyState(this.currentState);
-      this._startWalker();
       this.isMounted = true;
     }
 
     unmount() {
       this._stopParticles();
-      this._stopWalker();
       if (this.mountEl) this.mountEl.innerHTML = "";
       this.isMounted = false;
     }
 
     applyState(nextState = {}) {
-      const merged = {
-        ...DEFAULT_STATE,
+      this.currentState = {
+        ...this.currentState,
         ...nextState,
-        heat: clamp01(nextState.heat ?? this.currentState.heat ?? DEFAULT_STATE.heat),
-        focus: clamp01(nextState.focus ?? this.currentState.focus ?? DEFAULT_STATE.focus),
-        depth: clamp01(nextState.depth ?? this.currentState.depth ?? DEFAULT_STATE.depth),
-        flux: clamp01(nextState.flux ?? this.currentState.flux ?? DEFAULT_STATE.flux)
+        yoda: {
+          ...this.currentState.yoda,
+          ...(nextState.yoda || {})
+        }
       };
 
-      this.currentState = merged;
       if (!this.rootEl) return;
 
-      this._applyText(merged);
-      this._applyArtwork(merged);
-      this._applyWorld(merged);
-      this._applyMetrics(merged);
-      this._applyYodaAura(merged);
-      this._startParticles(merged.particle, merged.flux);
+      this._applyText(this.currentState);
+      this._applyArtwork(this.currentState);
+      this._applyWorld(this.currentState);
+      this._applyMetrics(this.currentState);
+      this._applyYoda(this.currentState);
+      this._applyYodaAura(this.currentState);
+      this._startParticles(this.currentState.particle, this.currentState.flux);
     }
-_applyText(state) {
-      if (this.textEls.biomeChip) this.textEls.biomeChip.textContent = state.biome;
-      if (this.textEls.moodLine) this.textEls.moodLine.textContent = `${state.mood} • ${state.motion}`;
-      if (this.textEls.stateChip) this.textEls.stateChip.textContent = state.stateLabel;
-      if (this.textEls.track) this.textEls.track.textContent = state.track;
-      if (this.textEls.artist) this.textEls.artist.textContent = state.artist;
+    _applyText(state) {
+      if (this.textEls.biomeChip) this.textEls.biomeChip.textContent = state.biome || "Realm";
+      if (this.textEls.moodLine) this.textEls.moodLine.textContent = `${state.mood || "Calm"} • ${state.motion || "Drift"}`;
+      if (this.textEls.stateChip) this.textEls.stateChip.textContent = state.stateLabel || "Now Playing";
+      if (this.textEls.track) this.textEls.track.textContent = state.track || "Unknown Track";
+      if (this.textEls.artist) this.textEls.artist.textContent = state.artist || "Unknown Artist";
       if (this.textEls.album) this.textEls.album.textContent = state.album || "Album portal";
     }
 
@@ -176,13 +177,13 @@ _applyText(state) {
     }
 
     _applyWorld(state) {
-      const heat = state.heat;
-      const focus = state.focus;
-      const depth = state.depth;
-      const flux = state.flux;
+      const heat = clamp01(state.heat);
+      const focus = clamp01(state.focus);
+      const depth = clamp01(state.depth);
+      const flux = clamp01(state.flux);
 
       if (this.worldEl) {
-        this.worldEl.style.background = state.sky;
+        this.worldEl.style.background = state.sky || DEFAULT_STATE.sky;
       }
 
       const hue = Math.round(210 - heat * 150);
@@ -206,13 +207,13 @@ _applyText(state) {
       }
 
       if (this.layers.skyGlow) {
-        this.layers.skyGlow.style.background = state.skyGlow;
+        this.layers.skyGlow.style.background = state.skyGlow || DEFAULT_STATE.skyGlow;
         this.layers.skyGlow.style.opacity = String(0.12 + heat * 0.16);
         this.layers.skyGlow.style.filter = `blur(${14 + depth * 10}px)`;
       }
 
       if (this.layers.moon) {
-        this.layers.moon.style.background = state.moon;
+        this.layers.moon.style.background = state.moon || DEFAULT_STATE.moon;
         this.layers.moon.style.opacity = String(0.24 + focus * 0.18);
       }
 
@@ -242,15 +243,39 @@ _applyText(state) {
     _setMetric(name, value) {
       const fill = this.metricFills[name];
       const num = this.metricValues[name];
-      if (fill) fill.style.width = `${Math.round(clamp01(value) * 100)}%`;
-      if (num) num.textContent = value.toFixed(2);
+      const v = clamp01(value);
+      if (fill) fill.style.width = `${Math.round(v * 100)}%`;
+      if (num) num.textContent = v.toFixed(2);
     }
 
+    _applyYoda(state) {
+      const y = state.yoda || DEFAULT_STATE.yoda;
+      if (!this.yoda.actor || !this.yoda.img) return;
+
+      const xPct = clamp01(y.x) * 100;
+      const bob = Number(y.bob || 0);
+      const facing = Number(y.direction || 1) >= 0 ? 1 : -1;
+
+      this.yoda.actor.style.left = `${xPct}%`;
+      this.yoda.actor.style.bottom = `${14 + bob}px`;
+      this.yoda.actor.style.transform = `translateX(-50%) scaleX(${facing})`;
+
+      if (this.yoda.img.getAttribute("src") !== y.sprite) {
+        this.yoda.img.setAttribute("src", y.sprite || "./assets/yoda/yoda_walk_1.png");
+      }
+
+      this.yoda.img.setAttribute("data-state", y.state || "walk");
+
+      if (this.yoda.shadow) {
+        this.yoda.shadow.style.left = `${xPct}%`;
+        this.yoda.shadow.style.transform = `translateX(-50%) scaleX(${1.02 + Math.abs(Number(y.bob || 0)) * 0.02})`;
+      }
+    }
     _applyYodaAura(state) {
-      const heat = state.heat;
-      const focus = state.focus;
-      const depth = state.depth;
-      const flux = state.flux;
+      const heat = clamp01(state.heat);
+      const focus = clamp01(state.focus);
+      const depth = clamp01(state.depth);
+      const flux = clamp01(state.flux);
 
       const hue = Math.round(205 - heat * 150);
       const sat = Math.round(72 + heat * 18);
@@ -267,11 +292,6 @@ _applyText(state) {
         this.yoda.bleed.style.opacity = String(0.12 + heat * 0.10);
         this.yoda.bleed.style.filter = `blur(${6 + depth * 5}px)`;
       }
-
-      if (this.yoda.shadow) {
-        this.yoda.shadow.style.opacity = String(0.20 + (1 - focus) * 0.08);
-        this.yoda.shadow.style.transform = `translateX(-50%) scaleX(${1.04 + flux * 0.12})`;
-      }
     }
 
     _stopParticles() {
@@ -286,7 +306,7 @@ _applyText(state) {
       this._stopParticles();
       if (!this.particlesEl) return;
 
-      const every = Math.max(380, 1450 - flux * 700);
+      const every = Math.max(380, 1450 - clamp01(flux) * 700);
 
       for (let i = 0; i < 4; i += 1) {
         window.setTimeout(() => this._spawnParticle(color, 3200 + Math.random() * 1400), i * 220);
@@ -311,62 +331,12 @@ _applyText(state) {
       el.style.top = `${top}%`;
       el.style.width = `${size}px`;
       el.style.height = `${size}px`;
-      el.style.background = color;
-      el.style.boxShadow = `0 0 8px ${color}`;
+      el.style.background = color || DEFAULT_STATE.particle;
+      el.style.boxShadow = `0 0 8px ${color || DEFAULT_STATE.particle}`;
       el.style.animationDuration = `${duration}ms`;
 
       this.particlesEl.appendChild(el);
       window.setTimeout(() => el.remove(), duration + 800);
-    }
-_startWalker() {
-      this._stopWalker();
-
-      const tick = (now) => {
-        if (!this.yoda.actor || !this.yoda.body || !this.yoda.collar) return;
-
-        const t = (now - this.walkStart) / 1000;
-        const flux = this.currentState?.flux ?? 0.5;
-        const isPaused = String(this.currentState?.stateLabel || "").toLowerCase() === "paused";
-
-        const pathSpeed = isPaused ? 0.0042 : 0.006 + flux * 0.005;
-        const cycle = (t * pathSpeed) % 2;
-        const forward = cycle < 1;
-        const p = forward ? cycle : (2 - cycle);
-
-        const x = 14 + p * 72;
-
-        const yTerrain =
-          Math.sin((x / 100) * Math.PI * 1.8) * 3.2 +
-          Math.sin((x / 100) * Math.PI * 4.2) * 1.1;
-
-        const walkTempo = isPaused ? 1.7 : 4.6 + flux * 1.8;
-        const step = Math.sin(t * walkTempo);
-        const bob = isPaused ? Math.sin(t * 1.5) * 0.45 : step * (0.6 + flux * 0.4);
-
-        this.yoda.actor.style.left = `${x}%`;
-        this.yoda.actor.style.bottom = `${14 + yTerrain + bob}px`;
-        this.yoda.actor.style.transform = `translateX(-50%) scaleX(${forward ? 1 : -1})`;
-
-        const tilt = isPaused ? Math.sin(t * 1.4) * 0.3 : step * 0.7;
-        this.yoda.body.style.transform = `translateY(${step * 0.4}px) rotate(${tilt}deg)`;
-
-        const pulse = isPaused
-          ? (0.96 + Math.sin(t * 1.7) * 0.03)
-          : (0.96 + Math.sin(t * (2.0 + flux * 4.6)) * (0.035 + flux * 0.04));
-
-        this.yoda.collar.style.transform = `translate(-50%, -50%) scale(${pulse})`;
-
-        this._walkerRaf = requestAnimationFrame(tick);
-      };
-
-      this._walkerRaf = requestAnimationFrame(tick);
-    }
-
-    _stopWalker() {
-      if (this._walkerRaf) {
-        cancelAnimationFrame(this._walkerRaf);
-        this._walkerRaf = 0;
-      }
     }
 
     _template() {
@@ -490,7 +460,6 @@ _startWalker() {
               z-index:11;
               animation: realmFogFrontPan 14s ease-in-out infinite alternate;
             }
-
             .realmWorld__particles{ z-index:10; }
 
             .realmWorld__particle{
@@ -503,59 +472,59 @@ _startWalker() {
             .realmYoda{
               position:absolute;
               z-index:9;
-              width:40px;
-              height:31px;
+              width:98px;
+              height:98px;
               pointer-events:none;
               will-change:left,bottom,transform;
             }
 
             .realmYoda__shadow{
               position:absolute;
-              left:50%;
-              bottom:-2px;
-              width:24px;
-              height:5px;
-              transform:translateX(-50%);
+              z-index:8;
+              bottom:22px;
+              width:26px;
+              height:6px;
               border-radius:50%;
               background:rgba(0,0,0,.34);
               filter:blur(2px);
+              pointer-events:none;
             }
 
             .realmYoda__bleed{
               position:absolute;
               left:50%;
-              bottom:-3px;
-              width:30px;
-              height:10px;
+              bottom:10px;
+              width:34px;
+              height:14px;
               transform:translateX(-50%);
               border-radius:50%;
               opacity:.18;
-            }
-
-            .realmYoda__body{
-              position:absolute;
-              inset:0;
-              transform-origin:50% 100%;
-            }
-
-            .realmYoda__body::before{
-              content:"";
-              position:absolute;
-              inset:0;
-              background:#090a0d;
-              clip-path:polygon(8% 67%, 11% 44%, 21% 28%, 28% 7%, 38% 27%, 54% 16%, 63% 7%, 70% 22%, 84% 36%, 94% 57%, 87% 74%, 79% 77%, 73% 95%, 61% 95%, 59% 77%, 42% 77%, 38% 95%, 25% 95%, 22% 77%, 12% 74%);
+              pointer-events:none;
             }
 
             .realmYoda__collar{
               position:absolute;
-              left:57%;
-              top:49%;
-              width:13px;
-              height:13px;
+              left:58%;
+              top:54%;
+              width:14px;
+              height:14px;
               transform:translate(-50%, -50%);
               border-radius:50%;
               mix-blend-mode:screen;
               opacity:.9;
+              pointer-events:none;
+            }
+
+            .realmYoda__img{
+              position:absolute;
+              inset:0;
+              width:100%;
+              height:100%;
+              object-fit:contain;
+              display:block;
+              image-rendering:auto;
+              pointer-events:none;
+              filter:drop-shadow(0 0 0 rgba(0,0,0,0));
             }
 
             .realmMeta{
@@ -589,7 +558,7 @@ _startWalker() {
             }
 
             @media (max-width:420px){
-              .realmYoda{ width:36px; height:28px; }
+              .realmYoda{ width:88px; height:88px; }
             }
           </style>
 
@@ -612,10 +581,11 @@ _startWalker() {
               <div class="realmWorld__fogBack"></div>
               <div class="realmWorld__groundLine"></div>
 
+              <div class="realmYoda__shadow"></div>
+
               <div class="realmYoda">
+                <img class="realmYoda__img" src="./assets/yoda/yoda_walk_1.png" alt="" />
                 <div class="realmYoda__bleed"></div>
-                <div class="realmYoda__shadow"></div>
-                <div class="realmYoda__body"></div>
                 <div class="realmYoda__collar"></div>
               </div>
 
@@ -643,22 +613,22 @@ _startWalker() {
                 <div class="realm-metric">
                   <div class="realm-metric__label">Heat</div>
                   <div class="realm-metric__value" data-realm-value="heat">0.64</div>
-                  <div class="realm-bar"><div class="realm-bar__fill" data-realm-fill="heat" style="--realm-bar-color: var(--realm-heat)"></div></div>
+                  <div class="realm-bar"><div class="realm-bar__fill" data-realm-fill="heat"></div></div>
                 </div>
                 <div class="realm-metric">
                   <div class="realm-metric__label">Focus</div>
                   <div class="realm-metric__value" data-realm-value="focus">0.72</div>
-                  <div class="realm-bar"><div class="realm-bar__fill" data-realm-fill="focus" style="--realm-bar-color: var(--realm-focus)"></div></div>
+                  <div class="realm-bar"><div class="realm-bar__fill" data-realm-fill="focus"></div></div>
                 </div>
                 <div class="realm-metric">
                   <div class="realm-metric__label">Depth</div>
                   <div class="realm-metric__value" data-realm-value="depth">0.86</div>
-                  <div class="realm-bar"><div class="realm-bar__fill" data-realm-fill="depth" style="--realm-bar-color: var(--realm-depth)"></div></div>
+                  <div class="realm-bar"><div class="realm-bar__fill" data-realm-fill="depth"></div></div>
                 </div>
                 <div class="realm-metric">
                   <div class="realm-metric__label">Flux</div>
                   <div class="realm-metric__value" data-realm-value="flux">0.41</div>
-                  <div class="realm-bar"><div class="realm-bar__fill" data-realm-fill="flux" style="--realm-bar-color: var(--realm-flux)"></div></div>
+                  <div class="realm-bar"><div class="realm-bar__fill" data-realm-fill="flux"></div></div>
                 </div>
               </div>
             </div>
@@ -667,12 +637,13 @@ _startWalker() {
       `;
     }
   }
-window.RealmView = {
+
+  window.RealmView = {
     create(mountEl) {
       const view = new RealmView(mountEl);
       view.mount();
       return view;
     },
-    defaults: { ...DEFAULT_STATE }
+    defaults: structuredClone(DEFAULT_STATE)
   };
 })();

@@ -157,6 +157,7 @@
       this._applyYodaAura(this.currentState);
       this._startParticles(this.currentState.particle, this.currentState.flux);
     }
+
     _applyText(state) {
       if (this.textEls.biomeChip) this.textEls.biomeChip.textContent = state.biome || "Realm";
       if (this.textEls.moodLine) this.textEls.moodLine.textContent = `${state.mood || "Calm"} • ${state.motion || "Drift"}`;
@@ -280,7 +281,7 @@
       const sprite = y.sprite || "./assets/yoda_walk_1.png";
 
       this.yoda.actor.style.left = `${xPct}%`;
-      this.yoda.actor.style.bottom = `${14 + bob}px`;
+      this.yoda.actor.style.bottom = `${8 + bob}px`;
       this.yoda.actor.style.transform = `translateX(-50%) scaleX(${facing})`;
 
       if (!this.yoda.currentSprite) {
@@ -297,9 +298,10 @@
 
       if (this.yoda.shadow) {
         this.yoda.shadow.style.left = `${xPct}%`;
-        this.yoda.shadow.style.transform = `translateX(-50%) scaleX(${1.04 + Math.abs(bob) * 0.02})`;
+        this.yoda.shadow.style.transform = `translateX(-50%) scaleX(${1.12 + Math.abs(bob) * 0.02})`;
       }
     }
+
     _applyYodaAura(state) {
       const heat = clamp01(state.heat);
       const focus = clamp01(state.focus);
@@ -488,6 +490,7 @@
               z-index:11;
               animation: realmFogFrontPan 14s ease-in-out infinite alternate;
             }
+
             .realmWorld__particles{ z-index:10; }
 
             .realmWorld__particle{
@@ -500,8 +503,8 @@
             .realmYoda{
               position:absolute;
               z-index:9;
-              width:98px;
-              height:98px;
+              width:150px;
+              height:150px;
               pointer-events:none;
               will-change:left,bottom,transform,opacity;
             }
@@ -509,21 +512,21 @@
             .realmYoda__shadow{
               position:absolute;
               z-index:8;
-              bottom:22px;
-              width:26px;
-              height:6px;
+              bottom:18px;
+              width:42px;
+              height:9px;
               border-radius:50%;
               background:rgba(0,0,0,.34);
-              filter:blur(2px);
+              filter:blur(3px);
               pointer-events:none;
             }
 
             .realmYoda__bleed{
               position:absolute;
               left:50%;
-              bottom:10px;
-              width:34px;
-              height:14px;
+              bottom:16px;
+              width:46px;
+              height:18px;
               transform:translateX(-50%);
               border-radius:50%;
               opacity:.18;
@@ -534,8 +537,8 @@
               position:absolute;
               left:58%;
               top:54%;
-              width:14px;
-              height:14px;
+              width:16px;
+              height:16px;
               transform:translate(-50%, -50%);
               border-radius:50%;
               mix-blend-mode:screen;
@@ -578,14 +581,17 @@
               from{ transform:translateX(-8px) scale(.988); }
               to{ transform:translateX(8px) scale(1.015); }
             }
+
             @keyframes realmFogBackPan{
               from{ transform:translateX(-2.5%) translateY(0); }
               to{ transform:translateX(3%) translateY(-1%); }
             }
+
             @keyframes realmFogFrontPan{
               from{ transform:translateX(1.5%) translateY(0); }
               to{ transform:translateX(-2%) translateY(-1%); }
             }
+
             @keyframes realmParticleFloat{
               0%{ transform:translateY(0) scale(.78); opacity:0; }
               14%{ opacity:.68; }
@@ -593,7 +599,7 @@
             }
 
             @media (max-width:420px){
-              .realmYoda{ width:88px; height:88px; }
+              .realmYoda{ width:132px; height:132px; }
             }
           </style>
 

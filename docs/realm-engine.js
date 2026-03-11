@@ -1,86 +1,48 @@
 (() => {
   "use strict";
 
+  const clamp01 = (v) => Math.max(0, Math.min(1, Number(v) || 0));
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
   const BIOMES = [
     {
       biome: "Moonlit Ruins",
       mood: "Melancholic",
       motion: "Drift",
-      portalGlow: "rgba(122,215,255,.30)",
-      portalGlow2: "rgba(184,140,255,.18)",
-      portalEdge: "rgba(180,220,255,.18)",
       sky: "linear-gradient(180deg, #09111E 0%, #101827 48%, #13151A 100%)",
       skyGlow: "radial-gradient(circle, rgba(122,215,255,.28), rgba(122,215,255,.06) 45%, transparent 70%)",
       moon: "radial-gradient(circle at 35% 35%, rgba(255,255,255,.95), rgba(214,227,255,.72) 55%, rgba(159,187,228,.18) 75%, transparent 100%)",
-      far: "linear-gradient(180deg, rgba(39,60,88,.20), rgba(15,26,39,.94))",
-      mid: "linear-gradient(180deg, rgba(22,34,49,.12), rgba(9,13,20,.98))",
-      ground: "linear-gradient(180deg, rgba(8,11,16,.30), rgba(4,6,9,1))",
-      particle: "rgba(210,233,255,.82)",
-      towerOpacity: 0.92,
-      birds: true
-    },
-    {
-      biome: "Storm Coast",
-      mood: "Tense",
-      motion: "Surge",
-      portalGlow: "rgba(114,198,255,.34)",
-      portalGlow2: "rgba(96,120,255,.20)",
-      portalEdge: "rgba(169,226,255,.18)",
-      sky: "linear-gradient(180deg, #08121B 0%, #0E1D2A 48%, #14161B 100%)",
-      skyGlow: "radial-gradient(circle, rgba(92,168,255,.22), rgba(92,168,255,.04) 45%, transparent 70%)",
-      moon: "radial-gradient(circle at 35% 35%, rgba(232,245,255,.85), rgba(136,176,225,.45) 58%, rgba(120,160,215,.10) 75%, transparent 100%)",
-      far: "linear-gradient(180deg, rgba(31,58,78,.28), rgba(12,24,37,.96))",
-      mid: "linear-gradient(180deg, rgba(16,29,40,.20), rgba(8,12,18,.99))",
-      ground: "linear-gradient(180deg, rgba(10,16,22,.26), rgba(4,8,11,1))",
-      particle: "rgba(180,223,255,.78)",
-      towerOpacity: 0.88,
-      birds: true
-    },
-    {
-      biome: "Frozen Peaks",
-      mood: "Majestic",
-      motion: "Bloom",
-      portalGlow: "rgba(180,236,255,.28)",
-      portalGlow2: "rgba(112,255,214,.16)",
-      portalEdge: "rgba(220,245,255,.20)",
-      sky: "linear-gradient(180deg, #0C1726 0%, #102233 50%, #15181D 100%)",
-      skyGlow: "radial-gradient(circle, rgba(156,244,255,.22), rgba(156,244,255,.05) 48%, transparent 74%)",
-      moon: "radial-gradient(circle at 35% 35%, rgba(255,255,255,.98), rgba(225,239,255,.80) 54%, rgba(174,255,243,.15) 76%, transparent 100%)",
-      far: "linear-gradient(180deg, rgba(78,128,158,.18), rgba(24,42,58,.90))",
-      mid: "linear-gradient(180deg, rgba(26,54,71,.12), rgba(8,15,22,.98))",
-      ground: "linear-gradient(180deg, rgba(14,20,28,.22), rgba(6,10,14,1))",
-      particle: "rgba(228,247,255,.88)",
-      towerOpacity: 0.70,
-      birds: false
+      particle: "rgba(210,233,255,.82)"
     },
     {
       biome: "Ashen Keep",
       mood: "Ominous",
       motion: "March",
-      portalGlow: "rgba(255,144,84,.30)",
-      portalGlow2: "rgba(255,76,76,.16)",
-      portalEdge: "rgba(255,186,148,.18)",
       sky: "linear-gradient(180deg, #150B0B 0%, #241111 46%, #181212 100%)",
       skyGlow: "radial-gradient(circle, rgba(255,138,74,.24), rgba(255,138,74,.05) 48%, transparent 74%)",
       moon: "radial-gradient(circle at 35% 35%, rgba(255,213,184,.88), rgba(255,132,78,.52) 56%, rgba(255,91,76,.10) 78%, transparent 100%)",
-      far: "linear-gradient(180deg, rgba(87,44,31,.24), rgba(33,18,14,.94))",
-      mid: "linear-gradient(180deg, rgba(50,24,19,.16), rgba(11,8,8,.99))",
-      ground: "linear-gradient(180deg, rgba(18,10,9,.24), rgba(7,4,4,1))",
-      particle: "rgba(255,176,120,.82)",
-      towerOpacity: 0.96,
-      birds: false
+      particle: "rgba(255,176,120,.82)"
+    },
+    {
+      biome: "Frozen Peaks",
+      mood: "Majestic",
+      motion: "Bloom",
+      sky: "linear-gradient(180deg, #0C1726 0%, #102233 50%, #15181D 100%)",
+      skyGlow: "radial-gradient(circle, rgba(156,244,255,.22), rgba(156,244,255,.05) 48%, transparent 74%)",
+      moon: "radial-gradient(circle at 35% 35%, rgba(255,255,255,.98), rgba(225,239,255,.80) 54%, rgba(174,255,243,.15) 76%, transparent 100%)",
+      particle: "rgba(228,247,255,.88)"
+    },
+    {
+      biome: "Storm Coast",
+      mood: "Tense",
+      motion: "Surge",
+      sky: "linear-gradient(180deg, #08121B 0%, #0E1D2A 48%, #14161B 100%)",
+      skyGlow: "radial-gradient(circle, rgba(92,168,255,.22), rgba(92,168,255,.04) 45%, transparent 70%)",
+      moon: "radial-gradient(circle at 35% 35%, rgba(232,245,255,.85), rgba(136,176,225,.45) 58%, rgba(120,160,215,.10) 75%, transparent 100%)",
+      particle: "rgba(180,223,255,.78)"
     }
   ];
-
-  let demoIndex = 0;
-
-  function clamp01(value) {
-    const n = Number(value);
-    if (!Number.isFinite(n)) return 0;
-    if (n < 0) return 0;
-    if (n > 1) return 1;
-    return n;
-  }
 
   function hashString(input) {
     const str = String(input || "");
@@ -92,22 +54,129 @@
     return h >>> 0;
   }
 
-  function cloneState(state) {
-    return JSON.parse(JSON.stringify(state));
+  const YODA_ASSETS = {
+    walk1: "./assets/yoda/yoda_walk_1.png",
+    walk2: "./assets/yoda/yoda_walk_2.png",
+    sniff: "./assets/yoda/yoda_sniff.png",
+    sit: "./assets/yoda/yoda_sit.png",
+    lay: "./assets/yoda/yoda_lay.png"
+  };
+
+  const yodaController = {
+    assets: { ...YODA_ASSETS },
+    state: "walk",
+    direction: 1,
+    x: 0.18,
+    velocity: 0,
+    targetVelocity: 0,
+    minX: 0.10,
+    maxX: 0.90,
+    frameIndex: 0,
+    frameTimer: 0,
+    frameMs: 240,
+    stateUntil: 0,
+    bob: 0,
+    initialized: false
+  };
+
+  function chooseAmbientState(nowSec) {
+    const roll = Math.random();
+    if (roll < 0.58) {
+      yodaController.state = "walk";
+      yodaController.stateUntil = nowSec + rand(3.5, 6.5);
+      return;
+    }
+    if (roll < 0.76) {
+      yodaController.state = "sniff";
+      yodaController.stateUntil = nowSec + rand(1.4, 2.4);
+      return;
+    }
+    if (roll < 0.90) {
+      yodaController.state = "sit";
+      yodaController.stateUntil = nowSec + rand(3.2, 5.2);
+      return;
+    }
+    yodaController.state = "lay";
+    yodaController.stateUntil = nowSec + rand(4.6, 7.6);
   }
 
-  function normalizeAuraValue(v, fallback) {
-    const n = Number(v);
-    if (!Number.isFinite(n)) return fallback;
-    if (n > 1.001) return clamp01(n / 100);
-    return clamp01(n);
-  }
-function biomeFromSeed(seed) {
-    const biomeIndex = seed % BIOMES.length;
-    return BIOMES[biomeIndex];
+  function updateYoda(progress, dtMs, nowSec) {
+    if (!yodaController.initialized) {
+      yodaController.initialized = true;
+      yodaController.state = "walk";
+      yodaController.stateUntil = nowSec + rand(3.5, 5.5);
+      yodaController.direction = Math.random() > 0.5 ? 1 : -1;
+    }
+
+    if (progress < 0.50) {
+      if (nowSec >= yodaController.stateUntil) {
+        chooseAmbientState(nowSec);
+      }
+    } else {
+      if (progress < 0.92) {
+        yodaController.state = "walk";
+        yodaController.stateUntil = nowSec + 999;
+      } else {
+        yodaController.state = progress < 0.97 ? "sit" : "lay";
+        yodaController.stateUntil = nowSec + 999;
+      }
+    }
+
+    const walking = yodaController.state === "walk";
+    const baseSpeed = 0.000045;
+    yodaController.targetVelocity = walking ? (baseSpeed * yodaController.direction) : 0;
+    yodaController.velocity += (yodaController.targetVelocity - yodaController.velocity) * 0.08;
+    yodaController.x += yodaController.velocity * dtMs;
+    if (yodaController.x <= yodaController.minX) {
+      yodaController.x = yodaController.minX;
+      yodaController.direction = 1;
+    }
+    if (yodaController.x >= yodaController.maxX) {
+      yodaController.x = yodaController.maxX;
+      yodaController.direction = -1;
+    }
+
+    yodaController.frameTimer += dtMs;
+    if (walking && yodaController.frameTimer >= yodaController.frameMs) {
+      yodaController.frameTimer = 0;
+      yodaController.frameIndex = yodaController.frameIndex ? 0 : 1;
+    }
+    if (!walking) {
+      yodaController.frameIndex = 0;
+      yodaController.frameTimer = 0;
+    }
+
+    const walkBob = walking ? Math.sin(nowSec * 8.2) * 1.6 : 0;
+    const sitBob = yodaController.state === "sit" ? Math.sin(nowSec * 1.8) * 0.8 : 0;
+    const layBob = yodaController.state === "lay" ? Math.sin(nowSec * 1.2) * 0.35 : 0;
+    const sniffBob = yodaController.state === "sniff" ? Math.sin(nowSec * 3.6) * 1.0 : 0;
+    yodaController.bob = walkBob + sitBob + layBob + sniffBob;
   }
 
-  function fromTrackAndAura(playerState, auraState = {}) {
+  function getYodaSprite() {
+    switch (yodaController.state) {
+      case "sniff": return yodaController.assets.sniff;
+      case "sit": return yodaController.assets.sit;
+      case "lay": return yodaController.assets.lay;
+      case "walk":
+      default:
+        return yodaController.frameIndex === 0
+          ? yodaController.assets.walk1
+          : yodaController.assets.walk2;
+    }
+  }
+
+  function getYodaSnapshot() {
+    return {
+      x: yodaController.x,
+      direction: yodaController.direction,
+      state: yodaController.state,
+      sprite: getYodaSprite(),
+      bob: yodaController.bob
+    };
+  }
+
+  function fromTrackAndAura(playerState, auraState = {}, runtime = {}) {
     const trackId = playerState?.track_id || "";
     const trackName = playerState?.track_name || "Unknown Track";
     const artistName = playerState?.artist_name || "Unknown Artist";
@@ -115,20 +184,26 @@ function biomeFromSeed(seed) {
     const albumImage = playerState?.album_image || "";
     const isPlaying = !!playerState?.is_playing;
 
-    const seedSource = trackId || `${trackName}::${artistName}`;
-    const seed = hashString(seedSource);
-    const biomeBase = biomeFromSeed(seed);
+    const heat = clamp01(auraState.heat != null ? (auraState.heat > 1 ? auraState.heat / 100 : auraState.heat) : 0.55);
+    const focus = clamp01(auraState.focus != null ? (auraState.focus > 1 ? auraState.focus / 100 : auraState.focus) : 0.55);
+    const depth = clamp01(auraState.depth != null ? (auraState.depth > 1 ? auraState.depth / 100 : auraState.depth) : 0.55);
+    const flux = clamp01(auraState.flux != null ? (auraState.flux > 1 ? auraState.flux / 100 : auraState.flux) : 0.50);
 
-    const heat = normalizeAuraValue(auraState.heat, 0.55);
-    const focus = normalizeAuraValue(auraState.focus, 0.55);
-    const depth = normalizeAuraValue(auraState.depth, 0.55);
-    const fluxRaw = normalizeAuraValue(auraState.flux, 0.50);
-    const flux = isPlaying ? fluxRaw : Math.max(0.10, fluxRaw * 0.55);
+    const seed = hashString(trackId || `${trackName}::${artistName}`);
+    const biome = BIOMES[seed % BIOMES.length];
+
+    const currentMs = Number(runtime.currentMs || 0);
+    const durationMs = Math.max(1, Number(runtime.durationMs || playerState?.duration_ms || 1));
+    const progress = clamp01(currentMs / durationMs);
+    const nowSec = Number(runtime.nowSec || 0);
+    const dtMs = Math.max(0, Number(runtime.dtMs || 16));
+
+    updateYoda(progress, dtMs, nowSec);
 
     return {
-      biome: biomeBase.biome,
-      mood: biomeBase.mood,
-      motion: biomeBase.motion,
+      biome: biome.biome,
+      mood: biome.mood,
+      motion: biome.motion,
       track: trackName,
       artist: artistName,
       album: albumName,
@@ -137,82 +212,31 @@ function biomeFromSeed(seed) {
       heat: Number(heat.toFixed(2)),
       focus: Number(focus.toFixed(2)),
       depth: Number(depth.toFixed(2)),
-      flux: Number(clamp01(flux).toFixed(2)),
-      portalGlow: biomeBase.portalGlow,
-      portalGlow2: biomeBase.portalGlow2,
-      portalEdge: biomeBase.portalEdge,
-      sky: biomeBase.sky,
-      skyGlow: biomeBase.skyGlow,
-      moon: biomeBase.moon,
-      far: biomeBase.far,
-      mid: biomeBase.mid,
-      ground: biomeBase.ground,
-      particle: biomeBase.particle,
-      towerOpacity: biomeBase.towerOpacity,
-      birds: biomeBase.birds
-    };
-  }
-
-  function getStateAt(index) {
-    const safeIndex = ((index % BIOMES.length) + BIOMES.length) % BIOMES.length;
-    const biome = BIOMES[safeIndex];
-
-    return cloneState({
-      biome: biome.biome,
-      mood: biome.mood,
-      motion: biome.motion,
-      track: "The Listening Realm",
-      artist: "Prototype Track • Realm Portal v1",
-      album: "",
-      albumImage: "",
-      stateLabel: "Now Playing",
-      heat: 0.64,
-      focus: 0.72,
-      depth: 0.86,
-      flux: 0.41,
-      portalGlow: biome.portalGlow,
-      portalGlow2: biome.portalGlow2,
-      portalEdge: biome.portalEdge,
+      flux: Number(flux.toFixed(2)),
       sky: biome.sky,
       skyGlow: biome.skyGlow,
       moon: biome.moon,
-      far: biome.far,
-      mid: biome.mid,
-      ground: biome.ground,
       particle: biome.particle,
-      towerOpacity: biome.towerOpacity,
-      birds: biome.birds
-    });
+      yoda: getYodaSnapshot(),
+      progress
+    };
   }
-
-  function getCurrentState() {
-    return getStateAt(demoIndex);
-  }
-
-  function nextDemoState() {
-    demoIndex = (demoIndex + 1) % BIOMES.length;
-    return getCurrentState();
-  }
-
-  function prevDemoState() {
-    demoIndex = (demoIndex - 1 + BIOMES.length) % BIOMES.length;
-    return getCurrentState();
-  }
-
-  function reset() {
-    demoIndex = 0;
-    return getCurrentState();
-  }
-function getAllDemoStates() {
-    return BIOMES.map((_, i) => getStateAt(i));
+    function resetYoda() {
+    yodaController.state = "walk";
+    yodaController.direction = 1;
+    yodaController.x = 0.18;
+    yodaController.velocity = 0;
+    yodaController.targetVelocity = 0;
+    yodaController.frameIndex = 0;
+    yodaController.frameTimer = 0;
+    yodaController.stateUntil = 0;
+    yodaController.bob = 0;
+    yodaController.initialized = false;
   }
 
   window.RealmEngine = {
-    getCurrentState,
-    nextDemoState,
-    prevDemoState,
-    reset,
-    getAllDemoStates,
-    fromTrackAndAura
+    fromTrackAndAura,
+    resetYoda,
+    getYodaSnapshot
   };
 })();

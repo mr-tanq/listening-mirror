@@ -559,7 +559,7 @@
               image-rendering:auto;
               pointer-events:none;
               opacity:0;
-              transition:opacity .18s ease;
+              transition:none;
               z-index:2;
             }
 

@@ -4,7 +4,7 @@
   const clamp01 = (v) => Math.max(0, Math.min(1, Number(v) || 0));
   const rand = (a, b) => a + Math.random() * (b - a);
 
-  const BASE = "/listening-mirror/assets/";
+  const ASSET_BASE = "/listening-mirror/assets/";
 
   const BIOMES = [
     {
@@ -56,15 +56,15 @@
   }
 
   const YODA_ASSETS = {
-    walk1: BASE + "yoda_walk_1.png",
-    walk2: BASE + "yoda_walk_2.png",
-    walk3: BASE + "yoda_walk_3.png",
-    walk4: BASE + "yoda_walk_4.png",
-    walk5: BASE + "yoda_walk_5.png",
-    walk6: BASE + "yoda_walk_6.png",
-    sniff: BASE + "yoda_sniff.png",
-    stay: BASE + "yoda_stay.png",
-    lay: BASE + "yoda_lay.png"
+    walk1: ASSET_BASE + "yoda_walk_1.png",
+    walk2: ASSET_BASE + "yoda_walk_2.png",
+    walk3: ASSET_BASE + "yoda_walk_3.png",
+    walk4: ASSET_BASE + "yoda_walk_4.png",
+    walk5: ASSET_BASE + "yoda_walk_5.png",
+    walk6: ASSET_BASE + "yoda_walk_6.png",
+    sniff: ASSET_BASE + "yoda_sniff.png",
+    stay: ASSET_BASE + "yoda_stay.png",
+    lay: ASSET_BASE + "yoda_lay.png"
   };
 
   const WALK_SEQUENCE = [
@@ -73,80 +73,75 @@
     "walk3",
     "walk4",
     "walk5",
-    "walk6",
-    "walk5",
-    "walk4",
-    "walk3",
-    "walk2"
+    "walk6"
   ];
+
+  const WALK_BOB = [0, -4, 3, 0, -4, 3];
 
   const yodaController = {
     assets: { ...YODA_ASSETS },
     state: "walk",
     direction: 1,
     x: 0.18,
+    y: 0,
     velocity: 0,
     targetVelocity: 0,
     minX: 0.10,
     maxX: 0.90,
     frameIndex: 0,
     frameTimer: 0,
-    frameMs: 140,
+    frameMs: 100,
     stateUntil: 0,
     bob: 0,
+    wander: 0,
     initialized: false
   };
 
   function chooseAmbientState(nowSec) {
     const roll = Math.random();
 
-    if (roll < 0.58) {
+    if (roll < 0.56) {
       yodaController.state = "walk";
-      yodaController.stateUntil = nowSec + rand(3.6, 6.8);
+      yodaController.stateUntil = nowSec + rand(3.8, 6.8);
       return;
     }
-    if (roll < 0.76) {
+
+    if (roll < 0.74) {
       yodaController.state = "sniff";
-      yodaController.stateUntil = nowSec + rand(1.4, 2.5);
+      yodaController.stateUntil = nowSec + rand(1.6, 2.8);
       return;
     }
+
     if (roll < 0.90) {
       yodaController.state = "stay";
-      yodaController.stateUntil = nowSec + rand(3.4, 5.4);
+      yodaController.stateUntil = nowSec + rand(2.8, 4.8);
       return;
     }
 
     yodaController.state = "lay";
-    yodaController.stateUntil = nowSec + rand(4.8, 7.8);
+    yodaController.stateUntil = nowSec + rand(4.2, 7.0);
+  }
+  function updateWalkAnimation(dtMs, flux) {
+    const frameBoost = clamp01(flux);
+    yodaController.frameMs = Math.round(112 - frameBoost * 18);
+
+    yodaController.frameTimer += dtMs;
+
+    while (yodaController.frameTimer >= yodaController.frameMs) {
+      yodaController.frameTimer -= yodaController.frameMs;
+      yodaController.frameIndex =
+        (yodaController.frameIndex + 1) % WALK_SEQUENCE.length;
+    }
   }
 
-  function updateYoda(progress, dtMs, nowSec) {
-    if (!yodaController.initialized) {
-      yodaController.initialized = true;
-      yodaController.state = "walk";
-      yodaController.stateUntil = nowSec + rand(3.6, 5.6);
-      yodaController.direction = Math.random() > 0.5 ? 1 : -1;
-    }
-
-    if (progress < 0.50) {
-      if (nowSec >= yodaController.stateUntil) {
-        chooseAmbientState(nowSec);
-      }
-    } else {
-      if (progress < 0.92) {
-        yodaController.state = "walk";
-        yodaController.stateUntil = nowSec + 999;
-      } else {
-        yodaController.state = progress < 0.97 ? "stay" : "lay";
-        yodaController.stateUntil = nowSec + 999;
-      }
-    }
-
+  function updateMovement(progress, dtMs, nowSec, flux) {
     const walking = yodaController.state === "walk";
-    const baseSpeed = 0.000045;
+
+    const baseSpeed = 0.000030;
+    const fluxBoost = clamp01(flux) * 0.000018;
 
     yodaController.targetVelocity = walking
-      ? (baseSpeed * yodaController.direction)
+      ? ((baseSpeed + fluxBoost) * yodaController.direction)
       : 0;
 
     yodaController.velocity +=
@@ -164,26 +159,47 @@
       yodaController.direction = -1;
     }
 
-    yodaController.frameTimer += dtMs;
+    const walkBob = walking ? WALK_BOB[yodaController.frameIndex] : 0;
+    const stayBob = yodaController.state === "stay" ? Math.sin(nowSec * 1.6) * 0.8 : 0;
+    const layBob = yodaController.state === "lay" ? Math.sin(nowSec * 1.1) * 0.3 : 0;
+    const sniffBob = yodaController.state === "sniff" ? Math.sin(nowSec * 3.0) * 0.9 : 0;
 
-    if (walking && yodaController.frameTimer >= yodaController.frameMs) {
-      yodaController.frameTimer = 0;
-      yodaController.frameIndex =
-        (yodaController.frameIndex + 1) % WALK_SEQUENCE.length;
-    }
+    yodaController.wander = Math.sin(nowSec * 0.6) * 3.5;
+    yodaController.bob = walkBob + stayBob + layBob + sniffBob + yodaController.wander;
+  }
 
-    if (!walking) {
+  function updateYoda(progress, dtMs, nowSec, flux) {
+    if (!yodaController.initialized) {
+      yodaController.initialized = true;
+      yodaController.state = "walk";
+      yodaController.stateUntil = nowSec + rand(3.2, 5.6);
+      yodaController.direction = Math.random() > 0.5 ? 1 : -1;
       yodaController.frameIndex = 0;
       yodaController.frameTimer = 0;
     }
 
-    const walkBob = walking ? Math.sin(nowSec * 8.2) * 1.6 : 0;
-    const stayBob = yodaController.state === "stay" ? Math.sin(nowSec * 1.8) * 0.8 : 0;
-    const layBob = yodaController.state === "lay" ? Math.sin(nowSec * 1.2) * 0.35 : 0;
-    const sniffBob = yodaController.state === "sniff" ? Math.sin(nowSec * 3.6) * 1.0 : 0;
+    if (progress < 0.50) {
+      if (nowSec >= yodaController.stateUntil) {
+        chooseAmbientState(nowSec);
+      }
+    } else if (progress < 0.92) {
+      yodaController.state = "walk";
+      yodaController.stateUntil = nowSec + 999;
+    } else {
+      yodaController.state = progress < 0.97 ? "stay" : "lay";
+      yodaController.stateUntil = nowSec + 999;
+    }
 
-    yodaController.bob = walkBob + stayBob + layBob + sniffBob;
+    if (yodaController.state === "walk") {
+      updateWalkAnimation(dtMs, flux);
+    } else {
+      yodaController.frameIndex = 0;
+      yodaController.frameTimer = 0;
+    }
+
+    updateMovement(progress, dtMs, nowSec, flux);
   }
+
   function getYodaSprite() {
     switch (yodaController.state) {
       case "sniff":
@@ -209,7 +225,6 @@
       bob: yodaController.bob
     };
   }
-
   function fromTrackAndAura(playerState, auraState = {}, runtime = {}) {
     const trackId = playerState?.track_id || "";
     const trackName = playerState?.track_name || "Unknown Track";
@@ -254,7 +269,7 @@
     const nowSec = Number(runtime.nowSec || 0);
     const dtMs = Math.max(0, Number(runtime.dtMs || 16));
 
-    updateYoda(progress, dtMs, nowSec);
+    updateYoda(progress, dtMs, nowSec, flux);
 
     return {
       biome: biome.biome,
@@ -282,12 +297,15 @@
     yodaController.state = "walk";
     yodaController.direction = 1;
     yodaController.x = 0.18;
+    yodaController.y = 0;
     yodaController.velocity = 0;
     yodaController.targetVelocity = 0;
     yodaController.frameIndex = 0;
     yodaController.frameTimer = 0;
+    yodaController.frameMs = 100;
     yodaController.stateUntil = 0;
     yodaController.bob = 0;
+    yodaController.wander = 0;
     yodaController.initialized = false;
   }
 

@@ -1,26 +1,23 @@
-/* spotify-click-play.js (FULL FILE REPLACE) — PART 1/2
+/* spotify-click-play.js (FULL FILE REPLACE)
    Artwork-only click-to-play for Identity lists
+   Frontend-only resolver version (no Cloudflare worker)
    ✅ Only artwork click triggers playback
    ✅ Recent / Top Tracks => direct track play
-   ✅ Top Artists => tries to resolve top song
-   ✅ Future-ready for album items => tries to resolve top song
-   ✅ Best-effort resolver strategy + URI caching
+   ✅ Top Artists => resolves artist top track
+   ✅ Top Albums => resolves album first track
+   ✅ URI caching on row dataset
+   ✅ Active / busy / error visuals
 */
 
 (function () {
   "use strict";
 
-  const RESOLVER_BASE = (window.SPOTIFY_RESOLVER_BASE || "").replace(/\/+$/, "");
   const BUSY_CLASS = "is-play-busy";
   const ERROR_CLASS = "is-play-error";
   const ACTIVE_CLASS = "is-play-active";
 
-  function $(sel, root = document) {
-    return root.querySelector(sel);
-  }
-
   function injectStyles() {
-    const id = "spotifyClickPlayCssV2";
+    const id = "spotifyClickPlayCssV3";
     if (document.getElementById(id)) return;
 
     const st = document.createElement("style");
@@ -74,16 +71,62 @@
     document.head.appendChild(st);
   }
 
+  function normalizeText(s) {
+    return String(s || "").replace(/\s+/g, " ").trim().toLowerCase();
+  }
+
+  function normalizeLoose(s) {
+    return normalizeText(s)
+      .replace(/[()[\]{}]/g, " ")
+      .replace(/\b(remaster(ed)?|radio edit|mono|stereo|live|version|deluxe|explicit)\b/g, " ")
+      .replace(/[^a-z0-9\u00C0-\u024F\s&'+.-]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function getSpotifyToken() {
+    if (window.SpotifyAuth && typeof window.SpotifyAuth.getAccessToken === "function") {
+      return window.SpotifyAuth.getAccessToken();
+    }
+    if (window.SpotifyPlayer && typeof window.SpotifyPlayer.getAccessToken === "function") {
+      return window.SpotifyPlayer.getAccessToken();
+    }
+    return null;
+  }
+
+  async function spotifyApi(path, params) {
+    const token = getSpotifyToken();
+    if (!token) throw new Error("Missing Spotify access token.");
+
+    const url = new URL("https://api.spotify.com/v1" + path);
+    if (params && typeof params === "object") {
+      for (const [k, v] of Object.entries(params)) {
+        if (v != null && v !== "") {
+          url.searchParams.set(k, String(v));
+        }
+      }
+    }
+
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      headers: {
+        Authorization: "Bearer " + token
+      }
+    });
+
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(json?.error?.message || `Spotify API ${res.status}`);
+    }
+    return json;
+  }
+
   function findMediaRow(target) {
     return target?.closest?.('[data-media-item="true"]') || null;
   }
 
   function findArtworkButton(target) {
     return target?.closest?.('[data-play-artwork="true"]') || null;
-  }
-
-  function normalizeText(s) {
-    return String(s || "").replace(/\s+/g, " ").trim().toLowerCase();
   }
 
   function rowData(row) {
@@ -145,95 +188,198 @@
     }
   }
 
-  async function fetchJson(url) {
-    const res = await fetch(url, { method: "GET" });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(`Resolver ${res.status}: ${JSON.stringify(json)}`);
+  function scoreTrackCandidate(candidate, wantedArtist, wantedTrack) {
+    const candTrack = normalizeLoose(candidate?.name || "");
+    const candArtists = Array.isArray(candidate?.artists)
+      ? candidate.artists.map((a) => normalizeLoose(a?.name || "")).join(" | ")
+      : normalizeLoose(candidate?.artist || "");
+
+    const artistNeedle = normalizeLoose(wantedArtist);
+    const trackNeedle = normalizeLoose(wantedTrack);
+
+    let score = 0;
+
+    if (candTrack === trackNeedle) score += 120;
+    else if (candTrack.includes(trackNeedle) || trackNeedle.includes(candTrack)) score += 70;
+
+    if (candArtists.includes(artistNeedle)) score += 90;
+
+    if (candidate?.popularity != null) {
+      score += Math.min(40, Number(candidate.popularity) / 2);
     }
-    return json;
+
+    if (candidate?.is_playable === false) score -= 200;
+
+    return score;
   }
 
-  async function tryResolver(path, params) {
-    if (!RESOLVER_BASE) return null;
+  function chooseBestTrack(items, artist, track) {
+    if (!Array.isArray(items) || !items.length) return null;
 
-    const u = new URL(RESOLVER_BASE + path);
-    Object.entries(params || {}).forEach(([key, value]) => {
-      if (value != null && value !== "") u.searchParams.set(key, String(value));
+    let best = null;
+    let bestScore = -Infinity;
+
+    for (const item of items) {
+      const score = scoreTrackCandidate(item, artist, track);
+      if (score > bestScore) {
+        bestScore = score;
+        best = item;
+      }
+    }
+
+    return best;
+  }
+
+  async function searchTrack(artist, track) {
+    const q = `track:${track} artist:${artist}`;
+    const data = await spotifyApi("/search", {
+      q,
+      type: "track",
+      limit: "8"
     });
 
-    const json = await fetchJson(u.toString()).catch(() => null);
-    if (!json) return null;
+    const items = data?.tracks?.items || [];
+    return chooseBestTrack(items, artist, track);
+  }
 
-    return (
-      json.uri ||
-      json.track_uri ||
-      json.spotify_uri ||
-      (json.item && (json.item.uri || json.item.track_uri)) ||
-      null
-    );
+  async function searchArtistByName(artistName) {
+    const data = await spotifyApi("/search", {
+      q: artistName,
+      type: "artist",
+      limit: "5"
+    });
+
+    const items = data?.artists?.items || [];
+    if (!items.length) return null;
+
+    const wanted = normalizeLoose(artistName);
+
+    let best = null;
+    let bestScore = -Infinity;
+
+    for (const item of items) {
+      const name = normalizeLoose(item?.name || "");
+      let score = 0;
+
+      if (name === wanted) score += 100;
+      else if (name.includes(wanted) || wanted.includes(name)) score += 60;
+
+      if (item?.popularity != null) {
+        score += Math.min(40, Number(item.popularity) / 2);
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        best = item;
+      }
+    }
+
+    return best;
+  }
+
+  async function searchAlbum(artistName, albumName) {
+    const q = `album:${albumName} artist:${artistName}`;
+    const data = await spotifyApi("/search", {
+      q,
+      type: "album",
+      limit: "8"
+    });
+
+    const items = data?.albums?.items || [];
+    if (!items.length) return null;
+
+    const wantedAlbum = normalizeLoose(albumName);
+    const wantedArtist = normalizeLoose(artistName);
+
+    let best = null;
+    let bestScore = -Infinity;
+
+    for (const item of items) {
+      const album = normalizeLoose(item?.name || "");
+      const artists = Array.isArray(item?.artists)
+        ? item.artists.map((a) => normalizeLoose(a?.name || "")).join(" | ")
+        : "";
+
+      let score = 0;
+      if (album === wantedAlbum) score += 110;
+      else if (album.includes(wantedAlbum) || wantedAlbum.includes(album)) score += 70;
+
+      if (artists.includes(wantedArtist)) score += 90;
+
+      if (score > bestScore) {
+        bestScore = score;
+        best = item;
+      }
+    }
+
+    return best;
+  }
+
+  function getSpotifyIdFromUri(uri, expectedType = "") {
+    const text = String(uri || "").trim();
+    const m = text.match(/^spotify:(artist|album|track):([A-Za-z0-9]+)$/);
+    if (!m) return "";
+    if (expectedType && m[1] !== expectedType) return "";
+    return m[2] || "";
+  }
+
+  async function getArtistTopTrack(data) {
+    let artistId = getSpotifyIdFromUri(data.spotifyArtistUri, "artist");
+
+    if (!artistId) {
+      const artist = await searchArtistByName(data.artist || data.title);
+      if (!artist?.id) return null;
+      artistId = artist.id;
+    }
+
+    const result = await spotifyApi(`/artists/${artistId}/top-tracks`);
+    const tracks = Array.isArray(result?.tracks) ? result.tracks : [];
+    if (!tracks.length) return null;
+
+    const playable = tracks.find((t) => t?.uri && t?.is_playable !== false);
+    return playable || tracks[0] || null;
+  }
+
+  async function getAlbumFirstTrack(data) {
+    let albumId = getSpotifyIdFromUri(data.spotifyAlbumUri, "album");
+
+    if (!albumId) {
+      const album = await searchAlbum(data.artist, data.album || data.title);
+      if (!album?.id) return null;
+      albumId = album.id;
+    }
+
+    const result = await spotifyApi(`/albums/${albumId}/tracks`, {
+      limit: "50"
+    });
+
+    const tracks = Array.isArray(result?.items) ? result.items : [];
+    if (!tracks.length) return null;
+
+    const firstPlayable = tracks.find((t) => t?.uri);
+    return firstPlayable || tracks[0] || null;
   }
 
   async function resolveTrackUri(data) {
-    if (!RESOLVER_BASE) {
-      throw new Error("Missing RESOLVER_BASE (window.SPOTIFY_RESOLVER_BASE).");
-    }
-
     const direct = pickPlayableUri(data);
     if (direct) return direct;
 
     if (data.itemType === "track") {
-      const uri =
-        await tryResolver("/resolve", {
-          artist: data.artist,
-          track: data.title
-        }) ||
-        await tryResolver("/resolve-track", {
-          artist: data.artist,
-          track: data.title
-        });
-
-      if (uri) return uri;
+      const best = await searchTrack(data.artist, data.title);
+      if (best?.uri) return best.uri;
       throw new Error(`No match for track: ${data.artist} - ${data.title}`);
     }
 
     if (data.itemType === "artist") {
-      const uri =
-        await tryResolver("/resolve-top-track", {
-          type: "artist",
-          artist: data.artist || data.title,
-          artist_uri: data.spotifyArtistUri
-        }) ||
-        await tryResolver("/resolve", {
-          mode: "artist-top-track",
-          type: "artist",
-          artist: data.artist || data.title,
-          artist_uri: data.spotifyArtistUri
-        });
-
-      if (uri) return uri;
+      const topTrack = await getArtistTopTrack(data);
+      if (topTrack?.uri) return topTrack.uri;
       throw new Error(`No top song match for artist: ${data.artist || data.title}`);
     }
-     /* spotify-click-play.js (FULL FILE REPLACE) — PART 2/2 */
 
     if (data.itemType === "album") {
-      const uri =
-        await tryResolver("/resolve-top-track", {
-          type: "album",
-          artist: data.artist,
-          album: data.album || data.title,
-          album_uri: data.spotifyAlbumUri
-        }) ||
-        await tryResolver("/resolve", {
-          mode: "album-top-track",
-          type: "album",
-          artist: data.artist,
-          album: data.album || data.title,
-          album_uri: data.spotifyAlbumUri
-        });
-
-      if (uri) return uri;
-      throw new Error(`No top song match for album: ${data.artist} - ${data.album || data.title}`);
+      const albumTrack = await getAlbumFirstTrack(data);
+      if (albumTrack?.uri) return albumTrack.uri;
+      throw new Error(`No playable track found for album: ${data.artist} - ${data.album || data.title}`);
     }
 
     throw new Error(`Unsupported item type: ${data.itemType}`);
@@ -288,6 +434,21 @@
   function currentTrackSnapshot() {
     const p = window.SpotifyPlayer;
     if (!p) return null;
+
+    let state = null;
+    if (typeof p.getState === "function") {
+      try {
+        state = p.getState();
+      } catch {}
+    }
+
+    if (state) {
+      return {
+        uri: state.uri || "",
+        title: normalizeText(state.track_name || state.name || ""),
+        artist: normalizeText(state.artist_name || state.artist || "")
+      };
+    }
 
     const track =
       (typeof p.getCurrentTrack === "function" && p.getCurrentTrack()) ||

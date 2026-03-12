@@ -76,55 +76,50 @@
     "walk6"
   ];
 
-  const WALK_BOB = [0, -4, 3, 0, -4, 3];
-
   const yodaController = {
     assets: { ...YODA_ASSETS },
     state: "walk",
     direction: 1,
     x: 0.18,
-    y: 0,
     velocity: 0,
     targetVelocity: 0,
     minX: 0.10,
     maxX: 0.90,
     frameIndex: 0,
     frameTimer: 0,
-    frameMs: 100,
+    frameMs: 120,
     stateUntil: 0,
     bob: 0,
-    wander: 0,
     initialized: false
   };
 
   function chooseAmbientState(nowSec) {
     const roll = Math.random();
 
-    if (roll < 0.56) {
+    if (roll < 0.58) {
       yodaController.state = "walk";
-      yodaController.stateUntil = nowSec + rand(3.8, 6.8);
+      yodaController.stateUntil = nowSec + rand(3.8, 6.5);
       return;
     }
 
-    if (roll < 0.74) {
+    if (roll < 0.76) {
       yodaController.state = "sniff";
-      yodaController.stateUntil = nowSec + rand(1.6, 2.8);
+      yodaController.stateUntil = nowSec + rand(1.6, 2.6);
       return;
     }
 
-    if (roll < 0.90) {
+    if (roll < 0.91) {
       yodaController.state = "stay";
-      yodaController.stateUntil = nowSec + rand(2.8, 4.8);
+      yodaController.stateUntil = nowSec + rand(2.8, 4.5);
       return;
     }
 
     yodaController.state = "lay";
-    yodaController.stateUntil = nowSec + rand(4.2, 7.0);
+    yodaController.stateUntil = nowSec + rand(4.0, 6.2);
   }
-  function updateWalkAnimation(dtMs, flux) {
-    const frameBoost = clamp01(flux);
-    yodaController.frameMs = Math.round(112 - frameBoost * 18);
 
+  function updateWalkAnimation(dtMs) {
+    yodaController.frameMs = 120;
     yodaController.frameTimer += dtMs;
 
     while (yodaController.frameTimer >= yodaController.frameMs) {
@@ -134,14 +129,13 @@
     }
   }
 
-  function updateMovement(progress, dtMs, nowSec, flux) {
+  function updateMovement(progress, dtMs) {
     const walking = yodaController.state === "walk";
 
-    const baseSpeed = 0.000030;
-    const fluxBoost = clamp01(flux) * 0.000018;
+    const baseSpeed = 0.000026;
 
     yodaController.targetVelocity = walking
-      ? ((baseSpeed + fluxBoost) * yodaController.direction)
+      ? (baseSpeed * yodaController.direction)
       : 0;
 
     yodaController.velocity +=
@@ -159,20 +153,15 @@
       yodaController.direction = -1;
     }
 
-    const walkBob = walking ? WALK_BOB[yodaController.frameIndex] : 0;
-    const stayBob = yodaController.state === "stay" ? Math.sin(nowSec * 1.6) * 0.8 : 0;
-    const layBob = yodaController.state === "lay" ? Math.sin(nowSec * 1.1) * 0.3 : 0;
-    const sniffBob = yodaController.state === "sniff" ? Math.sin(nowSec * 3.0) * 0.9 : 0;
-
-    yodaController.wander = Math.sin(nowSec * 0.6) * 3.5;
-    yodaController.bob = walkBob + stayBob + layBob + sniffBob + yodaController.wander;
+    // Plain walk: keep body almost stable.
+    yodaController.bob = 0;
   }
 
-  function updateYoda(progress, dtMs, nowSec, flux) {
+  function updateYoda(progress, dtMs, nowSec) {
     if (!yodaController.initialized) {
       yodaController.initialized = true;
       yodaController.state = "walk";
-      yodaController.stateUntil = nowSec + rand(3.2, 5.6);
+      yodaController.stateUntil = nowSec + rand(3.2, 5.4);
       yodaController.direction = Math.random() > 0.5 ? 1 : -1;
       yodaController.frameIndex = 0;
       yodaController.frameTimer = 0;
@@ -191,13 +180,13 @@
     }
 
     if (yodaController.state === "walk") {
-      updateWalkAnimation(dtMs, flux);
+      updateWalkAnimation(dtMs);
     } else {
       yodaController.frameIndex = 0;
       yodaController.frameTimer = 0;
     }
 
-    updateMovement(progress, dtMs, nowSec, flux);
+    updateMovement(progress, dtMs);
   }
 
   function getYodaSprite() {
@@ -225,6 +214,7 @@
       bob: yodaController.bob
     };
   }
+
   function fromTrackAndAura(playerState, auraState = {}, runtime = {}) {
     const trackId = playerState?.track_id || "";
     const trackName = playerState?.track_name || "Unknown Track";
@@ -269,7 +259,7 @@
     const nowSec = Number(runtime.nowSec || 0);
     const dtMs = Math.max(0, Number(runtime.dtMs || 16));
 
-    updateYoda(progress, dtMs, nowSec, flux);
+    updateYoda(progress, dtMs, nowSec);
 
     return {
       biome: biome.biome,
@@ -297,15 +287,13 @@
     yodaController.state = "walk";
     yodaController.direction = 1;
     yodaController.x = 0.18;
-    yodaController.y = 0;
     yodaController.velocity = 0;
     yodaController.targetVelocity = 0;
     yodaController.frameIndex = 0;
     yodaController.frameTimer = 0;
-    yodaController.frameMs = 100;
+    yodaController.frameMs = 120;
     yodaController.stateUntil = 0;
     yodaController.bob = 0;
-    yodaController.wander = 0;
     yodaController.initialized = false;
   }
 

@@ -90,7 +90,9 @@
     frameMs: 120,
     stateUntil: 0,
     bob: 0,
-    initialized: false
+    initialized: false,
+    lastTrackId: "",
+    lastTrackKey: ""
   };
 
   function chooseAmbientState(nowSec) {
@@ -118,6 +120,20 @@
     yodaController.stateUntil = nowSec + rand(4.0, 6.2);
   }
 
+  function resetForNewTrack(nowSec) {
+    yodaController.state = "walk";
+    yodaController.direction = Math.random() > 0.5 ? 1 : -1;
+    yodaController.x = 0.18;
+    yodaController.velocity = 0;
+    yodaController.targetVelocity = 0;
+    yodaController.frameIndex = 0;
+    yodaController.frameTimer = 0;
+    yodaController.frameMs = 120;
+    yodaController.stateUntil = nowSec + rand(3.2, 5.4);
+    yodaController.bob = 0;
+    yodaController.initialized = true;
+  }
+
   function updateWalkAnimation(dtMs) {
     yodaController.frameMs = 120;
     yodaController.frameTimer += dtMs;
@@ -129,9 +145,8 @@
     }
   }
 
-  function updateMovement(progress, dtMs) {
+  function updateMovement(dtMs) {
     const walking = yodaController.state === "walk";
-
     const baseSpeed = 0.000026;
 
     yodaController.targetVelocity = walking
@@ -153,18 +168,12 @@
       yodaController.direction = -1;
     }
 
-    // Plain walk: keep body almost stable.
     yodaController.bob = 0;
   }
 
   function updateYoda(progress, dtMs, nowSec) {
     if (!yodaController.initialized) {
-      yodaController.initialized = true;
-      yodaController.state = "walk";
-      yodaController.stateUntil = nowSec + rand(3.2, 5.4);
-      yodaController.direction = Math.random() > 0.5 ? 1 : -1;
-      yodaController.frameIndex = 0;
-      yodaController.frameTimer = 0;
+      resetForNewTrack(nowSec);
     }
 
     if (progress < 0.50) {
@@ -186,7 +195,7 @@
       yodaController.frameTimer = 0;
     }
 
-    updateMovement(progress, dtMs);
+    updateMovement(dtMs);
   }
 
   function getYodaSprite() {
@@ -259,6 +268,13 @@
     const nowSec = Number(runtime.nowSec || 0);
     const dtMs = Math.max(0, Number(runtime.dtMs || 16));
 
+    const trackKey = trackId || `${trackName}::${artistName}::${albumName}`;
+    if (trackKey && trackKey !== yodaController.lastTrackKey) {
+      yodaController.lastTrackKey = trackKey;
+      yodaController.lastTrackId = trackId;
+      resetForNewTrack(nowSec);
+    }
+
     updateYoda(progress, dtMs, nowSec);
 
     return {
@@ -295,6 +311,8 @@
     yodaController.stateUntil = 0;
     yodaController.bob = 0;
     yodaController.initialized = false;
+    yodaController.lastTrackId = "";
+    yodaController.lastTrackKey = "";
   }
 
   window.RealmEngine = {

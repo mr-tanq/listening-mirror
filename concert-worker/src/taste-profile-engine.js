@@ -9,14 +9,20 @@ export function buildTasteProfile({
   topArtistsShort = [],
   recentTracks = []
 }) {
-
   const artistMap = new Map();
 
   function ensureArtist(name) {
-    const key = name.toLowerCase();
+    const cleanName = String(name || "").trim();
+    if (!cleanName) return null;
+
+    const key = normalizeArtistKey(cleanName);
+
+    if (!key) return null;
+
     if (!artistMap.has(key)) {
       artistMap.set(key, {
-        name,
+        key,
+        name: cleanName,
         total: 0,
         recent: 0,
         long: false,
@@ -24,35 +30,35 @@ export function buildTasteProfile({
         short: false
       });
     }
+
     return artistMap.get(key);
   }
 
-  // LONG TERM
-  topArtistsLong.forEach((a, i) => {
-    const entry = ensureArtist(a.name);
-    entry.total += Number(a.playcount || 0);
+  topArtistsLong.forEach((a) => {
+    const entry = ensureArtist(a?.name);
+    if (!entry) return;
+    entry.total += Number(a?.playcount || 0);
     entry.long = true;
   });
 
-  // MEDIUM TERM
   topArtistsMedium.forEach((a) => {
-    const entry = ensureArtist(a.name);
-    entry.total += Number(a.playcount || 0);
+    const entry = ensureArtist(a?.name);
+    if (!entry) return;
+    entry.total += Number(a?.playcount || 0);
     entry.medium = true;
   });
 
-  // SHORT TERM
   topArtistsShort.forEach((a) => {
-    const entry = ensureArtist(a.name);
-    entry.total += Number(a.playcount || 0);
+    const entry = ensureArtist(a?.name);
+    if (!entry) return;
+    entry.total += Number(a?.playcount || 0);
     entry.short = true;
   });
 
-  // RECENT TRACKS
   recentTracks.forEach((t) => {
-    const name = t.artist?.name || t.artist || "";
-    if (!name) return;
+    const name = t?.artist?.name || t?.artist || "";
     const entry = ensureArtist(name);
+    if (!entry) return;
     entry.recent += 1;
   });
 
@@ -62,9 +68,10 @@ export function buildTasteProfile({
     return {};
   }
 
-  const maxTotal = Math.max(...artists.map(a => a.total));
-  const maxRecent = Math.max(...artists.map(a => a.recent));
-function logNormalize(value, max) {
+  const maxTotal = Math.max(...artists.map((a) => a.total), 1);
+  const maxRecent = Math.max(...artists.map((a) => a.recent), 1);
+
+  function logNormalize(value, max) {
     if (!max) return 0;
     return Math.log(value + 1) / Math.log(max + 1);
   }
@@ -85,7 +92,6 @@ function logNormalize(value, max) {
   const affinityMap = {};
 
   artists.forEach((a) => {
-
     const totalScore = logNormalize(a.total, maxTotal);
     const recentScore = linearNormalize(a.recent, maxRecent);
     const presence = corePresenceScore(a);
@@ -105,23 +111,32 @@ function logNormalize(value, max) {
 
     affinity = Math.max(0, Math.min(1, affinity));
 
-    affinityMap[a.name.toLowerCase()] = {
+    affinityMap[a.key] = {
       name: a.name,
       affinity,
       total: a.total,
       recent: a.recent,
       presence
     };
-
   });
-return affinityMap;
+
+  return affinityMap;
 }
 
-
+function normalizeArtistKey(name) {
+  return String(name || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\(.*?\)/g, " ")
+    .replace(/[:"'`´’]/g, " ")
+    .replace(/\blive\b/gi, " ")
+    .replace(/\bconcert\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 /* helper — sort artists by affinity */
-
 export function sortAffinityMap(map) {
-  return Object.values(map)
-    .sort((a, b) => b.affinity - a.affinity);
+  return Object.values(map).sort((a, b) => b.affinity - a.affinity);
 }

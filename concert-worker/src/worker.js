@@ -1,6 +1,6 @@
 // worker.js
 // Listening Mirror — Concert Worker
-// Main entry point (DEPLOY TEST VERSION)
+// Main entry point
 
 import {
   fetchAllVenueEvents,
@@ -11,6 +11,16 @@ import {
   scoreConcerts,
   filterRecommendedConcerts
 } from "./concert-recommender.js";
+
+import {
+  buildTasteProfile,
+  sortAffinityMap
+} from "./taste-profile-engine.js";
+
+import {
+  fetchLastfmProfile,
+  summarizeLastfmProfile
+} from "./lastfm-client.js";
 
 export default {
   async fetch(request, env, ctx) {
@@ -69,10 +79,25 @@ async function handleRequest(request, env, ctx) {
       events
     });
   }
+if (pathname === "/lastfm/debug") {
+    const profile = await fetchLastfmProfile(env);
+    const summary = summarizeLastfmProfile(profile);
+    const affinityMap = buildTasteProfile(profile);
+    const topAffinity = sortAffinityMap(affinityMap).slice(0, 50);
+
+    return json({
+      ok: true,
+      mode: "lastfm-debug",
+      summary,
+      topAffinity
+    });
+  }
 
   if (pathname === "/concerts/recommended") {
     const allEvents = await fetchAllVenueEvents();
-    const affinityMap = buildMockAffinity();
+
+    const lastfmProfile = await fetchLastfmProfile(env);
+    const affinityMap = buildTasteProfile(lastfmProfile);
 
     const scored = scoreConcerts(allEvents, affinityMap);
     const recommended = filterRecommendedConcerts(scored, {
@@ -89,12 +114,10 @@ async function handleRequest(request, env, ctx) {
     });
   }
 
-  // 🔥 DEPLOY TEST ROOT
   if (pathname === "/") {
     return json({
       ok: true,
       service: "econcerts",
-      version: "TEST-777",
       endpoints: [
         "/health",
         "/concerts/venues",
@@ -111,12 +134,12 @@ async function handleRequest(request, env, ctx) {
         "/concerts/venues?source=muziekgieterij",
         "/concerts/venues?source=boerderij",
         "/concerts/venues?source=fluor",
+        "/lastfm/debug",
         "/concerts/recommended"
       ]
     });
   }
-
-  return json(
+return json(
     {
       ok: false,
       error: "Not found",
@@ -124,20 +147,6 @@ async function handleRequest(request, env, ctx) {
     },
     404
   );
-}
-
-function buildMockAffinity() {
-  return {
-    amenra: { name: "Amenra", affinity: 0.95 },
-    mono: { name: "Mono", affinity: 0.92 },
-    solstafir: { name: "Sólstafir", affinity: 0.88 },
-    "sólstafir": { name: "Sólstafir", affinity: 0.88 },
-    alcest: { name: "Alcest", affinity: 0.9 },
-    psychonaut: { name: "Psychonaut", affinity: 0.75 },
-    "villagers of ioannina city": { name: "Villagers of Ioannina City", affinity: 0.82 },
-    "godspeed you! black emperor": { name: "Godspeed You! Black Emperor", affinity: 0.86 },
-    "godspeed you black emperor": { name: "Godspeed You! Black Emperor", affinity: 0.86 }
-  };
 }
 
 function json(data, status = 200) {
@@ -157,7 +166,6 @@ function corsHeaders() {
     "access-control-allow-headers": "Content-Type"
   };
 }
-
 function normalizePath(pathname) {
   if (!pathname) return "/";
   return pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;

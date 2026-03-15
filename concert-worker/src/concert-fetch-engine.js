@@ -1,7 +1,7 @@
 // concert-fetch-engine.js
 // Listening Mirror — Concert Worker
-// Venue fetch + parse engine v7
-// Custom handling for: paradiso, doornroosje, patronaat
+// Venue fetch + parse engine v8
+// Custom handling for: paradiso, doornroosje, patronaat, paard, tivoli
 
 import { VENUES } from "./venues-engine.js";
 
@@ -56,6 +56,10 @@ function parseVenueHtml(html, venue) {
       return parseDoornroosje(html, venue);
     case "patronaat":
       return parsePatronaat(html, venue);
+    case "paard":
+      return parsePaard(html, venue);
+    case "tivoli":
+      return parseTivoli(html, venue);
     default:
       return parseGenericVenue(html, venue);
   }
@@ -67,8 +71,8 @@ function parseGenericVenue(html, venue) {
 
   for (const block of blocks) {
     let rawTitle = extractTitle(block);
-    const dateLocal = extractDate(block);
     const link = extractLink(block, venue.url);
+    const dateLocal = extractDate(block) || extractDateFromUrl(link);
     const imageUrl = extractImage(block);
     const timeLocal = extractTime(block);
 
@@ -98,6 +102,7 @@ function parseGenericVenue(html, venue) {
 
   return events;
 }
+
 function parseParadiso(html, venue) {
   const events = [];
   const seen = new Set();
@@ -138,7 +143,7 @@ function parseParadiso(html, venue) {
     const block = html.slice(start, end);
 
     let rawTitle = extractTitle(block);
-    const dateLocal = extractDate(block);
+    const dateLocal = extractDate(block) || extractDateFromUrl(link);
     const timeLocal = extractTime(block);
     const imageUrl = extractImage(block);
 
@@ -149,13 +154,15 @@ function parseParadiso(html, venue) {
     if (!rawTitle || isBlockedTitle(rawTitle) || !dateLocal) continue;
     if (!looksLikeRealEvent(rawTitle, link, venue)) continue;
 
+    const artistInfo = normalizeArtist(rawTitle);
+
     events.push(
       buildEvent({
         venue,
-        sourceId: buildSourceId(venue.id, rawTitle, dateLocal, link),
+        sourceId: buildSourceId(venue.id, artistInfo.main, dateLocal, link),
         rawTitle,
-        title: normalizeArtist(rawTitle).main,
-        artistsAll: normalizeArtist(rawTitle).all,
+        title: artistInfo.main,
+        artistsAll: artistInfo.all,
         dateLocal,
         timeLocal,
         link,
@@ -166,7 +173,6 @@ function parseParadiso(html, venue) {
 
   return events;
 }
-
 function parseDoornroosje(html, venue) {
   const events = [];
   const blocks = html.split(/href="https:\/\/www\.doornroosje\.nl\/event\/|href="\/event\//i);
@@ -181,7 +187,7 @@ function parseDoornroosje(html, venue) {
     const block = `href="${link}" ${partial}`;
 
     let rawTitle = extractTitle(block);
-    const dateLocal = extractDate(block);
+    const dateLocal = extractDate(block) || extractDateFromUrl(link);
     const timeLocal = extractTime(block);
     const imageUrl = extractImage(block);
 
@@ -226,7 +232,7 @@ function parsePatronaat(html, venue) {
     const block = `href="${link}" ${partial}`;
 
     let rawTitle = extractTitle(block);
-    const dateLocal = extractDate(block);
+    const dateLocal = extractDate(block) || extractDateFromUrl(link);
     const timeLocal = extractTime(block);
     const imageUrl = extractImage(block);
 
@@ -236,6 +242,137 @@ function parsePatronaat(html, venue) {
 
     if (!rawTitle || isBlockedTitle(rawTitle) || !dateLocal || !link) continue;
     if (!looksLikeRealEvent(rawTitle, link, venue)) continue;
+
+    const artistInfo = normalizeArtist(rawTitle);
+
+    events.push(
+      buildEvent({
+        venue,
+        sourceId: buildSourceId(venue.id, artistInfo.main, dateLocal, link),
+        rawTitle,
+        title: artistInfo.main,
+        artistsAll: artistInfo.all,
+        dateLocal,
+        timeLocal,
+        link,
+        imageUrl
+      })
+    );
+  }
+
+  return events;
+}
+
+function parsePaard(html, venue) {
+  const events = [];
+  const seen = new Set();
+
+  const linkRegex =
+    /href="([^"]*(?:\/programma\/|\/event\/|\/agenda\/)[^"]+)"/gi;
+
+  let match;
+
+  while ((match = linkRegex.exec(html)) !== null) {
+    const href = match[1];
+    if (!href) continue;
+
+    let link;
+    try {
+      link = new URL(href, "https://www.paard.nl").toString();
+    } catch {
+      continue;
+    }
+
+    const lower = link.toLowerCase();
+
+    if (
+      lower.includes("/nieuws/") ||
+      lower.includes("/news/") ||
+      lower.includes("/contact") ||
+      lower.includes("/over") ||
+      lower.includes("/vacature") ||
+      lower.includes("/ticket") ||
+      lower.includes("?")
+    ) {
+      continue;
+    }
+
+    if (seen.has(link)) continue;
+    seen.add(link);
+
+    const start = Math.max(0, match.index - 2400);
+    const end = Math.min(html.length, match.index + 5000);
+    const block = html.slice(start, end);
+
+    let rawTitle = extractTitle(block);
+    const dateLocal = extractDate(block) || extractDateFromUrl(link);
+    const timeLocal = extractTime(block);
+    const imageUrl = extractImage(block);
+
+    if (!rawTitle || isBlockedTitle(rawTitle)) {
+      rawTitle = titleFromLink(link);
+    }
+
+    if (!rawTitle || isBlockedTitle(rawTitle) || !dateLocal || !link) continue;
+    if (!looksLikeRealEvent(rawTitle, link, venue)) continue;
+
+    const artistInfo = normalizeArtist(rawTitle);
+
+    events.push(
+      buildEvent({
+        venue,
+        sourceId: buildSourceId(venue.id, artistInfo.main, dateLocal, link),
+        rawTitle,
+        title: artistInfo.main,
+        artistsAll: artistInfo.all,
+        dateLocal,
+        timeLocal,
+        link,
+        imageUrl
+      })
+    );
+  }
+
+  return events;
+}
+
+function parseTivoli(html, venue) {
+  const events = [];
+  const seen = new Set();
+
+  const linkRegex = /href="([^"]*\/agenda\/\d+\/[^"]+)"/gi;
+  let match;
+
+  while ((match = linkRegex.exec(html)) !== null) {
+    const href = match[1];
+    if (!href) continue;
+
+    let link;
+    try {
+      link = new URL(href, "https://www.tivolivredenburg.nl").toString();
+    } catch {
+      continue;
+    }
+
+    if (seen.has(link)) continue;
+    seen.add(link);
+
+    const start = Math.max(0, match.index - 2400);
+    const end = Math.min(html.length, match.index + 5200);
+    const block = html.slice(start, end);
+
+    let rawTitle = extractTitle(block);
+    const dateLocal = extractDate(block) || extractDateFromUrl(link);
+    const timeLocal = extractTime(block);
+    const imageUrl = extractImage(block);
+
+    if (!rawTitle || isBlockedTitle(rawTitle)) {
+      rawTitle = titleFromTivoliLink(link);
+    }
+
+    if (!rawTitle || isBlockedTitle(rawTitle) || !dateLocal || !link) continue;
+    if (!looksLikeRealEvent(rawTitle, link, venue)) continue;
+    if (!looksLikeMusicEvent(rawTitle, link)) continue;
 
     const artistInfo = normalizeArtist(rawTitle);
 
@@ -324,7 +461,7 @@ function extractTitle(block) {
 function extractDate(text) {
   if (!text) return null;
 
-  const t = String(text).toLowerCase().replace(/\s+/g, " ").trim();
+  const t = cleanText(String(text || "").toLowerCase()).replace(/\s+/g, " ").trim();
 
   const MONTHS = {
     jan: 0, januari: 0,
@@ -343,6 +480,16 @@ function extractDate(text) {
 
   let m = t.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
   if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+
+  m = t.match(/\b(\d{1,2})-(\d{1,2})-(20\d{2})\b/);
+  if (m) {
+    const d = Number(m[1]);
+    const mo = Number(m[2]) - 1;
+    const y = Number(m[3]);
+    if (mo >= 0 && mo <= 11 && d >= 1 && d <= 31) {
+      return isoDate(y, mo, d);
+    }
+  }
 
   m = t.match(/\b(\d{1,2})\s+(jan|januari|feb|februari|mrt|maart|mar|apr|april|mei|may|jun|juni|jul|juli|aug|augustus|sep|sept|september|okt|oktober|oct|nov|november|dec|december)\s+(20\d{2})\b/);
   if (m) {
@@ -364,6 +511,29 @@ function extractDate(text) {
     const d = Number(m[1]);
     const mo = MONTHS[m[2]];
     return inferYearAndFormat(mo, d);
+  }
+
+  return null;
+}
+
+function extractDateFromUrl(link) {
+  if (!link) return null;
+
+  const s = String(link).toLowerCase();
+
+  let m = s.match(/(?:^|\/)(\d{1,2})-(\d{1,2})-(20\d{2})(?:$|[/-])/i);
+  if (m) {
+    const d = Number(m[1]);
+    const mo = Number(m[2]) - 1;
+    const y = Number(m[3]);
+    if (mo >= 0 && mo <= 11 && d >= 1 && d <= 31) {
+      return isoDate(y, mo, d);
+    }
+  }
+
+  m = s.match(/(?:^|\/)(20\d{2})-(\d{2})-(\d{2})(?:$|[/-])/i);
+  if (m) {
+    return `${m[1]}-${m[2]}-${m[3]}`;
   }
 
   return null;
@@ -393,6 +563,7 @@ function extractTime(block) {
   if (!m) return null;
   return `${String(m[1]).padStart(2, "0")}:${m[2]}`;
 }
+
 function extractLink(block, baseUrl) {
   const m = block.match(/href="([^"]+)"/i);
   if (!m) return null;
@@ -428,6 +599,10 @@ function normalizeArtist(rawTitle) {
     .replace(/\blive\b/gi, " ")
     .replace(/\bconcert\b/gi, " ")
     .replace(/\bshow\b/gi, " ")
+    .replace(/^ga naar:\s*/i, "")
+    .replace(/^geannuleerd:\s*/i, "")
+    .replace(/^cancelled:\s*/i, "")
+    .replace(/^canceled:\s*/i, "")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -442,7 +617,6 @@ function normalizeArtist(rawTitle) {
     all: parts.length ? parts : [cleaned]
   };
 }
-
 function looksLikeRealEvent(title, link, venue) {
   const t = cleanText(title).toLowerCase();
   const l = String(link || "").toLowerCase();
@@ -486,6 +660,26 @@ function looksLikeRealEvent(title, link, venue) {
   return true;
 }
 
+function looksLikeMusicEvent(title, link) {
+  const t = cleanText(title).toLowerCase();
+  const l = String(link || "").toLowerCase();
+
+  const blocked = [
+    "verkiezing",
+    "verkiezings",
+    "debat",
+    "podcast",
+    "workshop",
+    "dansworkshop",
+    "markt",
+    "zing je sterk",
+    "taalshow"
+  ];
+
+  if (blocked.some((w) => t.includes(w) || l.includes(w))) return false;
+  return true;
+}
+
 function isBlockedTitle(title) {
   const t = cleanText(title).toLowerCase();
   return (
@@ -507,6 +701,25 @@ function titleFromLink(link) {
     const slug = u.pathname.split("/").filter(Boolean).pop() || "";
     return slug
       .replace(/-\d+$/, "")
+      .split("-")
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
+  } catch {
+    return "";
+  }
+}
+
+function titleFromTivoliLink(link) {
+  if (!link) return "";
+
+  try {
+    const u = new URL(link);
+    const parts = u.pathname.split("/").filter(Boolean);
+    const slug = parts[parts.length - 1] || "";
+
+    return slug
+      .replace(/-\d{2}-\d{2}-20\d{2}$/i, "")
       .split("-")
       .filter(Boolean)
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
@@ -579,12 +792,28 @@ function slugify(str) {
     .replace(/^-+|-+$/g, "");
 }
 
-function cleanText(str) {
+function decodeHtmlEntities(str) {
   return String(str || "")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;/gi, "'")
+    .replace(/&#039;/gi, "'")
+    .replace(/&#038;/gi, "&")
+    .replace(/&#x27;/gi, "'")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&#(\d+);/g, (_, code) => {
+      const n = Number(code);
+      return Number.isFinite(n) ? String.fromCharCode(n) : _;
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => {
+      const n = parseInt(hex, 16);
+      return Number.isFinite(n) ? String.fromCharCode(n) : _;
+    });
+}
+
+function cleanText(str) {
+  return decodeHtmlEntities(String(str || ""))
+    .replace(/\s+/g, " ")
     .trim();
 }
 

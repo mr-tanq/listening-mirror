@@ -59,7 +59,7 @@ function parseVenueHtml(html, venue) {
     case "paard":
       return parsePaard(html, venue);
     case "tivoli":
-      return parseTivoli(html, venue);
+  return await fetchTivoliEvents(); parseTivoli(html, venue);
     default:
       return parseGenericVenue(html, venue);
   }

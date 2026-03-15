@@ -1,6 +1,6 @@
 // concert-fetch-engine.js
 // Listening Mirror — Concert Worker
-// Venue fetch + parse engine v8
+// Venue fetch + parse engine v9
 // Custom handling for: paradiso, doornroosje, patronaat, paard, tivoli
 
 import { VENUES } from "./venues-engine.js";
@@ -173,6 +173,7 @@ function parseParadiso(html, venue) {
 
   return events;
 }
+
 function parseDoornroosje(html, venue) {
   const events = [];
   const blocks = html.split(/href="https:\/\/www\.doornroosje\.nl\/event\/|href="\/event\//i);
@@ -268,7 +269,7 @@ function parsePaard(html, venue) {
   const seen = new Set();
 
   const linkRegex =
-    /href="([^"]*(?:\/programma\/|\/event\/|\/agenda\/)[^"]+)"/gi;
+    /href="([^"]*(?:\/event\/|\/programma\/|\/agenda\/)[^"]+)"/gi;
 
   let match;
 
@@ -286,6 +287,7 @@ function parsePaard(html, venue) {
     const lower = link.toLowerCase();
 
     if (
+      !lower.includes("/event/") ||
       lower.includes("/nieuws/") ||
       lower.includes("/news/") ||
       lower.includes("/contact") ||
@@ -309,7 +311,11 @@ function parsePaard(html, venue) {
     const timeLocal = extractTime(block);
     const imageUrl = extractImage(block);
 
-    if (!rawTitle || isBlockedTitle(rawTitle)) {
+    if (
+      !rawTitle ||
+      isBlockedTitle(rawTitle) ||
+      isPaardBoilerplateTitle(rawTitle)
+    ) {
       rawTitle = titleFromLink(link);
     }
 
@@ -393,6 +399,7 @@ function parseTivoli(html, venue) {
 
   return events;
 }
+
 function buildEvent({
   venue,
   sourceId,
@@ -617,6 +624,7 @@ function normalizeArtist(rawTitle) {
     all: parts.length ? parts : [cleaned]
   };
 }
+
 function looksLikeRealEvent(title, link, venue) {
   const t = cleanText(title).toLowerCase();
   const l = String(link || "").toLowerCase();
@@ -691,6 +699,20 @@ function isBlockedTitle(title) {
     t === "agenda" ||
     t === "tickets"
   );
+}
+
+function isPaardBoilerplateTitle(title) {
+  const t = cleanText(title).toLowerCase();
+
+  if (!t) return true;
+  if (t === "dit is paard") return true;
+  if (t === "binnenkort") return true;
+  if (t.includes("@paard.nl")) return true;
+  if (/^\d{3}\s?\d{3}\s?\d{2}\s?\d{2}$/.test(t.replace(/[^\d]/g, " ").replace(/\s+/g, " ").trim())) {
+    return true;
+  }
+
+  return false;
 }
 
 function titleFromLink(link) {
@@ -777,9 +799,7 @@ function dedupeEvents(events) {
 
   return Array.from(map.values()).sort((a, b) => {
     if (a.date_local !== b.date_local) {
-      return String(a.date_local).localeCompare(String(b.date_local));
-    }
-    return String(a.title).localeCompare(String(b.title));
+      return String(a.title).localeCompare(String(b.title));
   });
 }
 

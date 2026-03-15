@@ -7,6 +7,11 @@ import {
   fetchVenueEventsById
 } from "./concert-fetch-engine.js";
 
+import {
+  scoreConcerts,
+  filterRecommendedConcerts
+} from "./concert-recommender.js";
+
 export default {
   async fetch(request, env, ctx) {
     try {
@@ -64,7 +69,26 @@ async function handleRequest(request, env, ctx) {
       events
     });
   }
-  if (pathname === "/") {
+
+  if (pathname === "/concerts/recommended") {
+    const allEvents = await fetchAllVenueEvents();
+    const affinityMap = buildMockAffinity();
+
+    const scored = scoreConcerts(allEvents, affinityMap);
+    const recommended = filterRecommendedConcerts(scored, {
+      minScore: 0.18,
+      includeWeakSignals: false
+    });
+
+    return json({
+      ok: true,
+      mode: "recommended",
+      total_events: allEvents.length,
+      recommended_count: recommended.length,
+      recommended
+    });
+  }
+if (pathname === "/") {
     return json({
       ok: true,
       service: "econcerts",
@@ -82,7 +106,9 @@ async function handleRequest(request, env, ctx) {
         "/concerts/venues?source=vera",
         "/concerts/venues?source=hedon",
         "/concerts/venues?source=muziekgieterij",
-        "/concerts/venues?source=boerderij"
+        "/concerts/venues?source=boerderij",
+        "/concerts/venues?source=fluor",
+        "/concerts/recommended"
       ]
     });
   }
@@ -97,6 +123,64 @@ async function handleRequest(request, env, ctx) {
   );
 }
 
+function buildMockAffinity() {
+  return {
+    "amenra": {
+      name: "Amenra",
+      affinity: 0.95,
+      total: 600,
+      recent: 20
+    },
+    "mono": {
+      name: "Mono",
+      affinity: 0.92,
+      total: 800,
+      recent: 15
+    },
+    "solstafir": {
+      name: "Sólstafir",
+      affinity: 0.88,
+      total: 450,
+      recent: 10
+    },
+    "sólstafir": {
+      name: "Sólstafir",
+      affinity: 0.88,
+      total: 450,
+      recent: 10
+    },
+    "alcest": {
+      name: "Alcest",
+      affinity: 0.9,
+      total: 500,
+      recent: 12
+    },
+    "psychonaut": {
+      name: "Psychonaut",
+      affinity: 0.75,
+      total: 120,
+      recent: 5
+    },
+    "villagers of ioannina city": {
+      name: "Villagers of Ioannina City",
+      affinity: 0.82,
+      total: 220,
+      recent: 8
+    },
+    "godspeed you! black emperor": {
+      name: "Godspeed You! Black Emperor",
+      affinity: 0.86,
+      total: 300,
+      recent: 7
+    },
+    "godspeed you black emperor": {
+      name: "Godspeed You! Black Emperor",
+      affinity: 0.86,
+      total: 300,
+      recent: 7
+    }
+  };
+}
 function json(data, status = 200) {
   return new Response(JSON.stringify(data, null, 2), {
     status,
@@ -114,6 +198,7 @@ function corsHeaders() {
     "access-control-allow-headers": "Content-Type"
   };
 }
+
 function normalizePath(pathname) {
   if (!pathname) return "/";
   return pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;

@@ -48,7 +48,7 @@ export const VENUES = [
     name: "Paard",
     city: "Den Haag",
     country: "NL",
-    url: "https://www.paard.nl/events/",
+    url: "https://www.paard.nl/event/",
     parser: "generic"
   },
 

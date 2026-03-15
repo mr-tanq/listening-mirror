@@ -1,6 +1,6 @@
 // concert-fetch-engine.js
 // Listening Mirror — Concert Worker
-// Venue fetch + parse engine v9
+// Venue fetch + parse engine v10
 // Custom handling for: paradiso, doornroosje, patronaat, paard, tivoli
 
 import { VENUES } from "./venues-engine.js";
@@ -306,18 +306,10 @@ function parsePaard(html, venue) {
     const end = Math.min(html.length, match.index + 5000);
     const block = html.slice(start, end);
 
-    let rawTitle = extractTitle(block);
+    const rawTitle = titleFromLink(link);
     const dateLocal = extractDate(block) || extractDateFromUrl(link);
     const timeLocal = extractTime(block);
     const imageUrl = extractImage(block);
-
-    if (
-      !rawTitle ||
-      isBlockedTitle(rawTitle) ||
-      isPaardBoilerplateTitle(rawTitle)
-    ) {
-      rawTitle = titleFromLink(link);
-    }
 
     if (!rawTitle || isBlockedTitle(rawTitle) || !dateLocal || !link) continue;
     if (!looksLikeRealEvent(rawTitle, link, venue)) continue;
@@ -398,8 +390,7 @@ function parseTivoli(html, venue) {
   }
 
   return events;
-}
-
+        }
 function buildEvent({
   venue,
   sourceId,
@@ -701,20 +692,6 @@ function isBlockedTitle(title) {
   );
 }
 
-function isPaardBoilerplateTitle(title) {
-  const t = cleanText(title).toLowerCase();
-
-  if (!t) return true;
-  if (t === "dit is paard") return true;
-  if (t === "binnenkort") return true;
-  if (t.includes("@paard.nl")) return true;
-  if (/^\d{3}\s?\d{3}\s?\d{2}\s?\d{2}$/.test(t.replace(/[^\d]/g, " ").replace(/\s+/g, " ").trim())) {
-    return true;
-  }
-
-  return false;
-}
-
 function titleFromLink(link) {
   if (!link) return "";
 
@@ -799,7 +776,9 @@ function dedupeEvents(events) {
 
   return Array.from(map.values()).sort((a, b) => {
     if (a.date_local !== b.date_local) {
-      return String(a.title).localeCompare(String(b.title));
+      return String(a.date_local).localeCompare(String(b.date_local));
+    }
+    return String(a.title).localeCompare(String(b.title));
   });
 }
 
@@ -839,4 +818,4 @@ function cleanText(str) {
 
 function stripTags(str) {
   return String(str || "").replace(/<[^>]*>/g, " ");
-}
+  }

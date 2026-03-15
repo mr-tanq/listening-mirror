@@ -1,548 +1,171 @@
-// worker.js
-// Listening Mirror — Concert Worker
-// Main entry point
-
-import {
-  fetchAllVenueEvents,
-  fetchVenueEventsById
-} from "./concert-fetch-engine.js";
-
-import {
-  scoreConcerts,
-  filterRecommendedConcerts
-} from "./concert-recommender.js";
-
-import {
-  buildTasteProfile,
-  sortAffinityMap
-} from "./taste-profile-engine.js";
-
-import {
-  fetchLastfmProfile,
-  summarizeLastfmProfile
-} from "./lastfm-client.js";
-
 export default {
-  async fetch(request, env, ctx) {
-    try {
-      return await handleRequest(request, env, ctx);
-    } catch (err) {
-      return json(
-        {
-          ok: false,
-          error: err?.message || "Unknown error"
-        },
-        500
-      );
+  async fetch(req, env) {
+
+    const url = new URL(req.url)
+    const path = url.pathname
+
+    if (path === "/concerts/db-debug-score") {
+      return debugScore(url, env)
     }
+
+    if (path === "/concerts/db-search") {
+      return dbSearch(url, env)
+    }
+
+    if (path === "/concerts/db-recommended") {
+      return dbRecommended(url, env)
+    }
+
+    return new Response("ok")
   }
-};
+}
 
-async function handleRequest(request, env, ctx) {
-  const url = new URL(request.url);
-  const pathname = normalizePath(url.pathname);
+function normalizeArtist(name) {
+  if (!name) return ""
+  return name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9 ]/g, "")
+    .trim()
+}
 
-  if (request.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders() });
+async function getFutureEvents(env) {
+  const res = await env.DB.prepare(`
+    SELECT * FROM events
+    WHERE date_local >= date('now')
+    ORDER BY date_local ASC
+  `).all()
+
+  return res.results || []
+}
+async function dbSearch(url, env) {
+
+  const q = (url.searchParams.get("q") || "").toLowerCase()
+
+  const rows = await env.DB.prepare(`
+    SELECT * FROM events
+    WHERE lower(raw_title) LIKE ?
+    OR lower(artists_main) LIKE ?
+    ORDER BY date_local ASC
+    LIMIT 50
+  `).bind(`%${q}%`, `%${q}%`).all()
+
+  return json({
+    ok: true,
+    mode: "db-search",
+    query: q,
+    found: rows.results.length,
+    results: rows.results
+  })
+}
+
+function affinityScore(artist) {
+
+  // προσωρινό fake affinity μέχρι να βάλουμε real lastfm map
+  const liked = [
+    "villagers of ioannina city",
+    "solstafir",
+    "mono",
+    "godspeed you black emperor",
+    "archive",
+    "a perfect circle",
+    "god is an astronaut",
+    "judas priest"
+  ]
+
+  if (liked.includes(artist)) return 0.6
+
+  return 0.1
+}
+
+function scoreEvent(ev) {
+
+  const artistNorm = normalizeArtist(ev.artists_main)
+
+  const affinity = affinityScore(artistNorm)
+
+  const venueBoost =
+    ev.venue_name === "013" ||
+    ev.venue_name === "Patronaat" ||
+    ev.venue_name === "TivoliVredenburg"
+      ? 0.1
+      : 0
+
+  const total = affinity + venueBoost
+
+  return {
+    artistNorm,
+    affinity,
+    venueBoost,
+    total
   }
+}
+async function dbRecommended(url, env) {
 
-  if (pathname === "/health") {
-    return json({
-      ok: true,
-      service: "econcerts",
-      status: "healthy",
-      timestamp: new Date().toISOString()
-    });
-  }
+  const events = await getFutureEvents(env)
 
-  if (pathname === "/admin/db-count") {
-    assertDb(env);
+  const scored = events.map(ev => {
 
-    const row = await env.DB
-      .prepare("SELECT COUNT(*) AS count FROM concerts")
-      .first();
+    const s = scoreEvent(ev)
 
-    return json({
-      ok: true,
-      mode: "db-count",
-      count: Number(row?.count || 0)
-    });
-  }
+    return {
+      ...ev,
+      recommendation_score: s.total,
+      matched_artist: s.artistNorm
+    }
+  })
 
-  if (pathname === "/admin/refresh-db") {
-    assertDb(env);
+  const filtered = scored
+    .filter(e => e.recommendation_score >= 0.3)
+    .sort((a, b) => b.recommendation_score - a.recommendation_score)
+    .slice(0, 20)
 
-    const events = await fetchAllVenueEvents();
-    const now = Date.now();
+  return json({
+    ok: true,
+    mode: "db-recommended",
+    total_future_events: events.length,
+    recommended_count: filtered.length,
+    recommended: filtered
+  })
+}
 
-    let written = 0;
-    let failed = 0;
+async function debugScore(url, env) {
 
-    for (const event of events) {
-      try {
-        await upsertConcert(env.DB, event, now);
-        written += 1;
-      } catch (err) {
-        failed += 1;
+  const q = normalizeArtist(url.searchParams.get("q") || "")
+
+  const events = await getFutureEvents(env)
+
+  const matches = events
+    .map(ev => {
+
+      const s = scoreEvent(ev)
+
+      return {
+        id: ev.id,
+        artist_raw: ev.artists_main,
+        artist_norm: s.artistNorm,
+        venue: ev.venue_name,
+        date: ev.date_local,
+        affinity: s.affinity,
+        venueBoost: s.venueBoost,
+        total_score: s.total,
+        passes_threshold: s.total >= 0.3
       }
-    }
+    })
+    .filter(e => e.artist_norm.includes(q))
 
-    return json({
-      ok: true,
-      mode: "refresh-db",
-      fetched: events.length,
-      written,
-      failed
-    });
-  }
-
-  if (pathname === "/concerts/db-latest") {
-    assertDb(env);
-
-    const limit = clampInt(url.searchParams.get("limit"), 20, 1, 500);
-
-    const rows = await env.DB
-      .prepare(`
-        SELECT
-          id,
-          source,
-          source_id,
-          title,
-          artists_main,
-          artists_all,
-          raw_title,
-          date_local,
-          time_local,
-          venue_name,
-          city,
-          country,
-          url,
-          image_url,
-          genre_hint,
-          fetched_at,
-          created_at,
-          updated_at
-        FROM concerts
-        WHERE
-          date_local IS NOT NULL
-          AND date_local != ''
-          AND date(date_local) >= date('now')
-        ORDER BY
-          date_local ASC,
-          title ASC
-        LIMIT ?
-      `)
-      .bind(limit)
-      .all();
-
-    return json({
-      ok: true,
-      mode: "db-latest",
-      count: rows?.results?.length || 0,
-      results: (rows?.results || []).map(hydrateConcertRow)
-    });
-  }
-
-  if (pathname === "/concerts/db-search") {
-    assertDb(env);
-
-    const q = (url.searchParams.get("q") || "").trim();
-    if (!q) {
-      return json(
-        {
-          ok: false,
-          error: "Missing q param"
-        },
-        400
-      );
-    }
-
-    const limit = clampInt(url.searchParams.get("limit"), 50, 1, 500);
-    const like = `%${q.toLowerCase()}%`;
-
-    const rows = await env.DB
-      .prepare(`
-        SELECT
-          id,
-          source,
-          source_id,
-          title,
-          artists_main,
-          artists_all,
-          raw_title,
-          date_local,
-          time_local,
-          venue_name,
-          city,
-          country,
-          url,
-          image_url,
-          genre_hint,
-          fetched_at,
-          created_at,
-          updated_at
-        FROM concerts
-        WHERE
-          date_local IS NOT NULL
-          AND date_local != ''
-          AND date(date_local) >= date('now')
-          AND (
-            LOWER(COALESCE(title, '')) LIKE ?
-            OR LOWER(COALESCE(raw_title, '')) LIKE ?
-            OR LOWER(COALESCE(artists_main, '')) LIKE ?
-            OR LOWER(COALESCE(artists_all, '')) LIKE ?
-            OR LOWER(COALESCE(venue_name, '')) LIKE ?
-            OR LOWER(COALESCE(city, '')) LIKE ?
-          )
-        ORDER BY
-          date_local ASC,
-          title ASC
-        LIMIT ?
-      `)
-      .bind(like, like, like, like, like, like, limit)
-      .all();
-
-    return json({
-      ok: true,
-      mode: "db-search",
-      query: q,
-      found: rows?.results?.length || 0,
-      results: (rows?.results || []).map(hydrateConcertRow)
-    });
-  }
-
-  if (pathname === "/concerts/db-recommended") {
-    assertDb(env);
-
-    const limit = clampInt(url.searchParams.get("limit"), 1000, 1, 5000);
-    const minScore = clampFloat(url.searchParams.get("minScore"), 0.12, 0, 1);
-
-    const rows = await env.DB
-      .prepare(`
-        SELECT
-          id,
-          source,
-          source_id,
-          title,
-          artists_main,
-          artists_all,
-          raw_title,
-          date_local,
-          time_local,
-          venue_name,
-          city,
-          country,
-          url,
-          image_url,
-          genre_hint,
-          fetched_at,
-          created_at,
-          updated_at
-        FROM concerts
-        WHERE
-          date_local IS NOT NULL
-          AND date_local != ''
-          AND date(date_local) >= date('now')
-        ORDER BY
-          date_local ASC,
-          title ASC
-        LIMIT ?
-      `)
-      .bind(limit)
-      .all();
-
-    const concerts = (rows?.results || []).map(hydrateConcertRow);
-
-    const lastfmProfile = await fetchLastfmProfile(env);
-    const affinityMap = buildTasteProfile(lastfmProfile);
-
-    const scored = scoreConcerts(concerts, affinityMap);
-    const recommended = filterRecommendedConcerts(scored, {
-      minScore,
-      includeWeakSignals: false
-    });
-
-    return json({
-      ok: true,
-      mode: "db-recommended",
-      total_future_events: concerts.length,
-      min_score: minScore,
-      recommended_count: recommended.length,
-      recommended
-    });
-  }
-
-  if (pathname === "/concerts/venues") {
-    const source = (url.searchParams.get("source") || "").trim().toLowerCase();
-
-    if (source) {
-      const events = await fetchVenueEventsById(source);
-
-      return json({
-        ok: true,
-        mode: "single-source",
-        source,
-        count: events.length,
-        events
-      });
-    }
-
-    const events = await fetchAllVenueEvents();
-
-    return json({
-      ok: true,
-      mode: "all-venues",
-      count: events.length,
-      events
-    });
-  }
-
-  if (pathname === "/concerts/search") {
-    const q = (url.searchParams.get("q") || "").trim().toLowerCase();
-
-    if (!q) {
-      return json(
-        {
-          ok: false,
-          error: "Missing q param"
-        },
-        400
-      );
-    }
-
-    const events = await fetchAllVenueEvents();
-
-    const results = events.filter((e) => {
-      const blob = [
-        e.title || "",
-        e.raw_title || "",
-        ...(Array.isArray(e.artists_all) ? e.artists_all : [])
-      ]
-        .join(" ")
-        .toLowerCase();
-
-      return blob.includes(q);
-    });
-
-    return json({
-      ok: true,
-      mode: "search",
-      query: q,
-      total_pool: events.length,
-      found: results.length,
-      results
-    });
-  }
-
-  if (pathname === "/lastfm/debug") {
-    const profile = await fetchLastfmProfile(env);
-    const summary = summarizeLastfmProfile(profile);
-    const affinityMap = buildTasteProfile(profile);
-    const topAffinity = sortAffinityMap(affinityMap).slice(0, 50);
-
-    return json({
-      ok: true,
-      mode: "lastfm-debug",
-      summary,
-      topAffinity
-    });
-  }
-
-  if (pathname === "/concerts/recommended") {
-    const allEvents = await fetchAllVenueEvents();
-    const lastfmProfile = await fetchLastfmProfile(env);
-    const affinityMap = buildTasteProfile(lastfmProfile);
-
-    const scored = scoreConcerts(allEvents, affinityMap);
-    const recommended = filterRecommendedConcerts(scored, {
-      minScore: 0.12,
-      includeWeakSignals: false
-    });
-
-    return json({
-      ok: true,
-      mode: "recommended",
-      total_events: allEvents.length,
-      recommended_count: recommended.length,
-      recommended
-    });
-  }
-
-  if (pathname === "/") {
-    return json({
-      ok: true,
-      service: "econcerts",
-      endpoints: [
-        "/health",
-        "/admin/db-count",
-        "/admin/refresh-db",
-        "/concerts/db-latest",
-        "/concerts/db-latest?limit=50",
-        "/concerts/db-search?q=amenra",
-        "/concerts/db-search?q=mono",
-        "/concerts/db-search?q=villagers",
-        "/concerts/db-recommended",
-        "/concerts/db-recommended?limit=1000",
-        "/concerts/db-recommended?limit=1000&minScore=0.08",
-        "/concerts/venues",
-        "/concerts/venues?source=tivoli",
-        "/concerts/venues?source=013",
-        "/concerts/venues?source=paradiso",
-        "/concerts/venues?source=melkweg",
-        "/concerts/venues?source=paard",
-        "/concerts/venues?source=doornroosje",
-        "/concerts/venues?source=patronaat",
-        "/concerts/venues?source=effenaar",
-        "/concerts/venues?source=vera",
-        "/concerts/venues?source=hedon",
-        "/concerts/venues?source=muziekgieterij",
-        "/concerts/venues?source=boerderij",
-        "/concerts/venues?source=fluor",
-        "/concerts/search?q=amenra",
-        "/lastfm/debug",
-        "/concerts/recommended"
-      ]
-    });
-  }
-
-  return json(
-    {
-      ok: false,
-      error: "Not found",
-      pathname
-    },
-    404
-  );
+  return json({
+    ok: true,
+    mode: "db-debug-score",
+    query: q,
+    found: matches.length,
+    matches
+  })
 }
 
-function assertDb(env) {
-  if (!env?.DB) {
-    throw new Error("Missing DB binding");
-  }
-}
-
-async function upsertConcert(DB, event, now) {
-  const id = String(event?.source_id || "").trim();
-  if (!id) {
-    throw new Error("Missing source_id");
-  }
-
-  const stmt = DB.prepare(`
-    INSERT INTO concerts (
-      id,
-      source,
-      source_id,
-      title,
-      artists_main,
-      artists_all,
-      raw_title,
-      date_local,
-      time_local,
-      venue_name,
-      city,
-      country,
-      url,
-      image_url,
-      genre_hint,
-      fetched_at,
-      created_at,
-      updated_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      source = excluded.source,
-      source_id = excluded.source_id,
-      title = excluded.title,
-      artists_main = excluded.artists_main,
-      artists_all = excluded.artists_all,
-      raw_title = excluded.raw_title,
-      date_local = excluded.date_local,
-      time_local = excluded.time_local,
-      venue_name = excluded.venue_name,
-      city = excluded.city,
-      country = excluded.country,
-      url = excluded.url,
-      image_url = excluded.image_url,
-      genre_hint = excluded.genre_hint,
-      fetched_at = excluded.fetched_at,
-      updated_at = excluded.updated_at
-  `);
-
-  await stmt.bind(
-    id,
-    safe(event.source),
-    safe(event.source_id),
-    safe(event.title),
-    safe(event.artists_main),
-    JSON.stringify(Array.isArray(event.artists_all) ? event.artists_all : []),
-    safe(event.raw_title),
-    safe(event.date_local),
-    safe(event.time_local),
-    safe(event.venue_name),
-    safe(event.city),
-    safe(event.country),
-    safe(event.url),
-    safe(event.image_url),
-    safe(event.genre_hint),
-    Number(event.fetched_at || now),
-    now,
-    now
-  ).run();
-}
-
-function hydrateConcertRow(row) {
-  return {
-    ...row,
-    artists_all: parseArtistsAll(row?.artists_all)
-  };
-}
-
-function parseArtistsAll(value) {
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function clampInt(value, fallback, min, max) {
-  const n = Number.parseInt(value, 10);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(min, Math.min(max, n));
-}
-
-function clampFloat(value, fallback, min, max) {
-  const n = Number.parseFloat(value);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(min, Math.min(max, n));
-}
-
-function safe(value) {
-  if (value === undefined || value === null) return null;
-  return String(value);
-}
-
-function json(data, status = 200) {
+function json(data) {
   return new Response(JSON.stringify(data, null, 2), {
-    status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      ...corsHeaders()
-    }
-  });
-}
-
-function corsHeaders() {
-  return {
-    "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET,HEAD,POST,OPTIONS",
-    "access-control-allow-headers": "Content-Type"
-  };
-}
-
-function normalizePath(pathname) {
-  if (!pathname) return "/";
-  return pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
+    headers: { "content-type": "application/json" }
+  })
 }

@@ -99,7 +99,7 @@ async function handleRequest(request, env, ctx) {
   if (pathname === "/concerts/db-latest") {
     assertDb(env);
 
-    const limit = clampInt(url.searchParams.get("limit"), 20, 1, 200);
+    const limit = clampInt(url.searchParams.get("limit"), 20, 1, 500);
 
     const rows = await env.DB
       .prepare(`
@@ -157,7 +157,7 @@ async function handleRequest(request, env, ctx) {
       );
     }
 
-    const limit = clampInt(url.searchParams.get("limit"), 50, 1, 200);
+    const limit = clampInt(url.searchParams.get("limit"), 50, 1, 500);
     const like = `%${q.toLowerCase()}%`;
 
     const rows = await env.DB
@@ -214,7 +214,8 @@ async function handleRequest(request, env, ctx) {
   if (pathname === "/concerts/db-recommended") {
     assertDb(env);
 
-    const limit = clampInt(url.searchParams.get("limit"), 100, 1, 300);
+    const limit = clampInt(url.searchParams.get("limit"), 1000, 1, 5000);
+    const minScore = clampFloat(url.searchParams.get("minScore"), 0.12, 0, 1);
 
     const rows = await env.DB
       .prepare(`
@@ -257,7 +258,7 @@ async function handleRequest(request, env, ctx) {
 
     const scored = scoreConcerts(concerts, affinityMap);
     const recommended = filterRecommendedConcerts(scored, {
-      minScore: 0.18,
+      minScore,
       includeWeakSignals: false
     });
 
@@ -265,6 +266,7 @@ async function handleRequest(request, env, ctx) {
       ok: true,
       mode: "db-recommended",
       total_future_events: concerts.length,
+      min_score: minScore,
       recommended_count: recommended.length,
       recommended
     });
@@ -353,7 +355,7 @@ async function handleRequest(request, env, ctx) {
 
     const scored = scoreConcerts(allEvents, affinityMap);
     const recommended = filterRecommendedConcerts(scored, {
-      minScore: 0.18,
+      minScore: 0.12,
       includeWeakSignals: false
     });
 
@@ -380,6 +382,8 @@ async function handleRequest(request, env, ctx) {
         "/concerts/db-search?q=mono",
         "/concerts/db-search?q=villagers",
         "/concerts/db-recommended",
+        "/concerts/db-recommended?limit=1000",
+        "/concerts/db-recommended?limit=1000&minScore=0.08",
         "/concerts/venues",
         "/concerts/venues?source=tivoli",
         "/concerts/venues?source=013",
@@ -505,6 +509,12 @@ function parseArtistsAll(value) {
 
 function clampInt(value, fallback, min, max) {
   const n = Number.parseInt(value, 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
+function clampFloat(value, fallback, min, max) {
+  const n = Number.parseFloat(value);
   if (!Number.isFinite(n)) return fallback;
   return Math.max(min, Math.min(max, n));
 }

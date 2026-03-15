@@ -41,6 +41,15 @@ export const VENUES = [
     parser: "generic"
   },
 
+{
+  id: "fluor",
+  name: "FLUOR",
+  city: "Amersfoort",
+  country: "NL",
+  url: "https://fluor033.nl/programma/",
+  parser: "generic"
+}
+
   // ===== Den Haag =====
   {
     id: "paard",

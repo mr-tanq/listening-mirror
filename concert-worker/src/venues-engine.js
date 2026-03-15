@@ -22,11 +22,11 @@ export const VENUES = [
 
   {
     id: "tivoli",
-    name: "TivoliVredenburg",
-    city: "Utrecht",
-    country: "NL",
-    url: "https://www.tivolivredenburg.nl/agenda/",
-    parser: "custom"
+  name: "TivoliVredenburg",
+  city: "Utrecht",
+  country: "NL",
+  url: "https://www.tivolivredenburg.nl/agenda/?today=1",
+  parser: "custom"
   },
 
   {

@@ -55,6 +55,47 @@ async function handleRequest(request, env, ctx) {
     });
   }
 
+  if (pathname === "/admin/db-count") {
+    assertDb(env);
+
+    const row = await env.DB
+      .prepare("SELECT COUNT(*) AS count FROM concerts")
+      .first();
+
+    return json({
+      ok: true,
+      mode: "db-count",
+      count: Number(row?.count || 0)
+    });
+  }
+
+  if (pathname === "/admin/refresh-db") {
+    assertDb(env);
+
+    const events = await fetchAllVenueEvents();
+    const now = Date.now();
+
+    let written = 0;
+    let failed = 0;
+
+    for (const event of events) {
+      try {
+        await upsertConcert(env.DB, event, now);
+        written += 1;
+      } catch (err) {
+        failed += 1;
+      }
+    }
+
+    return json({
+      ok: true,
+      mode: "refresh-db",
+      fetched: events.length,
+      written,
+      failed
+    });
+  }
+
   if (pathname === "/concerts/venues") {
     const source = (url.searchParams.get("source") || "").trim().toLowerCase();
 
@@ -157,6 +198,8 @@ async function handleRequest(request, env, ctx) {
       service: "econcerts",
       endpoints: [
         "/health",
+        "/admin/db-count",
+        "/admin/refresh-db",
         "/concerts/venues",
         "/concerts/venues?source=tivoli",
         "/concerts/venues?source=013",
@@ -186,6 +229,86 @@ async function handleRequest(request, env, ctx) {
     },
     404
   );
+}
+
+function assertDb(env) {
+  if (!env?.DB) {
+    throw new Error("Missing DB binding");
+  }
+}
+
+async function upsertConcert(DB, event, now) {
+  const id = String(event?.source_id || "").trim();
+  if (!id) {
+    throw new Error("Missing source_id");
+  }
+
+  const stmt = DB.prepare(`
+    INSERT INTO concerts (
+      id,
+      source,
+      source_id,
+      title,
+      artists_main,
+      artists_all,
+      raw_title,
+      date_local,
+      time_local,
+      venue_name,
+      city,
+      country,
+      url,
+      image_url,
+      genre_hint,
+      fetched_at,
+      created_at,
+      updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      source = excluded.source,
+      source_id = excluded.source_id,
+      title = excluded.title,
+      artists_main = excluded.artists_main,
+      artists_all = excluded.artists_all,
+      raw_title = excluded.raw_title,
+      date_local = excluded.date_local,
+      time_local = excluded.time_local,
+      venue_name = excluded.venue_name,
+      city = excluded.city,
+      country = excluded.country,
+      url = excluded.url,
+      image_url = excluded.image_url,
+      genre_hint = excluded.genre_hint,
+      fetched_at = excluded.fetched_at,
+      updated_at = excluded.updated_at
+  `);
+
+  await stmt.bind(
+    id,
+    safe(event.source),
+    safe(event.source_id),
+    safe(event.title),
+    safe(event.artists_main),
+    JSON.stringify(Array.isArray(event.artists_all) ? event.artists_all : []),
+    safe(event.raw_title),
+    safe(event.date_local),
+    safe(event.time_local),
+    safe(event.venue_name),
+    safe(event.city),
+    safe(event.country),
+    safe(event.url),
+    safe(event.image_url),
+    safe(event.genre_hint),
+    Number(event.fetched_at || now),
+    now,
+    now
+  ).run();
+}
+
+function safe(value) {
+  if (value === undefined || value === null) return null;
+  return String(value);
 }
 
 function json(data, status = 200) {

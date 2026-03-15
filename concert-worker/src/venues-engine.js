@@ -7,11 +7,11 @@ export const VENUES = [
   // ===== Amsterdam =====
   {
     id: "paradiso",
-    name: "Paradiso",
-    city: "Amsterdam",
-    country: "NL",
-    url: "https://www.paradiso.nl/en/program",
-    parser: "generic"
+  name: "Paradiso",
+  city: "Amsterdam",
+  country: "NL",
+  url: "https://www.paradiso.nl/en",
+  parser: "generic"
   },
   {
     id: "melkweg",
@@ -54,22 +54,22 @@ export const VENUES = [
 
   // ===== Nijmegen =====
   {
-    id: "doornroosje",
-    name: "Doornroosje",
-    city: "Nijmegen",
-    country: "NL",
-    url: "https://www.doornroosje.nl/agenda/",
-    parser: "generic"
+     id: "doornroosje",
+  name: "Doornroosje",
+  city: "Nijmegen",
+  country: "NL",
+  url: "https://www.doornroosje.nl/agenda/",
+  parser: "generic"
   },
 
   // ===== Haarlem =====
   {
     id: "patronaat",
-    name: "Patronaat",
-    city: "Haarlem",
-    country: "NL",
-    url: "https://patronaat.nl/agenda/",
-    parser: "generic"
+  name: "Patronaat",
+  city: "Haarlem",
+  country: "NL",
+  url: "https://patronaat.nl/programma/",
+  parser: "generic"
   },
 
   // ===== Eindhoven =====

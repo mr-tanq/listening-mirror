@@ -1,6 +1,6 @@
 // concert-fetch-engine.js
 // Listening Mirror — Concert Worker
-// Venue fetch + parse engine v4
+// Venue fetch + parse engine v5
 // Custom handling for: paradiso, doornroosje, patronaat
 
 import { VENUES } from "./venues-engine.js";
@@ -102,22 +102,12 @@ function parseParadiso(html, venue) {
   const events = [];
   const seen = new Set();
 
-  const hrefRegex = /href="([^"]+)"/gi;
+  const linkRegex = /href="([^"]*concertagenda-paradiso[^"]*|\/program\/[^"]+|\/en\/program\/[^"]+)"/gi;
   let match;
 
-  while ((match = hrefRegex.exec(html)) !== null) {
+  while ((match = linkRegex.exec(html)) !== null) {
     const href = match[1];
     if (!href) continue;
-
-    const normalizedHref = href.toLowerCase();
-
-    const isProgramLink =
-      normalizedHref.includes("/program/") &&
-      !normalizedHref.includes("/program/filters") &&
-      !normalizedHref.includes("/program?page=") &&
-      !normalizedHref.includes("/program?");
-
-    if (!isProgramLink) continue;
 
     let link;
     try {
@@ -126,11 +116,21 @@ function parseParadiso(html, venue) {
       continue;
     }
 
+    const lower = link.toLowerCase();
+    if (
+      lower.includes("concertagenda-paradiso/2069817") ||
+      lower.includes("?") ||
+      lower.endsWith("/program") ||
+      lower.endsWith("/program/")
+    ) {
+      continue;
+    }
+
     if (seen.has(link)) continue;
     seen.add(link);
 
-    const start = Math.max(0, match.index - 1200);
-    const end = Math.min(html.length, match.index + 2400);
+    const start = Math.max(0, match.index - 1800);
+    const end = Math.min(html.length, match.index + 3200);
     const block = html.slice(start, end);
 
     let rawTitle = extractTitle(block);
@@ -167,7 +167,6 @@ function parseParadiso(html, venue) {
 
 function parseDoornroosje(html, venue) {
   const events = [];
-
   const blocks = html.split(/href="https:\/\/www\.doornroosje\.nl\/event\/|href="\/event\//i);
 
   for (let i = 1; i < blocks.length; i++) {
@@ -188,8 +187,7 @@ function parseDoornroosje(html, venue) {
       rawTitle = titleFromLink(link);
     }
 
-    if (!rawTitle || isBlockedTitle(rawTitle)) continue;
-    if (!dateLocal || !link) continue;
+    if (!rawTitle || isBlockedTitle(rawTitle) || !dateLocal || !link) continue;
     if (!looksLikeRealEvent(rawTitle, link, venue)) continue;
 
     const artistInfo = normalizeArtist(rawTitle);
@@ -214,7 +212,6 @@ function parseDoornroosje(html, venue) {
 
 function parsePatronaat(html, venue) {
   const events = [];
-
   const blocks = html.split(/href="https:\/\/patronaat\.nl\/event\/|href="\/event\//i);
 
   for (let i = 1; i < blocks.length; i++) {
@@ -235,7 +232,7 @@ function parsePatronaat(html, venue) {
       rawTitle = titleFromLink(link);
     }
 
-    if (!rawTitle || isBlockedTitle(rawTitle) || !dateLocal) continue;
+    if (!rawTitle || isBlockedTitle(rawTitle) || !dateLocal || !link) continue;
     if (!looksLikeRealEvent(rawTitle, link, venue)) continue;
 
     const artistInfo = normalizeArtist(rawTitle);
@@ -356,7 +353,6 @@ function extractDate(block) {
 function extractTime(block) {
   const m = block.match(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/);
   if (!m) return null;
-
   return `${String(m[1]).padStart(2, "0")}:${m[2]}`;
 }
 
@@ -466,6 +462,8 @@ function isBlockedTitle(title) {
 }
 
 function titleFromLink(link) {
+  if (!link) return "";
+
   try {
     const u = new URL(link);
     const slug = u.pathname.split("/").filter(Boolean).pop() || "";
@@ -520,7 +518,9 @@ function dedupeEvents(events) {
         (event.raw_title || "").length > (existing.raw_title || "").length
           ? event.raw_title
           : existing.raw_title,
-      artists_all: Array.from(new Set([...(existing.artists_all || []), ...(event.artists_all || [])]))
+      artists_all: Array.from(
+        new Set([...(existing.artists_all || []), ...(event.artists_all || [])])
+      )
     });
   }
 

@@ -1,17 +1,17 @@
 // venues-engine.js
-// Listening Mirror — Concert Worker
-// Venues Registry (NL Core Coverage)
+// Listening Mirror — NL Venue Sources v2
 
 export const VENUES = [
-  // ===== Amsterdam =====
+
   {
     id: "paradiso",
     name: "Paradiso",
     city: "Amsterdam",
     country: "NL",
     url: "https://www.paradiso.nl/landing/concertagenda-paradiso/2069817",
-    parser: "generic"
+    parser: "custom"
   },
+
   {
     id: "melkweg",
     name: "Melkweg",
@@ -21,7 +21,6 @@ export const VENUES = [
     parser: "generic"
   },
 
-  // ===== Utrecht =====
   {
     id: "tivoli",
     name: "TivoliVredenburg",
@@ -31,56 +30,15 @@ export const VENUES = [
     parser: "generic"
   },
 
-  // ===== Tilburg =====
-  {
-    id: "013",
-    name: "013",
-    city: "Tilburg",
-    country: "NL",
-    url: "https://www.013.nl/programma",
-    parser: "generic"
-  },
-
-{
-  id: "fluor",
-  name: "FLUOR",
-  city: "Amersfoort",
-  country: "NL",
-  url: "https://fluor033.nl/programma/",
-  parser: "generic"
-}
-
-  // ===== Den Haag =====
   {
     id: "paard",
-    name: "Paard",
+    name: "PAARD",
     city: "Den Haag",
     country: "NL",
-    url: "https://www.paard.nl/event/",
+    url: "https://www.paard.nl/events/",
     parser: "generic"
   },
 
-  // ===== Nijmegen =====
-  {
-    id: "doornroosje",
-    name: "Doornroosje",
-    city: "Nijmegen",
-    country: "NL",
-    url: "https://www.doornroosje.nl/agenda/",
-    parser: "generic"
-  },
-
-  // ===== Haarlem =====
-  {
-    id: "patronaat",
-    name: "Patronaat",
-    city: "Haarlem",
-    country: "NL",
-    url: "https://patronaat.nl/programma/",
-    parser: "generic"
-  },
-
-  // ===== Eindhoven =====
   {
     id: "effenaar",
     name: "Effenaar",
@@ -90,7 +48,51 @@ export const VENUES = [
     parser: "generic"
   },
 
-  // ===== Groningen =====
+  {
+    id: "013",
+    name: "013",
+    city: "Tilburg",
+    country: "NL",
+    url: "https://www.013.nl/programma",
+    parser: "generic"
+  },
+
+  {
+    id: "patronaat",
+    name: "Patronaat",
+    city: "Haarlem",
+    country: "NL",
+    url: "https://patronaat.nl/programma/",
+    parser: "custom"
+  },
+
+  {
+    id: "doornroosje",
+    name: "Doornroosje",
+    city: "Nijmegen",
+    country: "NL",
+    url: "https://www.doornroosje.nl/agenda/",
+    parser: "custom"
+  },
+
+  {
+    id: "fluor",
+    name: "FLUOR",
+    city: "Amersfoort",
+    country: "NL",
+    url: "https://fluor033.nl/programma/",
+    parser: "generic"
+  },
+
+  {
+    id: "boerderij",
+    name: "Poppodium Boerderij",
+    city: "Zoetermeer",
+    country: "NL",
+    url: "https://poppodiumboerderij.nl/programma/",
+    parser: "generic"
+  },
+
   {
     id: "vera",
     name: "Vera",
@@ -100,17 +102,15 @@ export const VENUES = [
     parser: "generic"
   },
 
-  // ===== Zwolle =====
   {
     id: "hedon",
     name: "Hedon",
     city: "Zwolle",
     country: "NL",
-    url: "https://hedon-zwolle.nl/agenda/",
+    url: "https://hedon-zwolle.nl/programma/",
     parser: "generic"
   },
 
-  // ===== Maastricht =====
   {
     id: "muziekgieterij",
     name: "Muziekgieterij",
@@ -118,15 +118,6 @@ export const VENUES = [
     country: "NL",
     url: "https://muziekgieterij.nl/agenda/",
     parser: "generic"
-  },
-
-  // ===== Zoetermeer =====
-  {
-    id: "boerderij",
-  name: "Poppodium Boerderij",
-  city: "Zoetermeer",
-  country: "NL",
-  url: "https://poppodiumboerderij.nl/programma/",
-  parser: "generic"
   }
+
 ];

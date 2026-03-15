@@ -1,8 +1,7 @@
 // venues-engine.js
-// Listening Mirror — NL Venue Sources v2
+// Listening Mirror — NL Venue Sources v3
 
 export const VENUES = [
-
   {
     id: "paradiso",
     name: "Paradiso",
@@ -27,7 +26,7 @@ export const VENUES = [
     city: "Utrecht",
     country: "NL",
     url: "https://www.tivolivredenburg.nl/agenda/",
-    parser: "generic"
+    parser: "custom"
   },
 
   {
@@ -35,8 +34,8 @@ export const VENUES = [
     name: "PAARD",
     city: "Den Haag",
     country: "NL",
-    url: "https://www.paard.nl/events/",
-    parser: "generic"
+    url: "https://www.paard.nl/",
+    parser: "custom"
   },
 
   {
@@ -119,5 +118,4 @@ export const VENUES = [
     url: "https://muziekgieterij.nl/agenda/",
     parser: "generic"
   }
-
 ];

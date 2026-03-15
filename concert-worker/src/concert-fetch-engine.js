@@ -1,6 +1,6 @@
 // concert-fetch-engine.js
 // Listening Mirror — Concert Worker
-// Venue fetch + parse engine v3
+// Venue fetch + parse engine v4
 // Custom handling for: paradiso, doornroosje, patronaat
 
 import { VENUES } from "./venues-engine.js";
@@ -98,20 +98,40 @@ function parseGenericVenue(html, venue) {
 
   return events;
 }
-
 function parseParadiso(html, venue) {
   const events = [];
+  const seen = new Set();
 
-  const blocks = html.split(/href="\/en\/program\/|href="https:\/\/www\.paradiso\.nl\/en\/program\//i);
+  const hrefRegex = /href="([^"]+)"/gi;
+  let match;
 
-  for (let i = 1; i < blocks.length; i++) {
-    const partial = blocks[i];
-    const hrefMatch = partial.match(/^([^"]+)"/);
-    if (!hrefMatch) continue;
+  while ((match = hrefRegex.exec(html)) !== null) {
+    const href = match[1];
+    if (!href) continue;
 
-    const hrefPart = hrefMatch[1].replace(/^https:\/\/www\.paradiso\.nl\/en\/program\//i, "");
-    const link = new URL(`/en/program/${hrefPart}`, "https://www.paradiso.nl").toString();
-    const block = `href="${link}" ${partial}`;
+    const normalizedHref = href.toLowerCase();
+
+    const isProgramLink =
+      normalizedHref.includes("/program/") &&
+      !normalizedHref.includes("/program/filters") &&
+      !normalizedHref.includes("/program?page=") &&
+      !normalizedHref.includes("/program?");
+
+    if (!isProgramLink) continue;
+
+    let link;
+    try {
+      link = new URL(href, "https://www.paradiso.nl").toString();
+    } catch {
+      continue;
+    }
+
+    if (seen.has(link)) continue;
+    seen.add(link);
+
+    const start = Math.max(0, match.index - 1200);
+    const end = Math.min(html.length, match.index + 2400);
+    const block = html.slice(start, end);
 
     let rawTitle = extractTitle(block);
     const dateLocal = extractDate(block);
@@ -237,7 +257,6 @@ function parsePatronaat(html, venue) {
 
   return events;
 }
-
 function buildEvent({
   venue,
   sourceId,
@@ -369,7 +388,6 @@ function extractImage(block) {
 
   return null;
 }
-
 function normalizeArtist(rawTitle) {
   let cleaned = cleanText(rawTitle)
     .replace(/\(.*?\)/g, " ")

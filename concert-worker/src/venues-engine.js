@@ -114,10 +114,10 @@ export const VENUES = [
   // ===== Zoetermeer =====
   {
     id: "boerderij",
-    name: "Cultuurpodium Boerderij",
-    city: "Zoetermeer",
-    country: "NL",
-    url: "https://www.podiumboerderij.nl/agenda/",
-    parser: "generic"
+  name: "Poppodium Boerderij",
+  city: "Zoetermeer",
+  country: "NL",
+  url: "https://poppodiumboerderij.nl/programma/",
+  parser: "generic"
   }
 ];

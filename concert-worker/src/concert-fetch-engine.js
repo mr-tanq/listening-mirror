@@ -1,6 +1,7 @@
 // concert-fetch-engine.js
 // Listening Mirror — Concert Worker
-// Venue fetch + parse engine v1
+// Venue fetch + parse engine v2
+// Includes custom parsers for: paradiso, doornroosje, patronaat
 
 import { VENUES } from "./venues-engine.js";
 
@@ -48,6 +49,19 @@ async function fetchHtml(url) {
 }
 
 function parseVenueHtml(html, venue) {
+  switch (venue.id) {
+    case "paradiso":
+      return parseParadiso(html, venue);
+    case "doornroosje":
+      return parseDoornroosje(html, venue);
+    case "patronaat":
+      return parsePatronaat(html, venue);
+    default:
+      return parseGenericVenue(html, venue);
+  }
+}
+
+function parseGenericVenue(html, venue) {
   const blocks = splitIntoCandidateBlocks(html);
   const events = [];
 
@@ -63,32 +77,186 @@ function parseVenueHtml(html, venue) {
 
     const artistInfo = normalizeArtist(rawTitle);
 
-    events.push({
-      source: venue.id,
-      source_id: buildSourceId(venue.id, artistInfo.main, dateLocal, link),
+    events.push(
+      buildEvent({
+        venue,
+        sourceId: buildSourceId(venue.id, artistInfo.main, dateLocal, link),
+        rawTitle,
+        title: artistInffunction parseParadiso(html, venue) {
+  const blocks = html.split(/href="\/en\/program\//i);
+  const events = [];
 
-      title: artistInfo.main,
-      artists_main: artistInfo.main,
-      artists_all: artistInfo.all,
-      raw_title: rawTitle,
+  for (let i = 1; i < blocks.length; i++) {
+    const partial = blocks[i];
+    const hrefMatch = partial.match(/^([^"]+)"/);
+    if (!hrefMatch) continue;
 
-      date_local: dateLocal,
-      time_local: timeLocal,
+    const link = new URL(`/en/program/${hrefMatch[1]}`, venue.url).toString();
+    const block = `href="${link}" ${partial}`;
 
-      venue_name: venue.name,
-      city: venue.city,
-      country: venue.country,
+    let rawTitle = extractTitle(block);
+    if (!rawTitle) {
+      rawTitle = titleFromLink(link);
+    }
 
-      url: link,
-      image_url: imageUrl,
+    const dateLocal = extractDate(block);
+    const timeLocal = extractTime(block);
+    const imageUrl = extractImage(block);
 
-      genre_hint: null,
-      fetched_at: Date.now()
-    });
+    if (!rawTitle || !dateLocal) continue;
+    if (!looksLikeRealEvent(rawTitle, link, venue)) continue;
+
+    const artistInfo = normalizeArtist(rawTitle);
+
+    events.push(
+      buildEvent({
+        venue,
+        sourceId: buildSourceId(venue.id, artistInfo.main, dateLocal, link),
+        rawTitle,
+        title: artistInfo.main,
+        artistsAll: artistInfo.all,
+        dateLocal,
+        timeLocal,
+        link,
+        imageUrl
+      })
+    );
   }
 
   return events;
 }
+
+function parseDoornroosje(html, venue) {
+  const blocks = html.split(/href="https:\/\/www\.doornroosje\.nl\/event\/|href="\/event\//i);
+  const events = [];
+
+  for (let i = 1; i < blocks.length; i++) {
+    const partial = blocks[i];
+    const hrefMatch = partial.match(/^([^"]+)"/);
+    if (!hrefMatch) continue;
+
+    const href = hrefMatch[1].replace(/^https:\/\/www\.doornroosje\.nl\/event\//i, "");
+    const link = new URL(`/event/${href}`, "https://www.doornroosje.nl").toString();
+    const block = `href="${link}" ${partial}`;
+
+    let rawTitle = extractTitle(block);
+    if (!rawTitle || isBlockedTitle(rawTitle)) {
+      rawTitle = titleFromLink(link);
+    }
+
+    const dateLocal = extractDate(block);
+    const timeLocal = extractTime(block);
+    const imageUrl = extractImage(block);
+
+    if (!rawTitle || !dateLocal) continue;
+    if (!looksLikeRealEvent(rawTitle, link, venue)) continue;
+
+    const artistInfo = normalizeArtist(rawTitle);
+
+    events.push(
+      buildEvent({
+        venue,
+        sourceId: buildSourceId(venue.id, artistInfo.main, dateLocal, link),
+        rawTitle,
+        title: artistInfo.main,
+        artistsAll: artistInfo.all,
+        dateLocal,
+        timeLocal,
+        link,
+        imageUrl
+      })
+    );
+  }
+
+  return events;
+}
+
+function parsePatronaat(html, venue) {
+  const blocks = html.split(/href="https:\/\/patronaat\.nl\/event\/|href="\/event\//i);
+  const events = [];
+
+  for (let i = 1; i < blocks.length; i++) {
+    const partial = blocks[i];
+    const hrefMatch = partial.match(/^([^"]+)"/);
+    if (!hrefMatch) continue;
+
+    const href = hrefMatch[1].replace(/^https:\/\/patronaat\.nl\/event\//i, "");
+    const link = new URL(`/event/${href}`, "https://patronaat.nl").toString();
+    const block = `href="${link}" ${partial}`;
+
+    let rawTitle = extractTitle(block);
+    if (!rawTitle || isBlockedTitle(rawTitle)) {
+      rawTitle = titleFromLink(link);
+    }
+
+    const dateLocal = extractDate(block);
+    const timeLocal = extractTime(block);
+    const imageUrl = extractImage(block);
+
+    if (!rawTitle || !dateLocal) continue;
+    if (!looksLikeRealEvent(rawTitle, link, venue)) continue;
+
+    const artistInfo = normalizeArtist(rawTitle);
+
+    events.push(
+      buildEvent({
+        venue,
+        sourceId: buildSourceId(venue.id, artistInfo.main, dateLocal, link),
+        rawTitle,
+        title: artistInfo.main,
+        artistsAll: artistInfo.all,
+        dateLocal,
+        timeLocal,
+        link,
+        imageUrl
+      })
+    );
+  }
+
+  return events;
+          }
+o.main,
+        artistsAll: artistInfo.all,
+        dateLocal,
+        timeLocal,
+        link,
+        imageUrl
+      })
+    );
+  }
+
+  return events;
+}
+function buildEvent({
+  venue,
+  sourceId,
+  rawTitle,
+  title,
+  artistsAll,
+  dateLocal,
+  timeLocal,
+  link,
+  imageUrl
+}) {
+  return {
+    source: venue.id,
+    source_id: sourceId,
+    title,
+    artists_main: title,
+    artists_all: artistsAll,
+    raw_title: rawTitle,
+    date_local: dateLocal,
+    time_local: timeLocal || null,
+    venue_name: venue.name,
+    city: venue.city,
+    country: venue.country,
+    url: link,
+    image_url: imageUrl || null,
+    genre_hint: null,
+    fetched_at: Date.now()
+  };
+}
+
 function splitIntoCandidateBlocks(html) {
   const chunks = html.split(/<a\s/i);
   const blocks = [];
@@ -109,7 +277,8 @@ function extractTitle(block) {
     /<h1[^>]*>([\s\S]*?)<\/h1>/i,
     /<h2[^>]*>([\s\S]*?)<\/h2>/i,
     /<h3[^>]*>([\s\S]*?)<\/h3>/i,
-    /<h4[^>]*>([\s\S]*?)<\/h4>/i
+    /<h4[^>]*>([\s\S]*?)<\/h4>/i,
+    /<strong[^>]*>([\s\S]*?)<\/strong>/i
   ];
 
   for (const pattern of patterns) {
@@ -132,19 +301,15 @@ function extractDate(block) {
   );
   if (m) {
     const day = m[1].padStart(2, "0");
-    const month = nlMonth(m[2]);
-    const year = m[3];
-    return `${year}-${month}-${day}`;
+    return `${m[3]}-${nlMonth(m[2])}-${day}`;
   }
 
   m = block.match(
-    /\b(mon|tue|wed|thu|fri|sat|sun)\s+(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+(20\d{2})\b/i
+    /\b(mon|tue|wed|thu|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+(20\d{2})\b/i
   );
   if (m) {
     const day = m[2].padStart(2, "0");
-    const month = enMonth(m[3]);
-    const year = m[4];
-    return `${year}-${month}-${day}`;
+    return `${m[4]}-${enMonth(m[3])}-${day}`;
   }
 
   m = block.match(
@@ -152,32 +317,25 @@ function extractDate(block) {
   );
   if (m) {
     const day = m[1].padStart(2, "0");
-    const month = enMonth(m[2]);
-    const year = m[3];
-    return `${year}-${month}-${day}`;
+    return `${m[3]}-${enMonth(m[2])}-${day}`;
   }
 
   return null;
 }
 
 function extractTime(block) {
-  let m = block.match(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/);
+  const m = block.match(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/);
   if (!m) return null;
 
-  const hh = String(m[1]).padStart(2, "0");
-  const mm = m[2];
-  return `${hh}:${mm}`;
+  return `${String(m[1]).padStart(2, "0")}:${m[2]}`;
 }
 
 function extractLink(block, baseUrl) {
   const m = block.match(/href="([^"]+)"/i);
   if (!m) return null;
 
-  const href = m[1].trim();
-  if (!href) return null;
-
   try {
-    return new URL(href, baseUrl).toString();
+    return new URL(m[1].trim(), baseUrl).toString();
   } catch {
     return null;
   }
@@ -222,8 +380,8 @@ function normalizeArtist(rawTitle) {
 }
 
 function looksLikeRealEvent(title, link, venue) {
-  const t = title.toLowerCase();
-  const l = link.toLowerCase();
+  const t = cleanText(title).toLowerCase();
+  const l = String(link || "").toLowerCase();
 
   const blockedWords = [
     "agenda",
@@ -243,17 +401,14 @@ function looksLikeRealEvent(title, link, venue) {
     "locatie",
     "zaalverhuur",
     "membership",
-    "lidmaatschap"
+    "lidmaatschap",
+    "vul op zijn minst 3 tekens in.",
+    "zoek",
+    "search"
   ];
 
-  if (blockedWords.some((word) => t === word || t.includes(word))) {
-    return false;
-  }
-
-  if (l.includes("/news") || l.includes("/contact") || l.includes("/over")) {
-    return false;
-  }
-
+  if (blockedWords.some((word) => t === word || t.includes(word))) return false;
+  if (l.includes("/news") || l.includes("/contact") || l.includes("/over")) return false;
   if (t.length < 2) return false;
 
   const venueNames = [
@@ -262,10 +417,36 @@ function looksLikeRealEvent(title, link, venue) {
     venue.id.toLowerCase()
   ];
 
-  const isOnlyVenueLabel = venueNames.some((name) => t === name);
-  if (isOnlyVenueLabel) return false;
+  if (venueNames.some((name) => t === name)) return false;
 
   return true;
+}
+
+function isBlockedTitle(title) {
+  const t = cleanText(title).toLowerCase();
+  return (
+    !t ||
+    t.includes("vul op zijn minst") ||
+    t === "zoek" ||
+    t === "search" ||
+    t === "programma" ||
+    t === "agenda"
+  );
+}
+
+function titleFromLink(link) {
+  try {
+    const u = new URL(link);
+    const slug = u.pathname.split("/").filter(Boolean).pop() || "";
+    return slug
+      .replace(/-\d+$/, "")
+      .split("-")
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
+  } catch {
+    return "";
+  }
 }
 
 function buildSourceId(source, artistMain, dateLocal, link) {
@@ -295,13 +476,20 @@ function dedupeEvents(events) {
     ].join("|");
 
     const existing = map.get(key);
-
     if (!existing) {
       map.set(key, event);
       continue;
     }
 
-    map.set(key, mergeEvents(existing, event));
+    map.set(key, {
+      ...existing,
+      image_url: existing.image_url || event.image_url || null,
+      time_local: existing.time_local || event.time_local || null,
+      raw_title: (event.raw_title || "").length > (existing.raw_title || "").length
+        ? event.raw_title
+        : existing.raw_title,
+      artists_all: Array.from(new Set([...(existing.artists_all || []), ...(event.artists_all || [])]))
+    });
   }
 
   return Array.from(map.values()).sort((a, b) => {
@@ -310,31 +498,6 @@ function dedupeEvents(events) {
     }
     return String(a.title).localeCompare(String(b.title));
   });
-}
-
-function mergeEvents(a, b) {
-  return {
-    ...a,
-    image_url: a.image_url || b.image_url || null,
-    time_local: a.time_local || b.time_local || null,
-    raw_title: chooseLonger(a.raw_title, b.raw_title),
-    artists_all: uniqueStrings([...(a.artists_all || []), ...(b.artists_all || [])])
-  };
-}
-function chooseLonger(a, b) {
-  const aa = a || "";
-  const bb = b || "";
-  return bb.length > aa.length ? bb : aa;
-}
-
-function uniqueStrings(items) {
-  return Array.from(
-    new Set(
-      items
-        .map((x) => cleanText(String(x || "")))
-        .filter(Boolean)
-    )
-  );
 }
 
 function slugify(str) {
@@ -375,7 +538,6 @@ function nlMonth(value) {
     nov: "11",
     dec: "12"
   };
-
   return map[String(value || "").toLowerCase()] || "01";
 }
 
@@ -394,6 +556,5 @@ function enMonth(value) {
     nov: "11",
     dec: "12"
   };
-
   return map[String(value || "").toLowerCase()] || "01";
-}
+    }

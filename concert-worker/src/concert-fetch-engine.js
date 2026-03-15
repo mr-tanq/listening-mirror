@@ -434,7 +434,7 @@ function parseTivoliAgendaHtml(html) {
   }
 
   return out;
-      }
+}
 async function tivoliHydrateEvent(ev) {
   const url = String(ev?.url || "");
   if (!url.startsWith("https://www.tivolivredenburg.nl/agenda/")) return ev;
@@ -763,7 +763,7 @@ function extractImage(block) {
 
 function normalizeArtist(rawTitle) {
   let cleaned = cleanText(rawTitle)
-    .replace(/.*?/g, " ")
+    .replace(/\(.*?\)/g, " ")
     .replace(/\blive\b/gi, " ")
     .replace(/\bconcert\b/gi, " ")
     .replace(/\bshow\b/gi, " ")
@@ -775,4 +775,262 @@ function normalizeArtist(rawTitle) {
     .trim();
 
   const parts = cleaned
-    .
+    .split(/\s+\+\s+|\s*&\s*|\s*,\s*|\/| \| /)
+    .map((x) => cleanText(x))
+    .filter(Boolean)
+    .slice(0, 6);
+
+  return {
+    main: parts[0] || cleaned,
+    all: parts.length ? parts : [cleaned]
+  };
+}
+
+function looksLikeRealEvent(title, link, venue) {
+  const t = cleanText(title).toLowerCase();
+  const l = String(link || "").toLowerCase();
+
+  const blockedWords = [
+    "agenda",
+    "programma",
+    "program",
+    "tickets",
+    "ticket info",
+    "nieuws",
+    "news",
+    "about",
+    "contact",
+    "vacature",
+    "privacy",
+    "cookie",
+    "huisregels",
+    "route",
+    "locatie",
+    "zaalverhuur",
+    "membership",
+    "lidmaatschap",
+    "vul op zijn minst 3 tekens in.",
+    "zoek",
+    "search"
+  ];
+
+  if (blockedWords.some((word) => t === word || t.includes(word))) return false;
+  if (l.includes("/news") || l.includes("/nieuws/") || l.includes("/contact") || l.includes("/over")) return false;
+  if (t.length < 2) return false;
+
+  const venueNames = [
+    venue.name.toLowerCase(),
+    venue.city.toLowerCase(),
+    venue.id.toLowerCase()
+  ];
+
+  if (venueNames.some((name) => t === name)) return false;
+
+  return true;
+}
+
+function titleFromLink(link) {
+  if (!link) return "";
+
+  try {
+    const u = new URL(link);
+    const slug = u.pathname.split("/").filter(Boolean).pop() || "";
+    return slug
+      .replace(/-\d+$/, "")
+      .split("-")
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
+  } catch {
+    return "";
+  }
+}
+
+function isBlockedTitle(title) {
+  const t = cleanText(title).toLowerCase();
+  return (
+    !t ||
+    t.includes("vul op zijn minst") ||
+    t === "zoek" ||
+    t === "search" ||
+    t === "programma" ||
+    t === "agenda" ||
+    t === "tickets"
+  );
+}
+
+function dedupeEvents(events) {
+  const map = new Map();
+
+  for (const event of events) {
+    const key = [
+      slugify(event.artists_main || event.title || ""),
+      event.date_local || "",
+      slugify(event.venue_name || ""),
+      slugify(event.city || "")
+    ].join("|");
+
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, event);
+      continue;
+    }
+
+    map.set(key, {
+      ...existing,
+      image_url: existing.image_url || event.image_url || null,
+      time_local: existing.time_local || event.time_local || null,
+      raw_title:
+        (event.raw_title || "").length > (existing.raw_title || "").length
+          ? event.raw_title
+          : existing.raw_title,
+      artists_all: Array.from(
+        new Set([...(existing.artists_all || []), ...(event.artists_all || [])])
+      )
+    });
+  }
+
+  return Array.from(map.values()).sort((a, b) => {
+    if (a.date_local !== b.date_local) {
+      return String(a.date_local).localeCompare(String(b.date_local));
+    }
+    return String(a.title).localeCompare(String(b.title));
+  });
+}
+
+function dedupeByUrl(arr) {
+  const map = new Map();
+  for (const item of arr || []) {
+    const k = String(item?.url || "");
+    if (!k) continue;
+    if (!map.has(k)) map.set(k, item);
+  }
+  return Array.from(map.values());
+}
+
+async function mapLimit(arr, limit, fn) {
+  const out = new Array(arr.length);
+  let i = 0;
+
+  const workers = Array.from({ length: Math.max(1, limit) }, async () => {
+    while (i < arr.length) {
+      const idx = i++;
+      out[idx] = await fn(arr[idx], idx);
+    }
+  });
+
+  await Promise.all(workers);
+  return out;
+}
+
+function formatAmsterdamLocal(dateObj) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Amsterdam",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).formatToParts(dateObj);
+
+  const get = (type) => parts.find((p) => p.type === type)?.value || "00";
+  const y = get("year");
+  const m = get("month");
+  const d = get("day");
+  const hh = get("hour");
+  const mm = get("minute");
+  const ss = get("second");
+
+  return `${y}-${m}-${d}T${hh}:${mm}:${ss}`;
+}
+
+function epochFromAmsterdamLocal(year, monthIdx, day, hh, mm, ss = 0) {
+  let guess = new Date(Date.UTC(year, monthIdx, day, hh, mm, ss));
+
+  for (let i = 0; i < 3; i++) {
+    const local = formatAmsterdamLocal(guess);
+    const y = Number(local.slice(0, 4));
+    const m = Number(local.slice(5, 7)) - 1;
+    const d = Number(local.slice(8, 10));
+    const H = Number(local.slice(11, 13));
+    const M = Number(local.slice(14, 16));
+    const S = Number(local.slice(17, 19));
+
+    const desiredMs = Date.UTC(year, monthIdx, day, hh, mm, ss);
+    const seenMs = Date.UTC(y, m, d, H, M, S);
+    const delta = desiredMs - seenMs;
+    if (delta === 0) break;
+    guess = new Date(guess.getTime() + delta);
+  }
+
+  return guess.getTime();
+}
+
+function formatDateLocal(ts) {
+  const d = new Date(ts);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function formatTimeLocal(ts) {
+  const d = new Date(ts);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
+async function fetchText(url) {
+  const r = await fetch(url, {
+    method: "GET",
+    headers: {
+      "accept": "text/html,*/*",
+      "user-agent": "ListeningMirror/1.0 (mr-tanq)"
+    }
+  });
+  if (!r.ok) return "";
+  return await r.text().catch(() => "");
+}
+
+function slugify(str) {
+  return String(str || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/['’]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function decodeHtmlEntities(str) {
+  return String(str || "")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;/gi, "'")
+    .replace(/&#039;/gi, "'")
+    .replace(/&#038;/gi, "&")
+    .replace(/&#x27;/gi, "'")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&#(\d+);/g, (_, code) => {
+      const n = Number(code);
+      return Number.isFinite(n) ? String.fromCharCode(n) : _;
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => {
+      const n = parseInt(hex, 16);
+      return Number.isFinite(n) ? String.fromCharCode(n) : _;
+    });
+}
+
+function cleanText(str) {
+  return decodeHtmlEntities(String(str || ""))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function stripTags(str) {
+  return String(str || "").replace(/<[^>]*>/g, " ");
+                                                   }

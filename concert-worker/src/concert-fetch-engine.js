@@ -1,6 +1,6 @@
 // concert-fetch-engine.js
 // Listening Mirror — Concert Worker
-// Venue fetch + parse engine v11
+// Venue fetch + parse engine v12
 // Custom handling for: paradiso, doornroosje, patronaat, paard, tivoli
 
 import { VENUES } from "./venues-engine.js";
@@ -28,7 +28,10 @@ export async function fetchVenueEventsById(venueId) {
   }
 
   if (venue.id === "tivoli") {
-    const events = await fetchTivoliEvents({ maxEvents: 80 });
+    const events = await fetchTivoliEvents({
+      maxEvents: 500,
+      hydrateLimit: 30
+    });
     return dedupeEvents(events);
   }
 
@@ -339,15 +342,15 @@ function parsePaard(html, venue) {
 
 // ---------------- TivoliVredenburg (legacy parser resurrection) ----------------
 
-async function fetchTivoliEvents({ maxEvents = 80, hydrateLimit = 18 } = {}) {
-  const want = Math.max(1, Math.min(300, Number(maxEvents) || 80));
+async function fetchTivoliEvents({ maxEvents = 500, hydrateLimit = 30 } = {}) {
+  const want = Math.max(1, Math.min(1000, Number(maxEvents) || 500));
 
   const events = [];
   let pagesFetched = 0;
 
-  const maxPages = 12;
+  const maxPages = 40;
 
-  for (let page = 1; page <= maxPages && events.length < want; page++) {
+  for (let page = 1; page <= maxPages; page++) {
     const pageUrl = `https://www.tivolivredenburg.nl/agenda/page/${page}/`;
     const html = await fetchText(pageUrl).catch(() => "");
     pagesFetched += 1;
@@ -355,10 +358,11 @@ async function fetchTivoliEvents({ maxEvents = 80, hydrateLimit = 18 } = {}) {
 
     const parsed = parseTivoliAgendaHtml(html);
 
-    for (const ev of parsed) {
-      if (events.length >= want) break;
-      events.push(ev);
+    if (!parsed.length && page > 3) {
+      break;
     }
+
+    events.push(...parsed);
   }
 
   const cutoff = Date.now() - 12 * 60 * 60 * 1000;
@@ -366,7 +370,7 @@ async function fetchTivoliEvents({ maxEvents = 80, hydrateLimit = 18 } = {}) {
 
   const uniq = dedupeByUrl(upcoming);
 
-  const toHydrate = uniq.slice(0, Math.max(0, Math.min(50, Number(hydrateLimit) || 0)));
+  const toHydrate = uniq.slice(0, Math.max(0, Math.min(80, Number(hydrateLimit) || 0)));
   const rest = uniq.slice(toHydrate.length);
 
   const hydratedHead = await mapLimit(toHydrate, 6, async (ev) => {
@@ -377,7 +381,9 @@ async function fetchTivoliEvents({ maxEvents = 80, hydrateLimit = 18 } = {}) {
   const hydrated = hydratedHead.concat(rest);
   hydrated.sort((a, b) => a.startTs - b.startTs);
 
-  console.log(`[concert-fetch-engine] tivoli pages=${pagesFetched} raw=${events.length} uniq=${uniq.length} final=${hydrated.length}`);
+  console.log(
+    `[concert-fetch-engine] tivoli pages=${pagesFetched} raw=${events.length} uniq=${uniq.length} final=${hydrated.length}`
+  );
 
   return hydrated.slice(0, want).map(mapTivoliToConcertSchema);
 }
@@ -404,7 +410,7 @@ function parseTivoliAgendaHtml(html) {
     /\b(ma|di|wo|do|vr|za|zo)\s+(\d{1,2})\s+([a-z]{3}\.?)\s+(\d{4})[\s\S]{0,900}?href="(https:\/\/www\.tivolivredenburg\.nl\/agenda\/[^"]+)"[^>]*>\s*([^<]{2,180})\s*<\/a>/gi;
 
   let m;
-  while ((m = re.exec(String(html))) && out.length < 5000) {
+  while ((m = re.exec(String(html))) && out.length < 8000) {
     const day = Number(m[2]);
     const monRaw = String(m[3] || "").toLowerCase();
     const year = Number(m[4]);
@@ -434,7 +440,7 @@ function parseTivoliAgendaHtml(html) {
   }
 
   return out;
-}
+        }
 async function tivoliHydrateEvent(ev) {
   const url = String(ev?.url || "");
   if (!url.startsWith("https://www.tivolivredenburg.nl/agenda/")) return ev;
@@ -547,9 +553,17 @@ function looksLikeTivoliMusicCandidate(title, url) {
     "dansworkshop",
     "markt",
     "taalshow",
-    "zing je sterk",
     "college",
-    "lezing"
+    "lezing",
+    "rondleiding",
+    "backstage",
+    "crisis",
+    "fanparty",
+    "presentatie",
+    "seizoenspresentatie",
+    "mail kunnen zijn",
+    "stand-up comedy",
+    "theatershow"
   ];
 
   if (blocked.some((w) => t.includes(w) || u.includes(w))) return false;
@@ -1033,4 +1047,4 @@ function cleanText(str) {
 
 function stripTags(str) {
   return String(str || "").replace(/<[^>]*>/g, " ");
-                                                   }
+        }

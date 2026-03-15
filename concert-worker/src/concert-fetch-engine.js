@@ -1,6 +1,6 @@
 // concert-fetch-engine.js
 // Listening Mirror — Concert Worker
-// Venue fetch + parse engine v10
+// Venue fetch + parse engine v11
 // Custom handling for: paradiso, doornroosje, patronaat, paard, tivoli
 
 import { VENUES } from "./venues-engine.js";
@@ -27,8 +27,13 @@ export async function fetchVenueEventsById(venueId) {
     throw new Error(`Unknown venue: ${venueId}`);
   }
 
+  if (venue.id === "tivoli") {
+    const events = await fetchTivoliEvents({ maxEvents: 80 });
+    return dedupeEvents(events);
+  }
+
   const html = await fetchHtml(venue.url);
-  const events = parseVenueHtml(html, venue);
+  const events = await parseVenueHtml(html, venue);
 
   return dedupeEvents(events);
 }
@@ -48,7 +53,7 @@ async function fetchHtml(url) {
   return await res.text();
 }
 
-function parseVenueHtml(html, venue) {
+async function parseVenueHtml(html, venue) {
   switch (venue.id) {
     case "paradiso":
       return parseParadiso(html, venue);
@@ -58,8 +63,6 @@ function parseVenueHtml(html, venue) {
       return parsePatronaat(html, venue);
     case "paard":
       return parsePaard(html, venue);
-    case "tivoli":
-  return await fetchTivoliEvents(); parseTivoli(html, venue);
     default:
       return parseGenericVenue(html, venue);
   }
@@ -334,63 +337,225 @@ function parsePaard(html, venue) {
   return events;
 }
 
-function parseTivoli(html, venue) {
+// ---------------- TivoliVredenburg (legacy parser resurrection) ----------------
+
+async function fetchTivoliEvents({ maxEvents = 80, hydrateLimit = 18 } = {}) {
+  const want = Math.max(1, Math.min(300, Number(maxEvents) || 80));
+
   const events = [];
-  const seen = new Set();
+  let pagesFetched = 0;
 
-  const linkRegex = /href="([^"]*\/agenda\/\d+\/[^"]+)"/gi;
-  let match;
+  const maxPages = 12;
 
-  while ((match = linkRegex.exec(html)) !== null) {
-    const href = match[1];
-    if (!href) continue;
+  for (let page = 1; page <= maxPages && events.length < want; page++) {
+    const pageUrl = `https://www.tivolivredenburg.nl/agenda/page/${page}/`;
+    const html = await fetchText(pageUrl).catch(() => "");
+    pagesFetched += 1;
+    if (!html) continue;
 
-    let link;
-    try {
-      link = new URL(href, "https://www.tivolivredenburg.nl").toString();
-    } catch {
-      continue;
+    const parsed = parseTivoliAgendaHtml(html);
+
+    for (const ev of parsed) {
+      if (events.length >= want) break;
+      events.push(ev);
     }
-
-    if (seen.has(link)) continue;
-    seen.add(link);
-
-    const start = Math.max(0, match.index - 2400);
-    const end = Math.min(html.length, match.index + 5200);
-    const block = html.slice(start, end);
-
-    let rawTitle = extractTitle(block);
-    const dateLocal = extractDate(block) || extractDateFromUrl(link);
-    const timeLocal = extractTime(block);
-    const imageUrl = extractImage(block);
-
-    if (!rawTitle || isBlockedTitle(rawTitle)) {
-      rawTitle = titleFromTivoliLink(link);
-    }
-
-    if (!rawTitle || isBlockedTitle(rawTitle) || !dateLocal || !link) continue;
-    if (!looksLikeRealEvent(rawTitle, link, venue)) continue;
-    if (!looksLikeMusicEvent(rawTitle, link)) continue;
-
-    const artistInfo = normalizeArtist(rawTitle);
-
-    events.push(
-      buildEvent({
-        venue,
-        sourceId: buildSourceId(venue.id, artistInfo.main, dateLocal, link),
-        rawTitle,
-        title: artistInfo.main,
-        artistsAll: artistInfo.all,
-        dateLocal,
-        timeLocal,
-        link,
-        imageUrl
-      })
-    );
   }
 
-  return events;
-        }
+  const cutoff = Date.now() - 12 * 60 * 60 * 1000;
+  const upcoming = events.filter((e) => Number(e?.startTs) >= cutoff);
+
+  const uniq = dedupeByUrl(upcoming);
+
+  const toHydrate = uniq.slice(0, Math.max(0, Math.min(50, Number(hydrateLimit) || 0)));
+  const rest = uniq.slice(toHydrate.length);
+
+  const hydratedHead = await mapLimit(toHydrate, 6, async (ev) => {
+    const full = await tivoliHydrateEvent(ev).catch(() => null);
+    return full || ev;
+  });
+
+  const hydrated = hydratedHead.concat(rest);
+  hydrated.sort((a, b) => a.startTs - b.startTs);
+
+  console.log(`[concert-fetch-engine] tivoli pages=${pagesFetched} raw=${events.length} uniq=${uniq.length} final=${hydrated.length}`);
+
+  return hydrated.slice(0, want).map(mapTivoliToConcertSchema);
+}
+
+function parseTivoliAgendaHtml(html) {
+  const out = [];
+
+  const monthMap = {
+    jan: 0, "jan.": 0,
+    feb: 1, "feb.": 1,
+    mrt: 2, "mrt.": 2,
+    apr: 3, "apr.": 3,
+    mei: 4,
+    jun: 5, "jun.": 5,
+    jul: 6, "jul.": 6,
+    aug: 7, "aug.": 7,
+    sep: 8, "sep.": 8,
+    okt: 9, "okt.": 9,
+    nov: 10, "nov.": 10,
+    dec: 11, "dec.": 11
+  };
+
+  const re =
+    /\b(ma|di|wo|do|vr|za|zo)\s+(\d{1,2})\s+([a-z]{3}\.?)\s+(\d{4})[\s\S]{0,900}?href="(https:\/\/www\.tivolivredenburg\.nl\/agenda\/[^"]+)"[^>]*>\s*([^<]{2,180})\s*<\/a>/gi;
+
+  let m;
+  while ((m = re.exec(String(html))) && out.length < 5000) {
+    const day = Number(m[2]);
+    const monRaw = String(m[3] || "").toLowerCase();
+    const year = Number(m[4]);
+    const url = String(m[5] || "").trim();
+    let title = String(m[6] || "").trim();
+
+    title = cleanText(title).replace(/\s+/g, " ").trim();
+
+    const monthIdx = monthMap[monRaw];
+    if (monthIdx == null) continue;
+    if (!title || !url) continue;
+    if (!looksLikeTivoliMusicCandidate(title, url)) continue;
+
+    const startTs = epochFromAmsterdamLocal(year, monthIdx, day, 20, 0, 0);
+
+    out.push({
+      id: `tv:${slugify(title)}:${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+      artist: title,
+      attractions: [title],
+      city: "Utrecht",
+      venue: "TivoliVredenburg",
+      startTs,
+      startLocal: formatAmsterdamLocal(new Date(startTs)),
+      url,
+      image_url: null
+    });
+  }
+
+  return out;
+      }
+async function tivoliHydrateEvent(ev) {
+  const url = String(ev?.url || "");
+  if (!url.startsWith("https://www.tivolivredenburg.nl/agenda/")) return ev;
+
+  const html = await fetchText(url).catch(() => "");
+  if (!html) return ev;
+
+  const jsonLdBlocks = [];
+  const reLd = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let m;
+  while ((m = reLd.exec(html))) {
+    const raw = String(m[1] || "").trim();
+    if (raw) jsonLdBlocks.push(raw);
+  }
+
+  let startTs = ev.startTs;
+  let startLocal = ev.startLocal;
+
+  for (const blk of jsonLdBlocks) {
+    const txt = blk.replace(/\n/g, " ").trim();
+    const sm = txt.match(/"startDate"\s*:\s*"([^"]+)"/i);
+    if (sm) {
+      const iso = String(sm[1] || "").trim();
+      const d = new Date(iso);
+      if (!Number.isNaN(d.getTime())) {
+        startTs = d.getTime();
+        startLocal = formatAmsterdamLocal(new Date(startTs));
+        break;
+      }
+    }
+  }
+
+  if (startTs === ev.startTs) {
+    const sm2 = html.match(/datetime=["'](\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(?:[+\-]\d{2}:\d{2}|Z))["']/i);
+    if (sm2) {
+      const iso = String(sm2[1] || "").trim();
+      const d = new Date(iso);
+      if (!Number.isNaN(d.getTime())) {
+        startTs = d.getTime();
+        startLocal = formatAmsterdamLocal(new Date(startTs));
+      }
+    }
+  }
+
+  let title = ev.artist;
+  const h1m = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+  if (h1m) {
+    const t = cleanText(stripTags(h1m[1])).replace(/\s+/g, " ").trim();
+    if (t && t.length >= 2) title = t;
+  }
+
+  let zaal = "";
+  const zaalM = html.match(/\b(Zaal|Hall|Room)\b[\s\S]{0,80}?\b(Ronda|Pandora|Cloud Nine|Hertz|Grote Zaal|Kleine Zaal)\b/i);
+  if (zaalM) zaal = String(zaalM[2] || "").trim();
+
+  let imageUrl = ev.image_url || null;
+  const imgMatch =
+    html.match(/<meta\s+property=["']og:image["']\s+content=["']([^"']+)["']/i) ||
+    html.match(/<img[^>]+src=["']([^"']+)["'][^>]+class=["'][^"']*wp-post-image/i);
+
+  if (imgMatch && imgMatch[1]) {
+    imageUrl = String(imgMatch[1]).trim();
+  }
+
+  return {
+    ...ev,
+    artist: title,
+    attractions: [title],
+    venue: zaal ? `TivoliVredenburg (${zaal})` : "TivoliVredenburg",
+    startTs,
+    startLocal,
+    image_url: imageUrl || null
+  };
+}
+
+function mapTivoliToConcertSchema(ev) {
+  const dateLocal = formatDateLocal(ev.startTs);
+  const timeLocal = formatTimeLocal(ev.startTs);
+  const title = cleanText(ev.artist || "");
+
+  return {
+    source: "tivoli",
+    source_id: `tivoli-${slugify(title)}-${dateLocal}`,
+    title,
+    artists_main: title,
+    artists_all: Array.isArray(ev.attractions) && ev.attractions.length ? ev.attractions : [title],
+    raw_title: title,
+    date_local: dateLocal,
+    time_local: timeLocal,
+    venue_name: ev.venue || "TivoliVredenburg",
+    city: "Utrecht",
+    country: "NL",
+    url: ev.url,
+    image_url: ev.image_url || null,
+    genre_hint: null,
+    fetched_at: Date.now()
+  };
+}
+
+function looksLikeTivoliMusicCandidate(title, url) {
+  const t = cleanText(title).toLowerCase();
+  const u = String(url || "").toLowerCase();
+
+  const blocked = [
+    "verkiezing",
+    "verkiezings",
+    "debat",
+    "podcast",
+    "workshop",
+    "dansworkshop",
+    "markt",
+    "taalshow",
+    "zing je sterk",
+    "college",
+    "lezing"
+  ];
+
+  if (blocked.some((w) => t.includes(w) || u.includes(w))) return false;
+  return true;
+}
+
 function buildEvent({
   venue,
   sourceId,
@@ -531,7 +696,12 @@ function extractDateFromUrl(link) {
 
   m = s.match(/(?:^|\/)(20\d{2})-(\d{2})-(\d{2})(?:$|[/-])/i);
   if (m) {
-    return `${m[1]}-${m[2]}-${m[3]}`;
+    const y = Number(m[1]);
+    const mo = Number(m[2]) - 1;
+    const d = Number(m[3]);
+    if (mo >= 0 && mo <= 11 && d >= 1 && d <= 31) {
+      return isoDate(y, mo, d);
+    }
   }
 
   return null;
@@ -593,7 +763,7 @@ function extractImage(block) {
 
 function normalizeArtist(rawTitle) {
   let cleaned = cleanText(rawTitle)
-    .replace(/\(.*?\)/g, " ")
+    .replace(/.*?/g, " ")
     .replace(/\blive\b/gi, " ")
     .replace(/\bconcert\b/gi, " ")
     .replace(/\bshow\b/gi, " ")
@@ -605,217 +775,4 @@ function normalizeArtist(rawTitle) {
     .trim();
 
   const parts = cleaned
-    .split(/\s+\+\s+|\s*&\s*|\s*,\s*|\/| \| /)
-    .map((x) => cleanText(x))
-    .filter(Boolean)
-    .slice(0, 6);
-
-  return {
-    main: parts[0] || cleaned,
-    all: parts.length ? parts : [cleaned]
-  };
-}
-
-function looksLikeRealEvent(title, link, venue) {
-  const t = cleanText(title).toLowerCase();
-  const l = String(link || "").toLowerCase();
-
-  const blockedWords = [
-    "agenda",
-    "programma",
-    "program",
-    "tickets",
-    "ticket info",
-    "nieuws",
-    "news",
-    "about",
-    "contact",
-    "vacature",
-    "privacy",
-    "cookie",
-    "huisregels",
-    "route",
-    "locatie",
-    "zaalverhuur",
-    "membership",
-    "lidmaatschap",
-    "vul op zijn minst 3 tekens in.",
-    "zoek",
-    "search"
-  ];
-
-  if (blockedWords.some((word) => t === word || t.includes(word))) return false;
-  if (l.includes("/news") || l.includes("/nieuws/") || l.includes("/contact") || l.includes("/over")) return false;
-  if (t.length < 2) return false;
-
-  const venueNames = [
-    venue.name.toLowerCase(),
-    venue.city.toLowerCase(),
-    venue.id.toLowerCase()
-  ];
-
-  if (venueNames.some((name) => t === name)) return false;
-
-  return true;
-}
-
-function looksLikeMusicEvent(title, link) {
-  const t = cleanText(title).toLowerCase();
-  const l = String(link || "").toLowerCase();
-
-  const blocked = [
-    "verkiezing",
-    "verkiezings",
-    "debat",
-    "podcast",
-    "workshop",
-    "dansworkshop",
-    "markt",
-    "zing je sterk",
-    "taalshow"
-  ];
-
-  if (blocked.some((w) => t.includes(w) || l.includes(w))) return false;
-  return true;
-}
-
-function isBlockedTitle(title) {
-  const t = cleanText(title).toLowerCase();
-  return (
-    !t ||
-    t.includes("vul op zijn minst") ||
-    t === "zoek" ||
-    t === "search" ||
-    t === "programma" ||
-    t === "agenda" ||
-    t === "tickets"
-  );
-}
-
-function titleFromLink(link) {
-  if (!link) return "";
-
-  try {
-    const u = new URL(link);
-    const slug = u.pathname.split("/").filter(Boolean).pop() || "";
-    return slug
-      .replace(/-\d+$/, "")
-      .split("-")
-      .filter(Boolean)
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(" ");
-  } catch {
-    return "";
-  }
-}
-
-function titleFromTivoliLink(link) {
-  if (!link) return "";
-
-  try {
-    const u = new URL(link);
-    const parts = u.pathname.split("/").filter(Boolean);
-    const slug = parts[parts.length - 1] || "";
-
-    return slug
-      .replace(/-\d{2}-\d{2}-20\d{2}$/i, "")
-      .split("-")
-      .filter(Boolean)
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(" ");
-  } catch {
-    return "";
-  }
-}
-
-function buildSourceId(source, artistMain, dateLocal, link) {
-  const linkTail = safeLinkTail(link);
-  return `${source}-${slugify(artistMain)}-${dateLocal}-${linkTail}`;
-}
-
-function safeLinkTail(link) {
-  try {
-    const u = new URL(link);
-    const tail = u.pathname.split("/").filter(Boolean).pop() || "event";
-    return slugify(tail).slice(0, 40) || "event";
-  } catch {
-    return "event";
-  }
-}
-
-function dedupeEvents(events) {
-  const map = new Map();
-
-  for (const event of events) {
-    const key = [
-      slugify(event.artists_main || event.title || ""),
-      event.date_local || "",
-      slugify(event.venue_name || ""),
-      slugify(event.city || "")
-    ].join("|");
-
-    const existing = map.get(key);
-    if (!existing) {
-      map.set(key, event);
-      continue;
-    }
-
-    map.set(key, {
-      ...existing,
-      image_url: existing.image_url || event.image_url || null,
-      time_local: existing.time_local || event.time_local || null,
-      raw_title:
-        (event.raw_title || "").length > (existing.raw_title || "").length
-          ? event.raw_title
-          : existing.raw_title,
-      artists_all: Array.from(
-        new Set([...(existing.artists_all || []), ...(event.artists_all || [])])
-      )
-    });
-  }
-
-  return Array.from(map.values()).sort((a, b) => {
-    if (a.date_local !== b.date_local) {
-      return String(a.date_local).localeCompare(String(b.date_local));
-    }
-    return String(a.title).localeCompare(String(b.title));
-  });
-}
-
-function slugify(str) {
-  return String(str || "")
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-function decodeHtmlEntities(str) {
-  return String(str || "")
-    .replace(/&amp;/gi, "&")
-    .replace(/&quot;/gi, "\"")
-    .replace(/&#39;/gi, "'")
-    .replace(/&#039;/gi, "'")
-    .replace(/&#038;/gi, "&")
-    .replace(/&#x27;/gi, "'")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&#(\d+);/g, (_, code) => {
-      const n = Number(code);
-      return Number.isFinite(n) ? String.fromCharCode(n) : _;
-    })
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => {
-      const n = parseInt(hex, 16);
-      return Number.isFinite(n) ? String.fromCharCode(n) : _;
-    });
-}
-
-function cleanText(str) {
-  return decodeHtmlEntities(String(str || ""))
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function stripTags(str) {
-  return String(str || "").replace(/<[^>]*>/g, " ");
-  }
+    .

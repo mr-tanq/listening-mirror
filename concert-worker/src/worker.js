@@ -96,6 +96,114 @@ async function handleRequest(request, env, ctx) {
     });
   }
 
+  if (pathname === "/concerts/db-latest") {
+    assertDb(env);
+
+    const limit = clampInt(url.searchParams.get("limit"), 20, 1, 100);
+
+    const rows = await env.DB
+      .prepare(`
+        SELECT
+          id,
+          source,
+          source_id,
+          title,
+          artists_main,
+          artists_all,
+          raw_title,
+          date_local,
+          time_local,
+          venue_name,
+          city,
+          country,
+          url,
+          image_url,
+          genre_hint,
+          fetched_at,
+          created_at,
+          updated_at
+        FROM concerts
+        ORDER BY
+          CASE WHEN date_local IS NULL OR date_local = '' THEN 1 ELSE 0 END,
+          date_local ASC,
+          title ASC
+        LIMIT ?
+      `)
+      .bind(limit)
+      .all();
+
+    return json({
+      ok: true,
+      mode: "db-latest",
+      count: rows?.results?.length || 0,
+      results: (rows?.results || []).map(hydrateConcertRow)
+    });
+  }
+
+  if (pathname === "/concerts/db-search") {
+    assertDb(env);
+
+    const q = (url.searchParams.get("q") || "").trim();
+    if (!q) {
+      return json(
+        {
+          ok: false,
+          error: "Missing q param"
+        },
+        400
+      );
+    }
+
+    const limit = clampInt(url.searchParams.get("limit"), 50, 1, 200);
+    const like = `%${q.toLowerCase()}%`;
+
+    const rows = await env.DB
+      .prepare(`
+        SELECT
+          id,
+          source,
+          source_id,
+          title,
+          artists_main,
+          artists_all,
+          raw_title,
+          date_local,
+          time_local,
+          venue_name,
+          city,
+          country,
+          url,
+          image_url,
+          genre_hint,
+          fetched_at,
+          created_at,
+          updated_at
+        FROM concerts
+        WHERE
+          LOWER(COALESCE(title, '')) LIKE ?
+          OR LOWER(COALESCE(raw_title, '')) LIKE ?
+          OR LOWER(COALESCE(artists_main, '')) LIKE ?
+          OR LOWER(COALESCE(artists_all, '')) LIKE ?
+          OR LOWER(COALESCE(venue_name, '')) LIKE ?
+          OR LOWER(COALESCE(city, '')) LIKE ?
+        ORDER BY
+          CASE WHEN date_local IS NULL OR date_local = '' THEN 1 ELSE 0 END,
+          date_local ASC,
+          title ASC
+        LIMIT ?
+      `)
+      .bind(like, like, like, like, like, like, limit)
+      .all();
+
+    return json({
+      ok: true,
+      mode: "db-search",
+      query: q,
+      found: rows?.results?.length || 0,
+      results: (rows?.results || []).map(hydrateConcertRow)
+    });
+  }
+
   if (pathname === "/concerts/venues") {
     const source = (url.searchParams.get("source") || "").trim().toLowerCase();
 
@@ -200,6 +308,9 @@ async function handleRequest(request, env, ctx) {
         "/health",
         "/admin/db-count",
         "/admin/refresh-db",
+        "/concerts/db-latest",
+        "/concerts/db-latest?limit=50",
+        "/concerts/db-search?q=amenra",
         "/concerts/venues",
         "/concerts/venues?source=tivoli",
         "/concerts/venues?source=013",
@@ -304,6 +415,29 @@ async function upsertConcert(DB, event, now) {
     now,
     now
   ).run();
+}
+
+function hydrateConcertRow(row) {
+  return {
+    ...row,
+    artists_all: parseArtistsAll(row?.artists_all)
+  };
+}
+
+function parseArtistsAll(value) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function clampInt(value, fallback, min, max) {
+  const n = Number.parseInt(value, 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
 }
 
 function safe(value) {

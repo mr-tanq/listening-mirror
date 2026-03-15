@@ -1,6 +1,6 @@
 // concert-fetch-engine.js
 // Listening Mirror — Concert Worker
-// Venue fetch + parse engine v5
+// Venue fetch + parse engine v6
 // Custom handling for: paradiso, doornroosje, patronaat
 
 import { VENUES } from "./venues-engine.js";
@@ -102,7 +102,9 @@ function parseParadiso(html, venue) {
   const events = [];
   const seen = new Set();
 
-  const linkRegex = /href="([^"]*concertagenda-paradiso[^"]*|\/program\/[^"]+|\/en\/program\/[^"]+)"/gi;
+  const linkRegex =
+    /href="([^"]*concertagenda-paradiso[^"]*|\/program\/[^"]+|\/en\/program\/[^"]+)"/gi;
+
   let match;
 
   while ((match = linkRegex.exec(html)) !== null) {
@@ -319,35 +321,95 @@ function extractTitle(block) {
   return null;
 }
 
-function extractDate(block) {
-  let m = block.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+function extractDate(text) {
+  if (!text) return null;
 
-  m = block.match(
-    /\b(\d{1,2})\s+(jan|feb|mrt|apr|mei|jun|jul|aug|sep|okt|nov|dec)\s+(20\d{2})\b/i
-  );
+  const t = String(text).toLowerCase().replace(/\s+/g, " ").trim();
+
+  const MONTHS = {
+    jan: 0,
+    januari: 0,
+    feb: 1,
+    februari: 1,
+    mrt: 2,
+    maart: 2,
+    apr: 3,
+    april: 3,
+    mei: 4,
+    jun: 5,
+    juni: 5,
+    jul: 6,
+    juli: 6,
+    aug: 7,
+    augustus: 7,
+    sep: 8,
+    sept: 8,
+    september: 8,
+    okt: 9,
+    oktober: 9,
+    nov: 10,
+    november: 10,
+    dec: 11,
+    december: 11,
+    mar: 2,
+    may: 4,
+    oct: 9
+  };
+
+  let m = t.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
   if (m) {
-    const day = m[1].padStart(2, "0");
-    return `${m[3]}-${nlMonth(m[2])}-${day}`;
+    return `${m[1]}-${m[2]}-${m[3]}`;
   }
 
-  m = block.match(
-    /\b(mon|tue|wed|thu|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+(20\d{2})\b/i
+  m = t.match(
+    /\b(\d{1,2})\s+(jan|januari|feb|februari|mrt|maart|apr|april|mei|jun|juni|jul|juli|aug|augustus|sep|sept|september|okt|oktober|nov|november|dec|december|mar|may|oct)\s+(20\d{2})\b/
   );
   if (m) {
-    const day = m[2].padStart(2, "0");
-    return `${m[4]}-${enMonth(m[3])}-${day}`;
+    const d = Number(m[1]);
+    const mo = MONTHS[m[2]];
+    const y = Number(m[3]);
+    return isoDate(y, mo, d);
   }
 
-  m = block.match(
-    /\b(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+(20\d{2})\b/i
+  m = t.match(
+    /\b(?:ma|di|wo|do|vr|za|zo|mon|tue|wed|thu|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+(\d{1,2})\s+(jan|januari|feb|februari|mrt|maart|apr|april|mei|jun|juni|jul|juli|aug|augustus|sep|sept|september|okt|oktober|nov|november|dec|december|mar|may|oct)\b/
   );
   if (m) {
-    const day = m[1].padStart(2, "0");
-    return `${m[3]}-${enMonth(m[2])}-${day}`;
+    const d = Number(m[1]);
+    const mo = MONTHS[m[2]];
+    return inferYearAndFormat(mo, d);
+  }
+
+  m = t.match(
+    /\b(\d{1,2})\s+(jan|januari|feb|februari|mrt|maart|apr|april|mei|jun|juni|jul|juli|aug|augustus|sep|sept|september|okt|oktober|nov|november|dec|december|mar|may|oct)\b/
+  );
+  if (m) {
+    const d = Number(m[1]);
+    const mo = MONTHS[m[2]];
+    return inferYearAndFormat(mo, d);
   }
 
   return null;
+}
+
+function inferYearAndFormat(monthIndex, day) {
+  const now = new Date();
+  let year = now.getFullYear();
+
+  const candidate = new Date(year, monthIndex, day);
+  const thirtyDaysMs = 1000 * 60 * 60 * 24 * 30;
+
+  if (candidate.getTime() < now.getTime() - thirtyDaysMs) {
+    year += 1;
+  }
+
+  return isoDate(year, monthIndex, day);
+}
+
+function isoDate(year, monthIndex, day) {
+  const mm = String(monthIndex + 1).padStart(2, "0");
+  const dd = String(day).padStart(2, "0");
+  return `${year}-${mm}-${dd}`;
 }
 
 function extractTime(block) {
@@ -355,7 +417,6 @@ function extractTime(block) {
   if (!m) return null;
   return `${String(m[1]).padStart(2, "0")}:${m[2]}`;
 }
-
 function extractLink(block, baseUrl) {
   const m = block.match(/href="([^"]+)"/i);
   if (!m) return null;
@@ -384,6 +445,7 @@ function extractImage(block) {
 
   return null;
 }
+
 function normalizeArtist(rawTitle) {
   let cleaned = cleanText(rawTitle)
     .replace(/\(.*?\)/g, " ")
@@ -547,46 +609,9 @@ function cleanText(str) {
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/&nbsp;/g, " ")
-    .replace(/\s+/g, " ")
     .trim();
 }
 
 function stripTags(str) {
   return String(str || "").replace(/<[^>]*>/g, " ");
-}
-
-function nlMonth(value) {
-  const map = {
-    jan: "01",
-    feb: "02",
-    mrt: "03",
-    apr: "04",
-    mei: "05",
-    jun: "06",
-    jul: "07",
-    aug: "08",
-    sep: "09",
-    okt: "10",
-    nov: "11",
-    dec: "12"
-  };
-  return map[String(value || "").toLowerCase()] || "01";
-}
-
-function enMonth(value) {
-  const map = {
-    jan: "01",
-    feb: "02",
-    mar: "03",
-    apr: "04",
-    may: "05",
-    jun: "06",
-    jul: "07",
-    aug: "08",
-    sep: "09",
-    oct: "10",
-    nov: "11",
-    dec: "12"
-  };
-  return map[String(value || "").toLowerCase()] || "01";
 }

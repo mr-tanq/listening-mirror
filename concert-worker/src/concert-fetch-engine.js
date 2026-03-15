@@ -1,6 +1,6 @@
 // concert-fetch-engine.js
 // Listening Mirror — Concert Worker
-// Venue fetch + parse engine v6
+// Venue fetch + parse engine v7
 // Custom handling for: paradiso, doornroosje, patronaat
 
 import { VENUES } from "./venues-engine.js";
@@ -103,7 +103,7 @@ function parseParadiso(html, venue) {
   const seen = new Set();
 
   const linkRegex =
-    /href="([^"]*concertagenda-paradiso[^"]*|\/program\/[^"]+|\/en\/program\/[^"]+)"/gi;
+    /href="([^"]*(?:\/nl\/programma\/|\/program\/|\/en\/program\/)[^"]+)"/gi;
 
   let match;
 
@@ -119,11 +119,13 @@ function parseParadiso(html, venue) {
     }
 
     const lower = link.toLowerCase();
+
     if (
-      lower.includes("concertagenda-paradiso/2069817") ||
-      lower.includes("?") ||
-      lower.endsWith("/program") ||
-      lower.endsWith("/program/")
+      lower.includes("/nieuws/") ||
+      lower.includes("/news/") ||
+      lower.includes("/archief/") ||
+      lower.includes("/over/") ||
+      lower.includes("?")
     ) {
       continue;
     }
@@ -131,8 +133,8 @@ function parseParadiso(html, venue) {
     if (seen.has(link)) continue;
     seen.add(link);
 
-    const start = Math.max(0, match.index - 1800);
-    const end = Math.min(html.length, match.index + 3200);
+    const start = Math.max(0, match.index - 2200);
+    const end = Math.min(html.length, match.index + 4200);
     const block = html.slice(start, end);
 
     let rawTitle = extractTitle(block);
@@ -147,15 +149,13 @@ function parseParadiso(html, venue) {
     if (!rawTitle || isBlockedTitle(rawTitle) || !dateLocal) continue;
     if (!looksLikeRealEvent(rawTitle, link, venue)) continue;
 
-    const artistInfo = normalizeArtist(rawTitle);
-
     events.push(
       buildEvent({
         venue,
-        sourceId: buildSourceId(venue.id, artistInfo.main, dateLocal, link),
+        sourceId: buildSourceId(venue.id, rawTitle, dateLocal, link),
         rawTitle,
-        title: artistInfo.main,
-        artistsAll: artistInfo.all,
+        title: normalizeArtist(rawTitle).main,
+        artistsAll: normalizeArtist(rawTitle).all,
         dateLocal,
         timeLocal,
         link,
@@ -327,43 +327,24 @@ function extractDate(text) {
   const t = String(text).toLowerCase().replace(/\s+/g, " ").trim();
 
   const MONTHS = {
-    jan: 0,
-    januari: 0,
-    feb: 1,
-    februari: 1,
-    mrt: 2,
-    maart: 2,
-    apr: 3,
-    april: 3,
-    mei: 4,
-    jun: 5,
-    juni: 5,
-    jul: 6,
-    juli: 6,
-    aug: 7,
-    augustus: 7,
-    sep: 8,
-    sept: 8,
-    september: 8,
-    okt: 9,
-    oktober: 9,
-    nov: 10,
-    november: 10,
-    dec: 11,
-    december: 11,
-    mar: 2,
-    may: 4,
-    oct: 9
+    jan: 0, januari: 0,
+    feb: 1, februari: 1,
+    mrt: 2, maart: 2, mar: 2,
+    apr: 3, april: 3,
+    mei: 4, may: 4,
+    jun: 5, juni: 5,
+    jul: 6, juli: 6,
+    aug: 7, augustus: 7,
+    sep: 8, sept: 8, september: 8,
+    okt: 9, oktober: 9, oct: 9,
+    nov: 10, november: 10,
+    dec: 11, december: 11
   };
 
   let m = t.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
-  if (m) {
-    return `${m[1]}-${m[2]}-${m[3]}`;
-  }
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
 
-  m = t.match(
-    /\b(\d{1,2})\s+(jan|januari|feb|februari|mrt|maart|apr|april|mei|jun|juni|jul|juli|aug|augustus|sep|sept|september|okt|oktober|nov|november|dec|december|mar|may|oct)\s+(20\d{2})\b/
-  );
+  m = t.match(/\b(\d{1,2})\s+(jan|januari|feb|februari|mrt|maart|mar|apr|april|mei|may|jun|juni|jul|juli|aug|augustus|sep|sept|september|okt|oktober|oct|nov|november|dec|december)\s+(20\d{2})\b/);
   if (m) {
     const d = Number(m[1]);
     const mo = MONTHS[m[2]];
@@ -371,18 +352,14 @@ function extractDate(text) {
     return isoDate(y, mo, d);
   }
 
-  m = t.match(
-    /\b(?:ma|di|wo|do|vr|za|zo|mon|tue|wed|thu|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+(\d{1,2})\s+(jan|januari|feb|februari|mrt|maart|apr|april|mei|jun|juni|jul|juli|aug|augustus|sep|sept|september|okt|oktober|nov|november|dec|december|mar|may|oct)\b/
-  );
+  m = t.match(/\b(?:ma|di|wo|do|vr|za|zo|mon|tue|wed|thu|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+(\d{1,2})\s+(jan|januari|feb|februari|mrt|maart|mar|apr|april|mei|may|jun|juni|jul|juli|aug|augustus|sep|sept|september|okt|oktober|oct|nov|november|dec|december)\b/);
   if (m) {
     const d = Number(m[1]);
     const mo = MONTHS[m[2]];
     return inferYearAndFormat(mo, d);
   }
 
-  m = t.match(
-    /\b(\d{1,2})\s+(jan|januari|feb|februari|mrt|maart|apr|april|mei|jun|juni|jul|juli|aug|augustus|sep|sept|september|okt|oktober|nov|november|dec|december|mar|may|oct)\b/
-  );
+  m = t.match(/\b(\d{1,2})\s+(jan|januari|feb|februari|mrt|maart|mar|apr|april|mei|may|jun|juni|jul|juli|aug|augustus|sep|sept|september|okt|oktober|oct|nov|november|dec|december)\b/);
   if (m) {
     const d = Number(m[1]);
     const mo = MONTHS[m[2]];
@@ -395,7 +372,6 @@ function extractDate(text) {
 function inferYearAndFormat(monthIndex, day) {
   const now = new Date();
   let year = now.getFullYear();
-
   const candidate = new Date(year, monthIndex, day);
   const thirtyDaysMs = 1000 * 60 * 60 * 24 * 30;
 
@@ -496,7 +472,7 @@ function looksLikeRealEvent(title, link, venue) {
   ];
 
   if (blockedWords.some((word) => t === word || t.includes(word))) return false;
-  if (l.includes("/news") || l.includes("/contact") || l.includes("/over")) return false;
+  if (l.includes("/news") || l.includes("/nieuws/") || l.includes("/contact") || l.includes("/over")) return false;
   if (t.length < 2) return false;
 
   const venueNames = [

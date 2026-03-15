@@ -20,7 +20,7 @@ export default {
       return json(
         {
           ok: false,
-          error: err.message || "Unknown error"
+          error: err?.message || "Unknown error"
         },
         500
       );
@@ -88,7 +88,8 @@ async function handleRequest(request, env, ctx) {
       recommended
     });
   }
-if (pathname === "/") {
+
+  if (pathname === "/") {
     return json({
       ok: true,
       service: "econcerts",
@@ -181,6 +182,7 @@ function buildMockAffinity() {
     }
   };
 }
+
 function json(data, status = 200) {
   return new Response(JSON.stringify(data, null, 2), {
     status,

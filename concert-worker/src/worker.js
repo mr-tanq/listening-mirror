@@ -99,7 +99,7 @@ async function handleRequest(request, env, ctx) {
   if (pathname === "/concerts/db-latest") {
     assertDb(env);
 
-    const limit = clampInt(url.searchParams.get("limit"), 20, 1, 100);
+    const limit = clampInt(url.searchParams.get("limit"), 20, 1, 200);
 
     const rows = await env.DB
       .prepare(`
@@ -123,8 +123,11 @@ async function handleRequest(request, env, ctx) {
           created_at,
           updated_at
         FROM concerts
+        WHERE
+          date_local IS NOT NULL
+          AND date_local != ''
+          AND date(date_local) >= date('now')
         ORDER BY
-          CASE WHEN date_local IS NULL OR date_local = '' THEN 1 ELSE 0 END,
           date_local ASC,
           title ASC
         LIMIT ?
@@ -180,14 +183,18 @@ async function handleRequest(request, env, ctx) {
           updated_at
         FROM concerts
         WHERE
-          LOWER(COALESCE(title, '')) LIKE ?
-          OR LOWER(COALESCE(raw_title, '')) LIKE ?
-          OR LOWER(COALESCE(artists_main, '')) LIKE ?
-          OR LOWER(COALESCE(artists_all, '')) LIKE ?
-          OR LOWER(COALESCE(venue_name, '')) LIKE ?
-          OR LOWER(COALESCE(city, '')) LIKE ?
+          date_local IS NOT NULL
+          AND date_local != ''
+          AND date(date_local) >= date('now')
+          AND (
+            LOWER(COALESCE(title, '')) LIKE ?
+            OR LOWER(COALESCE(raw_title, '')) LIKE ?
+            OR LOWER(COALESCE(artists_main, '')) LIKE ?
+            OR LOWER(COALESCE(artists_all, '')) LIKE ?
+            OR LOWER(COALESCE(venue_name, '')) LIKE ?
+            OR LOWER(COALESCE(city, '')) LIKE ?
+          )
         ORDER BY
-          CASE WHEN date_local IS NULL OR date_local = '' THEN 1 ELSE 0 END,
           date_local ASC,
           title ASC
         LIMIT ?
@@ -201,6 +208,65 @@ async function handleRequest(request, env, ctx) {
       query: q,
       found: rows?.results?.length || 0,
       results: (rows?.results || []).map(hydrateConcertRow)
+    });
+  }
+
+  if (pathname === "/concerts/db-recommended") {
+    assertDb(env);
+
+    const limit = clampInt(url.searchParams.get("limit"), 100, 1, 300);
+
+    const rows = await env.DB
+      .prepare(`
+        SELECT
+          id,
+          source,
+          source_id,
+          title,
+          artists_main,
+          artists_all,
+          raw_title,
+          date_local,
+          time_local,
+          venue_name,
+          city,
+          country,
+          url,
+          image_url,
+          genre_hint,
+          fetched_at,
+          created_at,
+          updated_at
+        FROM concerts
+        WHERE
+          date_local IS NOT NULL
+          AND date_local != ''
+          AND date(date_local) >= date('now')
+        ORDER BY
+          date_local ASC,
+          title ASC
+        LIMIT ?
+      `)
+      .bind(limit)
+      .all();
+
+    const concerts = (rows?.results || []).map(hydrateConcertRow);
+
+    const lastfmProfile = await fetchLastfmProfile(env);
+    const affinityMap = buildTasteProfile(lastfmProfile);
+
+    const scored = scoreConcerts(concerts, affinityMap);
+    const recommended = filterRecommendedConcerts(scored, {
+      minScore: 0.18,
+      includeWeakSignals: false
+    });
+
+    return json({
+      ok: true,
+      mode: "db-recommended",
+      total_future_events: concerts.length,
+      recommended_count: recommended.length,
+      recommended
     });
   }
 
@@ -311,6 +377,9 @@ async function handleRequest(request, env, ctx) {
         "/concerts/db-latest",
         "/concerts/db-latest?limit=50",
         "/concerts/db-search?q=amenra",
+        "/concerts/db-search?q=mono",
+        "/concerts/db-search?q=villagers",
+        "/concerts/db-recommended",
         "/concerts/venues",
         "/concerts/venues?source=tivoli",
         "/concerts/venues?source=013",

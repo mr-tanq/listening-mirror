@@ -6,11 +6,11 @@ export const VENUES = [
   // ===== Amsterdam =====
   {
     id: "paradiso",
-    name: "Paradiso",
-    city: "Amsterdam",
-    country: "NL",
-    url: "https://www.paradiso.nl/en",
-    parser: "generic"
+  name: "Paradiso",
+  city: "Amsterdam",
+  country: "NL",
+  url: "https://www.paradiso.nl/landing/concertagenda-paradiso/2069817",
+  parser: "generic"
   },
   {
     id: "melkweg",

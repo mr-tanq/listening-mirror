@@ -1,29 +1,120 @@
-import { fetchAllVenueEvents } from "./venues-engine.js";
+// worker.js
+// Listening Mirror — Concert Worker
+// Main entry point
+
+import {
+  fetchAllVenueEvents,
+  fetchVenueEventsById
+} from "./concert-fetch-engine.js";
 
 export default {
   async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-
-    // health check
-    if (url.pathname === "/health") {
-      return new Response("concert-worker-ok");
+    try {
+      return await handleRequest(request, env, ctx);
+    } catch (err) {
+      return json(
+        {
+          ok: false,
+          error: err.message || "Unknown error"
+        },
+        500
+      );
     }
-
-    // fetch all venue concerts
-    if (url.pathname === "/concerts/venues") {
-      try {
-        const events = await fetchAllVenueEvents();
-        return new Response(JSON.stringify(events, null, 2), {
-          headers: { "content-type": "application/json" }
-        });
-      } catch (e) {
-        return new Response(
-          JSON.stringify({ error: e.message }),
-          { status: 500 }
-        );
-      }
-    }
-
-    return new Response("not found", { status: 404 });
   }
 };
+
+async function handleRequest(request, env, ctx) {
+  const url = new URL(request.url);
+  const pathname = normalizePath(url.pathname);
+
+  if (request.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders() });
+  }
+
+  if (pathname === "/health") {
+    return json({
+      ok: true,
+      service: "econcerts",
+      status: "healthy",
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  if (pathname === "/concerts/venues") {
+    const source = (url.searchParams.get("source") || "").trim().toLowerCase();
+
+    if (source) {
+      const events = await fetchVenueEventsById(source);
+
+      return json({
+        ok: true,
+        mode: "single-source",
+        source,
+        count: events.length,
+        events
+      });
+    }
+
+    const events = await fetchAllVenueEvents();
+
+    return json({
+      ok: true,
+      mode: "all-venues",
+      count: events.length,
+      events
+    });
+  }
+  if (pathname === "/") {
+    return json({
+      ok: true,
+      service: "econcerts",
+      endpoints: [
+        "/health",
+        "/concerts/venues",
+        "/concerts/venues?source=tivoli",
+        "/concerts/venues?source=013",
+        "/concerts/venues?source=paradiso",
+        "/concerts/venues?source=melkweg",
+        "/concerts/venues?source=paard",
+        "/concerts/venues?source=doornroosje",
+        "/concerts/venues?source=patronaat",
+        "/concerts/venues?source=effenaar",
+        "/concerts/venues?source=vera",
+        "/concerts/venues?source=hedon",
+        "/concerts/venues?source=muziekgieterij",
+        "/concerts/venues?source=boerderij"
+      ]
+    });
+  }
+
+  return json(
+    {
+      ok: false,
+      error: "Not found",
+      pathname
+    },
+    404
+  );
+}
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data, null, 2), {
+    status,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      ...corsHeaders()
+    }
+  });
+}
+
+function corsHeaders() {
+  return {
+    "access-control-allow-origin": "*",
+    "access-control-allow-methods": "GET,HEAD,POST,OPTIONS",
+    "access-control-allow-headers": "Content-Type"
+  };
+}
+function normalizePath(pathname) {
+  if (!pathname) return "/";
+  return pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
+}

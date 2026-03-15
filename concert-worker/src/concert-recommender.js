@@ -10,7 +10,7 @@ export function scoreConcerts(concerts = [], affinityMap = {}) {
     const scoredConcert = scoreSingleConcert(concert, affinityMap);
     if (!scoredConcert) continue;
     scored.push(scoredConcert);
-  } 
+  }
 
   return scored.sort((a, b) => {
     if (b.recommendation_score !== a.recommendation_score) {
@@ -71,12 +71,15 @@ export function scoreSingleConcert(concert, affinityMap = {}) {
     why: reasons
   };
 }
+
 function buildCandidateNames(concert) {
   const set = new Set();
 
   const push = (value) => {
-    const norm = normalizeArtistKey(value);
-    if (norm) set.add(norm);
+    const normalizedValues = expandCandidateVariants(value);
+    for (const norm of normalizedValues) {
+      if (norm) set.add(norm);
+    }
   };
 
   push(concert.title);
@@ -92,12 +95,47 @@ function buildCandidateNames(concert) {
 
   return Array.from(set);
 }
+function expandCandidateVariants(value) {
+  const original = String(value || "").trim();
+  if (!original) return [];
+
+  const variants = new Set();
+
+  const cleaned = cleanArtistNoise(original);
+  const normalized = normalizeArtistKey(cleaned);
+  if (normalized) variants.add(normalized);
+
+  for (const part of splitArtistsFromRawTitle(cleaned)) {
+    const n = normalizeArtistKey(part);
+    if (n) variants.add(n);
+  }
+
+  return Array.from(variants);
+}
 
 function splitArtistsFromRawTitle(rawTitle) {
   return String(rawTitle || "")
     .split(/\s+\+\s+|\s*&\s*|\s*,\s*|\/| \| | featuring | feat\. | ft\. /i)
+    .map((x) => cleanArtistNoise(x))
     .map((x) => x.trim())
     .filter(Boolean);
+}
+
+function cleanArtistNoise(value) {
+  return String(value || "")
+    .replace(/^ga naar:\s*/i, "")
+    .replace(/^geannuleerd:\s*/i, "")
+    .replace(/^cancelled:\s*/i, "")
+    .replace(/^canceled:\s*/i, "")
+    .replace(/^verplaatst:\s*/i, "")
+    .replace(/^uitverkocht:\s*/i, "")
+    .replace(/^sold out:\s*/i, "")
+    .replace(/^tickets?:\s*/i, "")
+    .replace(/^ticketinfo:\s*/i, "")
+    .replace(/^nieuw:\s*/i, "")
+    .replace(/^new:\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function pickBestMatch(matches) {
@@ -106,13 +144,15 @@ function pickBestMatch(matches) {
 }
 
 function normalizeArtistKey(name) {
-  return String(name || "")
+  return cleanArtistNoise(name)
     .toLowerCase()
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/\(.*?\)/g, " ")
     .replace(/\blive\b/gi, " ")
     .replace(/\bconcert\b/gi, " ")
+    .replace(/[:"'`´’]/g, " ")
+    .replace(/[#]|&amp;/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -157,6 +197,7 @@ function venuePreferenceBoost(venueName) {
 
   return preferred.some((x) => v.includes(x)) ? 0.02 : 0;
 }
+
 function isPastConcert(dateLocal) {
   if (!dateLocal) return false;
 
@@ -168,7 +209,6 @@ function isPastConcert(dateLocal) {
 
   return String(dateLocal) < todayStr;
 }
-
 function buildReasons({
   bestMatch,
   concert,
@@ -243,6 +283,7 @@ function clamp01(value) {
 function round3(value) {
   return Math.round(value * 1000) / 1000;
 }
+
 export function filterRecommendedConcerts(scoredConcerts = [], options = {}) {
   const {
     minScore = 0.18,

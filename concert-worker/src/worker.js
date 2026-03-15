@@ -79,7 +79,45 @@ async function handleRequest(request, env, ctx) {
       events
     });
   }
-if (pathname === "/lastfm/debug") {
+
+  if (pathname === "/concerts/search") {
+    const q = (url.searchParams.get("q") || "").trim().toLowerCase();
+
+    if (!q) {
+      return json(
+        {
+          ok: false,
+          error: "Missing q param"
+        },
+        400
+      );
+    }
+
+    const events = await fetchAllVenueEvents();
+
+    const results = events.filter((e) => {
+      const blob = [
+        e.title || "",
+        e.raw_title || "",
+        ...(Array.isArray(e.artists_all) ? e.artists_all : [])
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return blob.includes(q);
+    });
+
+    return json({
+      ok: true,
+      mode: "search",
+      query: q,
+      total_pool: events.length,
+      found: results.length,
+      results
+    });
+  }
+
+  if (pathname === "/lastfm/debug") {
     const profile = await fetchLastfmProfile(env);
     const summary = summarizeLastfmProfile(profile);
     const affinityMap = buildTasteProfile(profile);
@@ -95,7 +133,6 @@ if (pathname === "/lastfm/debug") {
 
   if (pathname === "/concerts/recommended") {
     const allEvents = await fetchAllVenueEvents();
-
     const lastfmProfile = await fetchLastfmProfile(env);
     const affinityMap = buildTasteProfile(lastfmProfile);
 
@@ -134,12 +171,14 @@ if (pathname === "/lastfm/debug") {
         "/concerts/venues?source=muziekgieterij",
         "/concerts/venues?source=boerderij",
         "/concerts/venues?source=fluor",
+        "/concerts/search?q=amenra",
         "/lastfm/debug",
         "/concerts/recommended"
       ]
     });
   }
-return json(
+
+  return json(
     {
       ok: false,
       error: "Not found",
@@ -166,6 +205,7 @@ function corsHeaders() {
     "access-control-allow-headers": "Content-Type"
   };
 }
+
 function normalizePath(pathname) {
   if (!pathname) return "/";
   return pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;

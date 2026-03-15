@@ -1,6 +1,6 @@
 // worker.js
 // Listening Mirror — Concert Worker
-// Main entry point
+// Main entry point (DEPLOY TEST VERSION)
 
 import {
   fetchAllVenueEvents,
@@ -89,10 +89,12 @@ async function handleRequest(request, env, ctx) {
     });
   }
 
+  // 🔥 DEPLOY TEST ROOT
   if (pathname === "/") {
     return json({
       ok: true,
       service: "econcerts",
+      version: "TEST-777",
       endpoints: [
         "/health",
         "/concerts/venues",
@@ -126,60 +128,15 @@ async function handleRequest(request, env, ctx) {
 
 function buildMockAffinity() {
   return {
-    "amenra": {
-      name: "Amenra",
-      affinity: 0.95,
-      total: 600,
-      recent: 20
-    },
-    "mono": {
-      name: "Mono",
-      affinity: 0.92,
-      total: 800,
-      recent: 15
-    },
-    "solstafir": {
-      name: "Sólstafir",
-      affinity: 0.88,
-      total: 450,
-      recent: 10
-    },
-    "sólstafir": {
-      name: "Sólstafir",
-      affinity: 0.88,
-      total: 450,
-      recent: 10
-    },
-    "alcest": {
-      name: "Alcest",
-      affinity: 0.9,
-      total: 500,
-      recent: 12
-    },
-    "psychonaut": {
-      name: "Psychonaut",
-      affinity: 0.75,
-      total: 120,
-      recent: 5
-    },
-    "villagers of ioannina city": {
-      name: "Villagers of Ioannina City",
-      affinity: 0.82,
-      total: 220,
-      recent: 8
-    },
-    "godspeed you! black emperor": {
-      name: "Godspeed You! Black Emperor",
-      affinity: 0.86,
-      total: 300,
-      recent: 7
-    },
-    "godspeed you black emperor": {
-      name: "Godspeed You! Black Emperor",
-      affinity: 0.86,
-      total: 300,
-      recent: 7
-    }
+    amenra: { name: "Amenra", affinity: 0.95 },
+    mono: { name: "Mono", affinity: 0.92 },
+    solstafir: { name: "Sólstafir", affinity: 0.88 },
+    "sólstafir": { name: "Sólstafir", affinity: 0.88 },
+    alcest: { name: "Alcest", affinity: 0.9 },
+    psychonaut: { name: "Psychonaut", affinity: 0.75 },
+    "villagers of ioannina city": { name: "Villagers of Ioannina City", affinity: 0.82 },
+    "godspeed you! black emperor": { name: "Godspeed You! Black Emperor", affinity: 0.86 },
+    "godspeed you black emperor": { name: "Godspeed You! Black Emperor", affinity: 0.86 }
   };
 }
 

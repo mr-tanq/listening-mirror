@@ -10,7 +10,7 @@ export function scoreConcerts(concerts = [], affinityMap = {}) {
     const scoredConcert = scoreSingleConcert(concert, affinityMap);
     if (!scoredConcert) continue;
     scored.push(scoredConcert);
-  }
+  } 
 
   return scored.sort((a, b) => {
     if (b.recommendation_score !== a.recommendation_score) {

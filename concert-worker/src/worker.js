@@ -550,8 +550,7 @@ function dedupedSelectSql(extra = "") {
       )
     ${extra}
   `;
-  }
-// worker.js
+      }// worker.js
 // FULL FILE REPLACE — PART 3/4
 
 async function upsertConcert(DB, event, now) {
@@ -728,7 +727,7 @@ function extractUrlTail(url) {
   if (last) return last;
 
   return parts[parts.length - 2] || "";
-}
+    }
 // worker.js
 // FULL FILE REPLACE — PART 4/4
 
@@ -849,4 +848,4 @@ function corsHeaders() {
 function normalizePath(pathname) {
   if (!pathname) return "/";
   return pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
-    }
+}

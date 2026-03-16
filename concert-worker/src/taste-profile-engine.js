@@ -1,142 +1,200 @@
-/* taste-profile-engine.js
-   Listening Mirror — Taste Profile Engine
-   FULL FILE REPLACE
-*/
+// taste-profile-engine.js
+// FULL FILE REPLACE
 
-export function buildTasteProfile({
-  topArtistsLong = [],
-  topArtistsMedium = [],
-  topArtistsShort = [],
-  recentTracks = []
-}) {
-  const artistMap = new Map();
+import {
+  normalizeArtistName,
+  normalizeText
+} from "./artist-normalizer.js";
 
-  function ensureArtist(name) {
-    const cleanName = String(name || "").trim();
-    if (!cleanName) return null;
+export function buildTasteProfile(lastfmProfile) {
+  const buckets = collectArtistBuckets(lastfmProfile);
+  const map = new Map();
 
-    const key = normalizeArtistKey(cleanName);
+  for (const item of buckets) {
+    const normalized = normalizeArtistName(item.name);
+    if (!normalized) continue;
 
-    if (!key) return null;
-
-    if (!artistMap.has(key)) {
-      artistMap.set(key, {
-        key,
-        name: cleanName,
-        total: 0,
-        recent: 0,
-        long: false,
-        medium: false,
-        short: false
-      });
-    }
-
-    return artistMap.get(key);
-  }
-
-  topArtistsLong.forEach((a) => {
-    const entry = ensureArtist(a?.name);
-    if (!entry) return;
-    entry.total += Number(a?.playcount || 0);
-    entry.long = true;
-  });
-
-  topArtistsMedium.forEach((a) => {
-    const entry = ensureArtist(a?.name);
-    if (!entry) return;
-    entry.total += Number(a?.playcount || 0);
-    entry.medium = true;
-  });
-
-  topArtistsShort.forEach((a) => {
-    const entry = ensureArtist(a?.name);
-    if (!entry) return;
-    entry.total += Number(a?.playcount || 0);
-    entry.short = true;
-  });
-
-  recentTracks.forEach((t) => {
-    const name = t?.artist?.name || t?.artist || "";
-    const entry = ensureArtist(name);
-    if (!entry) return;
-    entry.recent += 1;
-  });
-
-  const artists = Array.from(artistMap.values());
-
-  if (!artists.length) {
-    return {};
-  }
-
-  const maxTotal = Math.max(...artists.map((a) => a.total), 1);
-  const maxRecent = Math.max(...artists.map((a) => a.recent), 1);
-
-  function logNormalize(value, max) {
-    if (!max) return 0;
-    return Math.log(value + 1) / Math.log(max + 1);
-  }
-
-  function linearNormalize(value, max) {
-    if (!max) return 0;
-    return value / max;
-  }
-
-  function corePresenceScore(a) {
-    let score = 0;
-    if (a.long) score += 0.15;
-    if (a.medium) score += 0.1;
-    if (a.short) score += 0.1;
-    return Math.min(score, 0.35);
-  }
-
-  const affinityMap = {};
-
-  artists.forEach((a) => {
-    const totalScore = logNormalize(a.total, maxTotal);
-    const recentScore = linearNormalize(a.recent, maxRecent);
-    const presence = corePresenceScore(a);
-
-    let affinity =
-      totalScore * 0.6 +
-      recentScore * 0.25 +
-      presence * 0.15;
-
-    if (a.recent >= 15) {
-      affinity *= 1.08;
-    }
-
-    if (a.recent >= 30) {
-      affinity *= 1.15;
-    }
-
-    affinity = Math.max(0, Math.min(1, affinity));
-
-    affinityMap[a.key] = {
-      name: a.name,
-      affinity,
-      total: a.total,
-      recent: a.recent,
-      presence
+    const existing = map.get(normalized) || {
+      name: normalizeText(item.name),
+      total: 0,
+      recent: 0,
+      long: 0,
+      library: 0,
+      presence: 0,
+      affinity: 0
     };
+
+    existing.total += item.total || 0;
+    existing.recent += item.recent || 0;
+    existing.long += item.long || 0;
+    existing.library += item.library || 0;
+
+    map.set(normalized, existing);
+  }
+
+  let maxTotal = 1;
+  let maxRecent = 1;
+  let maxLibrary = 1;
+
+  for (const value of map.values()) {
+    if (value.total > maxTotal) maxTotal = value.total;
+    if (value.recent > maxRecent) maxRecent = value.recent;
+    if (value.library > maxLibrary) maxLibrary = value.library;
+  }
+
+  for (const value of map.values()) {
+    const totalNorm = safeRatio(value.total, maxTotal);
+    const recentNorm = safeRatio(value.recent, maxRecent);
+    const libraryNorm = safeRatio(value.library, maxLibrary);
+
+    const presence =
+      (value.total > 0 ? 1 : 0) +
+      (value.recent > 0 ? 1 : 0) +
+      (value.library > 0 ? 1 : 0);
+
+    value.presence = presence / 3;
+
+    value.affinity =
+      totalNorm * 0.55 +
+      recentNorm * 0.25 +
+      libraryNorm * 0.20;
+
+    value.affinity = round4(value.affinity);
+  }
+
+  return map;
+}
+
+export function sortAffinityMap(affinityMap) {
+  const rows = [];
+
+  if (!(affinityMap instanceof Map)) return rows;
+
+  for (const [normalized, value] of affinityMap.entries()) {
+    rows.push({
+      normalized,
+      name: value.name,
+      affinity: value.affinity,
+      total: value.total,
+      recent: value.recent,
+      library: value.library,
+      presence: value.presence
+    });
+  }
+
+  rows.sort((a, b) => {
+    if (b.affinity !== a.affinity) return b.affinity - a.affinity;
+    if (b.total !== a.total) return b.total - a.total;
+    return a.name.localeCompare(b.name);
   });
 
-  return affinityMap;
+  return rows;
 }
 
-function normalizeArtistKey(name) {
-  return String(name || "")
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\(.*?\)/g, " ")
-    .replace(/[:"'`´’]/g, " ")
-    .replace(/\blive\b/gi, " ")
-    .replace(/\bconcert\b/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+function collectArtistBuckets(profile) {
+  const buckets = [];
+  const recentWeight = 1.0;
+  const longWeight = 1.0;
+  const libraryWeight = 1.0;
+
+  const recentArtists = pluckArtists(profile?.recentArtists || profile?.recent || []);
+  const longArtists = pluckArtists(profile?.topArtistsLong || profile?.long || profile?.overall || []);
+  const libraryArtists = pluckArtists(profile?.libraryArtists || profile?.library || []);
+
+  for (const artist of recentArtists) {
+    buckets.push({
+      name: artist.name,
+      total: 0,
+      recent: toCount(artist.plays, 1) * recentWeight,
+      long: 0,
+      library: 0
+    });
+  }
+
+  for (const artist of longArtists) {
+    const count = toCount(artist.plays, artist.playcount || 1);
+    buckets.push({
+      name: artist.name,
+      total: count * longWeight,
+      recent: 0,
+      long: count * longWeight,
+      library: 0
+    });
+  }
+
+  for (const artist of libraryArtists) {
+    const count = toCount(artist.plays, artist.playcount || 1);
+    buckets.push({
+      name: artist.name,
+      total: count * libraryWeight,
+      recent: 0,
+      long: 0,
+      library: count * libraryWeight
+    });
+  }
+
+  return buckets;
 }
 
-/* helper — sort artists by affinity */
-export function sortAffinityMap(map) {
-  return Object.values(map).sort((a, b) => b.affinity - a.affinity);
+function pluckArtists(input) {
+  if (Array.isArray(input)) {
+    return input
+      .map(normalizeArtistRecord)
+      .filter((x) => x.name);
+  }
+
+  if (input && Array.isArray(input.artist)) {
+    return input.artist
+      .map(normalizeArtistRecord)
+      .filter((x) => x.name);
+  }
+
+  if (input?.topartists?.artist && Array.isArray(input.topartists.artist)) {
+    return input.topartists.artist
+      .map(normalizeArtistRecord)
+      .filter((x) => x.name);
+  }
+
+  return [];
+}
+
+function normalizeArtistRecord(item) {
+  if (!item) return { name: "", plays: 0 };
+
+  if (typeof item === "string") {
+    return { name: item, plays: 1 };
+  }
+
+  return {
+    name: normalizeText(
+      item.name ||
+      item.artist ||
+      item.label ||
+      ""
+    ),
+    plays: toCount(
+      item.plays,
+      item.playcount ||
+      item.count ||
+      item.scrobbles ||
+      1
+    )
+  };
+}
+
+function toCount(...values) {
+  for (const value of values) {
+    const n = Number(value);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return 0;
+}
+
+function safeRatio(a, b) {
+  if (!b) return 0;
+  return a / b;
+}
+
+function round4(n) {
+  return Math.round(n * 10000) / 10000;
 }

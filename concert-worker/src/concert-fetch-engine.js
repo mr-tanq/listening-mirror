@@ -1,6 +1,6 @@
 // concert-fetch-engine.js
 // Listening Mirror — Concert Worker
-// Venue fetch + parse engine v13
+// Venue fetch + parse engine v14
 // Custom handling for: paradiso, doornroosje, patronaat, paard, tivoli
 
 import { VENUES } from "./venues-engine.js";
@@ -38,7 +38,8 @@ export async function fetchVenueEventsById(venueId) {
   if (venue.id === "paradiso") {
     const events = await fetchParadisoEvents({
       maxPages: 20,
-      maxEvents: 800
+      maxEvents: 600,
+      hydrateConcurrency: 6
     });
     return dedupeEvents(events);
   }
@@ -288,9 +289,13 @@ function parsePaard(html, venue) {
   return events;
 }
 
-// ---------------- Paradiso v2 ----------------
+// ---------------- Paradiso v3 (detail-page hydration) ----------------
 
-async function fetchParadisoEvents({ maxPages = 20, maxEvents = 800 } = {}) {
+async function fetchParadisoEvents({
+  maxPages = 20,
+  maxEvents = 600,
+  hydrateConcurrency = 6
+} = {}) {
   const venue = {
     id: "paradiso",
     name: "Paradiso",
@@ -299,54 +304,62 @@ async function fetchParadisoEvents({ maxPages = 20, maxEvents = 800 } = {}) {
     url: "https://www.paradiso.nl"
   };
 
-  const all = [];
-  const seenPages = new Set();
+  const detailLinks = await collectParadisoDetailLinks(maxPages);
+  const limitedLinks = detailLinks.slice(0, Math.max(1, Math.min(2000, maxEvents * 2)));
 
-  const pageUrls = [
-    "https://www.paradiso.nl/nl/agenda",
-    "https://www.paradiso.nl/agenda",
-    "https://www.paradiso.nl/en/program"
-  ];
+  const hydrated = await mapLimit(limitedLinks, hydrateConcurrency, async (link) => {
+    return await hydrateParadisoDetailPage(link, venue).catch(() => null);
+  });
 
-  for (const baseUrl of pageUrls) {
-    for (let page = 1; page <= maxPages; page++) {
-      const url =
-        page === 1
-          ? baseUrl
-          : `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}page=${page}`;
+  return hydrated.filter(Boolean).slice(0, maxEvents);
+}
 
-      if (seenPages.has(url)) continue;
-      seenPages.add(url);
+async function collectParadisoDetailLinks(maxPages = 20) {
+  const urlsToTry = [];
 
-      const html = await fetchText(url).catch(() => "");
-      if (!html) continue;
+  for (let page = 1; page <= maxPages; page++) {
+    urlsToTry.push(page === 1
+      ? "https://www.paradiso.nl/nl/agenda"
+      : `https://www.paradiso.nl/nl/agenda?page=${page}`);
+  }
 
-      const parsed = parseParadisoPageHtml(html, venue);
+  for (let page = 1; page <= Math.min(maxPages, 8); page++) {
+    urlsToTry.push(page === 1
+      ? "https://www.paradiso.nl/agenda"
+      : `https://www.paradiso.nl/agenda?page=${page}`);
+  }
 
-      if (!parsed.length && page > 3) {
-        break;
-      }
+  const seenLinks = new Set();
+  const links = [];
 
-      all.push(...parsed);
+  for (const pageUrl of urlsToTry) {
+    const html = await fetchText(pageUrl).catch(() => "");
+    if (!html) continue;
 
-      if (all.length >= maxEvents) {
-        return dedupeEvents(all).slice(0, maxEvents);
-      }
+    const found = extractParadisoDetailLinksFromListing(html);
+
+    if (!found.length && pageUrl.includes("page=") && pageUrl.endsWith(`page=${Math.min(maxPages, 8)}`) === false) {
+      // no-op, keep crawling
+    }
+
+    for (const link of found) {
+      if (seenLinks.has(link)) continue;
+      seenLinks.add(link);
+      links.push(link);
     }
   }
 
-  return dedupeEvents(all).slice(0, maxEvents);
+  return links;
 }
 
-function parseParadisoPageHtml(html, venue) {
-  const events = [];
+function extractParadisoDetailLinksFromListing(html) {
+  const out = [];
   const seen = new Set();
 
-  const detailLinkRe =
-    /href="([^"]*(?:\/nl\/programma\/|\/en\/program\/|\/program\/)[^"]+)"/gi;
-
+  const re = /href="([^"]*(?:\/nl\/programma\/|\/en\/program\/|\/program\/)[^"]+)"/gi;
   let m;
-  while ((m = detailLinkRe.exec(html)) !== null) {
+
+  while ((m = re.exec(html)) !== null) {
     const href = String(m[1] || "").trim();
     if (!href) continue;
 
@@ -357,80 +370,52 @@ function parseParadisoPageHtml(html, venue) {
       continue;
     }
 
+    const lower = link.toLowerCase();
+    if (
+      lower.includes("/nieuws/") ||
+      lower.includes("/news/") ||
+      lower.includes("/archief/") ||
+      lower.includes("/over/") ||
+      lower.includes("/vacatures/") ||
+      lower.includes("/jobs/")
+    ) {
+      continue;
+    }
+
     if (seen.has(link)) continue;
     seen.add(link);
-
-    const block = extractParadisoCardBlock(html, m.index);
-    if (!block) continue;
-
-    const parsed = parseParadisoCardBlock(block, link, venue);
-    if (!parsed) continue;
-
-    events.push(parsed);
+    out.push(link);
   }
 
-  return events;
+  return out;
 }
 
-function extractParadisoCardBlock(html, index) {
-  const start = Math.max(0, index - 3500);
-  const end = Math.min(html.length, index + 3500);
-  const chunk = html.slice(start, end);
-
-  const anchorPos = chunk.indexOf('href="');
-  if (anchorPos < 0) return chunk;
-
-  const left = Math.max(0, chunk.lastIndexOf("<article", anchorPos));
-  const leftDiv = Math.max(0, chunk.lastIndexOf("<div", anchorPos));
-  const blockStart = left > 0 ? left : leftDiv;
-
-  let nextArticle = chunk.indexOf("<article", anchorPos + 10);
-  let nextDiv = chunk.indexOf("<div", anchorPos + 10);
-
-  if (nextArticle < 0) nextArticle = chunk.length;
-  if (nextDiv < 0) nextDiv = chunk.length;
-
-  const blockEnd = Math.min(nextArticle, nextDiv + 1200, chunk.length);
-
-  return chunk.slice(blockStart, blockEnd);
-}
-
-function parseParadisoCardBlock(block, link, venue) {
-  const lowerLink = String(link || "").toLowerCase();
-
-  if (
-    lowerLink.includes("/nieuws/") ||
-    lowerLink.includes("/news/") ||
-    lowerLink.includes("/archief/") ||
-    lowerLink.includes("/over/") ||
-    lowerLink.includes("/vacatures/") ||
-    lowerLink.includes("/jobs/")
-  ) {
-    return null;
-  }
+async function hydrateParadisoDetailPage(link, venue) {
+  const html = await fetchText(link);
+  if (!html) return null;
 
   const rawTitle =
-    extractParadisoTitle(block, link) ||
+    extractParadisoDetailTitle(html) ||
     titleFromLink(link);
 
   const dateLocal =
-    extractParadisoDate(block, link) ||
-    extractDate(block) ||
+    extractParadisoDetailDate(html) ||
     extractDateFromUrl(link);
 
-  const timeLocal = extractParadisoTime(block) || extractTime(block);
-  const imageUrl = extractParadisoImage(block) || extractImage(block);
+  const timeLocal = extractParadisoDetailTime(html);
+  const imageUrl = extractParadisoDetailImage(html);
+  const rawArtists = extractParadisoDetailLineup(html, rawTitle);
 
-  if (!rawTitle || !dateLocal || !link) return null;
+  if (!rawTitle || !dateLocal) return null;
   if (isBlockedTitle(rawTitle)) return null;
   if (!looksLikeRealEvent(rawTitle, link, venue)) return null;
 
-  const artistInfo = normalizeArtist(rawTitle);
+  const artistInfo = normalizeArtist(rawArtists || rawTitle);
 
   return buildEvent({
     venue,
     sourceId: buildSourceId(venue.id, artistInfo.main, dateLocal, link),
-    rawTitle,
+    rawTitle: rawArtists || rawTitle,
     title: artistInfo.main,
     artistsAll: artistInfo.all,
     dateLocal,
@@ -440,63 +425,138 @@ function parseParadisoCardBlock(block, link, venue) {
   });
 }
 
-function extractParadisoTitle(block, link) {
+function extractParadisoDetailTitle(html) {
   const patterns = [
-    /<h3[^>]*>([\s\S]*?)<\/h3>/i,
-    /<h2[^>]*>([\s\S]*?)<\/h2>/i,
-    /<h4[^>]*>([\s\S]*?)<\/h4>/i,
-    /aria-label="([^"]+)"/i,
-    /title="([^"]+)"/i
+    /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i,
+    /<h1[^>]*>([\s\S]*?)<\/h1>/i,
+    /<title[^>]*>([\s\S]*?)<\/title>/i
   ];
 
   for (const pattern of patterns) {
-    const m = block.match(pattern);
+    const m = html.match(pattern);
     if (!m) continue;
-    const text = cleanText(stripTags(m[1]));
-    if (text && !isBlockedTitle(text) && !looksLikeLinkTailOnly(text, link)) {
-      return text;
-    }
+    let text = cleanText(stripTags(m[1]));
+    text = text.replace(/\s*\|\s*Paradiso.*$/i, "").trim();
+    if (text && !isBlockedTitle(text)) return text;
   }
 
   return null;
 }
 
-function extractParadisoDate(block, link) {
-  const datetimeMatch = block.match(/datetime=["'](\d{4}-\d{2}-\d{2})(?:T[^"']*)?["']/i);
+function extractParadisoDetailDate(html) {
+  const jsonLdDates = extractJsonLdStartDates(html);
+  for (const iso of jsonLdDates) {
+    const d = new Date(iso);
+    if (!Number.isNaN(d.getTime())) {
+      return formatDateFromDate(d);
+    }
+  }
+
+  const datetimeMatch = html.match(/datetime=["'](\d{4}-\d{2}-\d{2})(?:T[^"']*)?["']/i);
   if (datetimeMatch) return datetimeMatch[1];
 
-  const dataDateMatch = block.match(/data-(?:date|day)=["'](\d{4}-\d{2}-\d{2})["']/i);
-  if (dataDateMatch) return dataDateMatch[1];
-
-  const textDate = extractDate(block);
+  const textDate = extractDate(html);
   if (textDate) return textDate;
 
-  return extractDateFromUrl(link);
+  return null;
 }
 
-function extractParadisoTime(block) {
-  const datetimeMatch = block.match(/datetime=["']\d{4}-\d{2}-\d{2}T(\d{2}:\d{2})(?::\d{2})?["']/i);
+function extractParadisoDetailTime(html) {
+  const jsonLdDates = extractJsonLdStartDates(html);
+  for (const iso of jsonLdDates) {
+    const d = new Date(iso);
+    if (!Number.isNaN(d.getTime())) {
+      return formatTimeLocalAmsterdam(d.getTime());
+    }
+  }
+
+  const datetimeMatch = html.match(/datetime=["']\d{4}-\d{2}-\d{2}T(\d{2}:\d{2})(?::\d{2})?["']/i);
   if (datetimeMatch) return datetimeMatch[1];
 
-  const m = block.match(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/);
+  const m = html.match(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/);
   if (!m) return null;
   return `${String(m[1]).padStart(2, "0")}:${m[2]}`;
 }
 
-function extractParadisoImage(block) {
-  const og = block.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i);
-  if (og?.[1]) return og[1];
+function extractParadisoDetailImage(html) {
+  const patterns = [
+    /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,
+    /<img[^>]+src=["']([^"']+)["']/i
+  ];
 
-  const img = block.match(/<img[^>]+src=["']([^"']+)["']/i);
-  if (img?.[1]) {
+  for (const pattern of patterns) {
+    const m = html.match(pattern);
+    if (!m?.[1]) continue;
     try {
-      return new URL(img[1], "https://www.paradiso.nl").toString();
+      return new URL(m[1], "https://www.paradiso.nl").toString();
     } catch {
-      return img[1];
+      return m[1];
     }
   }
 
   return null;
+}
+
+function extractParadisoDetailLineup(html, fallbackTitle) {
+  const candidates = [];
+
+  const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i);
+  if (ogTitle?.[1]) candidates.push(cleanText(ogTitle[1]));
+
+  const jsonLdNames = extractJsonLdNames(html);
+  candidates.push(...jsonLdNames);
+
+  const h1 = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+  if (h1?.[1]) candidates.push(cleanText(stripTags(h1[1])));
+
+  candidates.push(fallbackTitle || "");
+
+  for (const c of candidates) {
+    const text = cleanText(c);
+    if (!text) continue;
+    if (text.toLowerCase().includes("paradiso")) continue;
+    return text;
+  }
+
+  return fallbackTitle || "";
+}
+
+function extractJsonLdStartDates(html) {
+  const out = [];
+  const re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let m;
+
+  while ((m = re.exec(html)) !== null) {
+    const raw = String(m[1] || "").trim();
+    if (!raw) continue;
+
+    const found = [...raw.matchAll(/"startDate"\s*:\s*"([^"]+)"/gi)];
+    for (const hit of found) {
+      if (hit?.[1]) out.push(hit[1]);
+    }
+  }
+
+  return out;
+}
+
+function extractJsonLdNames(html) {
+  const out = [];
+  const re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let m;
+
+  while ((m = re.exec(html)) !== null) {
+    const raw = String(m[1] || "").trim();
+    if (!raw) continue;
+
+    const found = [...raw.matchAll(/"name"\s*:\s*"([^"]+)"/gi)];
+    for (const hit of found) {
+      const value = cleanText(hit?.[1] || "");
+      if (!value) continue;
+      out.push(value);
+    }
+  }
+
+  return out;
 }
 // ---------------- TivoliVredenburg ----------------
 
@@ -603,28 +663,17 @@ async function tivoliHydrateEvent(ev) {
   const html = await fetchText(url).catch(() => "");
   if (!html) return ev;
 
-  const jsonLdBlocks = [];
-  const reLd = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
-  let m;
-  while ((m = reLd.exec(html))) {
-    const raw = String(m[1] || "").trim();
-    if (raw) jsonLdBlocks.push(raw);
-  }
+  const jsonLdDates = extractJsonLdStartDates(html);
 
   let startTs = ev.startTs;
   let startLocal = ev.startLocal;
 
-  for (const blk of jsonLdBlocks) {
-    const txt = blk.replace(/\n/g, " ").trim();
-    const sm = txt.match(/"startDate"\s*:\s*"([^"]+)"/i);
-    if (sm) {
-      const iso = String(sm[1] || "").trim();
-      const d = new Date(iso);
-      if (!Number.isNaN(d.getTime())) {
-        startTs = d.getTime();
-        startLocal = formatAmsterdamLocal(new Date(startTs));
-        break;
-      }
+  for (const iso of jsonLdDates) {
+    const d = new Date(iso);
+    if (!Number.isNaN(d.getTime())) {
+      startTs = d.getTime();
+      startLocal = formatAmsterdamLocal(new Date(startTs));
+      break;
     }
   }
 
@@ -1015,10 +1064,17 @@ function looksLikeRealEvent(title, link, venue) {
   return true;
 }
 
-function looksLikeLinkTailOnly(title, link) {
-  const tail = titleFromLink(link);
-  if (!tail) return false;
-  return normalizeLoose(title) === normalizeLoose(tail);
+function isBlockedTitle(title) {
+  const t = cleanText(title).toLowerCase();
+  return (
+    !t ||
+    t.includes("vul op zijn minst") ||
+    t === "zoek" ||
+    t === "search" ||
+    t === "programma" ||
+    t === "agenda" ||
+    t === "tickets"
+  );
 }
 
 function titleFromLink(link) {
@@ -1036,19 +1092,6 @@ function titleFromLink(link) {
   } catch {
     return "";
   }
-}
-
-function isBlockedTitle(title) {
-  const t = cleanText(title).toLowerCase();
-  return (
-    !t ||
-    t.includes("vul op zijn minst") ||
-    t === "zoek" ||
-    t === "search" ||
-    t === "programma" ||
-    t === "agenda" ||
-    t === "tickets"
-  );
 }
 
 function dedupeEvents(events) {
@@ -1161,6 +1204,13 @@ function formatAmsterdamLocal(dateObj) {
   return `${y}-${m}-${d}T${hh}:${mm}:${ss}`;
 }
 
+function formatDateFromDate(dateObj) {
+  const y = dateObj.getUTCFullYear();
+  const m = String(dateObj.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(dateObj.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 function formatDateLocalAmsterdam(ts) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Europe/Amsterdam",
@@ -1218,16 +1268,6 @@ function slugify(str) {
     .replace(/^-|-$/g, "");
 }
 
-function normalizeLoose(str) {
-  return String(str || "")
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 function decodeHtmlEntities(str) {
   return String(str || "")
     .replace(/&amp;/gi, "&")
@@ -1255,4 +1295,4 @@ function cleanText(str) {
 
 function stripTags(str) {
   return String(str || "").replace(/<[^>]*>/g, " ");
-    }
+                                            }

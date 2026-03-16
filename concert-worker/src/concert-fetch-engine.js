@@ -1,6 +1,6 @@
 // concert-fetch-engine.js
 // Listening Mirror — Concert Worker
-// Venue fetch + parse engine v16
+// Venue fetch + parse engine v17
 // Custom handling for: paradiso, doornroosje, patronaat, paard, tivoli
 
 import { VENUES } from "./venues-engine.js";
@@ -29,7 +29,7 @@ export async function fetchVenueEventsById(venueId) {
 
   if (venue.id === "tivoli") {
     const events = await fetchTivoliEvents({
-      maxEvents: 900,
+      maxEvents: 700,
       hydrateLimit: 40
     });
     return dedupeEvents(events);
@@ -37,9 +37,9 @@ export async function fetchVenueEventsById(venueId) {
 
   if (venue.id === "paradiso") {
     const events = await fetchParadisoEvents({
-      maxPages: 60,
-      maxEvents: 1200,
-      hydrateConcurrency: 6
+      maxPages: 10,
+      maxEvents: 220,
+      hydrateConcurrency: 4
     });
     return dedupeEvents(events);
   }
@@ -287,12 +287,12 @@ function parsePaard(html, venue) {
   return events;
 }
 
-// ---------------- Paradiso v5 ----------------
+// ---------------- Paradiso v6 (lighter / safer) ----------------
 
 async function fetchParadisoEvents({
-  maxPages = 60,
-  maxEvents = 1200,
-  hydrateConcurrency = 6
+  maxPages = 10,
+  maxEvents = 220,
+  hydrateConcurrency = 4
 } = {}) {
   const venue = {
     id: "paradiso",
@@ -305,7 +305,7 @@ async function fetchParadisoEvents({
   const detailLinks = await collectParadisoDetailLinks(maxPages);
   console.log(`[concert-fetch-engine] paradiso collected links=${detailLinks.length}`);
 
-  const limitedLinks = detailLinks.slice(0, Math.max(1, Math.min(3000, maxEvents * 3)));
+  const limitedLinks = detailLinks.slice(0, Math.max(1, Math.min(400, maxEvents)));
 
   const hydrated = await mapLimit(limitedLinks, hydrateConcurrency, async (link) => {
     return await hydrateParadisoDetailPage(link, venue).catch((err) => {
@@ -317,22 +317,21 @@ async function fetchParadisoEvents({
   return hydrated.filter(Boolean).slice(0, maxEvents);
 }
 
-async function collectParadisoDetailLinks(maxPages = 60) {
-  const seeds = [
+async function collectParadisoDetailLinks(maxPages = 10) {
+  const basePages = [
     "https://www.paradiso.nl/landing/concertagenda-paradiso/2069817",
-    "https://www.paradiso.nl/nl/landing/concertagenda-paradiso/2069817",
-    "https://www.paradiso.nl/nl/agenda",
-    "https://www.paradiso.nl/agenda"
+    "https://www.paradiso.nl/nl/landing/concertagenda-paradiso/2069817"
   ];
 
   const urlsToTry = [];
 
-  for (const seed of seeds) {
-    urlsToTry.push(seed);
+  for (const base of basePages) {
+    urlsToTry.push(base);
+
     for (let page = 2; page <= maxPages; page++) {
-      urlsToTry.push(`${seed}?page=${page}`);
-      urlsToTry.push(`${seed}&page=${page}`);
-      urlsToTry.push(`${seed}/page/${page}`);
+      urlsToTry.push(`${base}?page=${page}`);
+      urlsToTry.push(`${base}&page=${page}`);
+      urlsToTry.push(`${base}/page/${page}`);
     }
   }
 
@@ -494,7 +493,6 @@ function extractParadisoDetailDateTime(html, link) {
 function extractExplicitEventIsoFromHtml(html) {
   const patterns = [
     /"eventStartDate"\s*:\s*"([^"]+)"/i,
-    /"startDate"\s*:\s*"([^"]+)"/i,
     /datetime=["'](20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:Z|[+\-]\d{2}:\d{2})?)["']/i
   ];
 
@@ -612,6 +610,18 @@ function extractParadisoDetailLineup(html, fallbackTitle) {
       .trim();
     if (lineupText) candidates.push(lineupText);
   }
+
+  candidates.push(fallbackTitle || "");
+
+  for (const c of candidates) {
+    const text = cleanText(c);
+    if (!text) continue;
+    if (text.toLowerCase().includes("paradiso")) continue;
+    return text;
+  }
+
+  return fallbackTitle || "";
+    }
 function extractEventJsonLdStartDates(html) {
   const out = [];
   const re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
@@ -650,11 +660,11 @@ function extractMainContent(html) {
 
 // ---------------- TivoliVredenburg ----------------
 
-async function fetchTivoliEvents({ maxEvents = 900, hydrateLimit = 40 } = {}) {
-  const want = Math.max(1, Math.min(2000, Number(maxEvents) || 900));
+async function fetchTivoliEvents({ maxEvents = 700, hydrateLimit = 40 } = {}) {
+  const want = Math.max(1, Math.min(1500, Number(maxEvents) || 700));
 
   const events = [];
-  const maxPages = 60;
+  const maxPages = 50;
 
   for (let page = 1; page <= maxPages; page++) {
     const pageUrl = `https://www.tivolivredenburg.nl/agenda/page/${page}/`;
@@ -1370,14 +1380,3 @@ function cleanText(str) {
 function stripTags(str) {
   return String(str || "").replace(/<[^>]*>/g, " ");
     }
-  candidates.push(fallbackTitle || "");
-
-  for (const c of candidates) {
-    const text = cleanText(c);
-    if (!text) continue;
-    if (text.toLowerCase().includes("paradiso")) continue;
-    return text;
-  }
-
-  return fallbackTitle || "";
-}

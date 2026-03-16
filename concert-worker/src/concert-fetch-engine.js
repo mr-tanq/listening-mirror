@@ -41,6 +41,7 @@ export async function fetchVenueEventsById(venueId) {
   return dedupeEvents(events);
 }
 
+
 async function fetchHtml(url) {
   const res = await fetch(url, {
     headers: {
@@ -56,6 +57,14 @@ async function fetchHtml(url) {
   return await res.text();
 }
 
+function buildSourceId(parts) {
+  return parts
+    .filter(Boolean)
+    .join("-")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
 async function parseVenueHtml(html, venue) {
   switch (venue.id) {
     case "paradiso":

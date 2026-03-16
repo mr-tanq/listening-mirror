@@ -1,7 +1,7 @@
 // concert-fetch-engine.js
 // Listening Mirror — Concert Worker
-// Venue fetch + parse engine v19
-// Paradiso strict-date fix
+// Venue fetch + parse engine v20
+// Paradiso: safer time parsing + wider refresh window
 // Custom handling for: paradiso, doornroosje, patronaat, paard, tivoli
 
 import { VENUES } from "./venues-engine.js";
@@ -30,17 +30,17 @@ export async function fetchVenueEventsById(venueId) {
 
   if (venue.id === "tivoli") {
     const events = await fetchTivoliEvents({
-      maxEvents: 700,
-      hydrateLimit: 40
+      maxEvents: 900,
+      hydrateLimit: 60
     });
     return dedupeEvents(events);
   }
 
   if (venue.id === "paradiso") {
     const events = await fetchParadisoEvents({
-      maxPages: 2,
-      maxEvents: 40,
-      hydrateConcurrency: 2
+      maxPages: 4,
+      maxEvents: 120,
+      hydrateConcurrency: 3
     });
     return dedupeEvents(events);
   }
@@ -70,7 +70,7 @@ async function fetchText(url) {
   const r = await fetch(url, {
     method: "GET",
     headers: {
-      "accept": "text/html,*/*",
+      accept: "text/html,*/*",
       "user-agent": "ListeningMirror/1.0 (mr-tanq)"
     }
   });
@@ -288,12 +288,12 @@ function parsePaard(html, venue) {
   return events;
 }
 
-// ---------------- Paradiso strict-date ----------------
+// ---------------- Paradiso ----------------
 
 async function fetchParadisoEvents({
-  maxPages = 2,
-  maxEvents = 40,
-  hydrateConcurrency = 2
+  maxPages = 4,
+  maxEvents = 120,
+  hydrateConcurrency = 3
 } = {}) {
   const venue = {
     id: "paradiso",
@@ -306,7 +306,7 @@ async function fetchParadisoEvents({
   const detailLinks = await collectParadisoDetailLinks(maxPages);
   console.log(`[paradiso] collected detailLinks=${detailLinks.length}`);
 
-  const limitedLinks = detailLinks.slice(0, Math.max(1, Math.min(120, maxEvents)));
+  const limitedLinks = detailLinks.slice(0, Math.max(1, Math.min(300, maxEvents * 3)));
   console.log(`[paradiso] limitedLinks=${limitedLinks.length}`);
 
   const hydrated = await mapLimit(limitedLinks, hydrateConcurrency, async (link) => {
@@ -321,7 +321,7 @@ async function fetchParadisoEvents({
   return events;
 }
 
-async function collectParadisoDetailLinks(maxPages = 2) {
+async function collectParadisoDetailLinks(maxPages = 4) {
   const basePages = [
     "https://www.paradiso.nl/landing/concertagenda-paradiso/2069817",
     "https://www.paradiso.nl/nl/landing/concertagenda-paradiso/2069817"
@@ -504,12 +504,11 @@ function extractParadisoDetailDateTime(html, link) {
   }
 
   const visibleDate = extractParadisoVisibleDateStrict(html);
-  const visibleTime = extractParadisoVisibleTimeStrict(html);
 
   if (visibleDate) {
     return {
       dateLocal: visibleDate,
-      timeLocal: visibleTime
+      timeLocal: null
     };
   }
 
@@ -547,17 +546,6 @@ function extractParadisoVisibleDateStrict(html) {
     if (found && !isPastDateLocal(found)) {
       return found;
     }
-  }
-
-  return null;
-}
-
-function extractParadisoVisibleTimeStrict(html) {
-  const scopes = extractParadisoDateScopes(html);
-
-  for (const scope of scopes) {
-    const found = extractTime(scope);
-    if (found) return found;
   }
 
   return null;
@@ -681,10 +669,10 @@ function isPastDateLocal(dateLocal) {
   return String(dateLocal) < String(today);
 }
 
-// ---------------- TivoliVredenburg ----------------
+// ---------------- Tivoli ----------------
 
-async function fetchTivoliEvents({ maxEvents = 700, hydrateLimit = 40 } = {}) {
-  const want = Math.max(1, Math.min(1500, Number(maxEvents) || 700));
+async function fetchTivoliEvents({ maxEvents = 900, hydrateLimit = 60 } = {}) {
+  const want = Math.max(1, Math.min(1500, Number(maxEvents) || 900));
 
   const events = [];
   const maxPages = 50;
@@ -705,7 +693,7 @@ async function fetchTivoliEvents({ maxEvents = 700, hydrateLimit = 40 } = {}) {
 
   const uniq = dedupeByUrl(upcoming);
 
-  const toHydrate = uniq.slice(0, Math.max(0, Math.min(120, Number(hydrateLimit) || 0)));
+  const toHydrate = uniq.slice(0, Math.max(0, Math.min(150, Number(hydrateLimit) || 0)));
   const rest = uniq.slice(toHydrate.length);
 
   const hydratedHead = await mapLimit(toHydrate, 6, async (ev) => {
@@ -1402,4 +1390,4 @@ function cleanText(str) {
 
 function stripTags(str) {
   return String(str || "").replace(/<[^>]*>/g, " ");
-      }
+}

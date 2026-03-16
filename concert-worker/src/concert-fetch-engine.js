@@ -1,7 +1,7 @@
 // concert-fetch-engine.js
 // Listening Mirror — Concert Worker
-// Venue fetch + parse engine v18
-// Debug-first Paradiso
+// Venue fetch + parse engine v19
+// Paradiso strict-date fix
 // Custom handling for: paradiso, doornroosje, patronaat, paard, tivoli
 
 import { VENUES } from "./venues-engine.js";
@@ -288,7 +288,7 @@ function parsePaard(html, venue) {
   return events;
 }
 
-// ---------------- Paradiso debug-first ----------------
+// ---------------- Paradiso strict-date ----------------
 
 async function fetchParadisoEvents({
   maxPages = 2,
@@ -429,6 +429,11 @@ async function hydrateParadisoDetailPage(link, venue) {
     return null;
   }
 
+  if (isPastDateLocal(dt.dateLocal)) {
+    console.log(`[paradiso] drop past date ${dt.dateLocal} ${link}`);
+    return null;
+  }
+
   if (isBlockedTitle(rawTitle)) {
     console.log(`[paradiso] drop blocked title ${rawTitle} ${link}`);
     return null;
@@ -498,13 +503,21 @@ function extractParadisoDetailDateTime(html, link) {
     }
   }
 
-  const textDate = extractParadisoVisibleDate(html) || extractDateFromUrl(link);
-  const textTime = extractParadisoVisibleTime(html);
+  const visibleDate = extractParadisoVisibleDateStrict(html);
+  const visibleTime = extractParadisoVisibleTimeStrict(html);
 
-  if (textDate) {
+  if (visibleDate) {
     return {
-      dateLocal: textDate,
-      timeLocal: textTime
+      dateLocal: visibleDate,
+      timeLocal: visibleTime
+    };
+  }
+
+  const urlDate = extractDateFromUrl(link);
+  if (urlDate && !isPastDateLocal(urlDate)) {
+    return {
+      dateLocal: urlDate,
+      timeLocal: null
     };
   }
 
@@ -526,73 +539,65 @@ function extractExplicitEventIsoFromHtml(html) {
   return null;
 }
 
-function extractParadisoVisibleDate(html) {
-  const scoped = extractMainContent(html);
+function extractParadisoVisibleDateStrict(html) {
+  const scopes = extractParadisoDateScopes(html);
 
-  const patterns = [
-    /\b(\d{1,2})\s+(jan|januari|feb|februari|mrt|maart|mar|apr|april|mei|may|jun|juni|jul|juli|aug|augustus|sep|sept|september|okt|oktober|oct|nov|november|dec|december)\s+(20\d{2})\b/i,
-    /\b(?:ma|di|wo|do|vr|za|zo)\s+(\d{1,2})\s+(jan|januari|feb|februari|mrt|maart|mar|apr|april|mei|may|jun|juni|jul|juli|aug|augustus|sep|sept|september|okt|oktober|oct|nov|november|dec|december)\s+(20\d{2})\b/i,
-    /\b(20\d{2})-(\d{2})-(\d{2})\b/
-  ];
-
-  const MONTHS = {
-    jan: 0, januari: 0,
-    feb: 1, februari: 1,
-    mrt: 2, maart: 2, mar: 2,
-    apr: 3, april: 3,
-    mei: 4, may: 4,
-    jun: 5, juni: 5,
-    jul: 6, juli: 6,
-    aug: 7, augustus: 7,
-    sep: 8, sept: 8, september: 8,
-    okt: 9, oktober: 9, oct: 9,
-    nov: 10, november: 10,
-    dec: 11, december: 11
-  };
-
-  for (const pattern of patterns) {
-    const m = scoped.match(pattern);
-    if (!m) continue;
-
-    if (m[0].includes("-") && m[1]?.startsWith("20")) {
-      return `${m[1]}-${m[2]}-${m[3]}`;
-    }
-
-    const day = Number(m[1]);
-    const mo = MONTHS[String(m[2]).toLowerCase()];
-    const year = Number(m[3]);
-    if (Number.isFinite(day) && mo != null && Number.isFinite(year)) {
-      return isoDate(year, mo, day);
+  for (const scope of scopes) {
+    const found = extractDate(scope);
+    if (found && !isPastDateLocal(found)) {
+      return found;
     }
   }
 
   return null;
 }
 
-function extractParadisoVisibleTime(html) {
-  const scoped = extractMainContent(html);
+function extractParadisoVisibleTimeStrict(html) {
+  const scopes = extractParadisoDateScopes(html);
 
-  const patterns = [
-    /\b([01]?\d|2[0-3]):([0-5]\d)\b/g,
-    /\b([01]?\d|2[0-3])\.([0-5]\d)\b/g
-  ];
-
-  const candidates = [];
-
-  for (const pattern of patterns) {
-    let m;
-    while ((m = pattern.exec(scoped)) !== null) {
-      const hh = String(m[1]).padStart(2, "0");
-      const mm = m[2];
-      const value = `${hh}:${mm}`;
-
-      if (value === "00:01") continue;
-      candidates.push(value);
-    }
+  for (const scope of scopes) {
+    const found = extractTime(scope);
+    if (found) return found;
   }
 
-  if (!candidates.length) return null;
-  return candidates[0];
+  return null;
+}
+
+function extractParadisoDateScopes(html) {
+  const scopes = [];
+
+  const patterns = [
+    /<main[^>]*>([\s\S]*?)<\/main>/i,
+    /<article[^>]*>([\s\S]*?)<\/article>/i,
+    /<section[^>]*>([\s\S]*?)<\/section>/i
+  ];
+
+  for (const pattern of patterns) {
+    const m = html.match(pattern);
+    if (m?.[1]) scopes.push(cleanText(stripTags(m[1])));
+  }
+
+  const labelBlocks = [
+    /zaal open[\s\S]{0,300}/i,
+    /hoofprogramma[\s\S]{0,300}/i,
+    /programma[\s\S]{0,300}/i,
+    /datum[\s\S]{0,250}/i,
+    /zaterdag[\s\S]{0,120}/i,
+    /zondag[\s\S]{0,120}/i,
+    /maandag[\s\S]{0,120}/i,
+    /dinsdag[\s\S]{0,120}/i,
+    /woensdag[\s\S]{0,120}/i,
+    /donderdag[\s\S]{0,120}/i,
+    /vrijdag[\s\S]{0,120}/i
+  ];
+
+  const bodyText = cleanText(stripTags(html));
+  for (const pattern of labelBlocks) {
+    const m = bodyText.match(pattern);
+    if (m?.[0]) scopes.push(m[0]);
+  }
+
+  return scopes.filter(Boolean);
 }
 
 function extractParadisoDetailImage(html) {
@@ -671,12 +676,9 @@ function looksLikeIsoDateTime(value) {
   return /20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(value || ""));
 }
 
-function extractMainContent(html) {
-  const mainMatch =
-    html.match(/<main[^>]*>([\s\S]*?)<\/main>/i) ||
-    html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-
-  return cleanText(stripTags(mainMatch?.[1] || html));
+function isPastDateLocal(dateLocal) {
+  const today = formatDateLocalAmsterdam(Date.now());
+  return String(dateLocal) < String(today);
 }
 
 // ---------------- TivoliVredenburg ----------------

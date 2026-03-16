@@ -58,8 +58,21 @@ async function fetchHtml(url) {
 }
 
 function buildSourceId(parts) {
+  if (!parts) return "";
+
+  // αν είναι string → κάντο array
+  if (typeof parts === "string") {
+    parts = [parts];
+  }
+
+  // αν είναι object → κάντο array με values
+  if (!Array.isArray(parts)) {
+    parts = Object.values(parts);
+  }
+
   return parts
     .filter(Boolean)
+    .map(p => String(p))
     .join("-")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")

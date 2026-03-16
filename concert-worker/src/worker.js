@@ -82,7 +82,7 @@ async function handleRequest(request, env, ctx) {
       try {
         await upsertConcert(env.DB, event, now);
         written += 1;
-      } catch (err) {
+      } catch {
         failed += 1;
       }
     }
@@ -90,6 +90,46 @@ async function handleRequest(request, env, ctx) {
     return json({
       ok: true,
       mode: "refresh-db",
+      fetched: events.length,
+      written,
+      failed
+    });
+  }
+
+  if (pathname === "/admin/refresh-source") {
+    assertDb(env);
+
+    const source = (url.searchParams.get("source") || "").trim().toLowerCase();
+
+    if (!source) {
+      return json(
+        {
+          ok: false,
+          error: "Missing source param"
+        },
+        400
+      );
+    }
+
+    const events = await fetchVenueEventsById(source);
+    const now = Date.now();
+
+    let written = 0;
+    let failed = 0;
+
+    for (const event of events) {
+      try {
+        await upsertConcert(env.DB, event, now);
+        written += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+
+    return json({
+      ok: true,
+      mode: "refresh-source",
+      source,
       fetched: events.length,
       written,
       failed
@@ -262,7 +302,7 @@ async function handleRequest(request, env, ctx) {
         ORDER BY
           date_local ASC,
           title ASC
-        LIMIT 200
+        LIMIT 100
       `)
       .bind(like, like, like, like)
       .all();
@@ -287,19 +327,7 @@ async function handleRequest(request, env, ctx) {
     assertDb(env);
 
     const limit = clampInt(url.searchParams.get("limit"), 1000, 1, 5000);
-    const pool = clampInt(url.searchParams.get("pool"), 5000, 100, 20000);
     const minScore = clampFloat(url.searchParams.get("minScore"), 0.12, 0, 1);
-
-    const totalFutureRow = await env.DB
-      .prepare(`
-        SELECT COUNT(*) AS count
-        FROM concerts
-        WHERE
-          date_local IS NOT NULL
-          AND date_local != ''
-          AND date(date_local) >= date('now')
-      `)
-      .first();
 
     const rows = await env.DB
       .prepare(`
@@ -332,7 +360,7 @@ async function handleRequest(request, env, ctx) {
           title ASC
         LIMIT ?
       `)
-      .bind(pool)
+      .bind(limit)
       .all();
 
     const concerts = (rows?.results || []).map(hydrateConcertRow);
@@ -341,18 +369,15 @@ async function handleRequest(request, env, ctx) {
     const affinityMap = buildTasteProfile(lastfmProfile);
 
     const scored = scoreConcerts(concerts, affinityMap);
-    const recommendedRaw = filterRecommendedConcerts(scored, {
+    const recommended = filterRecommendedConcerts(scored, {
       minScore,
       includeWeakSignals: false
     });
 
-    const recommended = dedupeRecommendedConcerts(recommendedRaw).slice(0, limit);
-
     return json({
       ok: true,
       mode: "db-recommended",
-      total_future_events: Number(totalFutureRow?.count || 0),
-      scoring_pool: concerts.length,
+      total_future_events: concerts.length,
       min_score: minScore,
       recommended_count: recommended.length,
       recommended
@@ -441,12 +466,10 @@ async function handleRequest(request, env, ctx) {
     const affinityMap = buildTasteProfile(lastfmProfile);
 
     const scored = scoreConcerts(allEvents, affinityMap);
-    const recommendedRaw = filterRecommendedConcerts(scored, {
+    const recommended = filterRecommendedConcerts(scored, {
       minScore: 0.12,
       includeWeakSignals: false
     });
-
-    const recommended = dedupeRecommendedConcerts(recommendedRaw);
 
     return json({
       ok: true,
@@ -455,8 +478,7 @@ async function handleRequest(request, env, ctx) {
       recommended_count: recommended.length,
       recommended
     });
-  }
-
+               }
   if (pathname === "/") {
     return json({
       ok: true,
@@ -465,6 +487,19 @@ async function handleRequest(request, env, ctx) {
         "/health",
         "/admin/db-count",
         "/admin/refresh-db",
+        "/admin/refresh-source?source=paradiso",
+        "/admin/refresh-source?source=tivoli",
+        "/admin/refresh-source?source=013",
+        "/admin/refresh-source?source=melkweg",
+        "/admin/refresh-source?source=paard",
+        "/admin/refresh-source?source=patronaat",
+        "/admin/refresh-source?source=doornroosje",
+        "/admin/refresh-source?source=effenaar",
+        "/admin/refresh-source?source=vera",
+        "/admin/refresh-source?source=hedon",
+        "/admin/refresh-source?source=muziekgieterij",
+        "/admin/refresh-source?source=boerderij",
+        "/admin/refresh-source?source=fluor",
         "/concerts/db-latest",
         "/concerts/db-latest?limit=50",
         "/concerts/db-search?q=amenra",
@@ -474,8 +509,7 @@ async function handleRequest(request, env, ctx) {
         "/concerts/db-debug-score?q=solstafir",
         "/concerts/db-recommended",
         "/concerts/db-recommended?limit=1000",
-        "/concerts/db-recommended?limit=1000&pool=5000",
-        "/concerts/db-recommended?limit=1000&pool=5000&minScore=0.08",
+        "/concerts/db-recommended?limit=1000&minScore=0.08",
         "/concerts/venues",
         "/concerts/venues?source=tivoli",
         "/concerts/venues?source=013",
@@ -581,6 +615,7 @@ async function upsertConcert(DB, event, now) {
     now
   ).run();
 }
+
 function hydrateConcertRow(row) {
   return {
     ...row,
@@ -596,83 +631,6 @@ function parseArtistsAll(value) {
   } catch {
     return [];
   }
-}
-
-function dedupeRecommendedConcerts(items) {
-  const map = new Map();
-
-  for (const item of items || []) {
-    const key = [
-      normalizeDedupeText(item?.matched_artist || item?.artists_main || item?.title || ""),
-      normalizeDedupeText(item?.date_local || ""),
-      normalizeDedupeText(item?.venue_name || ""),
-      normalizeDedupeText(item?.city || "")
-    ].join("|");
-
-    const existing = map.get(key);
-    if (!existing) {
-      map.set(key, item);
-      continue;
-    }
-
-    if (pickBetterRecommendedConcert(item, existing) > 0) {
-      map.set(key, item);
-    }
-  }
-
-  return Array.from(map.values()).sort((a, b) => {
-    if ((b.recommendation_score || 0) !== (a.recommendation_score || 0)) {
-      return (b.recommendation_score || 0) - (a.recommendation_score || 0);
-    }
-    if (String(a.date_local || "") !== String(b.date_local || "")) {
-      return String(a.date_local || "").localeCompare(String(b.date_local || ""));
-    }
-    return String(a.title || "").localeCompare(String(b.title || ""));
-  });
-}
-
-function pickBetterRecommendedConcert(a, b) {
-  const scoreA = Number(a?.recommendation_score || 0);
-  const scoreB = Number(b?.recommendation_score || 0);
-  if (scoreA !== scoreB) return scoreA > scoreB ? 1 : -1;
-
-  const cleanA = cleanlinessScore(a);
-  const cleanB = cleanlinessScore(b);
-  if (cleanA !== cleanB) return cleanA > cleanB ? 1 : -1;
-
-  const imgA = a?.image_url ? 1 : 0;
-  const imgB = b?.image_url ? 1 : 0;
-  if (imgA !== imgB) return imgA > imgB ? 1 : -1;
-
-  const titleLenA = String(a?.title || "").length;
-  const titleLenB = String(b?.title || "").length;
-  if (titleLenA !== titleLenB) return titleLenA < titleLenB ? 1 : -1;
-
-  return 0;
-}
-
-function cleanlinessScore(item) {
-  const title = String(item?.title || "").toLowerCase();
-  const rawTitle = String(item?.raw_title || "").toLowerCase();
-  let score = 0;
-
-  if (!title.startsWith("ga naar:")) score += 2;
-  if (!title.includes("geannuleerd")) score += 1;
-  if (!rawTitle.includes("ga naar:")) score += 1;
-  if (!title.includes("cancelled")) score += 1;
-  if (!title.includes("canceled")) score += 1;
-
-  return score;
-}
-
-function normalizeDedupeText(value) {
-  return String(value || "")
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/^ga naar:\s*/i, "")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 function clampInt(value, fallback, min, max) {
@@ -713,4 +671,4 @@ function corsHeaders() {
 function normalizePath(pathname) {
   if (!pathname) return "/";
   return pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
-    }
+      }

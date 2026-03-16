@@ -69,6 +69,88 @@ async function handleRequest(request, env, ctx) {
     });
   }
 
+  if (pathname === "/admin/source-count") {
+    assertDb(env);
+
+    const source = normalizeSourceParam(url.searchParams.get("source"));
+    if (!source) {
+      return json(
+        {
+          ok: false,
+          error: "Missing source param"
+        },
+        400
+      );
+    }
+
+    const row = await env.DB
+      .prepare(`
+        SELECT COUNT(*) AS count
+        FROM concerts
+        WHERE LOWER(COALESCE(source, '')) = ?
+      `)
+      .bind(source)
+      .first();
+
+    return json({
+      ok: true,
+      mode: "source-count",
+      source,
+      count: Number(row?.count || 0)
+    });
+  }
+
+  if (pathname === "/admin/delete-source") {
+    assertDb(env);
+
+    const source = normalizeSourceParam(url.searchParams.get("source"));
+    if (!source) {
+      return json(
+        {
+          ok: false,
+          error: "Missing source param"
+        },
+        400
+      );
+    }
+
+    const before = await env.DB
+      .prepare(`
+        SELECT COUNT(*) AS count
+        FROM concerts
+        WHERE LOWER(COALESCE(source, '')) = ?
+      `)
+      .bind(source)
+      .first();
+
+    const result = await env.DB
+      .prepare(`
+        DELETE FROM concerts
+        WHERE LOWER(COALESCE(source, '')) = ?
+      `)
+      .bind(source)
+      .run();
+
+    const after = await env.DB
+      .prepare(`
+        SELECT COUNT(*) AS count
+        FROM concerts
+        WHERE LOWER(COALESCE(source, '')) = ?
+      `)
+      .bind(source)
+      .first();
+
+    return json({
+      ok: true,
+      mode: "delete-source",
+      source,
+      before: Number(before?.count || 0),
+      deleted:
+        Number(result?.meta?.changes ?? result?.changes ?? 0),
+      after: Number(after?.count || 0)
+    });
+  }
+
   if (pathname === "/admin/refresh-db") {
     assertDb(env);
 
@@ -82,7 +164,7 @@ async function handleRequest(request, env, ctx) {
       try {
         await upsertConcert(env.DB, event, now);
         written += 1;
-      } catch {
+      } catch (err) {
         failed += 1;
       }
     }
@@ -99,8 +181,7 @@ async function handleRequest(request, env, ctx) {
   if (pathname === "/admin/refresh-source") {
     assertDb(env);
 
-    const source = (url.searchParams.get("source") || "").trim().toLowerCase();
-
+    const source = normalizeSourceParam(url.searchParams.get("source"));
     if (!source) {
       return json(
         {
@@ -121,7 +202,7 @@ async function handleRequest(request, env, ctx) {
       try {
         await upsertConcert(env.DB, event, now);
         written += 1;
-      } catch {
+      } catch (err) {
         failed += 1;
       }
     }
@@ -321,8 +402,7 @@ async function handleRequest(request, env, ctx) {
       found: scored.length,
       scored
     });
-  }
-
+      }
   if (pathname === "/concerts/db-recommended") {
     assertDb(env);
 
@@ -385,7 +465,7 @@ async function handleRequest(request, env, ctx) {
   }
 
   if (pathname === "/concerts/venues") {
-    const source = (url.searchParams.get("source") || "").trim().toLowerCase();
+    const source = normalizeSourceParam(url.searchParams.get("source"));
 
     if (source) {
       const events = await fetchVenueEventsById(source);
@@ -478,7 +558,8 @@ async function handleRequest(request, env, ctx) {
       recommended_count: recommended.length,
       recommended
     });
-               }
+  }
+
   if (pathname === "/") {
     return json({
       ok: true,
@@ -486,20 +567,10 @@ async function handleRequest(request, env, ctx) {
       endpoints: [
         "/health",
         "/admin/db-count",
+        "/admin/source-count?source=paradiso",
+        "/admin/delete-source?source=paradiso",
         "/admin/refresh-db",
         "/admin/refresh-source?source=paradiso",
-        "/admin/refresh-source?source=tivoli",
-        "/admin/refresh-source?source=013",
-        "/admin/refresh-source?source=melkweg",
-        "/admin/refresh-source?source=paard",
-        "/admin/refresh-source?source=patronaat",
-        "/admin/refresh-source?source=doornroosje",
-        "/admin/refresh-source?source=effenaar",
-        "/admin/refresh-source?source=vera",
-        "/admin/refresh-source?source=hedon",
-        "/admin/refresh-source?source=muziekgieterij",
-        "/admin/refresh-source?source=boerderij",
-        "/admin/refresh-source?source=fluor",
         "/concerts/db-latest",
         "/concerts/db-latest?limit=50",
         "/concerts/db-search?q=amenra",
@@ -645,6 +716,11 @@ function clampFloat(value, fallback, min, max) {
   return Math.max(min, Math.min(max, n));
 }
 
+function normalizeSourceParam(value) {
+  const v = String(value || "").trim().toLowerCase();
+  return v || "";
+}
+
 function safe(value) {
   if (value === undefined || value === null) return null;
   return String(value);
@@ -671,4 +747,4 @@ function corsHeaders() {
 function normalizePath(pathname) {
   if (!pathname) return "/";
   return pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
-      }
+    }

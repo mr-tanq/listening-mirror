@@ -1,6 +1,7 @@
 // concert-fetch-engine.js
 // Listening Mirror — Concert Worker
-// Venue fetch + parse engine v17
+// Venue fetch + parse engine v18
+// Debug-first Paradiso
 // Custom handling for: paradiso, doornroosje, patronaat, paard, tivoli
 
 import { VENUES } from "./venues-engine.js";
@@ -37,9 +38,9 @@ export async function fetchVenueEventsById(venueId) {
 
   if (venue.id === "paradiso") {
     const events = await fetchParadisoEvents({
-      maxPages: 10,
-      maxEvents: 220,
-      hydrateConcurrency: 4
+      maxPages: 2,
+      maxEvents: 40,
+      hydrateConcurrency: 2
     });
     return dedupeEvents(events);
   }
@@ -287,12 +288,12 @@ function parsePaard(html, venue) {
   return events;
 }
 
-// ---------------- Paradiso v6 (lighter / safer) ----------------
+// ---------------- Paradiso debug-first ----------------
 
 async function fetchParadisoEvents({
-  maxPages = 10,
-  maxEvents = 220,
-  hydrateConcurrency = 4
+  maxPages = 2,
+  maxEvents = 40,
+  hydrateConcurrency = 2
 } = {}) {
   const venue = {
     id: "paradiso",
@@ -303,21 +304,24 @@ async function fetchParadisoEvents({
   };
 
   const detailLinks = await collectParadisoDetailLinks(maxPages);
-  console.log(`[concert-fetch-engine] paradiso collected links=${detailLinks.length}`);
+  console.log(`[paradiso] collected detailLinks=${detailLinks.length}`);
 
-  const limitedLinks = detailLinks.slice(0, Math.max(1, Math.min(400, maxEvents)));
+  const limitedLinks = detailLinks.slice(0, Math.max(1, Math.min(120, maxEvents)));
+  console.log(`[paradiso] limitedLinks=${limitedLinks.length}`);
 
   const hydrated = await mapLimit(limitedLinks, hydrateConcurrency, async (link) => {
     return await hydrateParadisoDetailPage(link, venue).catch((err) => {
-      console.log(`[concert-fetch-engine] paradiso hydrate failed ${link}: ${err.message}`);
+      console.log(`[paradiso] hydrate failed ${link}: ${err.message}`);
       return null;
     });
   });
 
-  return hydrated.filter(Boolean).slice(0, maxEvents);
+  const events = hydrated.filter(Boolean).slice(0, maxEvents);
+  console.log(`[paradiso] final events=${events.length}`);
+  return events;
 }
 
-async function collectParadisoDetailLinks(maxPages = 10) {
+async function collectParadisoDetailLinks(maxPages = 2) {
   const basePages = [
     "https://www.paradiso.nl/landing/concertagenda-paradiso/2069817",
     "https://www.paradiso.nl/nl/landing/concertagenda-paradiso/2069817"
@@ -327,11 +331,8 @@ async function collectParadisoDetailLinks(maxPages = 10) {
 
   for (const base of basePages) {
     urlsToTry.push(base);
-
     for (let page = 2; page <= maxPages; page++) {
       urlsToTry.push(`${base}?page=${page}`);
-      urlsToTry.push(`${base}&page=${page}`);
-      urlsToTry.push(`${base}/page/${page}`);
     }
   }
 
@@ -340,12 +341,13 @@ async function collectParadisoDetailLinks(maxPages = 10) {
 
   for (const pageUrl of urlsToTry) {
     const html = await fetchText(pageUrl).catch(() => "");
-    if (!html) continue;
+    if (!html) {
+      console.log(`[paradiso] empty listing ${pageUrl}`);
+      continue;
+    }
 
     const found = extractParadisoDetailLinksFromListing(html);
-    if (!found.length) continue;
-
-    console.log(`[concert-fetch-engine] paradiso page=${pageUrl} found=${found.length}`);
+    console.log(`[paradiso] page=${pageUrl} found=${found.length}`);
 
     for (const link of found) {
       if (seenLinks.has(link)) continue;
@@ -406,20 +408,39 @@ function extractParadisoDetailLinksFromListing(html) {
 
 async function hydrateParadisoDetailPage(link, venue) {
   const html = await fetchText(link);
-  if (!html) return null;
+  if (!html) {
+    console.log(`[paradiso] drop empty html ${link}`);
+    return null;
+  }
 
   const rawTitle =
     extractParadisoDetailTitle(html) ||
     titleFromLink(link);
 
+  if (!rawTitle) {
+    console.log(`[paradiso] drop no rawTitle ${link}`);
+    return null;
+  }
+
   const dt = extractParadisoDetailDateTime(html, link);
+
+  if (!dt?.dateLocal) {
+    console.log(`[paradiso] drop no date ${link}`);
+    return null;
+  }
+
+  if (isBlockedTitle(rawTitle)) {
+    console.log(`[paradiso] drop blocked title ${rawTitle} ${link}`);
+    return null;
+  }
+
+  if (!looksLikeRealEvent(rawTitle, link, venue)) {
+    console.log(`[paradiso] drop not real event ${rawTitle} ${link}`);
+    return null;
+  }
+
   const imageUrl = extractParadisoDetailImage(html);
   const rawArtists = extractParadisoDetailLineup(html, rawTitle);
-
-  if (!rawTitle || !dt?.dateLocal) return null;
-  if (isBlockedTitle(rawTitle)) return null;
-  if (!looksLikeRealEvent(rawTitle, link, venue)) return null;
-
   const artistInfo = normalizeArtist(rawArtists || rawTitle);
 
   return buildEvent({
@@ -489,7 +510,6 @@ function extractParadisoDetailDateTime(html, link) {
 
   return null;
 }
-
 function extractExplicitEventIsoFromHtml(html) {
   const patterns = [
     /"eventStartDate"\s*:\s*"([^"]+)"/i,
@@ -621,7 +641,8 @@ function extractParadisoDetailLineup(html, fallbackTitle) {
   }
 
   return fallbackTitle || "";
-    }
+}
+
 function extractEventJsonLdStartDates(html) {
   const out = [];
   const re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
@@ -1379,4 +1400,4 @@ function cleanText(str) {
 
 function stripTags(str) {
   return String(str || "").replace(/<[^>]*>/g, " ");
-    }
+      }

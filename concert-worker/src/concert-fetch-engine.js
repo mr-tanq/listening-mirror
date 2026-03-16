@@ -1,7 +1,7 @@
 // concert-fetch-engine.js
 // Listening Mirror — Concert Worker
-// Venue fetch + parse engine v20
-// Paradiso: safer time parsing + wider refresh window
+// Venue fetch + parse engine v21
+// Paradiso: add /en as extra listing source
 // Custom handling for: paradiso, doornroosje, patronaat, paard, tivoli
 
 import { VENUES } from "./venues-engine.js";
@@ -38,8 +38,8 @@ export async function fetchVenueEventsById(venueId) {
 
   if (venue.id === "paradiso") {
     const events = await fetchParadisoEvents({
-      maxPages: 4,
-      maxEvents: 120,
+      maxPages: 6,
+      maxEvents: 180,
       hydrateConcurrency: 3
     });
     return dedupeEvents(events);
@@ -291,8 +291,8 @@ function parsePaard(html, venue) {
 // ---------------- Paradiso ----------------
 
 async function fetchParadisoEvents({
-  maxPages = 4,
-  maxEvents = 120,
+  maxPages = 6,
+  maxEvents = 180,
   hydrateConcurrency = 3
 } = {}) {
   const venue = {
@@ -306,7 +306,7 @@ async function fetchParadisoEvents({
   const detailLinks = await collectParadisoDetailLinks(maxPages);
   console.log(`[paradiso] collected detailLinks=${detailLinks.length}`);
 
-  const limitedLinks = detailLinks.slice(0, Math.max(1, Math.min(300, maxEvents * 3)));
+  const limitedLinks = detailLinks.slice(0, Math.max(1, Math.min(500, maxEvents * 4)));
   console.log(`[paradiso] limitedLinks=${limitedLinks.length}`);
 
   const hydrated = await mapLimit(limitedLinks, hydrateConcurrency, async (link) => {
@@ -321,16 +321,19 @@ async function fetchParadisoEvents({
   return events;
 }
 
-async function collectParadisoDetailLinks(maxPages = 4) {
+async function collectParadisoDetailLinks(maxPages = 6) {
   const basePages = [
     "https://www.paradiso.nl/landing/concertagenda-paradiso/2069817",
-    "https://www.paradiso.nl/nl/landing/concertagenda-paradiso/2069817"
+    "https://www.paradiso.nl/nl/landing/concertagenda-paradiso/2069817",
+    "https://www.paradiso.nl/en",
+    "https://www.paradiso.nl/nl"
   ];
 
   const urlsToTry = [];
 
   for (const base of basePages) {
     urlsToTry.push(base);
+
     for (let page = 2; page <= maxPages; page++) {
       urlsToTry.push(`${base}?page=${page}`);
     }
@@ -367,6 +370,8 @@ function extractParadisoDetailLinksFromListing(html) {
     /href="([^"]*\/nl\/programma\/[^"]+)"/gi,
     /href="([^"]*\/en\/program\/[^"]+)"/gi,
     /href="([^"]*\/program\/[^"]+)"/gi,
+    /href="([^"]*\/nl\/programma\/[^"]+\/\d+)"/gi,
+    /href="([^"]*\/en\/program\/[^"]+\/\d+)"/gi,
     /https:\/\/www\.paradiso\.nl\/nl\/programma\/[^\s"'<>]+/gi,
     /https:\/\/www\.paradiso\.nl\/en\/program\/[^\s"'<>]+/gi
   ];
@@ -393,6 +398,13 @@ function extractParadisoDetailLinksFromListing(html) {
         lower.includes("/over/") ||
         lower.includes("/vacatures/") ||
         lower.includes("/jobs/")
+      ) {
+        continue;
+      }
+
+      if (
+        !lower.includes("/nl/programma/") &&
+        !lower.includes("/en/program/")
       ) {
         continue;
       }
@@ -1390,4 +1402,4 @@ function cleanText(str) {
 
 function stripTags(str) {
   return String(str || "").replace(/<[^>]*>/g, " ");
-}
+  }

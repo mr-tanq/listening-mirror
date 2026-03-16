@@ -55,6 +55,34 @@ async function handleRequest(request, env, ctx) {
     });
   }
 
+  if (pathname === "/diag") {
+    return json({
+      ok: true,
+      mode: "diag",
+      service: "econcerts",
+      pathname,
+      hasDb: Boolean(env?.DB),
+      timestamp: new Date().toISOString(),
+      available_routes: [
+        "/health",
+        "/diag",
+        "/admin/db-count",
+        "/admin/db-reset",
+        "/admin/delete-source?source=paradiso",
+        "/admin/refresh-source?source=paradiso",
+        "/admin/refresh-db",
+        "/concerts/db-latest",
+        "/concerts/db-search?q=opeth",
+        "/concerts/db-debug-score?q=opeth",
+        "/concerts/db-recommended",
+        "/concerts/db-recommended-tiers",
+        "/concerts/venues?source=paradiso",
+        "/concerts/search?q=opeth",
+        "/lastfm/debug"
+      ]
+    });
+  }
+
   if (pathname === "/admin/db-count") {
     assertDb(env);
 
@@ -69,11 +97,57 @@ async function handleRequest(request, env, ctx) {
     });
   }
 
-  if (pathname === "/admin/refresh-db") {
+  if (pathname === "/admin/db-reset") {
     assertDb(env);
 
-    const events = await fetchAllVenueEvents();
+    const result = await env.DB.prepare("DELETE FROM concerts").run();
+
+    return json({
+      ok: true,
+      mode: "db-reset",
+      success: true,
+      meta: result || null
+    });
+  }
+
+  if (pathname === "/admin/delete-source") {
+    assertDb(env);
+
+    const source = (url.searchParams.get("source") || "").trim().toLowerCase();
+    if (!source) {
+      return json({ ok: false, error: "Missing source param" }, 400);
+    }
+
+    const result = await env.DB
+      .prepare("DELETE FROM concerts WHERE LOWER(COALESCE(source, '')) = ?")
+      .bind(source)
+      .run();
+
+    return json({
+      ok: true,
+      mode: "delete-source",
+      source,
+      success: true,
+      meta: result || null
+    });
+  }
+
+  if (pathname === "/admin/refresh-source") {
+    assertDb(env);
+
+    const source = (url.searchParams.get("source") || "").trim().toLowerCase();
+    if (!source) {
+      return json({ ok: false, error: "Missing source param" }, 400);
+    }
+
     const now = Date.now();
+
+    await env.DB
+      .prepare("DELETE FROM concerts WHERE LOWER(COALESCE(source, '')) = ?")
+      .bind(source)
+      .run();
+
+    const events = await fetchVenueEventsById(source);
 
     let written = 0;
     let failed = 0;
@@ -82,7 +156,38 @@ async function handleRequest(request, env, ctx) {
       try {
         await upsertConcert(env.DB, event, now);
         written += 1;
-      } catch (err) {
+      } catch {
+        failed += 1;
+      }
+    }
+
+    return json({
+      ok: true,
+      mode: "refresh-source",
+      source,
+      fetched: events.length,
+      written,
+      failed
+    });
+  }
+
+  if (pathname === "/admin/refresh-db") {
+    assertDb(env);
+
+    const now = Date.now();
+
+    await env.DB.prepare("DELETE FROM concerts").run();
+
+    const events = await fetchAllVenueEvents();
+
+    let written = 0;
+    let failed = 0;
+
+    for (const event of events) {
+      try {
+        await upsertConcert(env.DB, event, now);
+        written += 1;
+      } catch {
         failed += 1;
       }
     }
@@ -95,7 +200,8 @@ async function handleRequest(request, env, ctx) {
       failed
     });
   }
-if (pathname === "/concerts/db-latest") {
+
+  if (pathname === "/concerts/db-latest") {
     assertDb(env);
 
     const limit = clampInt(url.searchParams.get("limit"), 20, 1, 500);
@@ -127,8 +233,8 @@ if (pathname === "/concerts/db-latest") {
           AND date_local != ''
           AND date(date_local) >= date('now')
         ORDER BY
-          date_local ASC,
-          title ASC
+          date(date_local) ASC,
+          LOWER(COALESCE(title, '')) ASC
         LIMIT ?
       `)
       .bind(limit)
@@ -141,8 +247,7 @@ if (pathname === "/concerts/db-latest") {
       results: (rows?.results || []).map(hydrateConcertRow)
     });
   }
-
-  if (pathname === "/concerts/db-search") {
+if (pathname === "/concerts/db-search") {
     assertDb(env);
 
     const q = (url.searchParams.get("q") || "").trim();
@@ -188,8 +293,8 @@ if (pathname === "/concerts/db-latest") {
             OR LOWER(COALESCE(city, '')) LIKE ?
           )
         ORDER BY
-          date_local ASC,
-          title ASC
+          date(date_local) ASC,
+          LOWER(COALESCE(title, '')) ASC
         LIMIT ?
       `)
       .bind(like, like, like, like, like, like, limit)
@@ -247,9 +352,9 @@ if (pathname === "/concerts/db-latest") {
             OR LOWER(COALESCE(artists_all, '')) LIKE ?
           )
         ORDER BY
-          date_local ASC,
-          title ASC
-        LIMIT 100
+          date(date_local) ASC,
+          LOWER(COALESCE(title, '')) ASC
+        LIMIT 200
       `)
       .bind(like, like, like, like)
       .all();
@@ -269,11 +374,12 @@ if (pathname === "/concerts/db-latest") {
       scored
     });
   }
-if (pathname === "/concerts/db-recommended") {
+
+  if (pathname === "/concerts/db-recommended") {
     assertDb(env);
 
-    const limit = clampInt(url.searchParams.get("limit"), 1000, 1, 5000);
-    const minScore = clampFloat(url.searchParams.get("minScore"), 0.12, 0, 1);
+    const limit = clampInt(url.searchParams.get("limit"), 1500, 1, 5000);
+    const minScore = clampFloat(url.searchParams.get("minScore"), 0.08, 0, 1);
 
     const rows = await env.DB
       .prepare(`
@@ -302,8 +408,8 @@ if (pathname === "/concerts/db-recommended") {
           AND date_local != ''
           AND date(date_local) >= date('now')
         ORDER BY
-          date_local ASC,
-          title ASC
+          date(date_local) ASC,
+          LOWER(COALESCE(title, '')) ASC
         LIMIT ?
       `)
       .bind(limit)
@@ -336,7 +442,7 @@ if (pathname === "/concerts/db-recommended") {
     assertDb(env);
 
     const limit = clampInt(url.searchParams.get("limit"), 1500, 1, 5000);
-    const minScore = clampFloat(url.searchParams.get("minScore"), 0.12, 0, 1);
+    const minScore = clampFloat(url.searchParams.get("minScore"), 0.08, 0, 1);
     const limitPerTier = clampInt(url.searchParams.get("limitPerTier"), 40, 1, 300);
 
     const rows = await env.DB
@@ -366,8 +472,8 @@ if (pathname === "/concerts/db-recommended") {
           AND date_local != ''
           AND date(date_local) >= date('now')
         ORDER BY
-          date_local ASC,
-          title ASC
+          date(date_local) ASC,
+          LOWER(COALESCE(title, '')) ASC
         LIMIT ?
       `)
       .bind(limit)
@@ -395,8 +501,7 @@ if (pathname === "/concerts/db-recommended") {
       tiers
     });
   }
-
-  if (pathname === "/concerts/venues") {
+if (pathname === "/concerts/venues") {
     const source = (url.searchParams.get("source") || "").trim().toLowerCase();
 
     if (source) {
@@ -473,7 +578,7 @@ if (pathname === "/concerts/db-recommended") {
 
     const scored = scoreConcerts(allEvents, affinityMap);
     const recommended = filterRecommendedConcerts(scored, {
-      minScore: 0.12,
+      minScore: 0.08,
       includeWeakSignals: false,
       includeFarFuture: true,
       returnTiers: false
@@ -495,7 +600,7 @@ if (pathname === "/concerts/db-recommended") {
 
     const scored = scoreConcerts(allEvents, affinityMap);
     const tiers = filterRecommendedConcerts(scored, {
-      minScore: 0.12,
+      minScore: 0.08,
       includeWeakSignals: false,
       includeFarFuture: true,
       limitPerTier: 40,
@@ -509,27 +614,33 @@ if (pathname === "/concerts/db-recommended") {
       tiers
     });
   }
-if (pathname === "/") {
+
+  if (pathname === "/") {
     return json({
       ok: true,
       service: "econcerts",
       endpoints: [
         "/health",
+        "/diag",
         "/admin/db-count",
+        "/admin/db-reset",
+        "/admin/delete-source?source=paradiso",
+        "/admin/refresh-source?source=paradiso",
         "/admin/refresh-db",
         "/concerts/db-latest",
-        "/concerts/db-latest?limit=50",
-        "/concerts/db-search?q=amenra",
+        "/concerts/db-latest?limit=100",
         "/concerts/db-search?q=opeth",
+        "/concerts/db-search?q=villagers",
         "/concerts/db-debug-score?q=opeth",
+        "/concerts/db-debug-score?q=villagers",
         "/concerts/db-recommended",
-        "/concerts/db-recommended?limit=1000&minScore=0.08",
+        "/concerts/db-recommended?limit=1500&minScore=0.08",
         "/concerts/db-recommended-tiers",
         "/concerts/db-recommended-tiers?limit=1500&minScore=0.08&limitPerTier=50",
         "/concerts/venues",
-        "/concerts/venues?source=tivoli",
         "/concerts/venues?source=paradiso",
-        "/concerts/search?q=amenra",
+        "/concerts/venues?source=tivoli",
+        "/concerts/search?q=opeth",
         "/lastfm/debug",
         "/concerts/recommended",
         "/concerts/recommended-tiers"
@@ -546,7 +657,6 @@ if (pathname === "/") {
     404
   );
 }
-
 function assertDb(env) {
   if (!env?.DB) {
     throw new Error("Missing DB binding");

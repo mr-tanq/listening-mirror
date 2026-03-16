@@ -1,149 +1,205 @@
 // concert-recommender.js
 // FULL FILE REPLACE
-// Strict taste-first recommender
-//
-// Goals:
-// - NO date/soon bias
-// - NO recommendation unless there is a real artist affinity match
-// - Better artist normalization
-// - Better multi-artist parsing
-// - Small venue bonus only AFTER a real match exists
+
+import {
+  normalizeArtistList,
+  normalizeArtistName,
+  normalizeText
+} from "./artist-normalizer.js";
 
 const PREFERRED_VENUES = new Set([
   "tivolivredenburg",
+  "tivoli",
+  "013",
   "paradiso",
   "patronaat",
-  "013",
   "effenaar",
   "melkweg",
   "paard",
   "doornroosje",
-  "fluor",
   "vera",
-  "hedon",
-  "muziekgieterij",
-  "boerderij"
-]);
-
-const STOP_TOKENS = new Set([
-  "ga",
-  "naar",
-  "present",
-  "presenteert",
-  "presents",
-  "presented",
-  "with",
-  "w",
-  "special",
-  "guest",
-  "guests",
-  "support",
-  "plus",
-  "feat",
-  "featuring",
-  "ft",
-  "and",
-  "the",
-  "a",
-  "an",
-  "concert",
-  "live",
-  "tour",
-  "world",
-  "show",
-  "session",
-  "sessions",
-  "festival",
-  "podcast"
+  "hedon"
 ]);
 
 export function scoreConcerts(events, affinityMap) {
-  const safeEvents = Array.isArray(events) ? events : [];
-  const safeAffinityMap = affinityMap instanceof Map ? affinityMap : new Map();
+  const rows = Array.isArray(events) ? events : [];
+  const scored = [];
 
-  return safeEvents
-    .map((event) => scoreSingleConcert(event, safeAffinityMap))
-    .sort(sortScoredConcerts);
+  for (const event of rows) {
+    scored.push(scoreSingleConcert(event, affinityMap));
+  }
+
+  scored.sort((a, b) => {
+    if (b.recommendation_score !== a.recommendation_score) {
+      return b.recommendation_score - a.recommendation_score;
+    }
+
+    const da = String(a.date_local || "");
+    const db = String(b.date_local || "");
+    if (da !== db) return da.localeCompare(db);
+
+    return String(a.title || "").localeCompare(String(b.title || ""));
+  });
+
+  return scored;
 }
 
-export function filterRecommendedConcerts(scoredConcerts, options = {}) {
-  const safe = Array.isArray(scoredConcerts) ? scoredConcerts : [];
-  const minScore = clamp01(
-    Number.isFinite(options?.minScore) ? options.minScore : 0.18
-  );
+export function filterRecommendedConcerts(scored, options = {}) {
+  const minScore = Number.isFinite(options.minScore) ? options.minScore : 0.12;
+  const includeWeakSignals = Boolean(options.includeWeakSignals);
 
-  return safe.filter((item) => {
-    if (!item) return false;
-    if (!item.matched_artist) return false;
-    if (!Number.isFinite(item.recommendation_score)) return false;
-    return item.recommendation_score >= minScore;
+  return (Array.isArray(scored) ? scored : []).filter((item) => {
+    if ((item.recommendation_score || 0) >= minScore) return true;
+    if (includeWeakSignals && item.match_type !== "no_match") return true;
+    return false;
   });
 }
 
 function scoreSingleConcert(event, affinityMap) {
-  const candidates = extractArtistCandidates(event);
-  const best = findBestAffinityMatch(candidates, affinityMap);
-
+  const artists = collectEventArtists(event);
   const why = [];
-  let score = 0;
 
-  if (best) {
-    score += best.score;
-    why.push(`matched_artist:${best.display}`);
+  let bestArtist = null;
+  let bestAffinity = 0;
+  let bestStrength = "none";
 
-    if (best.score >= 0.55) {
-      why.push("core_artist_history");
-    } else if (best.score >= 0.35) {
-      why.push("strong_artist_history");
-    } else {
-      why.push("heard_this_artist_before");
+  for (const artist of artists) {
+    const hit = affinityMap instanceof Map ? affinityMap.get(artist.normalized) : null;
+
+    if (hit) {
+      const affinity = Number(hit.affinity || 0);
+
+      if (affinity > bestAffinity) {
+        bestAffinity = affinity;
+        bestArtist = hit.name || artist.pretty;
+        bestStrength = "exact";
+      }
+      continue;
     }
 
-    if ((Array.isArray(event?.artists_all) ? event.artists_all.length : 0) > 1) {
-      score += 0.02;
-      why.push("multi_artist_event");
-    }
-
-    if (isPreferredVenue(event?.venue_name)) {
-      score += 0.03;
-      why.push("preferred_venue");
+    const fuzzy = findFuzzyAffinity(artist.normalized, affinityMap);
+    if (fuzzy && fuzzy.affinity > bestAffinity) {
+      bestAffinity = fuzzy.affinity;
+      bestArtist = fuzzy.name || artist.pretty;
+      bestStrength = fuzzy.kind;
     }
   }
 
-  score = clamp01(round3(score));
+  let score = 0;
+
+  if (bestStrength === "exact") {
+    score += 0.65 + bestAffinity * 0.35;
+    why.push(`matched_artist:${bestArtist}`);
+  } else if (bestStrength === "contains") {
+    score += 0.40 + bestAffinity * 0.25;
+    why.push(`partial_artist_match:${bestArtist}`);
+  } else if (bestStrength === "token") {
+    score += 0.24 + bestAffinity * 0.20;
+    why.push(`token_artist_match:${bestArtist}`);
+  }
+
+  if (bestArtist && bestAffinity >= 0.55) {
+    why.push("core_artist_history");
+  } else if (bestArtist && bestAffinity >= 0.35) {
+    why.push("strong_artist_history");
+  } else if (bestArtist && bestAffinity > 0) {
+    why.push("heard_this_artist_before");
+  }
+
+  if ((artists.length || 0) > 1 && bestArtist) {
+    score += 0.03;
+    why.push("multi_artist_event");
+  }
+
+  const venueNorm = normalizeArtistName(event?.venue_name || "");
+  if (bestArtist && venueNorm && PREFERRED_VENUES.has(venueNorm)) {
+    score += 0.02;
+    why.push("preferred_venue");
+  }
+
+  score = clamp(round3(score), 0, 1);
+
+  const recommendationTier =
+    score >= 0.55 ? "high" :
+    score >= 0.35 ? "medium" :
+    score >= 0.18 ? "light" :
+    "none";
+
+  const matchType =
+    bestStrength === "exact" ? "strong_match" :
+    bestStrength === "contains" ? "medium_match" :
+    bestStrength === "token" ? "light_match" :
+    "no_match";
 
   return {
     ...event,
     recommendation_score: score,
-    match_type: score >= 0.55
-      ? "strong_match"
-      : score >= 0.30
-        ? "medium_match"
-        : score > 0
-          ? "light_match"
-          : "no_match",
-    matched_artist: best ? best.display : null,
-    recommendation_tier: best
-      ? score >= 0.55
-        ? "core"
-        : score >= 0.30
-          ? "strong"
-          : "light"
-      : "none",
+    match_type: matchType,
+    matched_artist: bestArtist,
+    recommendation_tier: recommendationTier,
     why
   };
 }
-function findBestAffinityMatch(candidates, affinityMap) {
+
+function collectEventArtists(event) {
+  const list = [];
+
+  const title = normalizeText(event?.title || "");
+  const artistsMain = normalizeText(event?.artists_main || "");
+  const rawTitle = normalizeText(event?.raw_title || "");
+
+  list.push(...normalizeArtistList(event?.artists_all || []));
+  if (artistsMain) list.push(...normalizeArtistList(artistsMain));
+  if (title) list.push(...normalizeArtistList(title));
+  if (rawTitle) list.push(...normalizeArtistList(rawTitle));
+
+  const seen = new Set();
+  const unique = [];
+
+  for (const item of list) {
+    if (!item?.normalized) continue;
+    if (seen.has(item.normalized)) continue;
+    seen.add(item.normalized);
+    unique.push(item);
+  }
+
+  return unique;
+}
+
+function findFuzzyAffinity(target, affinityMap) {
+  if (!target || !(affinityMap instanceof Map)) return null;
+
   let best = null;
 
-  for (const rawCandidate of candidates) {
-    const candidate = String(rawCandidate || "").trim();
-    if (!candidate) continue;
+  for (const [normalized, value] of affinityMap.entries()) {
+    if (!normalized) continue;
 
-    const exact = getAffinityForCandidate(candidate, affinityMap);
-    if (exact) {
-      if (!best || exact.score > best.score) {
-        best = exact;
+    if (normalized.includes(target) || target.includes(normalized)) {
+      const minLen = Math.min(normalized.length, target.length);
+      if (minLen >= 5) {
+        const candidate = {
+          kind: "contains",
+          name: value.name,
+          affinity: Number(value.affinity || 0)
+        };
+
+        if (!best || candidate.affinity > best.affinity) {
+          best = candidate;
+        }
+        continue;
+      }
+    }
+
+    const tokenScore = tokenOverlap(target, normalized);
+    if (tokenScore >= 0.75) {
+      const candidate = {
+        kind: "token",
+        name: value.name,
+        affinity: Number(value.affinity || 0) * tokenScore
+      };
+
+      if (!best || candidate.affinity > best.affinity) {
+        best = candidate;
       }
     }
   }
@@ -151,231 +207,33 @@ function findBestAffinityMatch(candidates, affinityMap) {
   return best;
 }
 
-function getAffinityForCandidate(candidate, affinityMap) {
-  const normalized = normalizeArtist(candidate);
-  if (!normalized) return null;
+function tokenOverlap(a, b) {
+  const ta = tokenize(a);
+  const tb = tokenize(b);
 
-  // 1) exact normalized
-  if (affinityMap.has(normalized)) {
-    return {
-      key: normalized,
-      display: candidate,
-      score: normalizeAffinityScore(affinityMap.get(normalized))
-    };
+  if (!ta.size || !tb.size) return 0;
+
+  let shared = 0;
+  for (const token of ta) {
+    if (tb.has(token)) shared += 1;
   }
 
-  // 2) exact after aggressive cleanup
-  const aggressive = aggressivelyNormalizeArtist(candidate);
-  if (aggressive && affinityMap.has(aggressive)) {
-    return {
-      key: aggressive,
-      display: candidate,
-      score: normalizeAffinityScore(affinityMap.get(aggressive))
-    };
-  }
-
-  // 3) contains fallback for long artist names
-  // important for bands like "Villagers of Ioannina City"
-  for (const [affinityKey, rawScore] of affinityMap.entries()) {
-    if (!affinityKey) continue;
-
-    if (
-      normalized === affinityKey ||
-      aggressive === affinityKey ||
-      normalized.includes(affinityKey) ||
-      affinityKey.includes(normalized) ||
-      (aggressive && aggressive.includes(affinityKey)) ||
-      (aggressive && affinityKey.includes(aggressive))
-    ) {
-      return {
-        key: affinityKey,
-        display: candidate,
-        score: normalizeAffinityScore(rawScore) * 0.97
-      };
-    }
-  }
-
-  return null;
+  return shared / Math.max(ta.size, tb.size);
 }
 
-function extractArtistCandidates(event) {
-  const out = [];
-  const seen = new Set();
-
-  const push = (value) => {
-    const raw = String(value || "").trim();
-    if (!raw) return;
-
-    const n = normalizeArtist(raw);
-    if (!n || seen.has(n)) return;
-
-    seen.add(n);
-    out.push(raw);
-  };
-
-  push(event?.artists_main);
-  push(event?.title);
-  push(event?.raw_title);
-
-  if (Array.isArray(event?.artists_all)) {
-    for (const item of event.artists_all) {
-      push(item);
-    }
-  }
-
-  const splitSources = [
-    event?.raw_title,
-    event?.title,
-    event?.artists_main
-  ];
-
-  for (const source of splitSources) {
-    for (const part of splitArtistLine(source)) {
-      push(part);
-    }
-  }
-
-  return out;
+function tokenize(input) {
+  return new Set(
+    normalizeArtistName(input)
+      .split(/\s+/)
+      .map((x) => x.trim())
+      .filter((x) => x && x.length >= 2)
+  );
 }
 
-function splitArtistLine(value) {
-  const text = decodeEntities(String(value || "").trim());
-  if (!text) return [];
-
-  const separators = [
-    " + ",
-    " & ",
-    " x ",
-    " / ",
-    " • ",
-    " , ",
-    ", ",
-    " | ",
-    " feat. ",
-    " feat ",
-    " ft. ",
-    " ft ",
-    " featuring ",
-    " support ",
-    " special guest "
-  ];
-
-  let parts = [text];
-
-  for (const sep of separators) {
-    parts = parts.flatMap((part) => String(part).split(sep));
-  }
-
-  return parts
-    .map((part) => cleanupSplitPart(part))
-    .filter(Boolean);
+function round3(n) {
+  return Math.round(n * 1000) / 1000;
 }
 
-function cleanupSplitPart(value) {
-  let s = decodeEntities(String(value || "").trim());
-  if (!s) return "";
-
-  s = s.replace(/\([^)]*\)/g, " ");
-  s = s.replace(/\[[^\]]*\]/g, " ");
-  s = s.replace(/\s+/g, " ").trim();
-
-  if (!s) return "";
-
-  const tokens = s.split(" ").filter(Boolean);
-  const useful = tokens.filter((t) => !STOP_TOKENS.has(normalizeToken(t)));
-
-  if (!useful.length) return "";
-  return useful.join(" ").trim();
-}
-function normalizeArtist(value) {
-  let s = decodeEntities(String(value || "").trim().toLowerCase());
-  if (!s) return "";
-
-  s = s.normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
-  s = s.replace(/&#\d+;/g, " ");
-  s = s.replace(/&[a-z0-9#]+;/gi, " ");
-  s = s.replace(/[’'`]/g, "");
-  s = s.replace(/[:;!?]/g, " ");
-  s = s.replace(/[(){}\[\]]/g, " ");
-  s = s.replace(/[|]/g, " ");
-  s = s.replace(/\s+/g, " ").trim();
-
-  return s;
-}
-
-function aggressivelyNormalizeArtist(value) {
-  let s = normalizeArtist(value);
-  if (!s) return "";
-
-  s = s
-    .replace(/\bga naar\b/g, " ")
-    .replace(/\bpresents?\b/g, " ")
-    .replace(/\bpresenteert\b/g, " ")
-    .replace(/\bpodcast\b/g, " ")
-    .replace(/\blive\b/g, " ")
-    .replace(/\bconcert\b/g, " ")
-    .replace(/\btour\b/g, " ")
-    .replace(/\bworld\b/g, " ")
-    .replace(/\bshow\b/g, " ")
-    .replace(/\bsession(s)?\b/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return s;
-}
-
-function normalizeAffinityScore(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return 0;
-
-  // assumes affinity map roughly in 0..1 already,
-  // but clamps safely if slightly above/below
-  return clamp01(round3(n));
-}
-
-function isPreferredVenue(value) {
-  const normalized = normalizeArtist(value);
-  return PREFERRED_VENUES.has(normalized);
-}
-
-function decodeEntities(value) {
-  return String(value || "")
-    .replace(/&#039;|&#39;/g, "'")
-    .replace(/&#038;|&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&nbsp;/g, " ");
-}
-
-function normalizeToken(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, "");
-}
-
-function sortScoredConcerts(a, b) {
-  const scoreDiff = Number(b?.recommendation_score || 0) - Number(a?.recommendation_score || 0);
-  if (scoreDiff !== 0) return scoreDiff;
-
-  const aDate = String(a?.date_local || "");
-  const bDate = String(b?.date_local || "");
-  if (aDate !== bDate) return aDate.localeCompare(bDate);
-
-  const aTitle = String(a?.title || "");
-  const bTitle = String(b?.title || "");
-  return aTitle.localeCompare(bTitle);
-}
-
-function round3(value) {
-  return Math.round(Number(value || 0) * 1000) / 1000;
-}
-
-function clamp01(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return 0;
-  if (n < 0) return 0;
-  if (n > 1) return 1;
-  return n;
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
 }

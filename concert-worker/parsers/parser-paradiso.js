@@ -8,8 +8,8 @@ export async function fetchParadisoEvents() {
 
   // Δοκιμάζουμε και NL και EN agenda roots
   const seedUrls = [
-    `${PARADISO_BASE}/nl/agenda`,
-    `${PARADISO_BASE}/en/agenda`,
+    `${PARADISO_BASE}/nl/`,
+    `${PARADISO_BASE}/en/`,
     `${PARADISO_BASE}/nl`,
     `${PARADISO_BASE}/en`
   ];

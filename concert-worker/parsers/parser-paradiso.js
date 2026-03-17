@@ -21,26 +21,26 @@ const DUTCH_MONTHS = {
 const DUTCH_WEEKDAYS = new Set(["ma", "di", "wo", "do", "vr", "za", "zo"]);
 
 export async function fetchParadisoEvents(options = {}) {
-  const nowTs = Date.now();
   const {
     maxPages = 8,
     stopWhenEmpty = true
   } = options;
 
+  const nowTs = Date.now();
   const allEvents = [];
   const seen = new Set();
 
   for (let page = 1; page <= maxPages; page += 1) {
-    const sourceUrl = buildAgendaUrl(page);
-    const html = await fetchText(sourceUrl);
-    const pageEvents = parsePage(html, sourceUrl, nowTs);
+    const url = buildAgendaUrl(page);
+    const html = await fetchText(url);
+    const pageEvents = parsePage(html, url, nowTs);
 
     if (pageEvents.length === 0 && stopWhenEmpty) {
       break;
     }
 
     for (const ev of pageEvents) {
-      const key = ev.source_id || makeEventKeyFromNormalized(ev);
+      const key = ev.source_id || makeNormalizedKey(ev);
       if (seen.has(key)) continue;
       seen.add(key);
       allEvents.push(ev);
@@ -108,8 +108,13 @@ function isDateToken(value) {
 function isGarbageToken(value) {
   const t = cleanText(value);
   if (!t) return true;
+
   if (/^\d+$/.test(t)) return true;
-  if (["DATUM", "NAAM", "VOORPROGRAMMA", "ZAAL", "INFO"].includes(t.toUpperCase())) return true;
+
+  if (["DATUM", "NAAM", "VOORPROGRAMMA", "ZAAL", "INFO"].includes(t.toUpperCase())) {
+    return true;
+  }
+
   return false;
 }
 
@@ -126,7 +131,7 @@ function normalizeVenueName(raw) {
 
   if (/^tolhuistuin/i.test(t)) {
     const rest = t.replace(/^tolhuistuin\s*/i, "").trim();
-    return rest ? `Tolhuistuin - ${rest}` : "Tolhuistuin";
+    return `Tolhuistuin${rest ? ` - ${rest}` : ""}`;
   }
 
   if (/^bitterzoet$/i.test(t)) return "Bitterzoet";
@@ -144,9 +149,8 @@ function toIsoDate(day, monthShort, baseYear) {
 
   let year = baseYear;
   const now = new Date();
-  const currentUtcMonth = now.getUTCMonth() + 1;
 
-  if (month < currentUtcMonth - 6) {
+  if (month < (now.getUTCMonth() + 1) - 6) {
     year += 1;
   }
 
@@ -203,8 +207,13 @@ function extractAnchorsWithNearbyText(sectionHtml) {
     const start = match.index;
     const end = anchorRegex.lastIndex;
 
-    const before = cleanText(decodeHtml(sectionHtml.slice(Math.max(0, start - 160), start).replace(/<[^>]+>/g, " ")));
-    const after = cleanText(decodeHtml(sectionHtml.slice(end, Math.min(sectionHtml.length, end + 160)).replace(/<[^>]+>/g, " ")));
+    const before = cleanText(
+      decodeHtml(sectionHtml.slice(Math.max(0, start - 120), start).replace(/<[^>]+>/g, " "))
+    );
+
+    const after = cleanText(
+      decodeHtml(sectionHtml.slice(end, Math.min(sectionHtml.length, end + 160)).replace(/<[^>]+>/g, " "))
+    );
 
     results.push({
       href,
@@ -250,10 +259,10 @@ function slugify(value) {
     .replace(/-+/g, "-");
 }
 
-function buildSourceId({ source, title, dateLocal, venueName }) {
+function buildSourceId({ title, dateLocal, venueName }) {
   const titleSlug = slugify(title || "event");
   const venueSlug = slugify(venueName || "venue");
-  return `${source}-${titleSlug}-${dateLocal}-${venueSlug}`;
+  return `paradiso-${titleSlug}-${dateLocal}-${venueSlug}`;
 }
 
 function isParadisoRelevantVenue(venueName) {
@@ -266,13 +275,21 @@ function isParadisoRelevantVenue(venueName) {
     "paradiso - zaal onbekend",
     "paradiso - grote zaal en bovenzaal",
     "tolhuistuin - club",
-    "tolhuistuin",
     "bitterzoet",
     "parallel",
     "het zonnehuis"
   ].includes(t);
 }
 
+function isFutureOrToday(dateLocal, nowTs) {
+  if (!dateLocal) return false;
+
+  const now = new Date(nowTs);
+  const today =
+    `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-${String(now.getUTCDate()).padStart(2, "0")}`;
+
+  return dateLocal >= today;
+}
 function parsePage(html, sourceUrl, nowTs, fallbackYear = new Date().getUTCFullYear()) {
   const section = extractAgendaSection(html);
   const anchors = extractAnchorsWithNearbyText(section);
@@ -305,8 +322,9 @@ function parsePage(html, sourceUrl, nowTs, fallbackYear = new Date().getUTCFullY
     if (isDateToken(anchorText)) continue;
 
     if (
-      ["OVERZICHT", "ALGEMENE INFO", "AGENDA", "FACTS", "FOTO'S", "FOTOS", "TICKETINFO", "ROUTE/KAART"]
-        .includes(anchorText.toUpperCase())
+      ["OVERZICHT", "ALGEMENE INFO", "AGENDA", "FACTS", "FOTO'S", "TICKETINFO", "ROUTE/KAART"].includes(
+        anchorText.toUpperCase()
+      )
     ) {
       continue;
     }
@@ -317,7 +335,10 @@ function parsePage(html, sourceUrl, nowTs, fallbackYear = new Date().getUTCFullY
 
     const nearText = `${a.before} ${anchorText} ${a.after}`;
 
-    const dateMatches = [...a.before.matchAll(/\b(ma|di|wo|do|vr|za|zo)\s+(\d{1,2})\s+(jan|feb|mrt|apr|mei|jun|jul|aug|sep|okt|nov|dec)\b/gi)];
+    const dateMatches = [
+      ...a.before.matchAll(/\b(ma|di|wo|do|vr|za|zo)\s+(\d{1,2})\s+(jan|feb|mrt|apr|mei|jun|jul|aug|sep|okt|nov|dec)\b/gi)
+    ];
+
     if (dateMatches.length > 0) {
       const last = dateMatches[dateMatches.length - 1];
       currentDate = parseCurrentDateToken(last[0], fallbackYear);
@@ -333,55 +354,54 @@ function parsePage(html, sourceUrl, nowTs, fallbackYear = new Date().getUTCFullY
     const rawVenue = parseVenueFromContext(a.after);
     const venueName = normalizeVenueName(rawVenue);
 
-    if (!currentDate?.isoDate) continue;
+    const dateLocal = currentDate?.isoDate || null;
+
+    if (!dateLocal) continue;
+    if (!isFutureOrToday(dateLocal, nowTs)) continue;
     if (!anchorText) continue;
     if (!venueName) continue;
     if (!isParadisoRelevantVenue(venueName)) continue;
 
-    if (currentDate.isoDate < isoDateFromTimestamp(nowTs)) {
-      continue;
-    }
-
     const title = anchorText;
-    const artistsAll = [anchorText];
     const artistsMain = anchorText;
+    const artistsAll = [anchorText];
+    const rawTitle = anchorText;
+    const url = absoluteUrl(a.href);
 
-    const normalized = {
+    events.push({
       source: "paradiso",
       source_id: buildSourceId({
-        source: "paradiso",
         title,
-        dateLocal: currentDate.isoDate,
+        dateLocal,
         venueName
       }),
       title,
       artists_main: artistsMain,
       artists_all: artistsAll,
-      raw_title: title,
-      date_local: currentDate.isoDate,
+      raw_title: rawTitle,
+      date_local: dateLocal,
       time_local: timeMatch ? timeMatch[1] : null,
       venue_name: venueName,
       city: "Amsterdam",
       country: "NL",
-      url: absoluteUrl(a.href),
+      url,
       image_url: null,
       genre_hint: null,
       fetched_at: nowTs,
       _source_url: sourceUrl
-    };
-
-    events.push(normalized);
+    });
   }
 
   const seen = new Set();
   return events.filter((ev) => {
-    const key = makeEventKeyFromNormalized(ev);
+    const key = makeNormalizedKey(ev);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 }
-function makeEventKeyFromNormalized(ev) {
+
+function makeNormalizedKey(ev) {
   return [
     ev.date_local || "",
     ev.time_local || "",
@@ -390,14 +410,6 @@ function makeEventKeyFromNormalized(ev) {
   ]
     .map((x) => cleanText(String(x).toLowerCase()))
     .join("::");
-}
-
-function isoDateFromTimestamp(ts) {
-  const d = new Date(ts);
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(d.getUTCDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
 }
 
 async function fetchText(url) {

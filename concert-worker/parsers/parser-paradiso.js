@@ -16,7 +16,7 @@ const DUTCH_MONTHS = {
   okt: 10,
   nov: 11,
   dec: 12
-};
+}; 
 
 const DUTCH_WEEKDAYS = new Set(["ma", "di", "wo", "do", "vr", "za", "zo"]);
 

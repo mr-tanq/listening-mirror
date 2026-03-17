@@ -1,55 +1,85 @@
 import { refreshSource } from "../db/concert-refresh.js";
-import { fetchVenueEventsById } from "../concert-fetch-engine.js";
+import { fetchVenueEventsById } from "../core/concert-fetch-engine.js";
 
 export default {
   async fetch(req, env) {
     try {
       const url = new URL(req.url);
+      const pathname = normalizePath(url.pathname);
 
-      if (url.pathname === "/health") {
-        return Response.json({
+      if (req.method === "OPTIONS") {
+        return new Response(null, {
+          headers: corsHeaders()
+        });
+      }
+
+      if (pathname === "/") {
+        return json({
+          ok: true,
+          service: "econcerts",
+          endpoints: [
+            "/health",
+            "/admin/refresh-source?source=paradiso",
+            "/concerts/venues?source=paradiso",
+            "/concerts/db-latest"
+          ]
+        });
+      }
+
+      if (pathname === "/health") {
+        return json({
           ok: true,
           service: "econcerts"
         });
       }
 
-      if (url.pathname === "/admin/refresh-source") {
-        const source = (url.searchParams.get("source") || "").trim().toLowerCase();
+      if (pathname === "/admin/refresh-source") {
+        const source = cleanParam(url.searchParams.get("source"));
 
         if (!source) {
-          return Response.json(
+          return json(
             {
               ok: false,
               error: "Missing source"
             },
-            { status: 400 }
+            400
           );
         }
 
-        const res = await refreshSource(env.DB, source);
+        if (!env?.DB) {
+          return json(
+            {
+              ok: false,
+              error: "Missing DB binding"
+            },
+            500
+          );
+        }
 
-        return Response.json({
+        const result = await refreshSource(env.DB, source);
+
+        return json({
           ok: true,
-          ...res
+          ...result
         });
       }
 
-      if (url.pathname === "/concerts/venues") {
-        const source = (url.searchParams.get("source") || "").trim().toLowerCase();
+      if (pathname === "/concerts/venues") {
+        const source = cleanParam(url.searchParams.get("source"));
 
         if (!source) {
-          return Response.json(
+          return json(
             {
               ok: false,
               error: "Missing source"
             },
-            { status: 400 }
+            400
           );
         }
 
         const events = await fetchVenueEventsById(source);
 
-        return Response.json({
+        return json({
           ok: true,
           mode: "single-source",
           source,
@@ -58,38 +88,121 @@ export default {
         });
       }
 
-      if (url.pathname === "/concerts/db-latest") {
-        const rows = await env.DB.prepare(`
-          SELECT *
-          FROM concerts
-          ORDER BY date_local ASC, time_local ASC
-          LIMIT 100
-        `).all();
+      if (pathname === "/concerts/db-latest") {
+        if (!env?.DB) {
+          return json(
+            {
+              ok: false,
+              error: "Missing DB binding"
+            },
+            500
+          );
+        }
 
-        return Response.json({
+        const rows = await env.DB
+          .prepare(`
+            SELECT
+              id,
+              source,
+              source_id,
+              title,
+              artists_main,
+              artists_all,
+              raw_title,
+              date_local,
+              time_local,
+              venue_name,
+              city,
+              country,
+              url,
+              image_url,
+              genre_hint,
+              fetched_at,
+              created_at,
+              updated_at
+            FROM concerts
+            WHERE
+              date_local IS NOT NULL
+              AND date_local != ''
+            ORDER BY
+              date_local ASC,
+              time_local ASC,
+              title ASC
+            LIMIT 100
+          `)
+          .all();
+
+        return json({
           ok: true,
           mode: "db-latest",
           count: rows?.results?.length || 0,
-          events: rows?.results || []
+          events: (rows?.results || []).map(hydrateConcertRow)
         });
       }
 
-      return Response.json(
+      return json(
         {
           ok: false,
           error: "Not found",
-          pathname: url.pathname
+          pathname
         },
-        { status: 404 }
+        404
       );
     } catch (err) {
-      return Response.json(
+      return json(
         {
           ok: false,
           error: err?.message || "Unknown error"
         },
-        { status: 500 }
+        500
       );
     }
   }
 };
+
+function hydrateConcertRow(row) {
+  return {
+    ...row,
+    artists_all: parseArtistsAll(row?.artists_all)
+  };
+}
+
+function parseArtistsAll(value) {
+  if (!value) return [];
+
+  if (Array.isArray(value)) return value;
+
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function cleanParam(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizePath(pathname) {
+  if (!pathname) return "/";
+  return pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
+}
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data, null, 2), {
+    status,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      ...corsHeaders()
+    }
+  });
+}
+
+function corsHeaders() {
+  return {
+    "access-control-allow-origin": "*",
+    "access-control-allow-methods": "GET,HEAD,POST,OPTIONS",
+    "access-control-allow-headers": "Content-Type"
+  };
+}

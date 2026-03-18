@@ -1,476 +1,116 @@
 const PODIUMINFO_BASE = "https://www.podiuminfo.nl";
-const PARADISO_VENUE_ID = 2;
-const PARADISO_CITY = "Amsterdam";
-const PARADISO_SLUG = "Paradiso";
 
-const DUTCH_MONTHS = {
-  jan: 1,
-  feb: 2,
-  mrt: 3,
-  apr: 4,
-  mei: 5,
-  jun: 6,
-  jul: 7,
-  aug: 8,
-  sep: 9,
-  okt: 10,
-  nov: 11,
-  dec: 12
-};
+export async function fetchParadisoEvents() {
 
-const DUTCH_WEEKDAYS = new Set(["ma", "di", "wo", "do", "vr", "za", "zo"]);
-
-export async function fetchParadisoEvents(options = {}) {
-  const {
-    maxPages = 8,
-    stopWhenEmpty = true
-  } = options;
-
-  const nowTs = Date.now();
-  const allEvents = [];
+  const all = [];
   const seen = new Set();
 
-  for (let page = 1; page <= maxPages; page += 1) {
-    const url = buildAgendaUrl(page);
-    const html = await fetchText(url);
-    const pageEvents = parsePage(html, url, nowTs);
+  for (let page = 1; page <= 10; page++) {
 
-    if (pageEvents.length === 0 && stopWhenEmpty) {
-      break;
-    }
+    const url =
+      `https://www.podiuminfo.nl/podium/2/concerten/${page}/Paradiso/Amsterdam/`;
 
-    for (const ev of pageEvents) {
-      const key = ev.source_id || makeNormalizedKey(ev);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      allEvents.push(ev);
-    }
-  }
-
-  allEvents.sort((a, b) => {
-    const ad = `${a.date_local || ""} ${a.time_local || "99:99"}`;
-    const bd = `${b.date_local || ""} ${b.time_local || "99:99"}`;
-    return ad.localeCompare(bd) || String(a.title || "").localeCompare(String(b.title || ""));
-  });
-
-  return allEvents;
-}
-
-function buildAgendaUrl(page = 1) {
-  return `${PODIUMINFO_BASE}/podium/${PARADISO_VENUE_ID}/concerten/${page}/${PARADISO_SLUG}/${PARADISO_CITY}/`;
-}
-
-async function fetchText(url) {
-  const res = await fetch(url, {
-    headers: {
-      "user-agent": "Mozilla/5.0",
-      "accept": "text/html,application/xhtml+xml"
-    }
-  });
-
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status} for ${url}`);
-  }
-
-  return await res.text();
-}
-
-function parsePage(html, sourceUrl, nowTs, fallbackYear = new Date().getUTCFullYear()) {
-  const section = extractAgendaSection(html);
-  if (!section) return [];
-
-  const lines = extractAgendaLines(section);
-  const hrefMap = extractHrefMap(section);
-
-  if (!lines.length) return [];
-
-  let currentDate = null;
-  let currentTime = null;
-  let pendingArtist = null;
-  let pendingUrl = null;
-
-  const events = [];
-  const seen = new Set();
-
-  for (const rawLine of lines) {
-    const line = cleanText(rawLine);
-    if (!line) continue;
-    if (line.startsWith("## ")) break;
-    if (isGarbageToken(line)) continue;
-
-    if (isDateToken(line)) {
-      currentDate = parseCurrentDateToken(line, fallbackYear)?.isoDate || null;
-      currentTime = null;
-      pendingArtist = null;
-      pendingUrl = null;
-      continue;
-    }
-
-    if (looksLikeVenue(line)) {
-      if (pendingArtist && currentDate && isFutureOrToday(currentDate, nowTs)) {
-        const venueName = normalizeVenueName(line);
-
-        if (isParadisoRelevantVenue(venueName)) {
-          const event = {
-            source: "paradiso",
-            source_id: buildSourceId({
-              title: pendingArtist,
-              dateLocal: currentDate,
-              venueName
-            }),
-            title: pendingArtist,
-            artists_main: pendingArtist,
-            artists_all: [pendingArtist],
-            raw_title: pendingArtist,
-            date_local: currentDate,
-            time_local: currentTime || null,
-            venue_name: venueName,
-            city: "Amsterdam",
-            country: "NL",
-            url: pendingUrl || sourceUrl,
-            image_url: null,
-            genre_hint: null,
-            fetched_at: nowTs
-          };
-
-          const key = makeNormalizedKey(event);
-          if (!seen.has(key)) {
-            seen.add(key);
-            events.push(event);
-          }
-        }
-      }
-
-      pendingArtist = null;
-      pendingUrl = null;
-      continue;
-    }
-
-    const timeArtist = parseTimeArtistLine(line);
-    if (timeArtist) {
-      currentTime = timeArtist.time;
-      pendingArtist = normalizeArtistName(timeArtist.artist);
-      pendingUrl = hrefMap.get(normalizeForCompare(pendingArtist)) || sourceUrl;
-      continue;
-    }
-
-    if (isTimeToken(line)) {
-      currentTime = line;
-      continue;
-    }
-
-    if (isLikelyArtistLine(line)) {
-      pendingArtist = normalizeArtistName(line);
-      pendingUrl = hrefMap.get(normalizeForCompare(pendingArtist)) || sourceUrl;
-      continue;
-    }
-  }
-
-  return events;
-}
-
-function extractAgendaSection(html) {
-  const text = String(html || "");
-  const startIdx = text.indexOf("DATUM");
-  if (startIdx === -1) return "";
-
-  const candidates = [
-    text.indexOf("## ", startIdx + 1),
-    text.indexOf("Meer concerten", startIdx + 1),
-    text.indexOf("Gerelateerde concerten", startIdx + 1)
-  ].filter((x) => x !== -1);
-
-  const endIdx = candidates.length ? Math.min(...candidates) : text.length;
-  return text.slice(startIdx, endIdx);
-}
-
-function extractAgendaLines(sectionHtml) {
-  return String(sectionHtml || "")
-    .replace(/<\/(div|p|tr|li|h\d|td|th|a)>/gi, "\n")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, " ")
-    .split("\n")
-    .map((x) => cleanLineText(decodeHtml(x)))
-    .filter(Boolean);
-}
-
-function extractHrefMap(sectionHtml) {
-  const map = new Map();
-  const re = /<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
-
-  let m;
-  while ((m = re.exec(String(sectionHtml || ""))) !== null) {
-    const href = absoluteUrl(m[1]);
-    const text = normalizeArtistName(m[2].replace(/<[^>]+>/g, " "));
-    if (!text) continue;
-    if (isGarbageToken(text)) continue;
-    if (isMenuToken(text)) continue;
-
-    const key = normalizeForCompare(text);
-    if (key && !map.has(key)) {
-      map.set(key, href);
-    }
-  }
-
-  return map;
-}
-
-function parseTimeArtistLine(value) {
-  const s = cleanText(value);
-  const m = s.match(/^(\d{1,2}:\d{2})\s+(.+)$/);
-  if (!m) return null;
-
-  const artist = cleanText(m[2]);
-  if (!artist) return null;
-  if (looksLikeVenue(artist)) return null;
-  if (isGarbageToken(artist)) return null;
-
-  return {
-    time: m[1],
-    artist
-  };
-}
-
-function cleanText(value) {
-  return String(value || "")
-    .replace(/\u00a0/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function cleanLineText(value) {
-  return String(value || "")
-    .replace(/\u00a0/g, " ")
-    .replace(/[ \t\r\f\v]+/g, " ")
-    .trim();
-}
-
-function decodeHtml(value) {
-  return String(value || "")
-    .replace(/&#038;|&amp;/g, "&")
-    .replace(/&#039;|&apos;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&#(\d+);/g, (_, n) => {
-      const code = Number(n);
-      if (!Number.isFinite(code)) return _;
-      try {
-        return String.fromCodePoint(code);
-      } catch {
-        return _;
-      }
-    })
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => {
-      const code = Number.parseInt(hex, 16);
-      if (!Number.isFinite(code)) return _;
-      try {
-        return String.fromCodePoint(code);
-      } catch {
-        return _;
+    const res = await fetch(url, {
+      headers: {
+        "user-agent": "Mozilla/5.0",
+        "accept": "text/html"
       }
     });
-}
 
-function isTimeToken(value) {
-  return /^\d{1,2}:\d{2}$/.test(cleanText(value));
-}
+    const html = await res.text();
 
-function isDateToken(value) {
-  const t = cleanText(value).toLowerCase();
-  const parts = t.split(" ");
-  return parts.length === 3 && DUTCH_WEEKDAYS.has(parts[0]) && /^\d{1,2}$/.test(parts[1]) && DUTCH_MONTHS[parts[2]];
-}
+    const scripts =
+      [...html.matchAll(
+        /<script type="application\/ld\+json">([\s\S]*?)<\/script>/gi
+      )];
 
-function isGarbageToken(value) {
-  const t = cleanText(value);
-  if (!t) return true;
-  if (/^\d+$/.test(t)) return true;
+    if (!scripts.length) break;
 
-  return [
-    "DATUM",
-    "NAAM",
-    "VOORPROGRAMMA",
-    "ZAAL",
-    "INFO",
-    "OVERZICHT",
-    "ALGEMENE INFO",
-    "AGENDA",
-    "FACTS",
-    "FOTO'S",
-    "TICKETINFO",
-    "ROUTE/KAART"
-  ].includes(t.toUpperCase());
-}
+    for (const s of scripts) {
 
-function isMenuToken(value) {
-  return [
-    "OVERZICHT",
-    "ALGEMENE INFO",
-    "AGENDA",
-    "FACTS",
-    "FOTO'S",
-    "TICKETINFO",
-    "ROUTE/KAART"
-  ].includes(cleanText(value).toUpperCase());
-}
+      let json;
 
-function looksLikeVenue(value) {
-  const t = cleanText(value).toLowerCase();
+      try {
+        json = JSON.parse(s[1]);
+      } catch {
+        continue;
+      }
 
-  return [
-    "grote zaal",
-    "bovenzaal",
-    "kelder",
-    "zaal onbekend",
-    "grote zaal en bovenzaal",
-    "parallel",
-    "bitterzoet",
-    "het zonnehuis",
-    "cinetol",
-    "tolhuistuin club",
-    "tolhuistuin, club",
-    "tolhuistuin"
-  ].some((x) => t === x || t.startsWith(`${x} `));
-}
+      if (!json || json["@type"] !== "MusicEvent") continue;
 
-function isLikelyArtistLine(value) {
-  const t = cleanText(value);
+      const title = clean(json.name);
+      const date_local = parseISODate(json.startDate);
 
-  if (!t) return false;
-  if (isDateToken(t)) return false;
-  if (isTimeToken(t)) return false;
-  if (looksLikeVenue(t)) return false;
-  if (isGarbageToken(t)) return false;
+      if (!title || !date_local) continue;
 
-  return true;
-}
+      const venue =
+        json?.location?.name || "Paradiso";
 
-function normalizeVenueName(raw) {
-  const t = cleanText(raw);
+      const city =
+        json?.location?.address?.addressLocality || "Amsterdam";
 
-  if (!t) return "Paradiso";
+      const url =
+        json.url ? abs(json.url) : null;
 
-  if (/^grote zaal$/i.test(t)) return "Paradiso - Grote Zaal";
-  if (/^bovenzaal$/i.test(t)) return "Paradiso - Bovenzaal";
-  if (/^kelder$/i.test(t)) return "Paradiso - Kelder";
-  if (/^zaal onbekend$/i.test(t)) return "Paradiso - Zaal onbekend";
-  if (/^grote zaal en bovenzaal$/i.test(t)) return "Paradiso - Grote Zaal en Bovenzaal";
-  if (/^parallel$/i.test(t)) return "Parallel";
-  if (/^bitterzoet$/i.test(t)) return "Bitterzoet";
-  if (/^het zonnehuis$/i.test(t)) return "Het Zonnehuis";
-  if (/^cinetol$/i.test(t)) return "Cinetol";
+      const image =
+        json.image || null;
 
-  if (/^tolhuistuin/i.test(t)) {
-    return "Tolhuistuin - Club";
+      const source_id =
+        `paradiso-${slug(title)}-${date_local}`;
+
+      if (seen.has(source_id)) continue;
+      seen.add(source_id);
+
+      all.push({
+        source: "paradiso",
+        source_id,
+        title,
+        artists_main: title,
+        artists_all: [title],
+        raw_title: title,
+        date_local,
+        time_local: null,
+        venue_name: venue,
+        city,
+        country: "NL",
+        url,
+        image_url: image,
+        fetched_at: Date.now()
+      });
+
+    }
+
   }
 
-  return t;
+  return all;
 }
 
-function isParadisoRelevantVenue(venueName) {
-  const t = cleanText(venueName).toLowerCase();
+/* helpers */
 
-  return [
-    "paradiso - grote zaal",
-    "paradiso - bovenzaal",
-    "paradiso - kelder",
-    "paradiso - zaal onbekend",
-    "paradiso - grote zaal en bovenzaal",
-    "parallel",
-    "bitterzoet",
-    "het zonnehuis",
-    "cinetol",
-    "tolhuistuin - club"
-  ].includes(t);
+function clean(v) {
+  return String(v || "").replace(/\s+/g, " ").trim();
 }
 
-function normalizeArtistName(value) {
-  return cleanText(decodeHtml(value))
-    .replace(/\s+\d+$/g, "")
-    .trim();
+function abs(u) {
+  if (!u) return null;
+  if (u.startsWith("http")) return u;
+  return PODIUMINFO_BASE + u;
 }
 
-function normalizeForCompare(value) {
-  return slugify(normalizeArtistName(value));
-}
-
-function parseCurrentDateToken(token, fallbackYear) {
-  const t = cleanText(token).toLowerCase();
-  const parts = t.split(" ");
-  if (parts.length !== 3) return null;
-
-  const [, day, monthShort] = parts;
-  const iso = toIsoDate(day, monthShort, fallbackYear);
-  if (!iso) return null;
-
-  return {
-    label: t,
-    isoDate: iso
-  };
-}
-
-function toIsoDate(day, monthShort, baseYear) {
-  const month = DUTCH_MONTHS[String(monthShort || "").toLowerCase()];
-  if (!month) return null;
-
-  const d = Number(day);
-  if (!Number.isFinite(d)) return null;
-
-  let year = baseYear;
-  const now = new Date();
-
-  if (month < (now.getUTCMonth() + 1) - 6) {
-    year += 1;
-  }
-
-  const mm = String(month).padStart(2, "0");
-  const dd = String(d).padStart(2, "0");
-  return `${year}-${mm}-${dd}`;
-}
-
-function absoluteUrl(url) {
-  if (!url) return "";
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  if (url.startsWith("/")) return `${PODIUMINFO_BASE}${url}`;
-  return `${PODIUMINFO_BASE}/${url}`;
-}
-
-function slugify(value) {
-  return String(value || "")
+function slug(v) {
+  return String(v || "")
     .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/&/g, " and ")
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .replace(/-+/g, "-");
+    .replace(/^-|-$/g, "");
 }
 
-function buildSourceId({ title, dateLocal, venueName }) {
-  const titleSlug = slugify(title || "event");
-  const venueSlug = slugify(venueName || "venue");
-  return `paradiso-${titleSlug}-${dateLocal}-${venueSlug}`;
-}
+function parseISODate(v) {
 
-function makeNormalizedKey(ev) {
-  return [
-    ev.date_local || "",
-    ev.time_local || "",
-    ev.artists_main || "",
-    ev.venue_name || ""
-  ]
-    .map((x) => cleanText(String(x).toLowerCase()))
-    .join("::");
-}
+  if (!v) return null;
 
-function isFutureOrToday(dateLocal, nowTs) {
-  if (!dateLocal) return false;
+  const d = new Date(v);
 
-  const now = new Date(nowTs);
-  const today =
-    `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-${String(now.getUTCDate()).padStart(2, "0")}`;
+  if (isNaN(d)) return null;
 
-  return dateLocal >= today;
+  return d.toISOString().slice(0, 10);
 }

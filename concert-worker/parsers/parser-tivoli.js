@@ -8,7 +8,7 @@ export async function fetchTivoliEvents(options = {}) {
     maxPages = 20,
     stopAfterEmptyPages = 3,
     retriesPerPage = 2
-  } = options;
+  } = options; 
 
   const allEvents = [];
   const seen = new Set();

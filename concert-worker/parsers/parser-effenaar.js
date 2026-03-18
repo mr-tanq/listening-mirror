@@ -269,7 +269,28 @@ function formatLocalDate(date, timeZone) {
     year: "numeric",
     month: "2-digit",
     day: "2-digit"
-  }).formatToParts(date
+  }).formatToParts(date);
+
+  const y = parts.find((p) => p.type === "year")?.value || "";
+  const m = parts.find((p) => p.type === "month")?.value || "";
+  const d = parts.find((p) => p.type === "day")?.value || "";
+
+  return `${y}-${m}-${d}`;
+}
+
+function formatLocalTime(date, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(date);
+
+  const h = parts.find((p) => p.type === "hour")?.value || "";
+  const m = parts.find((p) => p.type === "minute")?.value || "";
+
+  return h && m ? `${h}:${m}` : null;
+}
 function startOfTodayLocal(nowTs, timeZone) {
   const now = new Date(nowTs);
   const todayLocal = formatLocalDate(now, timeZone);

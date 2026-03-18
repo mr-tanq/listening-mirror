@@ -5,21 +5,45 @@ const PARADISO_SLUG = "Paradiso";
 
 export async function fetchParadisoEvents(options = {}) {
   const {
-    maxPages = 8,
-    stopWhenEmpty = true
+    maxPages = 20,
+    stopAfterEmptyPages = 3,
+    retriesPerPage = 2
   } = options;
 
   const allEvents = [];
   const seen = new Set();
+  let emptyPagesInRow = 0;
 
   for (let page = 1; page <= maxPages; page += 1) {
     const url = buildAgendaUrl(page);
-    const html = await fetchText(url);
-    const pageEvents = parsePage(html);
 
-    if (pageEvents.length === 0 && stopWhenEmpty) {
-      break;
+    let pageEvents = [];
+    let lastError = null;
+
+    for (let attempt = 0; attempt <= retriesPerPage; attempt += 1) {
+      try {
+        const html = await fetchText(url);
+        pageEvents = parsePage(html);
+
+        if (pageEvents.length > 0) {
+          break;
+        }
+      } catch (err) {
+        lastError = err;
+      }
     }
+
+    if (pageEvents.length === 0) {
+      emptyPagesInRow += 1;
+
+      if (emptyPagesInRow >= stopAfterEmptyPages) {
+        break;
+      }
+
+      continue;
+    }
+
+    emptyPagesInRow = 0;
 
     for (const ev of pageEvents) {
       const key = ev.source_id || makeNormalizedKey(ev);
@@ -74,34 +98,47 @@ function parsePage(html) {
   const seen = new Set();
 
   for (const match of scripts) {
-    let json;
+    const candidates = parseJsonLdPayload(match[1]);
 
-    try {
-      json = JSON.parse(match[1]);
-    } catch {
-      continue;
+    for (const candidate of candidates) {
+      if (!candidate || candidate["@type"] !== "MusicEvent") continue;
+
+      const normalized = normalizeMusicEvent(candidate, nowTs);
+      if (!normalized) continue;
+
+      const key = normalized.source_id;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      events.push(normalized);
     }
-
-    if (!json || json["@type"] !== "MusicEvent") {
-      continue;
-    }
-
-    const normalized = normalizeMusicEvent(json, nowTs);
-    if (!normalized) continue;
-
-    const key = normalized.source_id;
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    events.push(normalized);
   }
 
   return events;
 }
+
+function parseJsonLdPayload(raw) {
+  try {
+    const parsed = JSON.parse(raw);
+
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+
+    if (parsed && Array.isArray(parsed["@graph"])) {
+      return parsed["@graph"];
+    }
+
+    return [parsed];
+  } catch {
+    return [];
+  }
+}
+
 function normalizeMusicEvent(json, nowTs) {
   const rawName = clean(json?.name);
   const rawUrl = absoluteUrl(json?.url || "");
-  const rawImage = clean(json?.image || "");
+  const rawImage = normalizeImage(json?.image);
 
   const start = parseStartDate(json?.startDate);
   if (!start) return null;
@@ -146,24 +183,29 @@ function normalizeMusicEvent(json, nowTs) {
   };
 }
 
+function normalizeImage(image) {
+  if (!image) return null;
+  if (typeof image === "string") return clean(image) || null;
+  if (Array.isArray(image)) return clean(image[0] || "") || null;
+  if (typeof image === "object" && image.url) return clean(image.url) || null;
+  return null;
+}
+
 function extractArtistFromName(name, venueName) {
   const n = clean(name);
   if (!n) return "";
 
-  const patterns = [
-    /\s+@\s+.+$/i,
-    /\s+-\s+at\s+.+$/i,
-    /\s+at\s+.+$/i
-  ];
-
-  let out = n;
-
-  for (const re of patterns) {
-    out = out.replace(re, "").trim();
-  }
+  let out = n
+    .replace(/\s+@\s+.+$/i, "")
+    .replace(/\s+-\s+at\s+.+$/i, "")
+    .replace(/\s+at\s+.+$/i, "")
+    .trim();
 
   if (venueName) {
-    const escapedVenue = escapeRegExp(venueName.replace(/^Paradiso\s*-\s*/i, "").trim());
+    const escapedVenue = escapeRegExp(
+      venueName.replace(/^Paradiso\s*-\s*/i, "").trim()
+    );
+
     if (escapedVenue) {
       out = out.replace(new RegExp(`\\s*@\\s*${escapedVenue}$`, "i"), "").trim();
       out = out.replace(new RegExp(`\\s+${escapedVenue}$`, "i"), "").trim();
@@ -208,6 +250,7 @@ function extractCountry(json) {
   const value = clean(json?.location?.address?.addressCountry || "");
   return value || "NL";
 }
+
 function parseStartDate(value) {
   if (!value) return null;
 
@@ -256,8 +299,8 @@ function formatAmsterdamTime(date) {
 function startOfTodayAmsterdam(nowTs) {
   const now = new Date(nowTs);
   const todayAmsterdam = formatAmsterdamDate(now);
-  const midnight = new Date(`${todayAmsterdam}T00:00:00+01:00`);
-  return midnight.getTime() - 2 * 60 * 60 * 1000;
+  const midnightLocal = new Date(`${todayAmsterdam}T00:00:00+01:00`);
+  return midnightLocal.getTime() - 2 * 60 * 60 * 1000;
 }
 
 function titleCaseFromSlug(slug) {

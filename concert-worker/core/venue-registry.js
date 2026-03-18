@@ -11,5 +11,5 @@ export const venueRegistry = {
   tivoli: fetchTivoliEvents,
   patronaat: fetchPatronaatEvents,
   effenaar: fetchEffenaarEvents,
-  doornroosje: fetchDoornroosjeEvents
+  doornroosje: fetchDoornroosjeEvents 
 }; 

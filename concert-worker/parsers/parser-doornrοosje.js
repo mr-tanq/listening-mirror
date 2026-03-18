@@ -9,7 +9,7 @@ export async function fetchDoornroosjeEvents(options = {}) {
     stopAfterEmptyPages = 3,
     retriesPerPage = 2
   } = options;
-
+ 
   const allEvents = [];
   const seen = new Set();
   let emptyPagesInRow = 0;

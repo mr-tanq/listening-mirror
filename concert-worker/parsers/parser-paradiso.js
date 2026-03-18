@@ -1,116 +1,313 @@
 const PODIUMINFO_BASE = "https://www.podiuminfo.nl";
+const PARADISO_VENUE_ID = 2;
+const PARADISO_CITY = "Amsterdam";
+const PARADISO_SLUG = "Paradiso";
 
-export async function fetchParadisoEvents() {
+export async function fetchParadisoEvents(options = {}) {
+  const {
+    maxPages = 8,
+    stopWhenEmpty = true
+  } = options;
 
-  const all = [];
+  const allEvents = [];
   const seen = new Set();
 
-  for (let page = 1; page <= 10; page++) {
+  for (let page = 1; page <= maxPages; page += 1) {
+    const url = buildAgendaUrl(page);
+    const html = await fetchText(url);
+    const pageEvents = parsePage(html);
 
-    const url =
-      `https://www.podiuminfo.nl/podium/2/concerten/${page}/Paradiso/Amsterdam/`;
-
-    const res = await fetch(url, {
-      headers: {
-        "user-agent": "Mozilla/5.0",
-        "accept": "text/html"
-      }
-    });
-
-    const html = await res.text();
-
-    const scripts =
-      [...html.matchAll(
-        /<script type="application\/ld\+json">([\s\S]*?)<\/script>/gi
-      )];
-
-    if (!scripts.length) break;
-
-    for (const s of scripts) {
-
-      let json;
-
-      try {
-        json = JSON.parse(s[1]);
-      } catch {
-        continue;
-      }
-
-      if (!json || json["@type"] !== "MusicEvent") continue;
-
-      const title = clean(json.name);
-      const date_local = parseISODate(json.startDate);
-
-      if (!title || !date_local) continue;
-
-      const venue =
-        json?.location?.name || "Paradiso";
-
-      const city =
-        json?.location?.address?.addressLocality || "Amsterdam";
-
-      const url =
-        json.url ? abs(json.url) : null;
-
-      const image =
-        json.image || null;
-
-      const source_id =
-        `paradiso-${slug(title)}-${date_local}`;
-
-      if (seen.has(source_id)) continue;
-      seen.add(source_id);
-
-      all.push({
-        source: "paradiso",
-        source_id,
-        title,
-        artists_main: title,
-        artists_all: [title],
-        raw_title: title,
-        date_local,
-        time_local: null,
-        venue_name: venue,
-        city,
-        country: "NL",
-        url,
-        image_url: image,
-        fetched_at: Date.now()
-      });
-
+    if (pageEvents.length === 0 && stopWhenEmpty) {
+      break;
     }
 
+    for (const ev of pageEvents) {
+      const key = ev.source_id || makeNormalizedKey(ev);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      allEvents.push(ev);
+    }
   }
 
-  return all;
+  allEvents.sort((a, b) => {
+    const ad = `${a.date_local || ""} ${a.time_local || "99:99"}`;
+    const bd = `${b.date_local || ""} ${b.time_local || "99:99"}`;
+    return ad.localeCompare(bd) || String(a.title || "").localeCompare(String(b.title || ""));
+  });
+
+  return allEvents;
 }
 
-/* helpers */
-
-function clean(v) {
-  return String(v || "").replace(/\s+/g, " ").trim();
+function buildAgendaUrl(page = 1) {
+  return `${PODIUMINFO_BASE}/podium/${PARADISO_VENUE_ID}/concerten/${page}/${PARADISO_SLUG}/${PARADISO_CITY}/`;
 }
 
-function abs(u) {
-  if (!u) return null;
-  if (u.startsWith("http")) return u;
-  return PODIUMINFO_BASE + u;
+async function fetchText(url) {
+  const res = await fetch(url, {
+    headers: {
+      "user-agent": "Mozilla/5.0",
+      "accept": "text/html,application/xhtml+xml"
+    }
+  });
+
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status} for ${url}`);
+  }
+
+  return await res.text();
 }
 
-function slug(v) {
-  return String(v || "")
+function parsePage(html) {
+  const nowTs = Date.now();
+
+  const scripts = [
+    ...String(html || "").matchAll(
+      /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi
+    )
+  ];
+
+  if (!scripts.length) {
+    return [];
+  }
+
+  const events = [];
+  const seen = new Set();
+
+  for (const match of scripts) {
+    let json;
+
+    try {
+      json = JSON.parse(match[1]);
+    } catch {
+      continue;
+    }
+
+    if (!json || json["@type"] !== "MusicEvent") {
+      continue;
+    }
+
+    const normalized = normalizeMusicEvent(json, nowTs);
+    if (!normalized) continue;
+
+    const key = normalized.source_id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    events.push(normalized);
+  }
+
+  return events;
+}
+function normalizeMusicEvent(json, nowTs) {
+  const rawName = clean(json?.name);
+  const rawUrl = absoluteUrl(json?.url || "");
+  const rawImage = clean(json?.image || "");
+
+  const start = parseStartDate(json?.startDate);
+  if (!start) return null;
+
+  if (start.timestamp < startOfTodayAmsterdam(nowTs)) {
+    return null;
+  }
+
+  const venueNameRaw = clean(json?.location?.name || "Paradiso");
+  const venueName = normalizeVenueName(venueNameRaw);
+
+  const artistName =
+    extractArtistFromName(rawName, venueName) ||
+    extractArtistFromUrl(rawUrl) ||
+    rawName;
+
+  const title = artistName;
+  const artistsMain = artistName;
+  const artistsAll = [artistName];
+  const rawTitle = rawName;
+
+  return {
+    source: "paradiso",
+    source_id: buildSourceId({
+      title,
+      dateLocal: start.date_local,
+      venueName
+    }),
+    title,
+    artists_main: artistsMain,
+    artists_all: artistsAll,
+    raw_title: rawTitle,
+    date_local: start.date_local,
+    time_local: start.time_local,
+    venue_name: venueName,
+    city: extractCity(json) || "Amsterdam",
+    country: extractCountry(json) || "NL",
+    url: rawUrl || null,
+    image_url: rawImage || null,
+    genre_hint: null,
+    fetched_at: nowTs
+  };
+}
+
+function extractArtistFromName(name, venueName) {
+  const n = clean(name);
+  if (!n) return "";
+
+  const patterns = [
+    /\s+@\s+.+$/i,
+    /\s+-\s+at\s+.+$/i,
+    /\s+at\s+.+$/i
+  ];
+
+  let out = n;
+
+  for (const re of patterns) {
+    out = out.replace(re, "").trim();
+  }
+
+  if (venueName) {
+    const escapedVenue = escapeRegExp(venueName.replace(/^Paradiso\s*-\s*/i, "").trim());
+    if (escapedVenue) {
+      out = out.replace(new RegExp(`\\s*@\\s*${escapedVenue}$`, "i"), "").trim();
+      out = out.replace(new RegExp(`\\s+${escapedVenue}$`, "i"), "").trim();
+    }
+  }
+
+  return clean(out);
+}
+
+function extractArtistFromUrl(url) {
+  const u = String(url || "");
+  const m = u.match(/\/concert\/\d+\/([^/]+)\//i);
+  if (!m?.[1]) return "";
+
+  return titleCaseFromSlug(m[1]);
+}
+
+function normalizeVenueName(raw) {
+  const t = clean(raw);
+
+  if (!t) return "Paradiso";
+  if (/^paradiso$/i.test(t)) return "Paradiso";
+  if (/^cinetol$/i.test(t)) return "Cinetol";
+  if (/^parallel$/i.test(t)) return "Parallel";
+  if (/^bitterzoet$/i.test(t)) return "Bitterzoet";
+  if (/^het zonnehuis$/i.test(t)) return "Het Zonnehuis";
+  if (/^tolhuistuin$/i.test(t)) return "Tolhuistuin";
+  if (/^tolhuistuin club$/i.test(t)) return "Tolhuistuin - Club";
+
+  return t;
+}
+
+function extractCity(json) {
+  return clean(
+    json?.location?.address?.addressLocality ||
+    json?.location?.address?.addressRegion ||
+    ""
+  );
+}
+
+function extractCountry(json) {
+  const value = clean(json?.location?.address?.addressCountry || "");
+  return value || "NL";
+}
+function parseStartDate(value) {
+  if (!value) return null;
+
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+
+  const date_local = formatAmsterdamDate(d);
+  const time_local = formatAmsterdamTime(d);
+
+  return {
+    timestamp: d.getTime(),
+    date_local,
+    time_local
+  };
+}
+
+function formatAmsterdamDate(date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Amsterdam",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+
+  const y = parts.find((p) => p.type === "year")?.value || "";
+  const m = parts.find((p) => p.type === "month")?.value || "";
+  const d = parts.find((p) => p.type === "day")?.value || "";
+
+  return `${y}-${m}-${d}`;
+}
+
+function formatAmsterdamTime(date) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Amsterdam",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(date);
+
+  const h = parts.find((p) => p.type === "hour")?.value || "";
+  const m = parts.find((p) => p.type === "minute")?.value || "";
+
+  return h && m ? `${h}:${m}` : null;
+}
+
+function startOfTodayAmsterdam(nowTs) {
+  const now = new Date(nowTs);
+  const todayAmsterdam = formatAmsterdamDate(now);
+  const midnight = new Date(`${todayAmsterdam}T00:00:00+01:00`);
+  return midnight.getTime() - 2 * 60 * 60 * 1000;
+}
+
+function titleCaseFromSlug(slug) {
+  return decodeURIComponent(String(slug || ""))
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function buildSourceId({ title, dateLocal, venueName }) {
+  return `paradiso-${slugify(title)}-${slugify(venueName)}-${dateLocal}`;
+}
+
+function makeNormalizedKey(ev) {
+  return [
+    ev.date_local || "",
+    ev.time_local || "",
+    ev.title || "",
+    ev.venue_name || ""
+  ]
+    .map((x) => clean(String(x).toLowerCase()))
+    .join("::");
+}
+
+function absoluteUrl(url) {
+  if (!url) return "";
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  if (url.startsWith("/")) return `${PODIUMINFO_BASE}${url}`;
+  return `${PODIUMINFO_BASE}/${url}`;
+}
+
+function clean(value) {
+  return String(value || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function slugify(value) {
+  return String(value || "")
     .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/&/g, " and ")
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
+    .replace(/^-+|-+$/g, "")
+    .replace(/-+/g, "-");
 }
 
-function parseISODate(v) {
-
-  if (!v) return null;
-
-  const d = new Date(v);
-
-  if (isNaN(d)) return null;
-
-  return d.toISOString().slice(0, 10);
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

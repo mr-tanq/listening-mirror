@@ -12,4 +12,4 @@ export const venueRegistry = {
   patronaat: fetchPatronaatEvents,
   effenaar: fetchEffenaarEvents,
   doornroosje: fetchDoornroosjeEvents 
-}; 
+};  

@@ -12,7 +12,7 @@ export default {
           headers: corsHeaders()
         });
       }
- 
+
       if (pathname === "/") {
         return json({
           ok: true,
@@ -21,7 +21,9 @@ export default {
             "/health",
             "/admin/refresh-source?source=paradiso",
             "/concerts/venues?source=paradiso",
-            "/concerts/db-latest"
+            "/concerts/db-latest",
+            "/debug/paradiso/raw?page=1",
+            "/debug/paradiso/section?page=1"
           ]
         });
       }
@@ -37,23 +39,11 @@ export default {
         const source = cleanParam(url.searchParams.get("source"));
 
         if (!source) {
-          return json(
-            {
-              ok: false,
-              error: "Missing source"
-            },
-            400
-          );
+          return json({ ok: false, error: "Missing source" }, 400);
         }
 
         if (!env?.DB) {
-          return json(
-            {
-              ok: false,
-              error: "Missing DB binding"
-            },
-            500
-          );
+          return json({ ok: false, error: "Missing DB binding" }, 500);
         }
 
         const result = await refreshSource(env.DB, source);
@@ -68,13 +58,7 @@ export default {
         const source = cleanParam(url.searchParams.get("source"));
 
         if (!source) {
-          return json(
-            {
-              ok: false,
-              error: "Missing source"
-            },
-            400
-          );
+          return json({ ok: false, error: "Missing source" }, 400);
         }
 
         const events = await fetchVenueEventsById(source);
@@ -90,13 +74,7 @@ export default {
 
       if (pathname === "/concerts/db-latest") {
         if (!env?.DB) {
-          return json(
-            {
-              ok: false,
-              error: "Missing DB binding"
-            },
-            500
-          );
+          return json({ ok: false, error: "Missing DB binding" }, 500);
         }
 
         const rows = await env.DB
@@ -121,13 +99,9 @@ export default {
               created_at,
               updated_at
             FROM concerts
-            WHERE
-              date_local IS NOT NULL
+            WHERE date_local IS NOT NULL
               AND date_local != ''
-            ORDER BY
-              date_local ASC,
-              time_local ASC,
-              title ASC
+            ORDER BY date_local ASC, time_local ASC, title ASC
             LIMIT 100
           `)
           .all();
@@ -140,22 +114,77 @@ export default {
         });
       }
 
-      return json(
-        {
-          ok: false,
-          error: "Not found",
-          pathname
-        },
-        404
-      );
+      if (pathname === "/debug/paradiso/raw") {
+        const page = Number(url.searchParams.get("page") || "1");
+        const target =
+          `https://www.podiuminfo.nl/podium/2/concerten/${page}/Paradiso/Amsterdam/`;
+
+        const res = await fetch(target, {
+          headers: {
+            "user-agent": "Mozilla/5.0",
+            "accept": "text/html,application/xhtml+xml"
+          }
+        });
+
+        const text = await res.text();
+
+        return new Response(text, {
+          status: 200,
+          headers: {
+            "content-type": "text/plain; charset=utf-8",
+            ...corsHeaders()
+          }
+        });
+      }
+
+      if (pathname === "/debug/paradiso/section") {
+        const page = Number(url.searchParams.get("page") || "1");
+        const target =
+          `https://www.podiuminfo.nl/podium/2/concerten/${page}/Paradiso/Amsterdam/`;
+
+        const res = await fetch(target, {
+          headers: {
+            "user-agent": "Mozilla/5.0",
+            "accept": "text/html,application/xhtml+xml"
+          }
+        });
+
+        const text = await res.text();
+        const startIdx = text.indexOf("DATUM");
+
+        let out = text;
+        if (startIdx !== -1) {
+          out = text.slice(startIdx);
+          const cutCandidates = [
+            out.indexOf("## "),
+            out.indexOf("Meer concerten"),
+            out.indexOf("Gerelateerde concerten")
+          ].filter((x) => x !== -1);
+
+          if (cutCandidates.length) {
+            out = out.slice(0, Math.min(...cutCandidates));
+          }
+        }
+
+        return new Response(out, {
+          status: 200,
+          headers: {
+            "content-type": "text/plain; charset=utf-8",
+            ...corsHeaders()
+          }
+        });
+      }
+
+      return json({
+        ok: false,
+        error: "Not found",
+        pathname
+      }, 404);
     } catch (err) {
-      return json(
-        {
-          ok: false,
-          error: err?.message || "Unknown error"
-        },
-        500
-      );
+      return json({
+        ok: false,
+        error: err?.message || "Unknown error"
+      }, 500);
     }
   }
 };
@@ -169,7 +198,6 @@ function hydrateConcertRow(row) {
 
 function parseArtistsAll(value) {
   if (!value) return [];
-
   if (Array.isArray(value)) return value;
 
   try {

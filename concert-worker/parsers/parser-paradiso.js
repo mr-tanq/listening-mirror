@@ -80,85 +80,86 @@ function parsePage(html, sourceUrl, nowTs, fallbackYear = new Date().getUTCFullY
   if (!section) return [];
 
   const lines = extractAgendaLines(section);
-  const anchors = extractAnchors(section);
-
-  if (!lines.length || !anchors.length) return [];
+  if (!lines.length) return [];
 
   let currentDate = null;
   let currentTime = null;
-  let anchorIndex = 0;
   let pendingArtist = null;
+  let pendingUrl = null;
 
   const events = [];
   const seen = new Set();
 
-  for (const line of lines) {
-    const normalizedLine = cleanText(line);
-    if (!normalizedLine) continue;
-    if (isGarbageToken(normalizedLine)) continue;
+  for (const rawLine of lines) {
+    const line = cleanText(rawLine);
+    if (!line) continue;
 
-    if (isDateToken(normalizedLine)) {
-      currentDate = parseCurrentDateToken(normalizedLine, fallbackYear)?.isoDate || null;
+    if (line.startsWith("## ")) {
+      break;
+    }
+
+    if (isGarbageToken(line)) continue;
+
+    if (isDateToken(line)) {
+      currentDate = parseCurrentDateToken(line, fallbackYear)?.isoDate || null;
       currentTime = null;
       pendingArtist = null;
+      pendingUrl = null;
       continue;
     }
 
-    if (isTimeToken(normalizedLine)) {
-      currentTime = normalizedLine;
-      pendingArtist = null;
+    if (isTimeToken(line)) {
+      currentTime = line;
       continue;
     }
 
-    if (looksLikeVenue(normalizedLine)) {
+    if (looksLikeVenue(line)) {
       if (
         pendingArtist &&
         currentDate &&
-        isParadisoRelevantVenue(normalizeVenueName(normalizedLine)) &&
         isFutureOrToday(currentDate, nowTs)
       ) {
-        const venueName = normalizeVenueName(normalizedLine);
-        const title = pendingArtist.text;
-        const source_id = buildSourceId({
-          title,
-          dateLocal: currentDate,
-          venueName
-        });
+        const venueName = normalizeVenueName(line);
 
-        const event = {
-          source: "paradiso",
-          source_id,
-          title,
-          artists_main: title,
-          artists_all: [title],
-          raw_title: title,
-          date_local: currentDate,
-          time_local: currentTime || null,
-          venue_name: venueName,
-          city: "Amsterdam",
-          country: "NL",
-          url: pendingArtist.url,
-          image_url: null,
-          genre_hint: null,
-          fetched_at: nowTs
-        };
+        if (isParadisoRelevantVenue(venueName)) {
+          const event = {
+            source: "paradiso",
+            source_id: buildSourceId({
+              title: pendingArtist,
+              dateLocal: currentDate,
+              venueName
+            }),
+            title: pendingArtist,
+            artists_main: pendingArtist,
+            artists_all: [pendingArtist],
+            raw_title: pendingArtist,
+            date_local: currentDate,
+            time_local: currentTime || null,
+            venue_name: venueName,
+            city: "Amsterdam",
+            country: "NL",
+            url: pendingUrl || absoluteUrl(extractFirstHrefForText(section, pendingArtist)) || sourceUrl,
+            image_url: null,
+            genre_hint: null,
+            fetched_at: nowTs
+          };
 
-        const key = makeNormalizedKey(event);
-        if (!seen.has(key)) {
-          seen.add(key);
-          events.push(event);
+          const key = makeNormalizedKey(event);
+          if (!seen.has(key)) {
+            seen.add(key);
+            events.push(event);
+          }
         }
       }
 
       pendingArtist = null;
+      pendingUrl = null;
       continue;
     }
 
-    const matchedAnchor = findNextMatchingAnchor(anchors, anchorIndex, normalizedLine);
-    if (matchedAnchor) {
-      pendingArtist = matchedAnchor.anchor;
-      anchorIndex = matchedAnchor.nextIndex;
-      continue;
+    if (isLikelyArtistLine(line)) {
+      pendingArtist = normalizeArtistName(line);
+      pendingUrl = absoluteUrl(extractFirstHrefForText(section, pendingArtist));
     }
   }
 
@@ -168,92 +169,37 @@ function parsePage(html, sourceUrl, nowTs, fallbackYear = new Date().getUTCFullY
 function extractAgendaSection(html) {
   const text = String(html || "");
   const startIdx = text.indexOf("DATUM");
-  if (startIdx === -1) return text;
+  if (startIdx === -1) return "";
 
-  const endCandidates = [
+  const candidates = [
     text.indexOf("## ", startIdx + 1),
-    text.indexOf("Meer concerten in", startIdx + 1),
-    text.indexOf("Gerelateerde concerten", startIdx + 1)
+    text.indexOf("Meer concerten", startIdx + 1),
+    text.indexOf("Gerelateerde concerten", startIdx + 1),
+    text.indexOf("OVERZICHT", startIdx + 50)
   ].filter((x) => x !== -1);
 
-  if (!endCandidates.length) {
-    return text.slice(startIdx);
-  }
-
-  const endIdx = Math.min(...endCandidates);
+  const endIdx = candidates.length ? Math.min(...candidates) : text.length;
   return text.slice(startIdx, endIdx);
 }
 
 function extractAgendaLines(sectionHtml) {
-  const withBreaks = String(sectionHtml || "")
-    .replace(/<\/(div|p|tr|li|h\d|td|th)>/gi, "\n")
+  return String(sectionHtml || "")
+    .replace(/<\/(div|p|tr|li|h\d|td|th|a)>/gi, "\n")
     .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/a>/gi, "</a>\n")
-    .replace(/<a\b/gi, "\n<a")
-    .replace(/<[^>]+>/g, " ");
-
-  return withBreaks
+    .replace(/<[^>]+>/g, " ")
     .split("\n")
     .map((x) => cleanLineText(decodeHtml(x)))
     .filter(Boolean);
 }
 
-function extractAnchors(sectionHtml) {
-  const out = [];
-  const re = /<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
-
-  let m;
-  while ((m = re.exec(String(sectionHtml || ""))) !== null) {
-    const href = absoluteUrl(m[1]);
-    const text = normalizeArtistName(m[2].replace(/<[^>]+>/g, " "));
-    if (!text) continue;
-    if (isGarbageToken(text)) continue;
-    if (isDateToken(text)) continue;
-    if (isTimeToken(text)) continue;
-    if (isMenuToken(text)) continue;
-
-    out.push({
-      text,
-      url: href
-    });
-  }
-
-  return out;
-}
-
-function findNextMatchingAnchor(anchors, startIndex, lineText) {
-  const normalizedLine = normalizeArtistName(lineText);
-
-  for (let i = startIndex; i < Math.min(anchors.length, startIndex + 6); i += 1) {
-    const anchor = anchors[i];
-
-    if (normalizeForCompare(anchor.text) === normalizeForCompare(normalizedLine)) {
-      return {
-        anchor,
-        nextIndex: i + 1
-      };
-    }
-
-    if (
-      normalizeForCompare(anchor.text).includes(normalizeForCompare(normalizedLine)) ||
-      normalizeForCompare(normalizedLine).includes(normalizeForCompare(anchor.text))
-    ) {
-      return {
-        anchor,
-        nextIndex: i + 1
-      };
-    }
-  }
-
-  return null;
-}
-
-function normalizeForCompare(value) {
-  return slugify(
-    decodeHtml(String(value || ""))
-      .replace(/\s+\d+$/g, "")
-      .trim()
+function extractFirstHrefForText(sectionHtml, text) {
+  const escaped = escapeRegExp(normalizeArtistName(text));
+  const re = new RegExp(
+    `<a[^>]*href="([^"]+)"[^>]*>[\\s\\S]*?${escaped}[\\s\\S]*?<\\/a>`,
+    "i"
   );
+  const m = String(sectionHtml || "").match(re);
+  return m?.[1] || null;
 }
 
 function cleanText(value) {
@@ -313,15 +259,12 @@ function isGarbageToken(value) {
   if (!t) return true;
   if (/^\d+$/.test(t)) return true;
 
-  if (["DATUM", "NAAM", "VOORPROGRAMMA", "ZAAL", "INFO"].includes(t.toUpperCase())) {
-    return true;
-  }
-
-  return false;
-}
-
-function isMenuToken(value) {
   return [
+    "DATUM",
+    "NAAM",
+    "VOORPROGRAMMA",
+    "ZAAL",
+    "INFO",
     "OVERZICHT",
     "ALGEMENE INFO",
     "AGENDA",
@@ -329,7 +272,7 @@ function isMenuToken(value) {
     "FOTO'S",
     "TICKETINFO",
     "ROUTE/KAART"
-  ].includes(cleanText(value).toUpperCase());
+  ].includes(t.toUpperCase());
 }
 
 function looksLikeVenue(value) {
@@ -341,13 +284,26 @@ function looksLikeVenue(value) {
     "kelder",
     "zaal onbekend",
     "grote zaal en bovenzaal",
-    "tolhuistuin club",
-    "tolhuistuin",
-    "bitterzoet",
     "parallel",
+    "bitterzoet",
     "het zonnehuis",
-    "cinetol"
+    "cinetol",
+    "tolhuistuin club",
+    "tolhuistuin, club",
+    "tolhuistuin"
   ].some((x) => t === x || t.startsWith(`${x} `));
+}
+
+function isLikelyArtistLine(value) {
+  const t = cleanText(value);
+
+  if (!t) return false;
+  if (isDateToken(t)) return false;
+  if (isTimeToken(t)) return false;
+  if (looksLikeVenue(t)) return false;
+  if (isGarbageToken(t)) return false;
+
+  return true;
 }
 
 function normalizeVenueName(raw) {
@@ -360,16 +316,14 @@ function normalizeVenueName(raw) {
   if (/^kelder$/i.test(t)) return "Paradiso - Kelder";
   if (/^zaal onbekend$/i.test(t)) return "Paradiso - Zaal onbekend";
   if (/^grote zaal en bovenzaal$/i.test(t)) return "Paradiso - Grote Zaal en Bovenzaal";
-
-  if (/^tolhuistuin/i.test(t)) {
-    const rest = t.replace(/^tolhuistuin[\s,]*/i, "").trim();
-    return `Tolhuistuin${rest ? ` - ${rest}` : ""}`;
-  }
-
-  if (/^bitterzoet$/i.test(t)) return "Bitterzoet";
   if (/^parallel$/i.test(t)) return "Parallel";
+  if (/^bitterzoet$/i.test(t)) return "Bitterzoet";
   if (/^het zonnehuis$/i.test(t)) return "Het Zonnehuis";
   if (/^cinetol$/i.test(t)) return "Cinetol";
+
+  if (/^tolhuistuin/i.test(t)) {
+    return "Tolhuistuin - Club";
+  }
 
   return t;
 }
@@ -383,11 +337,11 @@ function isParadisoRelevantVenue(venueName) {
     "paradiso - kelder",
     "paradiso - zaal onbekend",
     "paradiso - grote zaal en bovenzaal",
-    "tolhuistuin - club",
-    "bitterzoet",
     "parallel",
+    "bitterzoet",
     "het zonnehuis",
-    "cinetol"
+    "cinetol",
+    "tolhuistuin - club"
   ].includes(t);
 }
 
@@ -474,4 +428,8 @@ function isFutureOrToday(dateLocal, nowTs) {
     `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-${String(now.getUTCDate()).padStart(2, "0")}`;
 
   return dateLocal >= today;
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

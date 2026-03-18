@@ -10,4 +10,4 @@ export const venueRegistry = {
   tivoli: fetchTivoliEvents,
   patronaat: fetchPatronaatEvents,
   effenaar: fetchEffenaarEvents
-};
+}; 

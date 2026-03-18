@@ -3,5 +3,6 @@ import { fetchMelkwegEvents } from "../parsers/parser-melkweg.js";
 
 export const venueRegistry = {
   paradiso: fetchParadisoEvents,
-  melkweg: fetchMelkwegEvents
+  melkweg: fetchMelkwegEvents,
+  tivoli: fetchTivoliEvents
 };

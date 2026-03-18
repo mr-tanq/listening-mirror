@@ -103,7 +103,7 @@ function slug(v) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
 }
- 
+
 function parseISODate(v) {
 
   if (!v) return null;

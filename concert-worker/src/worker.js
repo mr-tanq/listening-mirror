@@ -12,7 +12,7 @@ export default {
           headers: corsHeaders()
         });
       }
-
+ 
       if (pathname === "/") {
         return json({
           ok: true,

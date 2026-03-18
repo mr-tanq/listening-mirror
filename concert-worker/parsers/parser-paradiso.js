@@ -80,6 +80,8 @@ function parsePage(html, sourceUrl, nowTs, fallbackYear = new Date().getUTCFullY
   if (!section) return [];
 
   const lines = extractAgendaLines(section);
+  const hrefMap = extractHrefMap(section);
+
   if (!lines.length) return [];
 
   let currentDate = null;
@@ -93,11 +95,7 @@ function parsePage(html, sourceUrl, nowTs, fallbackYear = new Date().getUTCFullY
   for (const rawLine of lines) {
     const line = cleanText(rawLine);
     if (!line) continue;
-
-    if (line.startsWith("## ")) {
-      break;
-    }
-
+    if (line.startsWith("## ")) break;
     if (isGarbageToken(line)) continue;
 
     if (isDateToken(line)) {
@@ -108,17 +106,8 @@ function parsePage(html, sourceUrl, nowTs, fallbackYear = new Date().getUTCFullY
       continue;
     }
 
-    if (isTimeToken(line)) {
-      currentTime = line;
-      continue;
-    }
-
     if (looksLikeVenue(line)) {
-      if (
-        pendingArtist &&
-        currentDate &&
-        isFutureOrToday(currentDate, nowTs)
-      ) {
+      if (pendingArtist && currentDate && isFutureOrToday(currentDate, nowTs)) {
         const venueName = normalizeVenueName(line);
 
         if (isParadisoRelevantVenue(venueName)) {
@@ -138,7 +127,7 @@ function parsePage(html, sourceUrl, nowTs, fallbackYear = new Date().getUTCFullY
             venue_name: venueName,
             city: "Amsterdam",
             country: "NL",
-            url: pendingUrl || absoluteUrl(extractFirstHrefForText(section, pendingArtist)) || sourceUrl,
+            url: pendingUrl || sourceUrl,
             image_url: null,
             genre_hint: null,
             fetched_at: nowTs
@@ -157,9 +146,23 @@ function parsePage(html, sourceUrl, nowTs, fallbackYear = new Date().getUTCFullY
       continue;
     }
 
+    const timeArtist = parseTimeArtistLine(line);
+    if (timeArtist) {
+      currentTime = timeArtist.time;
+      pendingArtist = normalizeArtistName(timeArtist.artist);
+      pendingUrl = hrefMap.get(normalizeForCompare(pendingArtist)) || sourceUrl;
+      continue;
+    }
+
+    if (isTimeToken(line)) {
+      currentTime = line;
+      continue;
+    }
+
     if (isLikelyArtistLine(line)) {
       pendingArtist = normalizeArtistName(line);
-      pendingUrl = absoluteUrl(extractFirstHrefForText(section, pendingArtist));
+      pendingUrl = hrefMap.get(normalizeForCompare(pendingArtist)) || sourceUrl;
+      continue;
     }
   }
 
@@ -174,8 +177,7 @@ function extractAgendaSection(html) {
   const candidates = [
     text.indexOf("## ", startIdx + 1),
     text.indexOf("Meer concerten", startIdx + 1),
-    text.indexOf("Gerelateerde concerten", startIdx + 1),
-    text.indexOf("OVERZICHT", startIdx + 50)
+    text.indexOf("Gerelateerde concerten", startIdx + 1)
   ].filter((x) => x !== -1);
 
   const endIdx = candidates.length ? Math.min(...candidates) : text.length;
@@ -192,14 +194,41 @@ function extractAgendaLines(sectionHtml) {
     .filter(Boolean);
 }
 
-function extractFirstHrefForText(sectionHtml, text) {
-  const escaped = escapeRegExp(normalizeArtistName(text));
-  const re = new RegExp(
-    `<a[^>]*href="([^"]+)"[^>]*>[\\s\\S]*?${escaped}[\\s\\S]*?<\\/a>`,
-    "i"
-  );
-  const m = String(sectionHtml || "").match(re);
-  return m?.[1] || null;
+function extractHrefMap(sectionHtml) {
+  const map = new Map();
+  const re = /<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+
+  let m;
+  while ((m = re.exec(String(sectionHtml || ""))) !== null) {
+    const href = absoluteUrl(m[1]);
+    const text = normalizeArtistName(m[2].replace(/<[^>]+>/g, " "));
+    if (!text) continue;
+    if (isGarbageToken(text)) continue;
+    if (isMenuToken(text)) continue;
+
+    const key = normalizeForCompare(text);
+    if (key && !map.has(key)) {
+      map.set(key, href);
+    }
+  }
+
+  return map;
+}
+
+function parseTimeArtistLine(value) {
+  const s = cleanText(value);
+  const m = s.match(/^(\d{1,2}:\d{2})\s+(.+)$/);
+  if (!m) return null;
+
+  const artist = cleanText(m[2]);
+  if (!artist) return null;
+  if (looksLikeVenue(artist)) return null;
+  if (isGarbageToken(artist)) return null;
+
+  return {
+    time: m[1],
+    artist
+  };
 }
 
 function cleanText(value) {
@@ -273,6 +302,18 @@ function isGarbageToken(value) {
     "TICKETINFO",
     "ROUTE/KAART"
   ].includes(t.toUpperCase());
+}
+
+function isMenuToken(value) {
+  return [
+    "OVERZICHT",
+    "ALGEMENE INFO",
+    "AGENDA",
+    "FACTS",
+    "FOTO'S",
+    "TICKETINFO",
+    "ROUTE/KAART"
+  ].includes(cleanText(value).toUpperCase());
 }
 
 function looksLikeVenue(value) {
@@ -349,6 +390,10 @@ function normalizeArtistName(value) {
   return cleanText(decodeHtml(value))
     .replace(/\s+\d+$/g, "")
     .trim();
+}
+
+function normalizeForCompare(value) {
+  return slugify(normalizeArtistName(value));
 }
 
 function parseCurrentDateToken(token, fallbackYear) {
@@ -428,8 +473,4 @@ function isFutureOrToday(dateLocal, nowTs) {
     `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-${String(now.getUTCDate()).padStart(2, "0")}`;
 
   return dateLocal >= today;
-}
-
-function escapeRegExp(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

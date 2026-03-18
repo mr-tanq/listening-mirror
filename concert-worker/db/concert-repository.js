@@ -6,6 +6,8 @@ export async function deleteBySource(db, source) {
 }
 
 export async function insertEvents(db, events) {
+  const now = Date.now();
+
   for (const e of events) {
     await db
       .prepare(`
@@ -24,9 +26,11 @@ export async function insertEvents(db, events) {
           url,
           image_url,
           genre_hint,
-          fetched_at
+          fetched_at,
+          created_at,
+          updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .bind(
         e.source ?? null,
@@ -43,7 +47,9 @@ export async function insertEvents(db, events) {
         e.url ?? null,
         e.image_url ?? null,
         e.genre_hint ?? null,
-        e.fetched_at ?? Date.now()
+        e.fetched_at ?? now,
+        now,
+        now
       )
       .run();
   }

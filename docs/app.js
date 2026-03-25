@@ -1,11 +1,5 @@
 /* app.js (FULL FILE REPLACE)
-   Listening Mirror — Identity tabs + Archive live list + Archive rich stats
-   ✅ Loads Recent / Top from Worker
-   ✅ Identity internal tabs: Recent / Top
-   ✅ Top controls live only inside Top panel
-   ✅ Renders data-* contract for spotify-click-play.js
-   ✅ Loads Archive list from archive worker
-   ✅ Archive sections: Overview / Live DNA / Milestones / Rankings / All Concerts
+   Listening Mirror — Identity tabs + Archive rich stats (semantic polish pass)
 */
 
 (() => {
@@ -318,32 +312,40 @@
           box-shadow:0 4px 12px rgba(0,0,0,.2);
         }
 
+        .archiveCanvas{
+          display:grid;
+          gap:18px;
+        }
+
         .archiveIntro{
-          margin-bottom:18px;
+          margin:0;
         }
         .archiveIntroTitle{
-          font-size:18px;
-          line-height:1.2;
+          font-size:20px;
+          line-height:1.15;
           font-weight:600;
           color:rgba(255,255,255,.97);
           margin-bottom:8px;
+          text-shadow:0 0 18px rgba(255,255,255,.04);
         }
         .archiveIntroSub{
           font-size:13px;
-          line-height:1.55;
+          line-height:1.6;
           color:rgba(255,255,255,.56);
+          max-width:62ch;
         }
 
         .archiveSection{
-          margin-top:18px;
+          display:grid;
+          gap:12px;
         }
         .archiveSectionTitle{
           font-size:12px;
           line-height:1.2;
           letter-spacing:.14em;
           text-transform:uppercase;
-          color:rgba(255,255,255,.52);
-          margin:0 0 12px;
+          color:rgba(255,255,255,.50);
+          margin:0;
         }
 
         .archiveStatsGrid{
@@ -353,11 +355,11 @@
         }
         .archiveStatCard{
           border-radius:16px;
-          background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.025));
+          background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.022));
           outline:1px solid rgba(255,255,255,.07);
-          padding:14px 12px;
+          padding:13px 12px;
           box-shadow:
-            inset 0 1px 0 rgba(255,255,255,.03),
+            inset 0 1px 0 rgba(255,255,255,.025),
             0 8px 20px rgba(0,0,0,.10);
         }
         .archiveStatValue{
@@ -365,15 +367,14 @@
           line-height:1;
           font-weight:600;
           color:rgba(255,255,255,.96);
-          text-shadow:0 0 14px rgba(255,255,255,.05);
         }
         .archiveStatLabel{
-          margin-top:8px;
+          margin-top:6px;
           font-size:11px;
-          line-height:1.3;
+          line-height:1.25;
           letter-spacing:.08em;
           text-transform:uppercase;
-          color:rgba(255,255,255,.48);
+          color:rgba(255,255,255,.46);
         }
 
         .archiveDnaGrid{
@@ -384,20 +385,21 @@
         .archiveDnaCard{
           border-radius:18px;
           background:
-            radial-gradient(circle at 18% 16%, rgba(255,255,255,.05), transparent 42%),
-            linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.024));
+            radial-gradient(circle at 18% 16%, rgba(255,255,255,.055), transparent 40%),
+            linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.022));
           outline:1px solid rgba(255,255,255,.08);
-          padding:15px 13px;
+          padding:16px 13px;
           box-shadow:
             inset 0 1px 0 rgba(255,255,255,.03),
             0 12px 26px rgba(0,0,0,.12);
         }
         .archiveDnaPrimary{
-          font-size:16px;
-          line-height:1.25;
+          font-size:18px;
+          line-height:1.2;
           font-weight:600;
           color:rgba(255,255,255,.97);
           text-wrap:balance;
+          text-shadow:0 0 18px rgba(255,255,255,.04);
         }
         .archiveDnaSecondary{
           margin-top:8px;
@@ -411,19 +413,18 @@
           line-height:1.2;
           letter-spacing:.12em;
           text-transform:uppercase;
-          color:rgba(255,255,255,.42);
+          color:rgba(255,255,255,.40);
         }
 
         .archiveMilestoneGrid{
           display:grid;
-          grid-template-columns:1fr;
           gap:10px;
         }
         .archiveMilestoneCard{
           border-radius:18px;
           background:
             radial-gradient(circle at 16% 20%, rgba(255,255,255,.04), transparent 38%),
-            linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.023));
+            linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.022));
           outline:1px solid rgba(255,255,255,.08);
           padding:15px 14px;
           box-shadow:
@@ -455,34 +456,33 @@
           margin-top:3px;
           font-size:12px;
           line-height:1.45;
-          color:rgba(255,255,255,.42);
+          color:rgba(255,255,255,.40);
         }
 
         .archiveRankGrid{
           display:grid;
-          grid-template-columns:1fr;
           gap:10px;
         }
         .archiveRankCard{
-          border-radius:16px;
-          background:linear-gradient(180deg, rgba(255,255,255,.038), rgba(255,255,255,.022));
+          border-radius:15px;
+          background:linear-gradient(180deg, rgba(255,255,255,.034), rgba(255,255,255,.02));
           outline:1px solid rgba(255,255,255,.07);
-          padding:13px 12px;
+          padding:11px 11px;
           box-shadow:
             inset 0 1px 0 rgba(255,255,255,.02),
-            0 10px 22px rgba(0,0,0,.10);
+            0 8px 18px rgba(0,0,0,.09);
         }
         .archiveRankTitle{
           font-size:12px;
           line-height:1.2;
           letter-spacing:.10em;
           text-transform:uppercase;
-          color:rgba(255,255,255,.55);
-          margin-bottom:10px;
+          color:rgba(255,255,255,.54);
+          margin-bottom:9px;
         }
         .archiveRankList{
           display:grid;
-          gap:8px;
+          gap:7px;
         }
         .archiveRankRow{
           display:grid;
@@ -493,7 +493,7 @@
         .archiveRankIndex{
           font-size:12px;
           line-height:1;
-          color:rgba(255,255,255,.42);
+          color:rgba(255,255,255,.40);
           min-width:14px;
         }
         .archiveRankName{
@@ -507,12 +507,14 @@
         .archiveRankCount{
           font-size:12px;
           line-height:1;
-          color:rgba(255,255,255,.58);
+          color:rgba(255,255,255,.56);
           white-space:nowrap;
         }
 
-        .archiveListSection{
-          margin-top:20px;
+        .archiveTimeline{
+          display:grid;
+          gap:10px;
+          margin-top:2px;
         }
 
         .archiveRow{
@@ -521,7 +523,6 @@
         }
         .archiveTitle{
           color:rgba(255,255,255,.96);
-          text-shadow:0 0 14px rgba(255,255,255,.05);
         }
         .archiveSupport{
           font-size:12px;
@@ -759,10 +760,14 @@
       const rowsHtml = items.map(renderArchiveRow).join("");
 
       archiveList.innerHTML = `
-        ${statsHtml}
-        <div class="archiveListSection archiveSection">
-          <h3 class="archiveSectionTitle">All Concerts</h3>
-          ${rowsHtml}
+        <div class="archiveCanvas">
+          ${statsHtml}
+          <section class="archiveSection">
+            <h3 class="archiveSectionTitle">Archive Timeline</h3>
+            <div class="archiveTimeline">
+              ${rowsHtml}
+            </div>
+          </section>
         </div>
       `;
       return true;
@@ -780,30 +785,30 @@
     const mostSeenArtists = Array.isArray(stats?.most_seen_artists) ? stats.most_seen_artists : [];
 
     return `
-      <div class="archiveIntro">
+      <section class="archiveIntro">
         <div class="archiveIntroTitle">Archive</div>
         <div class="archiveIntroSub">Your live memory vault — concerts, patterns, and milestones across the years.</div>
-      </div>
+      </section>
 
-      <div class="archiveSection">
+      <section class="archiveSection">
         <h3 class="archiveSectionTitle">Overview</h3>
         ${renderArchiveOverviewCards(overview)}
-      </div>
+      </section>
 
-      <div class="archiveSection">
-        <h3 class="archiveSectionTitle">Live DNA</h3>
+      <section class="archiveSection">
+        <h3 class="archiveSectionTitle">Signature</h3>
         ${renderArchiveDnaCards(highlights)}
-      </div>
+      </section>
 
-      <div class="archiveSection">
+      <section class="archiveSection">
         <h3 class="archiveSectionTitle">Milestones</h3>
         ${renderArchiveMilestones(highlights)}
-      </div>
+      </section>
 
-      <div class="archiveSection">
-        <h3 class="archiveSectionTitle">Rankings</h3>
+      <section class="archiveSection">
+        <h3 class="archiveSectionTitle">Patterns</h3>
         ${renderArchiveRankings(mostSeenArtists, topVenues, topCities)}
-      </div>
+      </section>
     `;
   }
 
@@ -836,28 +841,28 @@
     const cards = [
       {
         primary: mostSeenArtist?.name || "—",
-        secondary: mostSeenArtist ? `seen ${mostSeenArtist.total} times` : "no data yet",
-        label: "Most Seen Artist"
+        secondary: mostSeenArtist ? `returned to ${mostSeenArtist.total} times` : "no data yet",
+        label: "Returning Artist"
       },
       {
         primary: topVenue?.name || "—",
         secondary: topVenue ? `${topVenue.total} visits` : "no data yet",
-        label: "Top Venue"
+        label: "Recurring Room"
       },
       {
         primary: topCity?.name || "—",
-        secondary: topCity ? `${topCity.total} concerts` : "no data yet",
-        label: "Top City"
+        secondary: topCity ? `${topCity.total} concerts across the years` : "no data yet",
+        label: "Live Root"
       },
       {
         primary: mostActiveYear?.year || "—",
         secondary: mostActiveYear ? `${mostActiveYear.total} concerts` : "no data yet",
-        label: "Most Active Year"
+        label: "Peak Year"
       }
     ];
 
     return `
-      <div class="archiveDnaGrid" role="group" aria-label="Archive live DNA">
+      <div class="archiveDnaGrid" role="group" aria-label="Archive signature">
         ${cards.map((card) => `
           <div class="archiveDnaCard">
             <div class="archiveDnaPrimary">${escapeHtml(card.primary)}</div>
@@ -874,14 +879,8 @@
     const latestConcert = highlights?.latest_concert || null;
 
     const cards = [
-      {
-        label: "First Concert",
-        item: firstConcert
-      },
-      {
-        label: "Latest Concert",
-        item: latestConcert
-      }
+      { label: "First Concert", item: firstConcert },
+      { label: "Latest Concert", item: latestConcert }
     ];
 
     return `
@@ -909,7 +908,7 @@
 
   function renderArchiveRankings(mostSeenArtists, topVenues, topCities) {
     return `
-      <div class="archiveRankGrid" role="group" aria-label="Archive rankings">
+      <div class="archiveRankGrid" role="group" aria-label="Archive patterns">
         ${renderRankCard(
           "Most Seen Artists",
           (mostSeenArtists || []).slice(0, 5).map((item) => ({
@@ -918,7 +917,7 @@
           }))
         )}
         ${renderRankCard(
-          "Top Venues",
+          "Recurring Rooms",
           (topVenues || []).slice(0, 5).map((item) => ({
             name: item?.venue_family || "—",
             count: item?.visits || 0
@@ -1172,6 +1171,25 @@
     ]);
 
     syncIdentityTabUi();
+
+    // Cleanup old archive helper text if present in surrounding markup
+    const archiveCard = archiveList?.closest(".card");
+    if (archiveCard) {
+      const titleEl = archiveCard.querySelector(".card__title");
+      const allSubs = Array.from(archiveCard.querySelectorAll(".card__sub, .card__desc, p"));
+      if (titleEl && normalizeSpace(titleEl.textContent).toLowerCase() === "archive") {
+        allSubs.forEach((el) => {
+          const t = normalizeSpace(el.textContent).toLowerCase();
+          if (
+            t.includes("saved sessions") ||
+            t.includes("archived mirror states") ||
+            t === "archive list"
+          ) {
+            el.style.display = "none";
+          }
+        });
+      }
+    }
   }
 
   window.__LM_APP__ = {

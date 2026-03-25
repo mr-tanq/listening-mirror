@@ -548,8 +548,8 @@
           position:absolute;
           inset:0;
           background:
-            linear-gradient(180deg, rgba(6,7,10,.10) 0%, rgba(6,7,10,.54) 34%, rgba(6,7,10,.86) 100%),
-            radial-gradient(circle at 18% 15%, rgba(255,255,255,.08), transparent 42%);
+            linear-gradient(180deg, rgba(6,7,10,.10) 0%, rgba(6,7,10,v28) 34%, rgba(6,7,10,.54) 100%),
+            radial-gradient(circle at 20% 18%, rgba(255,255,255,.10), transparent 42%);
         }
         .archiveDnaInner{
           position:relative;

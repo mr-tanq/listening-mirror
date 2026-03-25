@@ -694,7 +694,7 @@
           background-size:cover;
           background-position:center center;
           transform:scale(1.05);
-          filter:blur(2px);
+          filter:none;
           opacity:.20;
           pointer-events:none;
         }

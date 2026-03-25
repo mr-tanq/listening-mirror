@@ -1,6 +1,6 @@
 /* app.js (FULL FILE REPLACE)
    Listening Mirror — Identity tabs + Archive rich stats
-   Returning Artist now uses automatic Last.fm artwork/image lookup
+   Returning Artist + Archive Timeline now use automatic Last.fm artwork/image lookup
 */
 
 (() => {
@@ -35,6 +35,7 @@
   };
 
   const lastfmArtistImageCache = new Map();
+  let archiveRowImageObserver = null;
 
   function absApi(urlOrPath) {
     if (!urlOrPath) return "";
@@ -71,6 +72,10 @@
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#039;");
+  }
+
+  function escapeAttr(s) {
+    return escapeHtml(s);
   }
 
   function normalizeSpace(s) {
@@ -675,8 +680,40 @@
         }
 
         .archiveRow{
+          position:relative;
+          overflow:hidden;
           grid-template-columns:minmax(0,1fr) auto;
           align-items:center;
+        }
+        .archiveRowVisual{
+          background:linear-gradient(180deg, rgba(255,255,255,.022), rgba(255,255,255,.014));
+        }
+        .archiveRowBackdrop{
+          position:absolute;
+          inset:0;
+          background-size:cover;
+          background-position:center center;
+          transform:scale(1.05);
+          filter:blur(2px);
+          opacity:.20;
+          pointer-events:none;
+        }
+        .archiveRowBackdrop::after{
+          content:"";
+          position:absolute;
+          inset:0;
+          background:
+            linear-gradient(180deg, rgba(5,6,9,.18) 0%, rgba(5,6,9,.44) 38%, rgba(5,6,9,.76) 100%),
+            radial-gradient(circle at 20% 18%, rgba(255,255,255,.06), transparent 38%);
+        }
+        .archiveRowInner{
+          position:relative;
+          z-index:1;
+          display:grid;
+          grid-template-columns:minmax(0,1fr) auto;
+          gap:12px;
+          align-items:center;
+          width:100%;
         }
         .archiveTitle{
           color:rgba(255,255,255,.96);
@@ -939,6 +976,8 @@
           </section>
         </div>
       `;
+
+      setupArchiveRowImageEnhancement();
       return true;
     } catch (e) {
       setError(archiveList, "Couldn’t load Archive.", "Check archive worker / database.");
@@ -1005,7 +1044,7 @@
     const hasImage = !!normalizeSpace(imageUrl);
     return `
       <div class="archiveDnaCard${hasImage ? " archiveDnaCardVisual" : ""}">
-        ${hasImage ? `<div class="archiveDnaBackdrop" style="background-image:url('${escapeHtml(imageUrl)}');"></div>` : ""}
+        ${hasImage ? `<div class="archiveDnaBackdrop" style="background-image:url('${escapeAttr(imageUrl)}');"></div>` : ""}
         <div class="archiveDnaInner">
           <div class="archiveDnaPrimary">${escapeHtml(primary || "—")}</div>
           <div class="archiveDnaSecondary">${escapeHtml(secondary || "no data yet")}</div>
@@ -1132,6 +1171,15 @@
     `;
   }
 
+  function chooseArchiveRowLookupName(it) {
+    const mainArtist = normalizeSpace(it?.main_artist || "");
+    const title = normalizeSpace(it?.title || "");
+
+    if (mainArtist && !/festival/i.test(mainArtist)) return mainArtist;
+    if (title) return title;
+    return "";
+  }
+
   function renderArchiveRow(it) {
     const title = escapeHtml(it?.title || it?.main_artist || "—");
     const supports = normalizeArchiveSupports(it?.supports || "");
@@ -1139,6 +1187,7 @@
     const cityText = escapeHtml(it?.city || "");
     const venueText = escapeHtml(it?.venue || "");
     const festival = Number(it?.festival || 0) === 1;
+    const lookupName = chooseArchiveRowLookupName(it);
 
     const metaLine = [dateText, cityText].filter(Boolean).join(" · ");
     const supportLine = supports
@@ -1152,14 +1201,22 @@
       : "";
 
     return `
-      <div class="row archiveRow" role="listitem" aria-label="${title}">
-        <div class="mid">
-          <div class="title archiveTitle">${title}</div>
-          ${supportLine}
-          <div class="sub archiveMeta">${metaLine}</div>
-          <div class="sub archiveVenue">${venueText}</div>
+      <div
+        class="row archiveRow"
+        role="listitem"
+        aria-label="${title}"
+        data-archive-image-row="true"
+        data-archive-lookup-name="${escapeAttr(lookupName)}"
+      >
+        <div class="archiveRowInner">
+          <div class="mid">
+            <div class="title archiveTitle">${title}</div>
+            ${supportLine}
+            <div class="sub archiveMeta">${metaLine}</div>
+            <div class="sub archiveVenue">${venueText}</div>
+          </div>
+          <div class="right archiveRight">${badge}</div>
         </div>
-        <div class="right archiveRight">${badge}</div>
       </div>
     `;
   }
@@ -1190,6 +1247,55 @@
       year: "numeric",
       timeZone: "UTC"
     });
+  }
+
+  async function enhanceArchiveRowWithImage(el) {
+    if (!el || el.dataset.archiveImageDone === "true") return;
+
+    el.dataset.archiveImageDone = "true";
+
+    const lookupName = normalizeSpace(el.dataset.archiveLookupName || "");
+    if (!lookupName) return;
+
+    const imageUrl = await fetchLastfmArtworkImage(lookupName);
+    if (!imageUrl) return;
+
+    el.classList.add("archiveRowVisual");
+    el.insertAdjacentHTML(
+      "afterbegin",
+      `<div class="archiveRowBackdrop" style="background-image:url('${escapeAttr(imageUrl)}');"></div>`
+    );
+  }
+
+  function setupArchiveRowImageEnhancement() {
+    if (archiveRowImageObserver) {
+      archiveRowImageObserver.disconnect();
+      archiveRowImageObserver = null;
+    }
+
+    const rows = Array.from(document.querySelectorAll('[data-archive-image-row="true"]'));
+    if (!rows.length) return;
+
+    if (!("IntersectionObserver" in window)) {
+      rows.slice(0, 12).forEach((row) => {
+        enhanceArchiveRowWithImage(row);
+      });
+      return;
+    }
+
+    archiveRowImageObserver = new IntersectionObserver((entries, observer) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        observer.unobserve(entry.target);
+        enhanceArchiveRowWithImage(entry.target);
+      });
+    }, {
+      root: null,
+      rootMargin: "220px 0px",
+      threshold: 0.01
+    });
+
+    rows.forEach((row) => archiveRowImageObserver.observe(row));
   }
 
   function bindTopPanelControls() {

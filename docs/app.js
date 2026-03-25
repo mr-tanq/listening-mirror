@@ -1,5 +1,5 @@
 /* app.js (FULL FILE REPLACE)
-   Listening Mirror — Identity tabs + Archive rich stats (semantic polish pass)
+   Listening Mirror — Identity tabs + Archive rich stats (Returning Artist Last.fm visual)
 */
 
 (() => {
@@ -27,8 +27,13 @@
     lastRecent: [],
     lastTop: [],
     lastArchive: [],
-    archiveStats: null
+    archiveStats: null,
+    archiveHeroImages: {
+      returningArtist: ""
+    }
   };
+
+  const lastfmArtistImageCache = new Map();
 
   function absApi(urlOrPath) {
     if (!urlOrPath) return "";
@@ -201,6 +206,67 @@
       (j && j.ok && Array.isArray(j.items) && j.items) ||
       []
     );
+  }
+
+  function getLastfmApiKey() {
+    const key = String(window.LASTFM_API_KEY || "").trim();
+    return key || "";
+  }
+
+  function pickLastfmArtistImage(artistObj) {
+    const images = Array.isArray(artistObj?.image) ? artistObj.image : [];
+    const preferredSizes = ["mega", "extralarge", "large", "medium", "small"];
+
+    for (const size of preferredSizes) {
+      const found = images.find((img) => String(img?.size || "").toLowerCase() === size && String(img?.["#text"] || "").trim());
+      if (found?.["#text"]) return String(found["#text"]).trim();
+    }
+
+    for (const img of images) {
+      const url = String(img?.["#text"] || "").trim();
+      if (url) return url;
+    }
+
+    return "";
+  }
+
+  async function fetchLastfmArtistImage(name) {
+    const artistName = normalizeSpace(name || "");
+    if (!artistName) return "";
+
+    if (lastfmArtistImageCache.has(artistName)) {
+      return lastfmArtistImageCache.get(artistName) || "";
+    }
+
+    const apiKey = getLastfmApiKey();
+    if (!apiKey) {
+      lastfmArtistImageCache.set(artistName, "");
+      return "";
+    }
+
+    try {
+      const url = new URL("https://ws.audioscrobbler.com/2.0/");
+      url.searchParams.set("method", "artist.getinfo");
+      url.searchParams.set("artist", artistName);
+      url.searchParams.set("api_key", apiKey);
+      url.searchParams.set("format", "json");
+      url.searchParams.set("autocorrect", "1");
+
+      const r = await fetch(url.toString(), { cache: "force-cache" });
+      if (!r.ok) {
+        lastfmArtistImageCache.set(artistName, "");
+        return "";
+      }
+
+      const j = await r.json();
+      const imageUrl = pickLastfmArtistImage(j?.artist);
+
+      lastfmArtistImageCache.set(artistName, imageUrl || "");
+      return imageUrl || "";
+    } catch {
+      lastfmArtistImageCache.set(artistName, "");
+      return "";
+    }
   }
 
   function ensureIdentityUi() {
@@ -383,6 +449,8 @@
           gap:10px;
         }
         .archiveDnaCard{
+          position:relative;
+          overflow:hidden;
           border-radius:18px;
           background:
             radial-gradient(circle at 18% 16%, rgba(255,255,255,.055), transparent 40%),
@@ -392,6 +460,31 @@
           box-shadow:
             inset 0 1px 0 rgba(255,255,255,.03),
             0 12px 26px rgba(0,0,0,.12);
+        }
+        .archiveDnaCardVisual{
+          background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.015));
+        }
+        .archiveDnaBackdrop{
+          position:absolute;
+          inset:0;
+          background-size:cover;
+          background-position:center center;
+          transform:scale(1.06);
+          filter:blur(2px);
+          opacity:.34;
+          pointer-events:none;
+        }
+        .archiveDnaBackdrop::after{
+          content:"";
+          position:absolute;
+          inset:0;
+          background:
+            linear-gradient(180deg, rgba(6,7,10,.18) 0%, rgba(6,7,10,.52) 34%, rgba(6,7,10,.82) 100%),
+            radial-gradient(circle at 18% 15%, rgba(255,255,255,.08), transparent 42%);
+        }
+        .archiveDnaInner{
+          position:relative;
+          z-index:1;
         }
         .archiveDnaPrimary{
           font-size:18px;
@@ -725,15 +818,27 @@
     }
   }
 
+  async function enrichArchiveHeroImages(stats) {
+    state.archiveHeroImages.returningArtist = "";
+
+    const returningArtistName = normalizeSpace(stats?.highlights?.most_seen_artist?.name || "");
+    if (!returningArtistName) return;
+
+    const imageUrl = await fetchLastfmArtistImage(returningArtistName);
+    state.archiveHeroImages.returningArtist = imageUrl || "";
+  }
+
   async function loadArchiveStats() {
     if (!archiveList) return false;
 
     try {
       const j = await archiveApiGet("/stats");
       state.archiveStats = j || null;
+      await enrichArchiveHeroImages(state.archiveStats);
       return true;
     } catch (e) {
       state.archiveStats = null;
+      state.archiveHeroImages.returningArtist = "";
       return false;
     }
   }
@@ -832,6 +937,20 @@
     `;
   }
 
+  function renderArchiveDnaCard({ primary, secondary, label, imageUrl = "" }) {
+    const hasImage = !!normalizeSpace(imageUrl);
+    return `
+      <div class="archiveDnaCard${hasImage ? " archiveDnaCardVisual" : ""}">
+        ${hasImage ? `<div class="archiveDnaBackdrop" style="background-image:url('${escapeHtml(imageUrl)}');"></div>` : ""}
+        <div class="archiveDnaInner">
+          <div class="archiveDnaPrimary">${escapeHtml(primary || "—")}</div>
+          <div class="archiveDnaSecondary">${escapeHtml(secondary || "no data yet")}</div>
+          <div class="archiveDnaLabel">${escapeHtml(label || "")}</div>
+        </div>
+      </div>
+    `;
+  }
+
   function renderArchiveDnaCards(highlights) {
     const mostSeenArtist = highlights?.most_seen_artist || null;
     const topVenue = highlights?.top_venue || null;
@@ -842,34 +961,32 @@
       {
         primary: mostSeenArtist?.name || "—",
         secondary: mostSeenArtist ? `returned to ${mostSeenArtist.total} times` : "no data yet",
-        label: "Returning Artist"
+        label: "Returning Artist",
+        imageUrl: state.archiveHeroImages.returningArtist || ""
       },
       {
         primary: topVenue?.name || "—",
         secondary: topVenue ? `${topVenue.total} visits` : "no data yet",
-        label: "Recurring Room"
+        label: "Recurring Room",
+        imageUrl: ""
       },
       {
         primary: topCity?.name || "—",
         secondary: topCity ? `${topCity.total} concerts across the years` : "no data yet",
-        label: "Live Root"
+        label: "Live Root",
+        imageUrl: ""
       },
       {
         primary: mostActiveYear?.year || "—",
         secondary: mostActiveYear ? `${mostActiveYear.total} concerts` : "no data yet",
-        label: "Peak Year"
+        label: "Peak Year",
+        imageUrl: ""
       }
     ];
 
     return `
       <div class="archiveDnaGrid" role="group" aria-label="Archive signature">
-        ${cards.map((card) => `
-          <div class="archiveDnaCard">
-            <div class="archiveDnaPrimary">${escapeHtml(card.primary)}</div>
-            <div class="archiveDnaSecondary">${escapeHtml(card.secondary)}</div>
-            <div class="archiveDnaLabel">${escapeHtml(card.label)}</div>
-          </div>
-        `).join("")}
+        ${cards.map((card) => renderArchiveDnaCard(card)).join("")}
       </div>
     `;
   }
@@ -1172,7 +1289,6 @@
 
     syncIdentityTabUi();
 
-    // Cleanup old archive helper text if present in surrounding markup
     const archiveCard = archiveList?.closest(".card");
     if (archiveCard) {
       const titleEl = archiveCard.querySelector(".card__title");
@@ -1201,7 +1317,8 @@
         lastRecent: Array.isArray(state.lastRecent) ? state.lastRecent.slice() : [],
         lastTop: Array.isArray(state.lastTop) ? state.lastTop.slice() : [],
         lastArchive: Array.isArray(state.lastArchive) ? state.lastArchive.slice() : [],
-        archiveStats: state.archiveStats ? { ...state.archiveStats } : null
+        archiveStats: state.archiveStats ? { ...state.archiveStats } : null,
+        archiveHeroImages: { ...state.archiveHeroImages }
       };
     }
   };

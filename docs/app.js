@@ -1,19 +1,21 @@
-/* app.js (FULL FILE REPLACE) — PART 1/2
-   Listening Mirror — Identity tabs + artwork click-play friendly rows
+/* app.js (FULL FILE REPLACE)
+   Listening Mirror — Identity tabs + Archive live list
    ✅ Loads Recent / Top from Worker
    ✅ Identity internal tabs: Recent / Top
    ✅ Top controls live only inside Top panel
    ✅ Renders data-* contract for spotify-click-play.js
-   ✅ Keeps placeholders for other views
+   ✅ Loads Archive list from archive worker
 */
 
 (() => {
   "use strict";
 
   const API_BASE = "https://i.errtanq9.workers.dev";
+  const ARCHIVE_API_BASE = "https://listening-mirror-archive.errtanq9.workers.dev";
 
   const TOP_LIMIT_DEFAULT = 10;
   const RECENT_LIMIT_DEFAULT = 20;
+  const ARCHIVE_LIMIT_DEFAULT = 100;
 
   const $ = (id) => document.getElementById(id);
 
@@ -28,7 +30,8 @@
     topPeriod: "today",
     identityTab: "recent",
     lastRecent: [],
-    lastTop: []
+    lastTop: [],
+    lastArchive: []
   };
 
   function absApi(urlOrPath) {
@@ -38,8 +41,22 @@
     return API_BASE + "/" + urlOrPath;
   }
 
+  function absArchiveApi(urlOrPath) {
+    if (!urlOrPath) return "";
+    if (/^https?:\/\//i.test(urlOrPath)) return urlOrPath;
+    if (urlOrPath.startsWith("/")) return ARCHIVE_API_BASE + urlOrPath;
+    return ARCHIVE_API_BASE + "/" + urlOrPath;
+  }
+
   async function apiGet(path) {
     const url = absApi(path);
+    const r = await fetch(url, { cache: "no-store" });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.json();
+  }
+
+  async function archiveApiGet(path) {
+    const url = absArchiveApi(path);
     const r = await fetch(url, { cache: "no-store" });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return await r.json();
@@ -298,13 +315,53 @@
           padding-left:2px;
           box-shadow:0 4px 12px rgba(0,0,0,.2);
         }
+        .archiveRow{
+          grid-template-columns:minmax(0,1fr) auto;
+          align-items:center;
+        }
+        .archiveTitle{
+          color:rgba(255,255,255,.96);
+          text-shadow:0 0 14px rgba(255,255,255,.06);
+        }
+        .archiveSupport{
+          font-size:12px;
+          line-height:1.35;
+          color:rgba(255,255,255,.68);
+          font-style:italic;
+          margin-top:4px;
+          white-space:nowrap;
+          overflow:hidden;
+          text-overflow:ellipsis;
+        }
+        .archiveMeta{
+          margin-top:8px;
+          color:rgba(255,255,255,.52);
+        }
+        .archiveVenue{
+          margin-top:2px;
+          color:rgba(255,255,255,.38);
+        }
+        .archiveRight{
+          display:flex;
+          align-items:center;
+          justify-content:flex-end;
+          min-width:70px;
+        }
+        .archiveBadge{
+          border:1px solid rgba(255,255,255,.12);
+          background:rgba(255,255,255,.06);
+          color:rgba(255,255,255,.78);
+          border-radius:999px;
+          padding:6px 10px;
+          font-size:11px;
+          letter-spacing:.04em;
+        }
       `;
       document.head.appendChild(st);
     }
 
     syncIdentityTabUi();
   }
-   /* app.js (FULL FILE REPLACE) — PART 2/2 */
 
   function syncIdentityTabUi() {
     const identityView = $("viewIdentity");
@@ -461,13 +518,88 @@
     }
   }
 
-  function loadArchivePlaceholder() {
-    if (archiveList && !archiveList.children.length) {
-      archiveList.innerHTML = cardMessageHTML(
-        "Archive ready",
-        "Saved mirror states or history can render here later."
-      );
+  async function loadArchiveList() {
+    if (!archiveList) return false;
+
+    try {
+      setLoading(archiveList, "Loading…", "Fetching archive concerts…");
+
+      const j = await archiveApiGet(`/concerts?limit=${ARCHIVE_LIMIT_DEFAULT}`);
+      const items = Array.isArray(j?.items) ? j.items : [];
+
+      state.lastArchive = items.slice();
+
+      if (!items.length) {
+        setEmpty(archiveList, "No archive concerts yet", "Your live history will appear here.");
+        return true;
+      }
+
+      archiveList.innerHTML = items.map(renderArchiveRow).join("");
+      return true;
+    } catch (e) {
+      setError(archiveList, "Couldn’t load Archive.", "Check archive worker / database.");
+      return false;
     }
+  }
+
+  function renderArchiveRow(it) {
+    const title = escapeHtml(it?.title || it?.main_artist || "—");
+    const supports = normalizeArchiveSupports(it?.supports || "");
+    const dateText = escapeHtml(formatArchiveDate(it?.date || ""));
+    const cityText = escapeHtml(it?.city || "");
+    const venueText = escapeHtml(it?.venue || "");
+    const festival = Number(it?.festival || 0) === 1;
+
+    const metaLine = [dateText, cityText].filter(Boolean).join(" · ");
+    const supportLine = supports
+      ? `<div class="archiveSupport">with ${escapeHtml(supports)}</div>`
+      : festival
+        ? `<div class="archiveSupport">festival</div>`
+        : "";
+
+    const badge = festival
+      ? `<div class="archiveBadge">Festival</div>`
+      : "";
+
+    return `
+      <div class="row archiveRow" role="listitem" aria-label="${title}">
+        <div class="mid">
+          <div class="title archiveTitle">${title}</div>
+          ${supportLine}
+          <div class="sub archiveMeta">${metaLine}</div>
+          <div class="sub archiveVenue">${venueText}</div>
+        </div>
+        <div class="right archiveRight">${badge}</div>
+      </div>
+    `;
+  }
+
+  function normalizeArchiveSupports(s) {
+    return String(s || "")
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  function formatArchiveDate(value) {
+    const s = String(value || "").trim();
+    if (!s) return "";
+
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    if (!m) return s;
+
+    const y = Number(m[1]);
+    const mo = Number(m[2]) - 1;
+    const d = Number(m[3]);
+
+    const dt = new Date(Date.UTC(y, mo, d));
+    return dt.toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      timeZone: "UTC"
+    });
   }
 
   function bindTopPanelControls() {
@@ -526,7 +658,7 @@
           font-size:13px;
           cursor:pointer;
         }
-        .lmTopBtn.is-active,.lmPeriodBtn.is-active{
+       .lmTopBtn.is-active,.lmPeriodBtn.is-active{
           background:rgba(255,255,255,.12);
           border-color:rgba(255,255,255,.22);
           color:#fff;
@@ -610,8 +742,8 @@
       loadConcertPlaceholders();
     });
 
-    tabArchive?.addEventListener("click", () => {
-      loadArchivePlaceholder();
+    tabArchive?.addEventListener("click", async () => {
+      await loadArchiveList();
     });
   }
 
@@ -622,11 +754,11 @@
     bindTabPrefetch();
 
     loadConcertPlaceholders();
-    loadArchivePlaceholder();
 
     await Promise.all([
       loadRecent(),
-      loadTop()
+      loadTop(),
+      loadArchiveList()
     ]);
 
     syncIdentityTabUi();
@@ -640,6 +772,7 @@
         identityTab: state.identityTab,
         lastRecent: Array.isArray(state.lastRecent) ? state.lastRecent.slice() : [],
         lastTop: Array.isArray(state.lastTop) ? state.lastTop.slice() : [],
+        lastArchive: Array.isArray(state.lastArchive) ? state.lastArchive.slice() : []
       };
     }
   };

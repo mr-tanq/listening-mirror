@@ -1,5 +1,6 @@
 /* app.js (FULL FILE REPLACE)
-   Listening Mirror — Identity tabs + Archive rich stats (Returning Artist Last.fm visual)
+   Listening Mirror — Identity tabs + Archive rich stats
+   Returning Artist now uses automatic Last.fm artwork/image lookup
 */
 
 (() => {
@@ -213,24 +214,87 @@
     return key || "";
   }
 
-  function pickLastfmArtistImage(artistObj) {
-    const images = Array.isArray(artistObj?.image) ? artistObj.image : [];
+  function isBadLastfmImageUrl(url) {
+    const u = String(url || "").trim().toLowerCase();
+    if (!u) return true;
+
+    return (
+      u.includes("2a96cbd8b46e442fc41c2b86b821562f") ||
+      u.includes("/noimage/") ||
+      u.includes("noimage") ||
+      u.includes("placeholder") ||
+      u.endsWith("/i/u/34s/avatar170s/")
+    );
+  }
+
+  function pickBestLastfmImage(images) {
+    const arr = Array.isArray(images) ? images : [];
     const preferredSizes = ["mega", "extralarge", "large", "medium", "small"];
 
     for (const size of preferredSizes) {
-      const found = images.find((img) => String(img?.size || "").toLowerCase() === size && String(img?.["#text"] || "").trim());
+      const found = arr.find((img) => {
+        const imgSize = String(img?.size || "").toLowerCase();
+        const imgUrl = String(img?.["#text"] || "").trim();
+        return imgSize === size && imgUrl && !isBadLastfmImageUrl(imgUrl);
+      });
       if (found?.["#text"]) return String(found["#text"]).trim();
     }
 
-    for (const img of images) {
-      const url = String(img?.["#text"] || "").trim();
-      if (url) return url;
+    for (const img of arr) {
+      const imgUrl = String(img?.["#text"] || "").trim();
+      if (imgUrl && !isBadLastfmImageUrl(imgUrl)) return imgUrl;
     }
 
     return "";
   }
 
-  async function fetchLastfmArtistImage(name) {
+  async function fetchLastfmJson(params) {
+    const apiKey = getLastfmApiKey();
+    if (!apiKey) return null;
+
+    try {
+      const url = new URL("https://ws.audioscrobbler.com/2.0/");
+      Object.entries(params || {}).forEach(([k, v]) => {
+        if (v != null && v !== "") url.searchParams.set(k, String(v));
+      });
+      url.searchParams.set("api_key", apiKey);
+      url.searchParams.set("format", "json");
+      url.searchParams.set("autocorrect", "1");
+
+      const r = await fetch(url.toString(), { cache: "force-cache" });
+      if (!r.ok) return null;
+      return await r.json();
+    } catch {
+      return null;
+    }
+  }
+
+  function extractImageFromTopAlbumsPayload(j) {
+    const albums = Array.isArray(j?.topalbums?.album) ? j.topalbums.album : [];
+    for (const album of albums) {
+      const url = pickBestLastfmImage(album?.image);
+      if (url) return url;
+    }
+    return "";
+  }
+
+  function extractImageFromTopTracksPayload(j) {
+    const tracks = Array.isArray(j?.toptracks?.track) ? j.toptracks.track : [];
+    for (const track of tracks) {
+      const fromTrack = pickBestLastfmImage(track?.image);
+      if (fromTrack) return fromTrack;
+
+      const fromAlbum = pickBestLastfmImage(track?.album?.image);
+      if (fromAlbum) return fromAlbum;
+    }
+    return "";
+  }
+
+  function extractImageFromArtistInfoPayload(j) {
+    return pickBestLastfmImage(j?.artist?.image);
+  }
+
+  async function fetchLastfmArtworkImage(name) {
     const artistName = normalizeSpace(name || "");
     if (!artistName) return "";
 
@@ -238,35 +302,35 @@
       return lastfmArtistImageCache.get(artistName) || "";
     }
 
-    const apiKey = getLastfmApiKey();
-    if (!apiKey) {
-      lastfmArtistImageCache.set(artistName, "");
-      return "";
+    let imageUrl = "";
+
+    const topAlbums = await fetchLastfmJson({
+      method: "artist.getTopAlbums",
+      artist: artistName,
+      limit: "10"
+    });
+    imageUrl = extractImageFromTopAlbumsPayload(topAlbums);
+
+    if (!imageUrl) {
+      const topTracks = await fetchLastfmJson({
+        method: "artist.getTopTracks",
+        artist: artistName,
+        limit: "10"
+      });
+      imageUrl = extractImageFromTopTracksPayload(topTracks);
     }
 
-    try {
-      const url = new URL("https://ws.audioscrobbler.com/2.0/");
-      url.searchParams.set("method", "artist.getinfo");
-      url.searchParams.set("artist", artistName);
-      url.searchParams.set("api_key", apiKey);
-      url.searchParams.set("format", "json");
-      url.searchParams.set("autocorrect", "1");
-
-      const r = await fetch(url.toString(), { cache: "force-cache" });
-      if (!r.ok) {
-        lastfmArtistImageCache.set(artistName, "");
-        return "";
-      }
-
-      const j = await r.json();
-      const imageUrl = pickLastfmArtistImage(j?.artist);
-
-      lastfmArtistImageCache.set(artistName, imageUrl || "");
-      return imageUrl || "";
-    } catch {
-      lastfmArtistImageCache.set(artistName, "");
-      return "";
+    if (!imageUrl) {
+      const artistInfo = await fetchLastfmJson({
+        method: "artist.getInfo",
+        artist: artistName
+      });
+      imageUrl = extractImageFromArtistInfoPayload(artistInfo);
     }
+
+    const safeImageUrl = isBadLastfmImageUrl(imageUrl) ? "" : imageUrl;
+    lastfmArtistImageCache.set(artistName, safeImageUrl || "");
+    return safeImageUrl || "";
   }
 
   function ensureIdentityUi() {
@@ -824,7 +888,7 @@
     const returningArtistName = normalizeSpace(stats?.highlights?.most_seen_artist?.name || "");
     if (!returningArtistName) return;
 
-    const imageUrl = await fetchLastfmArtistImage(returningArtistName);
+    const imageUrl = await fetchLastfmArtworkImage(returningArtistName);
     state.archiveHeroImages.returningArtist = imageUrl || "";
   }
 

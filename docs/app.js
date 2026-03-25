@@ -16,7 +16,7 @@
 
   const TOP_LIMIT_DEFAULT = 10;
   const RECENT_LIMIT_DEFAULT = 20;
-  const ARCHIVE_LIMIT_DEFAULT = 100;
+  const ARCHIVE_LIMIT_DEFAULT = 200;
 
   const $ = (id) => document.getElementById(id);
 

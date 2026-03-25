@@ -540,7 +540,7 @@
           background-position:center center;
           transform:scale(1.06);
           filter:blur(2px);
-          opacity:.34;
+          opacity:.54;
           pointer-events:none;
         }
         .archiveDnaBackdrop::after{

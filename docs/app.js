@@ -1,10 +1,11 @@
 /* app.js (FULL FILE REPLACE)
-   Listening Mirror — Identity tabs + Archive live list
+   Listening Mirror — Identity tabs + Archive live list + Archive stats
    ✅ Loads Recent / Top from Worker
    ✅ Identity internal tabs: Recent / Top
    ✅ Top controls live only inside Top panel
    ✅ Renders data-* contract for spotify-click-play.js
    ✅ Loads Archive list from archive worker
+   ✅ Loads Archive stats cards from archive worker
 */
 
 (() => {
@@ -31,7 +32,8 @@
     identityTab: "recent",
     lastRecent: [],
     lastTop: [],
-    lastArchive: []
+    lastArchive: [],
+    archiveStats: null
   };
 
   function absApi(urlOrPath) {
@@ -315,6 +317,36 @@
           padding-left:2px;
           box-shadow:0 4px 12px rgba(0,0,0,.2);
         }
+        .archiveStatsGrid{
+          display:grid;
+          grid-template-columns:repeat(2, minmax(0,1fr));
+          gap:10px;
+          margin-bottom:14px;
+        }
+        .archiveStatCard{
+          border-radius:16px;
+          background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.025));
+          outline:1px solid rgba(255,255,255,.07);
+          padding:14px 12px;
+          box-shadow:
+            inset 0 1px 0 rgba(255,255,255,.03),
+            0 8px 20px rgba(0,0,0,.10);
+        }
+        .archiveStatValue{
+          font-size:22px;
+          line-height:1;
+          font-weight:600;
+          color:rgba(255,255,255,.96);
+          text-shadow:0 0 14px rgba(255,255,255,.06);
+        }
+        .archiveStatLabel{
+          margin-top:8px;
+          font-size:11px;
+          line-height:1.3;
+          letter-spacing:.08em;
+          text-transform:uppercase;
+          color:rgba(255,255,255,.48);
+        }
         .archiveRow{
           grid-template-columns:minmax(0,1fr) auto;
           align-items:center;
@@ -518,11 +550,26 @@
     }
   }
 
+  async function loadArchiveStats() {
+    if (!archiveList) return false;
+
+    try {
+      const j = await archiveApiGet("/stats");
+      state.archiveStats = j || null;
+      return true;
+    } catch (e) {
+      state.archiveStats = null;
+      return false;
+    }
+  }
+
   async function loadArchiveList() {
     if (!archiveList) return false;
 
     try {
       setLoading(archiveList, "Loading…", "Fetching archive concerts…");
+
+      await loadArchiveStats();
 
       const j = await archiveApiGet(`/concerts?limit=${ARCHIVE_LIMIT_DEFAULT}`);
       const items = Array.isArray(j?.items) ? j.items : [];
@@ -534,12 +581,45 @@
         return true;
       }
 
-      archiveList.innerHTML = items.map(renderArchiveRow).join("");
+      const statsHtml = renderArchiveStatsCards(state.archiveStats);
+      const rowsHtml = items.map(renderArchiveRow).join("");
+
+      archiveList.innerHTML = `${statsHtml}${rowsHtml}`;
       return true;
     } catch (e) {
       setError(archiveList, "Couldn’t load Archive.", "Check archive worker / database.");
       return false;
     }
+  }
+
+  function renderArchiveStatsCards(stats) {
+    const overview = stats?.overview || {};
+
+    const totalConcerts = Number(overview.total_concerts || 0);
+    const totalFestivals = Number(overview.total_festivals || 0);
+    const venuesVisited = Number(overview.venues_visited || 0);
+    const locationsVisited = Number(overview.locations_visited || 0);
+
+    return `
+      <div class="archiveStatsGrid" role="group" aria-label="Archive stats">
+        <div class="archiveStatCard">
+          <div class="archiveStatValue">${escapeHtml(String(totalConcerts))}</div>
+          <div class="archiveStatLabel">Concerts</div>
+        </div>
+        <div class="archiveStatCard">
+          <div class="archiveStatValue">${escapeHtml(String(totalFestivals))}</div>
+          <div class="archiveStatLabel">Festivals</div>
+        </div>
+        <div class="archiveStatCard">
+          <div class="archiveStatValue">${escapeHtml(String(venuesVisited))}</div>
+          <div class="archiveStatLabel">Venues</div>
+        </div>
+        <div class="archiveStatCard">
+          <div class="archiveStatValue">${escapeHtml(String(locationsVisited))}</div>
+          <div class="archiveStatLabel">Locations</div>
+        </div>
+      </div>
+    `;
   }
 
   function renderArchiveRow(it) {
@@ -658,7 +738,7 @@
           font-size:13px;
           cursor:pointer;
         }
-       .lmTopBtn.is-active,.lmPeriodBtn.is-active{
+        .lmTopBtn.is-active,.lmPeriodBtn.is-active{
           background:rgba(255,255,255,.12);
           border-color:rgba(255,255,255,.22);
           color:#fff;
@@ -772,7 +852,8 @@
         identityTab: state.identityTab,
         lastRecent: Array.isArray(state.lastRecent) ? state.lastRecent.slice() : [],
         lastTop: Array.isArray(state.lastTop) ? state.lastTop.slice() : [],
-        lastArchive: Array.isArray(state.lastArchive) ? state.lastArchive.slice() : []
+        lastArchive: Array.isArray(state.lastArchive) ? state.lastArchive.slice() : [],
+        archiveStats: state.archiveStats ? { ...state.archiveStats } : null
       };
     }
   };

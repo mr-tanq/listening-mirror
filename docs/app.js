@@ -1,11 +1,11 @@
 /* app.js (FULL FILE REPLACE)
-   Listening Mirror — Identity tabs + Archive live list + Archive stats
+   Listening Mirror — Identity tabs + Archive live list + Archive rich stats
    ✅ Loads Recent / Top from Worker
    ✅ Identity internal tabs: Recent / Top
    ✅ Top controls live only inside Top panel
    ✅ Renders data-* contract for spotify-click-play.js
    ✅ Loads Archive list from archive worker
-   ✅ Loads Archive stats cards from archive worker
+   ✅ Archive sections: Overview / Live DNA / Milestones / Rankings / All Concerts
 */
 
 (() => {
@@ -16,7 +16,7 @@
 
   const TOP_LIMIT_DEFAULT = 10;
   const RECENT_LIMIT_DEFAULT = 20;
-  const ARCHIVE_LIMIT_DEFAULT = 200;
+  const ARCHIVE_LIMIT_DEFAULT = 300;
 
   const $ = (id) => document.getElementById(id);
 
@@ -317,15 +317,43 @@
           padding-left:2px;
           box-shadow:0 4px 12px rgba(0,0,0,.2);
         }
+
+        .archiveIntro{
+          margin-bottom:18px;
+        }
+        .archiveIntroTitle{
+          font-size:18px;
+          line-height:1.2;
+          font-weight:600;
+          color:rgba(255,255,255,.97);
+          margin-bottom:8px;
+        }
+        .archiveIntroSub{
+          font-size:13px;
+          line-height:1.55;
+          color:rgba(255,255,255,.56);
+        }
+
+        .archiveSection{
+          margin-top:18px;
+        }
+        .archiveSectionTitle{
+          font-size:12px;
+          line-height:1.2;
+          letter-spacing:.14em;
+          text-transform:uppercase;
+          color:rgba(255,255,255,.52);
+          margin:0 0 12px;
+        }
+
         .archiveStatsGrid{
           display:grid;
           grid-template-columns:repeat(2, minmax(0,1fr));
           gap:10px;
-          margin-bottom:14px;
         }
         .archiveStatCard{
           border-radius:16px;
-          background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.025));
+          background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.025));
           outline:1px solid rgba(255,255,255,.07);
           padding:14px 12px;
           box-shadow:
@@ -337,7 +365,7 @@
           line-height:1;
           font-weight:600;
           color:rgba(255,255,255,.96);
-          text-shadow:0 0 14px rgba(255,255,255,.06);
+          text-shadow:0 0 14px rgba(255,255,255,.05);
         }
         .archiveStatLabel{
           margin-top:8px;
@@ -347,13 +375,153 @@
           text-transform:uppercase;
           color:rgba(255,255,255,.48);
         }
+
+        .archiveDnaGrid{
+          display:grid;
+          grid-template-columns:repeat(2, minmax(0,1fr));
+          gap:10px;
+        }
+        .archiveDnaCard{
+          border-radius:18px;
+          background:
+            radial-gradient(circle at 18% 16%, rgba(255,255,255,.05), transparent 42%),
+            linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.024));
+          outline:1px solid rgba(255,255,255,.08);
+          padding:15px 13px;
+          box-shadow:
+            inset 0 1px 0 rgba(255,255,255,.03),
+            0 12px 26px rgba(0,0,0,.12);
+        }
+        .archiveDnaPrimary{
+          font-size:16px;
+          line-height:1.25;
+          font-weight:600;
+          color:rgba(255,255,255,.97);
+          text-wrap:balance;
+        }
+        .archiveDnaSecondary{
+          margin-top:8px;
+          font-size:12px;
+          line-height:1.4;
+          color:rgba(255,255,255,.62);
+        }
+        .archiveDnaLabel{
+          margin-top:10px;
+          font-size:10px;
+          line-height:1.2;
+          letter-spacing:.12em;
+          text-transform:uppercase;
+          color:rgba(255,255,255,.42);
+        }
+
+        .archiveMilestoneGrid{
+          display:grid;
+          grid-template-columns:1fr;
+          gap:10px;
+        }
+        .archiveMilestoneCard{
+          border-radius:18px;
+          background:
+            radial-gradient(circle at 16% 20%, rgba(255,255,255,.04), transparent 38%),
+            linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.023));
+          outline:1px solid rgba(255,255,255,.08);
+          padding:15px 14px;
+          box-shadow:
+            inset 0 1px 0 rgba(255,255,255,.03),
+            0 12px 26px rgba(0,0,0,.12);
+        }
+        .archiveMilestoneLabel{
+          font-size:10px;
+          line-height:1.2;
+          letter-spacing:.14em;
+          text-transform:uppercase;
+          color:rgba(255,255,255,.44);
+          margin-bottom:10px;
+        }
+        .archiveMilestoneTitle{
+          font-size:15px;
+          line-height:1.35;
+          font-weight:600;
+          color:rgba(255,255,255,.97);
+          text-wrap:balance;
+        }
+        .archiveMilestoneMeta{
+          margin-top:8px;
+          font-size:12px;
+          line-height:1.45;
+          color:rgba(255,255,255,.62);
+        }
+        .archiveMilestoneVenue{
+          margin-top:3px;
+          font-size:12px;
+          line-height:1.45;
+          color:rgba(255,255,255,.42);
+        }
+
+        .archiveRankGrid{
+          display:grid;
+          grid-template-columns:1fr;
+          gap:10px;
+        }
+        .archiveRankCard{
+          border-radius:16px;
+          background:linear-gradient(180deg, rgba(255,255,255,.038), rgba(255,255,255,.022));
+          outline:1px solid rgba(255,255,255,.07);
+          padding:13px 12px;
+          box-shadow:
+            inset 0 1px 0 rgba(255,255,255,.02),
+            0 10px 22px rgba(0,0,0,.10);
+        }
+        .archiveRankTitle{
+          font-size:12px;
+          line-height:1.2;
+          letter-spacing:.10em;
+          text-transform:uppercase;
+          color:rgba(255,255,255,.55);
+          margin-bottom:10px;
+        }
+        .archiveRankList{
+          display:grid;
+          gap:8px;
+        }
+        .archiveRankRow{
+          display:grid;
+          grid-template-columns:auto minmax(0,1fr) auto;
+          gap:10px;
+          align-items:center;
+        }
+        .archiveRankIndex{
+          font-size:12px;
+          line-height:1;
+          color:rgba(255,255,255,.42);
+          min-width:14px;
+        }
+        .archiveRankName{
+          font-size:13px;
+          line-height:1.35;
+          color:rgba(255,255,255,.90);
+          white-space:nowrap;
+          overflow:hidden;
+          text-overflow:ellipsis;
+        }
+        .archiveRankCount{
+          font-size:12px;
+          line-height:1;
+          color:rgba(255,255,255,.58);
+          white-space:nowrap;
+        }
+
+        .archiveListSection{
+          margin-top:20px;
+        }
+
         .archiveRow{
           grid-template-columns:minmax(0,1fr) auto;
           align-items:center;
         }
         .archiveTitle{
           color:rgba(255,255,255,.96);
-          text-shadow:0 0 14px rgba(255,255,255,.06);
+          text-shadow:0 0 14px rgba(255,255,255,.05);
         }
         .archiveSupport{
           font-size:12px;
@@ -377,7 +545,7 @@
           display:flex;
           align-items:center;
           justify-content:flex-end;
-          min-width:70px;
+          min-width:74px;
         }
         .archiveBadge{
           border:1px solid rgba(255,255,255,.12);
@@ -387,6 +555,12 @@
           padding:6px 10px;
           font-size:11px;
           letter-spacing:.04em;
+        }
+
+        @media (min-width: 420px){
+          .archiveRankGrid{
+            grid-template-columns:repeat(3, minmax(0,1fr));
+          }
         }
       `;
       document.head.appendChild(st);
@@ -581,10 +755,16 @@
         return true;
       }
 
-      const statsHtml = renderArchiveStatsCards(state.archiveStats);
+      const statsHtml = renderArchiveStatsPanel(state.archiveStats);
       const rowsHtml = items.map(renderArchiveRow).join("");
 
-      archiveList.innerHTML = `${statsHtml}${rowsHtml}`;
+      archiveList.innerHTML = `
+        ${statsHtml}
+        <div class="archiveListSection archiveSection">
+          <h3 class="archiveSectionTitle">All Concerts</h3>
+          ${rowsHtml}
+        </div>
+      `;
       return true;
     } catch (e) {
       setError(archiveList, "Couldn’t load Archive.", "Check archive worker / database.");
@@ -592,31 +772,181 @@
     }
   }
 
-  function renderArchiveStatsCards(stats) {
+  function renderArchiveStatsPanel(stats) {
     const overview = stats?.overview || {};
-
-    const totalConcerts = Number(overview.total_concerts || 0);
-    const totalFestivals = Number(overview.total_festivals || 0);
-    const venuesVisited = Number(overview.venues_visited || 0);
-    const locationsVisited = Number(overview.locations_visited || 0);
+    const highlights = stats?.highlights || {};
+    const topVenues = Array.isArray(stats?.top_venues) ? stats.top_venues : [];
+    const topCities = Array.isArray(stats?.top_cities) ? stats.top_cities : [];
+    const mostSeenArtists = Array.isArray(stats?.most_seen_artists) ? stats.most_seen_artists : [];
 
     return `
-      <div class="archiveStatsGrid" role="group" aria-label="Archive stats">
-        <div class="archiveStatCard">
-          <div class="archiveStatValue">${escapeHtml(String(totalConcerts))}</div>
-          <div class="archiveStatLabel">Concerts</div>
-        </div>
-        <div class="archiveStatCard">
-          <div class="archiveStatValue">${escapeHtml(String(totalFestivals))}</div>
-          <div class="archiveStatLabel">Festivals</div>
-        </div>
-        <div class="archiveStatCard">
-          <div class="archiveStatValue">${escapeHtml(String(venuesVisited))}</div>
-          <div class="archiveStatLabel">Venues</div>
-        </div>
-        <div class="archiveStatCard">
-          <div class="archiveStatValue">${escapeHtml(String(locationsVisited))}</div>
-          <div class="archiveStatLabel">Locations</div>
+      <div class="archiveIntro">
+        <div class="archiveIntroTitle">Archive</div>
+        <div class="archiveIntroSub">Your live memory vault — concerts, patterns, and milestones across the years.</div>
+      </div>
+
+      <div class="archiveSection">
+        <h3 class="archiveSectionTitle">Overview</h3>
+        ${renderArchiveOverviewCards(overview)}
+      </div>
+
+      <div class="archiveSection">
+        <h3 class="archiveSectionTitle">Live DNA</h3>
+        ${renderArchiveDnaCards(highlights)}
+      </div>
+
+      <div class="archiveSection">
+        <h3 class="archiveSectionTitle">Milestones</h3>
+        ${renderArchiveMilestones(highlights)}
+      </div>
+
+      <div class="archiveSection">
+        <h3 class="archiveSectionTitle">Rankings</h3>
+        ${renderArchiveRankings(mostSeenArtists, topVenues, topCities)}
+      </div>
+    `;
+  }
+
+  function renderArchiveOverviewCards(overview) {
+    const cards = [
+      { value: Number(overview.total_concerts || 0), label: "Concerts" },
+      { value: Number(overview.total_festivals || 0), label: "Festivals" },
+      { value: Number(overview.venues_visited || 0), label: "Venues" },
+      { value: Number(overview.locations_visited || 0), label: "Cities" }
+    ];
+
+    return `
+      <div class="archiveStatsGrid" role="group" aria-label="Archive overview">
+        ${cards.map((card) => `
+          <div class="archiveStatCard">
+            <div class="archiveStatValue">${escapeHtml(String(card.value))}</div>
+            <div class="archiveStatLabel">${escapeHtml(card.label)}</div>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  function renderArchiveDnaCards(highlights) {
+    const mostSeenArtist = highlights?.most_seen_artist || null;
+    const topVenue = highlights?.top_venue || null;
+    const topCity = highlights?.top_city || null;
+    const mostActiveYear = highlights?.most_active_year || null;
+
+    const cards = [
+      {
+        primary: mostSeenArtist?.name || "—",
+        secondary: mostSeenArtist ? `seen ${mostSeenArtist.total} times` : "no data yet",
+        label: "Most Seen Artist"
+      },
+      {
+        primary: topVenue?.name || "—",
+        secondary: topVenue ? `${topVenue.total} visits` : "no data yet",
+        label: "Top Venue"
+      },
+      {
+        primary: topCity?.name || "—",
+        secondary: topCity ? `${topCity.total} concerts` : "no data yet",
+        label: "Top City"
+      },
+      {
+        primary: mostActiveYear?.year || "—",
+        secondary: mostActiveYear ? `${mostActiveYear.total} concerts` : "no data yet",
+        label: "Most Active Year"
+      }
+    ];
+
+    return `
+      <div class="archiveDnaGrid" role="group" aria-label="Archive live DNA">
+        ${cards.map((card) => `
+          <div class="archiveDnaCard">
+            <div class="archiveDnaPrimary">${escapeHtml(card.primary)}</div>
+            <div class="archiveDnaSecondary">${escapeHtml(card.secondary)}</div>
+            <div class="archiveDnaLabel">${escapeHtml(card.label)}</div>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  function renderArchiveMilestones(highlights) {
+    const firstConcert = highlights?.first_concert || null;
+    const latestConcert = highlights?.latest_concert || null;
+
+    const cards = [
+      {
+        label: "First Concert",
+        item: firstConcert
+      },
+      {
+        label: "Latest Concert",
+        item: latestConcert
+      }
+    ];
+
+    return `
+      <div class="archiveMilestoneGrid" role="group" aria-label="Archive milestones">
+        ${cards.map((card) => {
+          const item = card.item || {};
+          const title = item.title || "—";
+          const date = formatArchiveDate(item.date || "");
+          const city = item.city || "";
+          const venue = item.venue || "";
+          const meta = [date, city].filter(Boolean).join(" · ");
+
+          return `
+            <div class="archiveMilestoneCard">
+              <div class="archiveMilestoneLabel">${escapeHtml(card.label)}</div>
+              <div class="archiveMilestoneTitle">${escapeHtml(title)}</div>
+              <div class="archiveMilestoneMeta">${escapeHtml(meta)}</div>
+              <div class="archiveMilestoneVenue">${escapeHtml(venue)}</div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
+
+  function renderArchiveRankings(mostSeenArtists, topVenues, topCities) {
+    return `
+      <div class="archiveRankGrid" role="group" aria-label="Archive rankings">
+        ${renderRankCard(
+          "Most Seen Artists",
+          (mostSeenArtists || []).slice(0, 5).map((item) => ({
+            name: item?.name || "—",
+            count: item?.total || 0
+          }))
+        )}
+        ${renderRankCard(
+          "Top Venues",
+          (topVenues || []).slice(0, 5).map((item) => ({
+            name: item?.venue_family || "—",
+            count: item?.visits || 0
+          }))
+        )}
+        ${renderRankCard(
+          "Top Cities",
+          (topCities || []).slice(0, 5).map((item) => ({
+            name: item?.city || "—",
+            count: item?.total || 0
+          }))
+        )}
+      </div>
+    `;
+  }
+
+  function renderRankCard(title, items) {
+    return `
+      <div class="archiveRankCard">
+        <div class="archiveRankTitle">${escapeHtml(title)}</div>
+        <div class="archiveRankList">
+          ${(items || []).map((item, idx) => `
+            <div class="archiveRankRow">
+              <div class="archiveRankIndex">${idx + 1}.</div>
+              <div class="archiveRankName">${escapeHtml(item.name || "—")}</div>
+              <div class="archiveRankCount">${escapeHtml(String(item.count || 0))}</div>
+            </div>
+          `).join("")}
         </div>
       </div>
     `;

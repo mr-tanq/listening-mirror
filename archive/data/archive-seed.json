@@ -1768,6 +1768,25 @@
   ]
 },
   {
+  "event_key": "2013-03-08-mono-kyttaro-athens",
+  "kind": "normal",
+  "title": "Mono",
+  "status": "attended",
+  "start_date": "2013-03-08",
+  "end_date": "2013-03-08",
+  "venue": {
+    "raw_name": "Kyttaro",
+    "family_name": "Kyttaro"
+  },
+  "city": "Athens",
+  "region": "Attica",
+  "country": "Greece",
+  "festival_name": null,
+  "artists": [
+    { "name": "Mono", "role": "headliner", "sort_order": 1 }
+  ]
+  },
+  {
     "event_key": "2012-06-27-ejekt-festival-plateia-nerou-athens",
     "kind": "festival",
     "title": "Ejekt Festival 2012",

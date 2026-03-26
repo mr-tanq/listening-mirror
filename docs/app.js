@@ -5,6 +5,7 @@
    - filters
    - detail sheet
    - editable notes
+   - auto setlist load/fetch
 */
 
 (() => {
@@ -43,7 +44,12 @@
     archiveSelectedImageUrl: "",
     archiveNoteEditorOpen: false,
     archiveNoteDraft: "",
-    archiveNoteSaving: false
+    archiveNoteSaving: false,
+    archiveSetlistLoading: false,
+    archiveSetlistSearching: false,
+    archiveSetlistData: null,
+    archiveSetlistError: "",
+    archiveSetlistResolvedForKey: ""
   };
 
   const lastfmArtistImageCache = new Map();
@@ -73,8 +79,9 @@
   async function archiveApiGet(path) {
     const url = absArchiveApi(path);
     const r = await fetch(url, { cache: "no-store" });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return await r.json();
+    const data = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(data?.error || `HTTP ${r.status}`);
+    return data;
   }
 
   async function archiveApiPost(path, body) {
@@ -420,11 +427,7 @@
       const st = document.createElement("style");
       st.id = styleId;
       st.textContent = `
-        .lmIdentityTabs{
-          display:flex;
-          gap:8px;
-          flex-wrap:wrap;
-        }
+        .lmIdentityTabs{display:flex;gap:8px;flex-wrap:wrap}
         .lmIdentityTabBtn{
           border:1px solid rgba(255,255,255,.12);
           background:rgba(255,255,255,.04);
@@ -440,714 +443,296 @@
           border-color:rgba(255,255,255,.22);
           color:#fff;
         }
-        .thumbButton{
-          position:relative;
-          border:none;
-          padding:0;
-          cursor:pointer;
-        }
-        .thumbButton:focus-visible{
-          outline:2px solid rgba(255,255,255,.34);
-          outline-offset:2px;
-        }
+        .thumbButton{position:relative;border:none;padding:0;cursor:pointer}
+        .thumbButton:focus-visible{outline:2px solid rgba(255,255,255,.34);outline-offset:2px}
         .thumbOverlay{
-          position:absolute;
-          inset:0;
-          display:grid;
-          place-items:center;
-          background:rgba(0,0,0,.30);
-          opacity:0;
-          transition:opacity .18s ease;
+          position:absolute;inset:0;display:grid;place-items:center;
+          background:rgba(0,0,0,.30);opacity:0;transition:opacity .18s ease;
         }
-        .thumbButton:active .thumbOverlay,
-        .thumbButton:focus-visible .thumbOverlay{
-          opacity:1;
-        }
+        .thumbButton:active .thumbOverlay,.thumbButton:focus-visible .thumbOverlay{opacity:1}
         .thumbPlayIcon{
-          display:grid;
-          place-items:center;
-          width:24px;
-          height:24px;
-          border-radius:999px;
-          background:rgba(255,255,255,.92);
-          color:#111;
-          font-size:11px;
-          line-height:1;
-          padding-left:2px;
-          box-shadow:0 4px 12px rgba(0,0,0,.2);
+          display:grid;place-items:center;width:24px;height:24px;border-radius:999px;
+          background:rgba(255,255,255,.92);color:#111;font-size:11px;line-height:1;
+          padding-left:2px;box-shadow:0 4px 12px rgba(0,0,0,.2);
         }
 
-        .archiveCanvas{
-          display:grid;
-          gap:18px;
-        }
-
-        .archiveIntro{
-          margin:0;
-        }
+        .archiveCanvas{display:grid;gap:18px}
+        .archiveIntro{margin:0}
         .archiveIntroTitle{
-          font-size:20px;
-          line-height:1.15;
-          font-weight:600;
-          color:rgba(255,255,255,.97);
-          margin-bottom:8px;
-          text-shadow:0 0 18px rgba(255,255,255,.04);
+          font-size:20px;line-height:1.15;font-weight:600;color:rgba(255,255,255,.97);
+          margin-bottom:8px;text-shadow:0 0 18px rgba(255,255,255,.04);
         }
         .archiveIntroSub{
-          font-size:13px;
-          line-height:1.6;
-          color:rgba(255,255,255,.56);
-          max-width:62ch;
+          font-size:13px;line-height:1.6;color:rgba(255,255,255,.56);max-width:62ch;
         }
 
-        .archiveSection{
-          display:grid;
-          gap:12px;
-        }
+        .archiveSection{display:grid;gap:12px}
         .archiveSectionTitle{
-          font-size:12px;
-          line-height:1.2;
-          letter-spacing:.14em;
-          text-transform:uppercase;
-          color:rgba(255,255,255,.50);
-          margin:0;
+          font-size:12px;line-height:1.2;letter-spacing:.14em;text-transform:uppercase;
+          color:rgba(255,255,255,.50);margin:0;
         }
 
-        .archiveStatsGrid{
-          display:grid;
-          grid-template-columns:repeat(2, minmax(0,1fr));
-          gap:10px;
-        }
+        .archiveStatsGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
         .archiveStatCard{
-          border-radius:16px;
-          background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.022));
-          outline:1px solid rgba(255,255,255,.07);
-          padding:13px 12px;
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,.025),
-            0 8px 20px rgba(0,0,0,.10);
+          border-radius:16px;background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.022));
+          outline:1px solid rgba(255,255,255,.07);padding:13px 12px;
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.025),0 8px 20px rgba(0,0,0,.10);
         }
-        .archiveStatValue{
-          font-size:22px;
-          line-height:1;
-          font-weight:600;
-          color:rgba(255,255,255,.96);
-        }
+        .archiveStatValue{font-size:22px;line-height:1;font-weight:600;color:rgba(255,255,255,.96)}
         .archiveStatLabel{
-          margin-top:6px;
-          font-size:11px;
-          line-height:1.25;
-          letter-spacing:.08em;
-          text-transform:uppercase;
-          color:rgba(255,255,255,.46);
+          margin-top:6px;font-size:11px;line-height:1.25;letter-spacing:.08em;
+          text-transform:uppercase;color:rgba(255,255,255,.46);
         }
 
-        .archiveDnaGrid{
-          display:grid;
-          grid-template-columns:repeat(2, minmax(0,1fr));
-          gap:10px;
-        }
+        .archiveDnaGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
         .archiveDnaCard{
-          position:relative;
-          overflow:hidden;
-          border-radius:18px;
-          background:
-            radial-gradient(circle at 18% 16%, rgba(255,255,255,.055), transparent 40%),
-            linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.022));
-          outline:1px solid rgba(255,255,255,.08);
-          padding:16px 13px;
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,.03),
-            0 12px 26px rgba(0,0,0,.12);
+          position:relative;overflow:hidden;border-radius:18px;
+          background:radial-gradient(circle at 18% 16%, rgba(255,255,255,.055), transparent 40%),linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.022));
+          outline:1px solid rgba(255,255,255,.08);padding:16px 13px;
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.03),0 12px 26px rgba(0,0,0,.12);
         }
-        .archiveDnaCardVisual{
-          background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.015));
-        }
+        .archiveDnaCardVisual{background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.015))}
         .archiveDnaBackdrop{
-          position:absolute;
-          inset:0;
-          background-size:cover;
-          background-position:center center;
-          transform:scale(1.03);
-          filter:blur(0px);
-          opacity:.52;
-          pointer-events:none;
+          position:absolute;inset:0;background-size:cover;background-position:center center;
+          transform:scale(1.03);filter:blur(0px);opacity:.52;pointer-events:none;
         }
         .archiveDnaBackdrop::after{
-          content:"";
-          position:absolute;
-          inset:0;
-          background:
-            linear-gradient(180deg, rgba(6,7,10,.18) 0%, rgba(6,7,10,.52) 34%, rgba(6,7,10,.82) 100%),
-            radial-gradient(circle at 18% 15%, rgba(255,255,255,.08), transparent 42%);
+          content:"";position:absolute;inset:0;
+          background:linear-gradient(180deg, rgba(6,7,10,.18) 0%, rgba(6,7,10,.52) 34%, rgba(6,7,10,.82) 100%),radial-gradient(circle at 18% 15%, rgba(255,255,255,.08), transparent 42%);
         }
-        .archiveDnaInner{
-          position:relative;
-          z-index:1;
-        }
+        .archiveDnaInner{position:relative;z-index:1}
         .archiveDnaPrimary{
-          font-size:18px;
-          line-height:1.2;
-          font-weight:600;
-          color:rgba(255,255,255,.97);
-          text-wrap:balance;
-          text-shadow:0 0 18px rgba(255,255,255,.04);
+          font-size:18px;line-height:1.2;font-weight:600;color:rgba(255,255,255,.97);
+          text-wrap:balance;text-shadow:0 0 18px rgba(255,255,255,.04);
         }
-        .archiveDnaSecondary{
-          margin-top:8px;
-          font-size:12px;
-          line-height:1.4;
-          color:rgba(255,255,255,.62);
-        }
+        .archiveDnaSecondary{margin-top:8px;font-size:12px;line-height:1.4;color:rgba(255,255,255,.62)}
         .archiveDnaLabel{
-          margin-top:10px;
-          font-size:10px;
-          line-height:1.2;
-          letter-spacing:.12em;
-          text-transform:uppercase;
-          color:rgba(255,255,255,.40);
+          margin-top:10px;font-size:10px;line-height:1.2;letter-spacing:.12em;
+          text-transform:uppercase;color:rgba(255,255,255,.40);
         }
 
-        .archiveMilestoneGrid{
-          display:grid;
-          gap:10px;
-        }
+        .archiveMilestoneGrid{display:grid;gap:10px}
         .archiveMilestoneCard{
-          position:relative;
-          overflow:hidden;
-          border-radius:18px;
-          background:
-            radial-gradient(circle at 16% 20%, rgba(255,255,255,.04), transparent 38%),
-            linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.022));
-          outline:1px solid rgba(255,255,255,.08);
-          padding:15px 14px;
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,.03),
-            0 12px 26px rgba(0,0,0,.12);
+          position:relative;overflow:hidden;border-radius:18px;
+          background:radial-gradient(circle at 16% 20%, rgba(255,255,255,.04), transparent 38%),linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.022));
+          outline:1px solid rgba(255,255,255,.08);padding:15px 14px;
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.03),0 12px 26px rgba(0,0,0,.12);
         }
-        .archiveMilestoneCardVisual{
-          background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.015));
-        }
+        .archiveMilestoneCardVisual{background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.015))}
         .archiveMilestoneBackdrop{
-          position:absolute;
-          inset:0;
-          background-size:cover;
-          background-position:center center;
-          transform:scale(1.03);
-          filter:blur(0px);
-          opacity:.46;
-          pointer-events:none;
+          position:absolute;inset:0;background-size:cover;background-position:center center;
+          transform:scale(1.03);filter:blur(0px);opacity:.46;pointer-events:none;
         }
         .archiveMilestoneBackdrop::after{
-          content:"";
-          position:absolute;
-          inset:0;
-          background:
-            linear-gradient(180deg, rgba(6,7,10,.16) 0%, rgba(6,7,10,.40) 34%, rgba(6,7,10,.72) 100%),
-            radial-gradient(circle at 18% 15%, rgba(255,255,255,.08), transparent 42%);
+          content:"";position:absolute;inset:0;
+          background:linear-gradient(180deg, rgba(6,7,10,.16) 0%, rgba(6,7,10,.40) 34%, rgba(6,7,10,.72) 100%),radial-gradient(circle at 18% 15%, rgba(255,255,255,.08), transparent 42%);
         }
-        .archiveMilestoneInner{
-          position:relative;
-          z-index:1;
-        }
+        .archiveMilestoneInner{position:relative;z-index:1}
         .archiveMilestoneLabel{
-          font-size:10px;
-          line-height:1.2;
-          letter-spacing:.14em;
-          text-transform:uppercase;
-          color:rgba(255,255,255,.44);
-          margin-bottom:10px;
+          font-size:10px;line-height:1.2;letter-spacing:.14em;text-transform:uppercase;
+          color:rgba(255,255,255,.44);margin-bottom:10px;
         }
         .archiveMilestoneTitle{
-          font-size:15px;
-          line-height:1.35;
-          font-weight:600;
-          color:rgba(255,255,255,.97);
-          text-wrap:balance;
+          font-size:15px;line-height:1.35;font-weight:600;color:rgba(255,255,255,.97);text-wrap:balance;
         }
-        .archiveMilestoneMeta{
-          margin-top:8px;
-          font-size:12px;
-          line-height:1.45;
-          color:rgba(255,255,255,.62);
-        }
-        .archiveMilestoneVenue{
-          margin-top:3px;
-          font-size:12px;
-          line-height:1.45;
-          color:rgba(255,255,255,.40);
-        }
+        .archiveMilestoneMeta{margin-top:8px;font-size:12px;line-height:1.45;color:rgba(255,255,255,.62)}
+        .archiveMilestoneVenue{margin-top:3px;font-size:12px;line-height:1.45;color:rgba(255,255,255,.40)}
 
-        .archiveRankGrid{
-          display:grid;
-          gap:10px;
-        }
+        .archiveRankGrid{display:grid;gap:10px}
         .archiveRankCard{
-          border-radius:15px;
-          background:linear-gradient(180deg, rgba(255,255,255,.034), rgba(255,255,255,.02));
-          outline:1px solid rgba(255,255,255,.07);
-          padding:11px 11px;
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,.02),
-            0 8px 18px rgba(0,0,0,.09);
+          border-radius:15px;background:linear-gradient(180deg, rgba(255,255,255,.034), rgba(255,255,255,.02));
+          outline:1px solid rgba(255,255,255,.07);padding:11px 11px;
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.02),0 8px 18px rgba(0,0,0,.09);
         }
         .archiveRankTitle{
-          font-size:12px;
-          line-height:1.2;
-          letter-spacing:.10em;
-          text-transform:uppercase;
-          color:rgba(255,255,255,.54);
-          margin-bottom:9px;
+          font-size:12px;line-height:1.2;letter-spacing:.10em;text-transform:uppercase;
+          color:rgba(255,255,255,.54);margin-bottom:9px;
         }
-        .archiveRankList{
-          display:grid;
-          gap:7px;
-        }
-        .archiveRankRow{
-          display:grid;
-          grid-template-columns:auto minmax(0,1fr) auto;
-          gap:10px;
-          align-items:center;
-        }
-        .archiveRankIndex{
-          font-size:12px;
-          line-height:1;
-          color:rgba(255,255,255,.40);
-          min-width:14px;
-        }
+        .archiveRankList{display:grid;gap:7px}
+        .archiveRankRow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center}
+        .archiveRankIndex{font-size:12px;line-height:1;color:rgba(255,255,255,.40);min-width:14px}
         .archiveRankName{
-          font-size:13px;
-          line-height:1.35;
-          color:rgba(255,255,255,.90);
-          white-space:nowrap;
-          overflow:hidden;
-          text-overflow:ellipsis;
+          font-size:13px;line-height:1.35;color:rgba(255,255,255,.90);
+          white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
         }
-        .archiveRankCount{
-          font-size:12px;
-          line-height:1;
-          color:rgba(255,255,255,.56);
-          white-space:nowrap;
-        }
+        .archiveRankCount{font-size:12px;line-height:1;color:rgba(255,255,255,.56);white-space:nowrap}
 
-        .archiveExplore{
-          display:grid;
-          gap:10px;
+        .archiveExplore{display:grid;gap:10px}
+        .archiveFilterModes,.archiveFilterValues{display:flex;gap:8px;flex-wrap:wrap}
+        .archiveFilterBtn,.archiveFilterChip{
+          border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);
+          color:rgba(255,255,255,.84);border-radius:999px;font:inherit;cursor:pointer;
+          transition:background .18s ease,border-color .18s ease,color .18s ease,transform .18s ease;
         }
-        .archiveFilterModes,
-        .archiveFilterValues{
-          display:flex;
-          gap:8px;
-          flex-wrap:wrap;
+        .archiveFilterBtn{padding:10px 14px;font-size:13px}
+        .archiveFilterChip{padding:8px 12px;font-size:12px}
+        .archiveFilterBtn:hover,.archiveFilterChip:hover{
+          background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.18);color:#fff;
         }
-        .archiveFilterBtn,
-        .archiveFilterChip{
-          border:1px solid rgba(255,255,255,.12);
-          background:rgba(255,255,255,.04);
-          color:rgba(255,255,255,.84);
-          border-radius:999px;
-          font:inherit;
-          cursor:pointer;
-          transition:
-            background .18s ease,
-            border-color .18s ease,
-            color .18s ease,
-            transform .18s ease;
-        }
-        .archiveFilterBtn{
-          padding:10px 14px;
-          font-size:13px;
-        }
-        .archiveFilterChip{
-          padding:8px 12px;
-          font-size:12px;
-        }
-        .archiveFilterBtn:hover,
-        .archiveFilterChip:hover{
-          background:rgba(255,255,255,.07);
-          border-color:rgba(255,255,255,.18);
-          color:#fff;
-        }
-        .archiveFilterBtn.is-active,
-        .archiveFilterChip.is-active{
-          background:rgba(255,255,255,.14);
-          border-color:rgba(255,255,255,.26);
-          color:#fff;
+        .archiveFilterBtn.is-active,.archiveFilterChip.is-active{
+          background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.26);color:#fff;
           box-shadow:0 8px 20px rgba(0,0,0,.10);
         }
 
-        .archiveTimeline{
-          display:grid;
-          gap:10px;
-          margin-top:2px;
-        }
-
-        .archiveRow{
-          position:relative;
-          overflow:hidden;
-          grid-template-columns:minmax(0,1fr) auto;
-          align-items:center;
-        }
-        .archiveRowButton{
-          cursor:pointer;
-        }
-        .archiveRowButton:focus-visible{
-          outline:2px solid rgba(255,255,255,.28);
-          outline-offset:2px;
-        }
-        .archiveRowVisual{
-          background:linear-gradient(180deg, rgba(255,255,255,.022), rgba(255,255,255,.014));
-        }
+        .archiveTimeline{display:grid;gap:10px;margin-top:2px}
+        .archiveRow{position:relative;overflow:hidden;grid-template-columns:minmax(0,1fr) auto;align-items:center}
+        .archiveRowButton{cursor:pointer}
+        .archiveRowButton:focus-visible{outline:2px solid rgba(255,255,255,.28);outline-offset:2px}
+        .archiveRowVisual{background:linear-gradient(180deg, rgba(255,255,255,.022), rgba(255,255,255,.014))}
         .archiveRowBackdrop{
-          position:absolute;
-          inset:0;
-          background-size:cover;
-          background-position:center center;
-          transform:scale(1.03);
-          filter:blur(0px);
-          opacity:.48;
-          pointer-events:none;
+          position:absolute;inset:0;background-size:cover;background-position:center center;
+          transform:scale(1.03);filter:blur(0px);opacity:.48;pointer-events:none;
         }
         .archiveRowBackdrop::after{
-          content:"";
-          position:absolute;
-          inset:0;
-          background:
-            linear-gradient(180deg, rgba(5,6,9,.10) 0%, rgba(5,6,9,.28) 38%, rgba(5,6,9,.54) 100%),
-            radial-gradient(circle at 20% 18%, rgba(255,255,255,.10), transparent 42%);
+          content:"";position:absolute;inset:0;
+          background:linear-gradient(180deg, rgba(5,6,9,.10) 0%, rgba(5,6,9,.28) 38%, rgba(5,6,9,.54) 100%),radial-gradient(circle at 20% 18%, rgba(255,255,255,.10), transparent 42%);
         }
         .archiveRowInner{
-          position:relative;
-          z-index:1;
-          display:grid;
-          grid-template-columns:minmax(0,1fr) auto;
-          gap:12px;
-          align-items:center;
-          width:100%;
+          position:relative;z-index:1;display:grid;grid-template-columns:minmax(0,1fr) auto;
+          gap:12px;align-items:center;width:100%;
         }
-        .archiveTitle{
-          color:rgba(255,255,255,.96);
-        }
+        .archiveTitle{color:rgba(255,255,255,.96)}
         .archiveSupport{
-          font-size:12px;
-          line-height:1.35;
-          color:rgba(255,255,255,.72);
-          font-style:italic;
-          margin-top:4px;
-          white-space:nowrap;
-          overflow:hidden;
-          text-overflow:ellipsis;
+          font-size:12px;line-height:1.35;color:rgba(255,255,255,.72);font-style:italic;
+          margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
         }
-        .archiveMeta{
-          margin-top:8px;
-          color:rgba(255,255,255,.58);
-        }
-        .archiveVenue{
-          margin-top:2px;
-          color:rgba(255,255,255,.42);
-        }
-        .archiveRight{
-          display:flex;
-          align-items:center;
-          justify-content:flex-end;
-          min-width:74px;
-        }
+        .archiveMeta{margin-top:8px;color:rgba(255,255,255,.58)}
+        .archiveVenue{margin-top:2px;color:rgba(255,255,255,.42)}
+        .archiveRight{display:flex;align-items:center;justify-content:flex-end;min-width:74px}
         .archiveBadge{
-          border:1px solid rgba(255,255,255,.12);
-          background:rgba(255,255,255,.06);
-          color:rgba(255,255,255,.78);
-          border-radius:999px;
-          padding:6px 10px;
-          font-size:11px;
-          letter-spacing:.04em;
+          border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);
+          color:rgba(255,255,255,.78);border-radius:999px;padding:6px 10px;font-size:11px;letter-spacing:.04em;
         }
 
         .archiveDetailOverlay{
-          position:fixed;
-          inset:0;
-          z-index:999;
-          background:rgba(0,0,0,.58);
-          backdrop-filter:blur(10px);
-          display:grid;
-          align-items:end;
-          padding:0;
+          position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.58);
+          backdrop-filter:blur(10px);display:grid;align-items:end;padding:0;
         }
         .archiveDetailSheet{
-          position:relative;
-          width:100%;
-          max-height:min(86vh, 820px);
-          overflow:auto;
-          border-radius:26px 26px 0 0;
-          background:
-            linear-gradient(180deg, rgba(15,16,20,.98), rgba(10,11,15,.995));
-          border-top:1px solid rgba(255,255,255,.08);
-          box-shadow:0 -20px 60px rgba(0,0,0,.45);
+          position:relative;width:100%;max-height:min(86vh, 820px);overflow:auto;
+          border-radius:26px 26px 0 0;background:linear-gradient(180deg, rgba(15,16,20,.98), rgba(10,11,15,.995));
+          border-top:1px solid rgba(255,255,255,.08);box-shadow:0 -20px 60px rgba(0,0,0,.45);
         }
         .archiveDetailHero{
-          position:relative;
-          min-height:260px;
-          overflow:hidden;
-          padding:20px 18px 18px;
-          display:flex;
-          flex-direction:column;
-          justify-content:flex-end;
+          position:relative;min-height:250px;overflow:hidden;padding:20px 18px 18px;
+          display:flex;flex-direction:column;justify-content:flex-end;
           background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
         }
         .archiveDetailHeroBackdrop{
-          position:absolute;
-          inset:0;
-          background-size:cover;
-          background-position:center center;
-          transform:scale(1.04);
-          opacity:.52;
+          position:absolute;inset:0;background-size:cover;background-position:center center;transform:scale(1.04);opacity:.52;
         }
         .archiveDetailHeroBackdrop::after{
-          content:"";
-          position:absolute;
-          inset:0;
-          background:
-            linear-gradient(180deg, rgba(7,8,10,.18) 0%, rgba(7,8,10,.40) 30%, rgba(7,8,10,.82) 100%),
-            radial-gradient(circle at 18% 12%, rgba(255,255,255,.12), transparent 38%);
+          content:"";position:absolute;inset:0;
+          background:linear-gradient(180deg, rgba(7,8,10,.18) 0%, rgba(7,8,10,.40) 30%, rgba(7,8,10,.82) 100%),radial-gradient(circle at 18% 12%, rgba(255,255,255,.12), transparent 38%);
         }
-        .archiveDetailHeroInner{
-          position:relative;
-          z-index:1;
-        }
+        .archiveDetailHeroInner{position:relative;z-index:1}
         .archiveDetailHandle{
-          position:absolute;
-          top:10px;
-          left:50%;
-          transform:translateX(-50%);
-          width:42px;
-          height:4px;
-          border-radius:999px;
-          background:rgba(255,255,255,.24);
-          z-index:2;
+          position:absolute;top:10px;left:50%;transform:translateX(-50%);
+          width:42px;height:4px;border-radius:999px;background:rgba(255,255,255,.24);z-index:2;
         }
         .archiveDetailClose{
-          position:absolute;
-          top:14px;
-          right:14px;
-          z-index:2;
-          width:34px;
-          height:34px;
-          border:none;
-          border-radius:999px;
-          background:rgba(255,255,255,.12);
-          color:#fff;
-          font:inherit;
-          font-size:18px;
-          line-height:1;
-          display:grid;
-          place-items:center;
-          cursor:pointer;
+          position:absolute;top:14px;right:14px;z-index:2;width:34px;height:34px;border:none;
+          border-radius:999px;background:rgba(255,255,255,.12);color:#fff;font:inherit;
+          font-size:18px;line-height:1;display:grid;place-items:center;cursor:pointer;
         }
         .archiveDetailBadge{
-          display:inline-flex;
-          align-items:center;
-          gap:6px;
-          padding:6px 10px;
-          border-radius:999px;
-          background:rgba(255,255,255,.10);
-          border:1px solid rgba(255,255,255,.12);
-          color:rgba(255,255,255,.86);
-          font-size:11px;
-          letter-spacing:.06em;
-          text-transform:uppercase;
-          margin-bottom:12px;
+          display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;
+          background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.12);
+          color:rgba(255,255,255,.86);font-size:11px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:12px;
         }
         .archiveDetailTitle{
-          font-size:24px;
-          line-height:1.1;
-          font-weight:700;
-          color:#fff;
-          text-wrap:balance;
-          text-shadow:0 8px 24px rgba(0,0,0,.34);
+          font-size:24px;line-height:1.1;font-weight:700;color:#fff;text-wrap:balance;text-shadow:0 8px 24px rgba(0,0,0,.34);
         }
-        .archiveDetailMeta{
-          margin-top:10px;
-          font-size:13px;
-          line-height:1.45;
-          color:rgba(255,255,255,.74);
-        }
-        .archiveDetailBody{
-          padding:16px 18px 24px;
-          display:grid;
-          gap:16px;
-        }
-        .archiveDetailFacts{
-          display:grid;
-          grid-template-columns:repeat(2, minmax(0,1fr));
-          gap:10px;
-        }
+        .archiveDetailMeta{margin-top:10px;font-size:13px;line-height:1.45;color:rgba(255,255,255,.74)}
+        .archiveDetailBody{padding:16px 18px 24px;display:grid;gap:16px}
+        .archiveDetailFacts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
         .archiveDetailFact{
-          border-radius:16px;
-          background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
-          outline:1px solid rgba(255,255,255,.08);
-          padding:12px 12px;
+          border-radius:16px;background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+          outline:1px solid rgba(255,255,255,.08);padding:12px 12px;
         }
         .archiveDetailFactLabel{
-          font-size:10px;
-          line-height:1.2;
-          letter-spacing:.12em;
-          text-transform:uppercase;
-          color:rgba(255,255,255,.42);
-          margin-bottom:8px;
+          font-size:10px;line-height:1.2;letter-spacing:.12em;text-transform:uppercase;
+          color:rgba(255,255,255,.42);margin-bottom:8px;
         }
-        .archiveDetailFactValue{
-          font-size:13px;
-          line-height:1.45;
-          color:rgba(255,255,255,.92);
-        }
-        .archiveDetailSection{
-          display:grid;
-          gap:8px;
-        }
-        .archiveDetailSectionHead{
-          display:flex;
-          align-items:center;
-          justify-content:space-between;
-          gap:10px;
-        }
+        .archiveDetailFactValue{font-size:13px;line-height:1.45;color:rgba(255,255,255,.92)}
+        .archiveDetailSection{display:grid;gap:8px}
+        .archiveDetailSectionHead{display:flex;align-items:center;justify-content:space-between;gap:10px}
         .archiveDetailSectionTitle{
-          font-size:11px;
-          line-height:1.2;
-          letter-spacing:.14em;
-          text-transform:uppercase;
-          color:rgba(255,255,255,.46);
+          font-size:11px;line-height:1.2;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.46)
         }
         .archiveDetailAction{
-          border:1px solid rgba(255,255,255,.12);
-          background:rgba(255,255,255,.05);
-          color:rgba(255,255,255,.88);
-          border-radius:999px;
-          padding:7px 11px;
-          font:inherit;
-          font-size:12px;
-          cursor:pointer;
+          border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:rgba(255,255,255,.88);
+          border-radius:999px;padding:7px 11px;font:inherit;font-size:12px;cursor:pointer;
         }
         .archiveDetailText{
-          font-size:14px;
-          line-height:1.6;
-          color:rgba(255,255,255,.88);
-          white-space:pre-wrap;
+          font-size:14px;line-height:1.6;color:rgba(255,255,255,.88);white-space:pre-wrap;
         }
-        .archiveDetailMuted{
-          font-size:13px;
-          line-height:1.55;
-          color:rgba(255,255,255,.46);
-        }
-        .archiveDetailSupportChips{
-          display:flex;
-          flex-wrap:wrap;
-          gap:8px;
-        }
+        .archiveDetailMuted{font-size:13px;line-height:1.55;color:rgba(255,255,255,.46)}
+        .archiveDetailSupportChips{display:flex;flex-wrap:wrap;gap:8px}
         .archiveDetailSupportChip{
-          padding:8px 12px;
-          border-radius:999px;
-          background:rgba(255,255,255,.05);
-          border:1px solid rgba(255,255,255,.08);
-          color:rgba(255,255,255,.88);
-          font-size:12px;
+          padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.05);
+          border:1px solid rgba(255,255,255,.08);color:rgba(255,255,255,.88);font-size:12px;
         }
-        .archiveDetailPhotoRail{
-          display:grid;
-          grid-template-columns:repeat(2, minmax(0,1fr));
-          gap:10px;
-        }
+        .archiveDetailPhotoRail{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
         .archiveDetailPhotoPlaceholder{
-          min-height:92px;
-          border-radius:16px;
-          background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.015));
-          outline:1px solid rgba(255,255,255,.07);
-          display:grid;
-          place-items:center;
-          color:rgba(255,255,255,.34);
-          font-size:12px;
-          letter-spacing:.06em;
-          text-transform:uppercase;
+          min-height:92px;border-radius:16px;background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.015));
+          outline:1px solid rgba(255,255,255,.07);display:grid;place-items:center;color:rgba(255,255,255,.34);
+          font-size:12px;letter-spacing:.06em;text-transform:uppercase;
+        }
+
+        .archiveNoteCard{
+          border-radius:16px;background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.022));
+          outline:1px solid rgba(255,255,255,.08);padding:12px 12px;
+        }
+        .archiveSetlistCard{
+          border-radius:16px;background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+          outline:1px solid rgba(255,255,255,.08);padding:12px 12px;
+        }
+        .archiveSetlistSource{
+          margin-top:8px;font-size:11px;line-height:1.3;letter-spacing:.06em;
+          text-transform:uppercase;color:rgba(255,255,255,.40);
+        }
+        .archiveSetBlock{display:grid;gap:8px}
+        .archiveSetBlock + .archiveSetBlock{margin-top:12px}
+        .archiveSetName{
+          font-size:12px;line-height:1.2;letter-spacing:.10em;text-transform:uppercase;color:rgba(255,255,255,.48);
+        }
+        .archiveSetSongs{
+          margin:0;padding-left:18px;display:grid;gap:5px;color:rgba(255,255,255,.90);font-size:13px;line-height:1.45;
         }
 
         .archiveNoteEditorOverlay{
-          position:fixed;
-          inset:0;
-          z-index:1001;
-          background:rgba(0,0,0,.42);
-          backdrop-filter:blur(8px);
-          display:grid;
-          align-items:end;
+          position:fixed;inset:0;z-index:1001;background:rgba(0,0,0,.42);backdrop-filter:blur(8px);
+          display:grid;align-items:end;
         }
         .archiveNoteEditorSheet{
-          width:100%;
-          border-radius:24px 24px 0 0;
-          background:linear-gradient(180deg, rgba(18,19,24,.99), rgba(10,11,15,.995));
-          border-top:1px solid rgba(255,255,255,.08);
-          box-shadow:0 -20px 60px rgba(0,0,0,.45);
-          padding:18px 18px 20px;
-          display:grid;
-          gap:14px;
+          width:100%;border-radius:24px 24px 0 0;background:linear-gradient(180deg, rgba(18,19,24,.99), rgba(10,11,15,.995));
+          border-top:1px solid rgba(255,255,255,.08);box-shadow:0 -20px 60px rgba(0,0,0,.45);
+          padding:18px 18px 20px;display:grid;gap:14px;
         }
-        .archiveNoteEditorTitle{
-          font-size:16px;
-          line-height:1.2;
-          font-weight:600;
-          color:#fff;
-        }
+        .archiveNoteEditorTitle{font-size:16px;line-height:1.2;font-weight:600;color:#fff}
+        .archiveNoteEditorSub{font-size:12px;line-height:1.5;color:rgba(255,255,255,.50)}
         .archiveNoteTextarea{
-          width:100%;
-          min-height:160px;
-          resize:vertical;
-          border-radius:18px;
-          border:1px solid rgba(255,255,255,.10);
-          background:rgba(255,255,255,.04);
-          color:#fff;
-          padding:14px 14px;
-          font:inherit;
-          font-size:14px;
-          line-height:1.6;
-          outline:none;
-          box-sizing:border-box;
+          width:100%;min-height:160px;resize:vertical;border-radius:18px;border:1px solid rgba(255,255,255,.10);
+          background:rgba(255,255,255,.04);color:#fff;padding:14px 14px;font:inherit;font-size:14px;
+          line-height:1.6;outline:none;box-sizing:border-box;
         }
-        .archiveNoteTextarea::placeholder{
-          color:rgba(255,255,255,.34);
-        }
-        .archiveNoteEditorActions{
-          display:flex;
-          gap:10px;
-          justify-content:flex-end;
-        }
-        .archiveNoteBtn{
-          border:none;
-          border-radius:999px;
-          padding:10px 14px;
-          font:inherit;
-          font-size:13px;
-          cursor:pointer;
-        }
-        .archiveNoteBtnSecondary{
-          background:rgba(255,255,255,.08);
-          color:rgba(255,255,255,.88);
-        }
-        .archiveNoteBtnPrimary{
-          background:#fff;
-          color:#111;
-        }
-        .archiveNoteBtn[disabled]{
-          opacity:.55;
-          cursor:default;
-        }
+        .archiveNoteTextarea::placeholder{color:rgba(255,255,255,.34)}
+        .archiveNoteEditorActions{display:flex;gap:10px;justify-content:flex-end}
+        .archiveNoteBtn{border:none;border-radius:999px;padding:10px 14px;font:inherit;font-size:13px;cursor:pointer}
+        .archiveNoteBtnSecondary{background:rgba(255,255,255,.08);color:rgba(255,255,255,.88)}
+        .archiveNoteBtnPrimary{background:#fff;color:#111}
+        .archiveNoteBtn[disabled]{opacity:.55;cursor:default}
 
         @media (min-width: 420px){
-          .archiveRankGrid{
-            grid-template-columns:repeat(3, minmax(0,1fr));
-          }
+          .archiveRankGrid{grid-template-columns:repeat(3,minmax(0,1fr))}
         }
       `;
       document.head.appendChild(st);
     }
 
     syncIdentityTabUi();
-       }
+}
    function syncIdentityTabUi() {
     const identityView = $("viewIdentity");
     if (!identityView) return;
@@ -1172,7 +757,6 @@
       const limit = RECENT_LIMIT_DEFAULT;
       const j = await apiGet(`/api/history?limit=${limit}`);
       const items = normalizeRecentPayload(j);
-
       state.lastRecent = items.slice();
 
       if (!items.length) {
@@ -1202,15 +786,13 @@
           album,
           uri,
           playable: true,
-          extraUris: {
-            spotifyTrackUri: uri
-          }
+          extraUris: { spotifyTrackUri: uri }
         });
       }).join("");
 
       recentList.innerHTML = html;
       return true;
-    } catch (e) {
+    } catch {
       setError(recentList, "Couldn’t load Recent.", "Check connection / Worker.");
       return false;
     }
@@ -1228,7 +810,6 @@
 
       const j = await apiGet(`/api/top?type=${encodeURIComponent(type)}&period=${encodeURIComponent(period)}&limit=${limit}`);
       const items = normalizeTopPayload(j);
-
       state.lastTop = items.slice();
 
       if (!items.length) {
@@ -1281,7 +862,7 @@
 
       topList.innerHTML = html;
       return true;
-    } catch (e) {
+    } catch {
       setError(topList, "Couldn’t load Top.", "Check connection / Worker.");
       return false;
     }
@@ -1289,26 +870,17 @@
 
   function loadConcertPlaceholders() {
     if (concertsList && !concertsList.children.length) {
-      concertsList.innerHTML = cardMessageHTML(
-        "Concert feed not wired yet",
-        "Your real concerts source can be connected next."
-      );
+      concertsList.innerHTML = cardMessageHTML("Concert feed not wired yet", "Your real concerts source can be connected next.");
     }
-
     if (concertMatchesList && !concertMatchesList.children.length) {
-      concertMatchesList.innerHTML = cardMessageHTML(
-        "No matches yet",
-        "Matches will appear here when the concerts feed is connected."
-      );
+      concertMatchesList.innerHTML = cardMessageHTML("No matches yet", "Matches will appear here when the concerts feed is connected.");
     }
   }
 
   async function enrichArchiveHeroImages(stats) {
     state.archiveHeroImages.returningArtist = "";
-
     const returningArtistName = normalizeSpace(stats?.highlights?.most_seen_artist?.name || "");
     if (!returningArtistName) return;
-
     const imageUrl = await fetchLastfmArtworkImage(returningArtistName);
     state.archiveHeroImages.returningArtist = imageUrl || "";
   }
@@ -1343,7 +915,7 @@
       ]);
 
       return true;
-    } catch (e) {
+    } catch {
       state.archiveStats = null;
       state.archiveHeroImages.returningArtist = "";
       return false;
@@ -1352,7 +924,6 @@
 
   function getArchiveYearOptions(items) {
     const years = new Set();
-
     (items || []).forEach((it) => {
       const date = String(it?.date || "").trim();
       const m = /^(\d{4})-/.exec(date);
@@ -1360,10 +931,10 @@
     });
 
     const sorted = Array.from(years).sort((a, b) => Number(b) - Number(a));
-    const recent = sorted.slice(0, 6);
-    const older = sorted.slice(6);
-
-    return { recent, older };
+    return {
+      recent: sorted.slice(0, 6),
+      older: sorted.slice(6)
+    };
   }
 
   function getArchiveArtistOptions(stats) {
@@ -1408,21 +979,13 @@
 
     if (mode === "all" || !value) return true;
 
-    if (mode === "year") {
-      const date = String(it?.date || "").trim();
-      return date.startsWith(`${value}-`);
-    }
-
+    if (mode === "year") return String(it?.date || "").trim().startsWith(`${value}-`);
     if (mode === "artist") {
       const mainArtist = normalizeSpace(it?.main_artist || "");
       const title = normalizeSpace(it?.title || "");
       return mainArtist === value || title === value;
     }
-
-    if (mode === "city") {
-      return normalizeSpace(it?.city || "") === value;
-    }
-
+    if (mode === "city") return normalizeSpace(it?.city || "") === value;
     if (mode === "venue") {
       const venueFamily = normalizeSpace(it?.venue_family || "");
       const venue = normalizeSpace(it?.venue || "");
@@ -1442,6 +1005,14 @@
     return (state.lastArchive || []).find((it) => normalizeSpace(it?.event_key || "") === key) || null;
   }
 
+  function resetArchiveSetlistState() {
+    state.archiveSetlistLoading = false;
+    state.archiveSetlistSearching = false;
+    state.archiveSetlistData = null;
+    state.archiveSetlistError = "";
+    state.archiveSetlistResolvedForKey = "";
+  }
+
   async function ensureArchiveModalImage(item) {
     if (!item) return;
 
@@ -1458,6 +1029,65 @@
     }
   }
 
+  async function loadArchiveSetlistForSelectedEvent() {
+    const eventKey = normalizeSpace(state.archiveSelectedEventKey || "");
+    if (!eventKey) return;
+
+    state.archiveSetlistLoading = true;
+    state.archiveSetlistSearching = false;
+    state.archiveSetlistData = null;
+    state.archiveSetlistError = "";
+    state.archiveSetlistResolvedForKey = eventKey;
+    renderArchiveView();
+
+    try {
+      const saved = await archiveApiGet(`/concert-setlist?event_key=${encodeURIComponent(eventKey)}`);
+
+      if (normalizeSpace(state.archiveSelectedEventKey || "") !== eventKey) return;
+
+      if (saved?.item) {
+        state.archiveSetlistLoading = false;
+        state.archiveSetlistSearching = false;
+        state.archiveSetlistData = saved.item;
+        state.archiveSetlistError = "";
+        renderArchiveView();
+        return;
+      }
+
+      state.archiveSetlistLoading = false;
+      state.archiveSetlistSearching = true;
+      state.archiveSetlistData = null;
+      state.archiveSetlistError = "";
+      renderArchiveView();
+
+      try {
+        const fetched = await archiveApiPost("/concert-setlist-fetch", { event_key: eventKey });
+
+        if (normalizeSpace(state.archiveSelectedEventKey || "") !== eventKey) return;
+
+        state.archiveSetlistSearching = false;
+        state.archiveSetlistData = fetched?.item || null;
+        state.archiveSetlistError = fetched?.item ? "" : "No setlist found";
+        renderArchiveView();
+      } catch (err) {
+        if (normalizeSpace(state.archiveSelectedEventKey || "") !== eventKey) return;
+        state.archiveSetlistSearching = false;
+        state.archiveSetlistData = null;
+        state.archiveSetlistError = /No matching setlist found/i.test(String(err?.message || ""))
+          ? "No setlist found"
+          : "Could not load setlist";
+        renderArchiveView();
+      }
+    } catch {
+      if (normalizeSpace(state.archiveSelectedEventKey || "") !== eventKey) return;
+      state.archiveSetlistLoading = false;
+      state.archiveSetlistSearching = false;
+      state.archiveSetlistData = null;
+      state.archiveSetlistError = "Could not load setlist";
+      renderArchiveView();
+    }
+  }
+
   function openArchiveDetail(eventKey) {
     const item = findArchiveItemByEventKey(eventKey);
     if (!item) return;
@@ -1467,8 +1097,11 @@
     state.archiveNoteEditorOpen = false;
     state.archiveNoteDraft = "";
     state.archiveNoteSaving = false;
+    resetArchiveSetlistState();
+
     renderArchiveView();
     ensureArchiveModalImage(item);
+    loadArchiveSetlistForSelectedEvent();
   }
 
   function closeArchiveDetail() {
@@ -1477,6 +1110,7 @@
     state.archiveNoteEditorOpen = false;
     state.archiveNoteDraft = "";
     state.archiveNoteSaving = false;
+    resetArchiveSetlistState();
     renderArchiveView();
   }
 
@@ -1520,9 +1154,8 @@
 
       if (data?.item) {
         const idx = state.lastArchive.findIndex((x) => normalizeSpace(x?.event_key || "") === normalizeSpace(item.event_key));
-        if (idx >= 0) {
-          state.lastArchive[idx] = data.item;
-        }
+        if (idx >= 0) state.lastArchive[idx] = data.item;
+
         if (state.archiveStats?.highlights?.first_concert?.event_key === data.item.event_key) {
           state.archiveStats.highlights.first_concert.notes = data.item.notes || "";
         }
@@ -1557,7 +1190,6 @@
             ${renderArchiveModeBtn("city", "City")}
             ${renderArchiveModeBtn("venue", "Venue")}
           </div>
-
           ${mode !== "all" && options.length ? `
             <div class="archiveFilterValues" role="list" aria-label="${escapeHtml(mode)} options">
               ${options.map((value) => renderArchiveValueBtn(value)).join("")}
@@ -1749,27 +1381,18 @@
   function renderArchiveRankings(mostSeenArtists, topVenues, topCities) {
     return `
       <div class="archiveRankGrid" role="group" aria-label="Archive patterns">
-        ${renderRankCard(
-          "Most Seen Artists",
-          (mostSeenArtists || []).slice(0, 5).map((item) => ({
-            name: item?.name || "—",
-            count: item?.total || 0
-          }))
-        )}
-        ${renderRankCard(
-          "Recurring Rooms",
-          (topVenues || []).slice(0, 5).map((item) => ({
-            name: item?.venue_family || "—",
-            count: item?.visits || 0
-          }))
-        )}
-        ${renderRankCard(
-          "Top Cities",
-          (topCities || []).slice(0, 5).map((item) => ({
-            name: item?.city || "—",
-            count: item?.total || 0
-          }))
-        )}
+        ${renderRankCard("Most Seen Artists", (mostSeenArtists || []).slice(0, 5).map((item) => ({
+          name: item?.name || "—",
+          count: item?.total || 0
+        })))}
+        ${renderRankCard("Recurring Rooms", (topVenues || []).slice(0, 5).map((item) => ({
+          name: item?.venue_family || "—",
+          count: item?.visits || 0
+        })))}
+        ${renderRankCard("Top Cities", (topCities || []).slice(0, 5).map((item) => ({
+          name: item?.city || "—",
+          count: item?.total || 0
+        })))}
       </div>
     `;
   }
@@ -1794,7 +1417,6 @@
   function chooseArchiveRowLookupName(it) {
     const mainArtist = normalizeSpace(it?.main_artist || "");
     const title = normalizeSpace(it?.title || "");
-
     if (mainArtist && !/festival/i.test(mainArtist)) return mainArtist;
     if (title) return title;
     return "";
@@ -1818,9 +1440,7 @@
         ? `<div class="archiveSupport">festival</div>`
         : "";
 
-    const badge = festival
-      ? `<div class="archiveBadge">Festival</div>`
-      : "";
+    const badge = festival ? `<div class="archiveBadge">Festival</div>` : "";
 
     return `
       <div
@@ -1849,7 +1469,6 @@
     if (!items.length) {
       return cardMessageHTML("No concerts match this selection", "Try another path through the archive.");
     }
-
     return items.map(renderArchiveRow).join("");
   }
 
@@ -1883,9 +1502,7 @@
       <section class="archiveDetailSection">
         <div class="archiveDetailSectionTitle">Support</div>
         <div class="archiveDetailSupportChips">
-          ${supportItems.map((name) => `
-            <div class="archiveDetailSupportChip">${escapeHtml(name)}</div>
-          `).join("")}
+          ${supportItems.map((name) => `<div class="archiveDetailSupportChip">${escapeHtml(name)}</div>`).join("")}
         </div>
       </section>
     `;
@@ -1899,28 +1516,73 @@
       <section class="archiveDetailSection">
         <div class="archiveDetailSectionHead">
           <div class="archiveDetailSectionTitle">Notes</div>
-          <button
-            type="button"
-            class="archiveDetailAction"
-            data-archive-note-edit="true"
-          >
-            ${escapeHtml(actionLabel)}
-          </button>
+          <button type="button" class="archiveDetailAction" data-archive-note-edit="true">${escapeHtml(actionLabel)}</button>
         </div>
         ${
           notes
-            ? `<div class="archiveDetailText">${escapeHtml(item.notes || "")}</div>`
+            ? `<div class="archiveNoteCard"><div class="archiveDetailText">${escapeHtml(item.notes || "")}</div></div>`
             : `<div class="archiveDetailMuted">No notes yet</div>`
         }
       </section>
     `;
   }
 
+  function renderArchiveSetlistInner() {
+    if (state.archiveSetlistLoading) {
+      return `<div class="archiveDetailMuted">Loading setlist...</div>`;
+    }
+
+    if (state.archiveSetlistSearching) {
+      return `<div class="archiveDetailMuted">Searching for setlist...</div>`;
+    }
+
+    if (state.archiveSetlistData?.setlist) {
+      const setlist = state.archiveSetlistData.setlist;
+      const sets = Array.isArray(setlist?.sets) ? setlist.sets : [];
+
+      if (!sets.length) {
+        return `
+          <div class="archiveSetlistCard">
+            <div class="archiveDetailMuted">No setlist found</div>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="archiveSetlistCard">
+          ${sets.map((setObj, idx) => {
+            const songs = Array.isArray(setObj?.songs) ? setObj.songs : [];
+            const setName = normalizeSpace(setObj?.name || "") || (idx === 0 ? "Set" : `Set ${idx + 1}`);
+
+            return `
+              <div class="archiveSetBlock">
+                <div class="archiveSetName">${escapeHtml(setName)}</div>
+                <ol class="archiveSetSongs">
+                  ${songs.map((song) => `<li>${escapeHtml(song || "—")}</li>`).join("")}
+                </ol>
+              </div>
+            `;
+          }).join("")}
+
+          <div class="archiveSetlistSource">
+            ${escapeHtml(state.archiveSetlistData?.source || "setlistfm")}
+          </div>
+        </div>
+      `;
+    }
+
+    if (state.archiveSetlistError) {
+      return `<div class="archiveDetailMuted">${escapeHtml(state.archiveSetlistError)}</div>`;
+    }
+
+    return `<div class="archiveDetailMuted">No setlist yet</div>`;
+  }
+
   function renderArchiveDetailSetlist() {
     return `
       <section class="archiveDetailSection">
         <div class="archiveDetailSectionTitle">Setlist</div>
-        <div class="archiveDetailMuted">No setlist yet</div>
+        ${renderArchiveSetlistInner()}
       </section>
     `;
   }
@@ -1930,13 +1592,7 @@
       <section class="archiveDetailSection">
         <div class="archiveDetailSectionHead">
           <div class="archiveDetailSectionTitle">Photos</div>
-          <button
-            type="button"
-            class="archiveDetailAction"
-            data-archive-photo-add="true"
-          >
-            Add photos
-          </button>
+          <button type="button" class="archiveDetailAction" data-archive-photo-add="true">Add photos</button>
         </div>
         <div class="archiveDetailPhotoRail">
           <div class="archiveDetailPhotoPlaceholder">No photos yet</div>
@@ -1949,34 +1605,25 @@
   function renderArchiveNoteEditor() {
     if (!state.archiveNoteEditorOpen) return "";
 
-    const title = normalizeSpace(findArchiveItemByEventKey(state.archiveSelectedEventKey)?.notes || "")
-      ? "Edit note"
-      : "Add note";
+    const item = findArchiveItemByEventKey(state.archiveSelectedEventKey);
+    const title = normalizeSpace(item?.notes || "") ? "Edit note" : "Add note";
+    const sub = item
+      ? `${item.main_artist || item.title || "—"} • ${formatArchiveDate(item.date || "")} • ${item.venue || "—"}`
+      : "";
 
     return `
       <div class="archiveNoteEditorOverlay" data-archive-note-overlay="true">
         <div class="archiveNoteEditorSheet">
           <div class="archiveNoteEditorTitle">${escapeHtml(title)}</div>
+          <div class="archiveNoteEditorSub">${escapeHtml(sub)}</div>
           <textarea
             class="archiveNoteTextarea"
             placeholder="Write what made this concert memorable..."
             data-archive-note-textarea="true"
           >${escapeHtml(state.archiveNoteDraft)}</textarea>
           <div class="archiveNoteEditorActions">
-            <button
-              type="button"
-              class="archiveNoteBtn archiveNoteBtnSecondary"
-              data-archive-note-cancel="true"
-              ${state.archiveNoteSaving ? "disabled" : ""}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              class="archiveNoteBtn archiveNoteBtnPrimary"
-              data-archive-note-save="true"
-              ${state.archiveNoteSaving ? "disabled" : ""}
-            >
+            <button type="button" class="archiveNoteBtn archiveNoteBtnSecondary" data-archive-note-cancel="true" ${state.archiveNoteSaving ? "disabled" : ""}>Cancel</button>
+            <button type="button" class="archiveNoteBtn archiveNoteBtnPrimary" data-archive-note-save="true" ${state.archiveNoteSaving ? "disabled" : ""}>
               ${state.archiveNoteSaving ? "Saving..." : "Save"}
             </button>
           </div>
@@ -1999,25 +1646,11 @@
 
     return `
       <div class="archiveDetailOverlay" data-archive-detail-overlay="true" aria-hidden="false">
-        <div
-          class="archiveDetailSheet"
-          role="dialog"
-          aria-modal="true"
-          aria-label="${escapeAttr(title)}"
-        >
+        <div class="archiveDetailSheet" role="dialog" aria-modal="true" aria-label="${escapeAttr(title)}">
           <div class="archiveDetailHero">
             <div class="archiveDetailHandle" aria-hidden="true"></div>
-            <button
-              type="button"
-              class="archiveDetailClose"
-              aria-label="Close"
-              data-archive-detail-close="true"
-            >
-              ×
-            </button>
-
+            <button type="button" class="archiveDetailClose" aria-label="Close" data-archive-detail-close="true">×</button>
             ${imageUrl ? `<div class="archiveDetailHeroBackdrop" style="background-image:url('${escapeAttr(imageUrl)}');"></div>` : ""}
-
             <div class="archiveDetailHeroInner">
               ${isFestival ? `<div class="archiveDetailBadge">Festival</div>` : ""}
               <div class="archiveDetailTitle">${escapeHtml(title)}</div>
@@ -2066,11 +1699,7 @@
   }
 
   function normalizeArchiveSupports(s) {
-    return String(s || "")
-      .split(",")
-      .map((x) => x.trim())
-      .filter(Boolean)
-      .join(", ");
+    return String(s || "").split(",").map((x) => x.trim()).filter(Boolean).join(", ");
   }
 
   function formatArchiveDate(value) {
@@ -2097,7 +1726,6 @@
     if (!el || el.dataset.archiveImageDone === "true") return;
 
     el.dataset.archiveImageDone = "true";
-
     const lookupName = normalizeSpace(el.dataset.archiveLookupName || "");
     if (!lookupName) return;
 
@@ -2105,10 +1733,7 @@
     if (!imageUrl) return;
 
     el.classList.add("archiveRowVisual");
-    el.insertAdjacentHTML(
-      "afterbegin",
-      `<div class="archiveRowBackdrop" style="background-image:url('${escapeAttr(imageUrl)}');"></div>`
-    );
+    el.insertAdjacentHTML("afterbegin", `<div class="archiveRowBackdrop" style="background-image:url('${escapeAttr(imageUrl)}');"></div>`);
   }
 
   function setupArchiveRowImageEnhancement() {
@@ -2121,9 +1746,7 @@
     if (!rows.length) return;
 
     if (!("IntersectionObserver" in window)) {
-      rows.slice(0, 12).forEach((row) => {
-        enhanceArchiveRowWithImage(row);
-      });
+      rows.slice(0, 12).forEach((row) => enhanceArchiveRowWithImage(row));
       return;
     }
 
@@ -2163,7 +1786,6 @@
             <button type="button" class="lmTopBtn" data-top-type="artists">Artists</button>
           </div>
         </div>
-
         <div>
           <div style="font-size:12px;color:rgba(255,255,255,.62);letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px;">Period</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -2177,11 +1799,8 @@
       </div>
     `;
 
-    if (titleNode && titleNode.nextSibling) {
-      topCard.insertBefore(wrap, titleNode.nextSibling);
-    } else {
-      topCard.prepend(wrap);
-    }
+    if (titleNode && titleNode.nextSibling) topCard.insertBefore(wrap, titleNode.nextSibling);
+    else topCard.prepend(wrap);
 
     const styleId = "lmTopControlsCss";
     if (!document.getElementById(styleId)) {
@@ -2189,19 +1808,12 @@
       st.id = styleId;
       st.textContent = `
         .lmTopBtn,.lmPeriodBtn{
-          border:1px solid rgba(255,255,255,.12);
-          background:rgba(255,255,255,.04);
-          color:rgba(255,255,255,.88);
-          border-radius:999px;
-          padding:8px 12px;
-          font:inherit;
-          font-size:13px;
-          cursor:pointer;
+          border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);
+          color:rgba(255,255,255,.88);border-radius:999px;padding:8px 12px;
+          font:inherit;font-size:13px;cursor:pointer;
         }
         .lmTopBtn.is-active,.lmPeriodBtn.is-active{
-          background:rgba(255,255,255,.12);
-          border-color:rgba(255,255,255,.22);
-          color:#fff;
+          background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.22);color:#fff;
         }
       `;
       document.head.appendChild(st);
@@ -2254,7 +1866,6 @@
       if (nextTab === "recent" && (!recentList?.children.length || recentList.textContent.includes("No data"))) {
         await loadRecent();
       }
-
       if (nextTab === "top" && (!topList?.children.length || topList.textContent.includes("No data"))) {
         await loadTop();
       }
@@ -2266,9 +1877,7 @@
 
     archiveList.addEventListener("input", (e) => {
       const textarea = e.target.closest("[data-archive-note-textarea]");
-      if (textarea) {
-        state.archiveNoteDraft = textarea.value;
-      }
+      if (textarea) state.archiveNoteDraft = textarea.value;
     });
 
     archiveList.addEventListener("click", (e) => {
@@ -2329,14 +1938,9 @@
         }
 
         state.archiveFilterMode = nextMode;
+        if (nextMode !== "year") state.archiveYearOlderOpen = false;
 
-        if (nextMode !== "year") {
-          state.archiveYearOlderOpen = false;
-        }
-
-        const nextOptions = getArchiveFilterOptions(nextMode, state.lastArchive, state.archiveStats)
-          .filter((x) => x !== "__OLDER_TOGGLE__");
-
+        const nextOptions = getArchiveFilterOptions(nextMode, state.lastArchive, state.archiveStats).filter((x) => x !== "__OLDER_TOGGLE__");
         const currentValue = normalizeSpace(state.archiveFilterValue || "");
 
         if (!nextOptions.includes(currentValue)) {
@@ -2361,9 +1965,7 @@
 
         if (state.archiveFilterMode === "year") {
           const { older } = getArchiveYearOptions(state.lastArchive);
-          if (older.includes(nextValue)) {
-            state.archiveYearOlderOpen = true;
-          }
+          if (older.includes(nextValue)) state.archiveYearOlderOpen = true;
         }
 
         renderArchiveView();
@@ -2391,9 +1993,7 @@
           closeArchiveNoteEditor();
           return;
         }
-        if (state.archiveSelectedEventKey) {
-          closeArchiveDetail();
-        }
+        if (state.archiveSelectedEventKey) closeArchiveDetail();
       }
     });
 
@@ -2403,9 +2003,7 @@
           closeArchiveNoteEditor();
           return;
         }
-        if (state.archiveSelectedEventKey) {
-          closeArchiveDetail();
-        }
+        if (state.archiveSelectedEventKey) closeArchiveDetail();
       }
     });
   }
@@ -2419,12 +2017,8 @@
       ensureIdentityUi();
       syncIdentityTabUi();
 
-      if (!recentList?.children.length || recentList.textContent.includes("No data")) {
-        await loadRecent();
-      }
-      if (!topList?.children.length || topList.textContent.includes("No data")) {
-        await loadTop();
-      }
+      if (!recentList?.children.length || recentList.textContent.includes("No data")) await loadRecent();
+      if (!topList?.children.length || topList.textContent.includes("No data")) await loadTop();
     });
 
     tabConcerts?.addEventListener("click", () => {
@@ -2446,7 +2040,6 @@
 
       const j = await archiveApiGet(`/concerts?limit=${ARCHIVE_LIMIT_DEFAULT}`);
       const items = Array.isArray(j?.items) ? j.items : [];
-
       state.lastArchive = items.slice();
 
       const availableOptions = getArchiveFilterOptions(
@@ -2461,7 +2054,7 @@
 
       renderArchiveView();
       return true;
-    } catch (e) {
+    } catch {
       setError(archiveList, "Couldn’t load Archive.", "Check archive worker / database.");
       return false;
     }
@@ -2476,12 +2069,7 @@
 
     loadConcertPlaceholders();
 
-    await Promise.all([
-      loadRecent(),
-      loadTop(),
-      loadArchiveList()
-    ]);
-
+    await Promise.all([loadRecent(), loadTop(), loadArchiveList()]);
     syncIdentityTabUi();
 
     const archiveCard = archiveList?.closest(".card");
@@ -2491,11 +2079,7 @@
       if (titleEl && normalizeSpace(titleEl.textContent).toLowerCase() === "archive") {
         allSubs.forEach((el) => {
           const t = normalizeSpace(el.textContent).toLowerCase();
-          if (
-            t.includes("saved sessions") ||
-            t.includes("archived mirror states") ||
-            t === "archive list"
-          ) {
+          if (t.includes("saved sessions") || t.includes("archived mirror states") || t === "archive list") {
             el.style.display = "none";
           }
         });
@@ -2521,7 +2105,12 @@
         archiveSelectedImageUrl: state.archiveSelectedImageUrl,
         archiveNoteEditorOpen: state.archiveNoteEditorOpen,
         archiveNoteDraft: state.archiveNoteDraft,
-        archiveNoteSaving: state.archiveNoteSaving
+        archiveNoteSaving: state.archiveNoteSaving,
+        archiveSetlistLoading: state.archiveSetlistLoading,
+        archiveSetlistSearching: state.archiveSetlistSearching,
+        archiveSetlistData: state.archiveSetlistData,
+        archiveSetlistError: state.archiveSetlistError,
+        archiveSetlistResolvedForKey: state.archiveSetlistResolvedForKey
       };
     }
   };

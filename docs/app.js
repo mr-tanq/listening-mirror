@@ -1689,7 +1689,7 @@
         imageUrl: ""
       },
       {
-        primary: topCity?.name || "—",
+        primary: topCity?.city || "—",
         secondary: topCity ? `${topCity.total} concerts across the years` : "no data yet",
         label: "Live Root",
         imageUrl: ""

@@ -2,6 +2,7 @@
    Listening Mirror — Identity tabs + Archive rich stats
    Returning Artist + Archive Timeline use automatic Last.fm artwork/image lookup
    Phase 2C: Spotify-like Archive navigation pills/chips
+   Year mode includes compact recent years + Older expand
 */
 
 (() => {
@@ -34,7 +35,8 @@
       returningArtist: ""
     },
     archiveFilterMode: "all",
-    archiveFilterValue: ""
+    archiveFilterValue: "",
+    archiveYearOlderOpen: false
   };
 
   const lastfmArtistImageCache = new Map();
@@ -838,7 +840,7 @@
     }
 
     syncIdentityTabUi();
-  }
+    }
    function syncIdentityTabUi() {
     const identityView = $("viewIdentity");
     if (!identityView) return;
@@ -1050,7 +1052,11 @@
       if (m) years.add(m[1]);
     });
 
-    return Array.from(years).sort((a, b) => Number(b) - Number(a));
+    const sorted = Array.from(years).sort((a, b) => Number(b) - Number(a));
+    const recent = sorted.slice(0, 6);
+    const older = sorted.slice(6);
+
+    return { recent, older };
   }
 
   function getArchiveArtistOptions(stats) {
@@ -1079,8 +1085,14 @@
 
   function getArchiveFilterOptions(mode, items, stats) {
     switch (mode) {
-      case "year":
-        return getArchiveYearOptions(items);
+      case "year": {
+        const yearGroups = getArchiveYearOptions(items);
+        return [
+          ...yearGroups.recent,
+          ...(yearGroups.older.length ? ["__OLDER_TOGGLE__"] : []),
+          ...(state.archiveYearOlderOpen ? yearGroups.older : [])
+        ];
+      }
       case "artist":
         return getArchiveArtistOptions(stats);
       case "city":
@@ -1166,14 +1178,20 @@
   }
 
   function renderArchiveValueBtn(value) {
-    const active = normalizeSpace(state.archiveFilterValue || "") === normalizeSpace(value || "");
+    const isOlderToggle = value === "__OLDER_TOGGLE__";
+    const active = isOlderToggle
+      ? state.archiveYearOlderOpen
+      : normalizeSpace(state.archiveFilterValue || "") === normalizeSpace(value || "");
+
+    const label = isOlderToggle ? "Older" : value;
+
     return `
       <button
         type="button"
         class="archiveFilterChip${active ? " is-active" : ""}"
         data-archive-filter-value="${escapeAttr(value)}"
       >
-        ${escapeHtml(value)}
+        ${escapeHtml(label)}
       </button>
     `;
   }
@@ -1285,7 +1303,7 @@
         ${cards.map((card) => renderArchiveDnaCard(card)).join("")}
       </div>
     `;
-  }
+              }
    function renderArchiveMilestoneCard({ label, item }) {
     const title = item?.title || "—";
     const date = formatArchiveDate(item?.date || "");
@@ -1658,13 +1676,20 @@
         if (nextMode === "all") {
           state.archiveFilterMode = "all";
           state.archiveFilterValue = "";
+          state.archiveYearOlderOpen = false;
           renderArchiveView();
           return;
         }
 
         state.archiveFilterMode = nextMode;
 
-        const nextOptions = getArchiveFilterOptions(nextMode, state.lastArchive, state.archiveStats);
+        if (nextMode !== "year") {
+          state.archiveYearOlderOpen = false;
+        }
+
+        const nextOptions = getArchiveFilterOptions(nextMode, state.lastArchive, state.archiveStats)
+          .filter((x) => x !== "__OLDER_TOGGLE__");
+
         const currentValue = normalizeSpace(state.archiveFilterValue || "");
 
         if (!nextOptions.includes(currentValue)) {
@@ -1677,7 +1702,23 @@
 
       const valueBtn = e.target.closest("[data-archive-filter-value]");
       if (valueBtn) {
-        state.archiveFilterValue = normalizeSpace(valueBtn.dataset.archiveFilterValue || "");
+        const nextValue = normalizeSpace(valueBtn.dataset.archiveFilterValue || "");
+
+        if (state.archiveFilterMode === "year" && nextValue === "__OLDER_TOGGLE__") {
+          state.archiveYearOlderOpen = !state.archiveYearOlderOpen;
+          renderArchiveView();
+          return;
+        }
+
+        state.archiveFilterValue = nextValue;
+
+        if (state.archiveFilterMode === "year") {
+          const { older } = getArchiveYearOptions(state.lastArchive);
+          if (older.includes(nextValue)) {
+            state.archiveYearOlderOpen = true;
+          }
+        }
+
         renderArchiveView();
       }
     });
@@ -1726,7 +1767,7 @@
         state.archiveFilterMode,
         state.lastArchive,
         state.archiveStats
-      );
+      ).filter((x) => x !== "__OLDER_TOGGLE__");
 
       if (state.archiveFilterMode !== "all" && !availableOptions.includes(state.archiveFilterValue)) {
         state.archiveFilterValue = availableOptions[0] || "";
@@ -1788,7 +1829,8 @@
         archiveStats: state.archiveStats ? { ...state.archiveStats } : null,
         archiveHeroImages: { ...state.archiveHeroImages },
         archiveFilterMode: state.archiveFilterMode,
-        archiveFilterValue: state.archiveFilterValue
+        archiveFilterValue: state.archiveFilterValue,
+        archiveYearOlderOpen: state.archiveYearOlderOpen
       };
     }
   };

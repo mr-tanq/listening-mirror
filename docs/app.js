@@ -1,8 +1,10 @@
 /* app.js (FULL FILE REPLACE) — PART 1/3
    Listening Mirror — Identity tabs + Archive rich stats
-   Returning Artist + Archive Timeline use automatic Last.fm artwork/image lookup
-   Phase 2C: Spotify-like Archive navigation pills/chips
-   Phase 3A: Archive concert detail bottom sheet
+   Archive includes:
+   - automatic Last.fm visuals
+   - filters
+   - detail sheet
+   - editable notes
 */
 
 (() => {
@@ -38,7 +40,10 @@
     archiveFilterValue: "",
     archiveYearOlderOpen: false,
     archiveSelectedEventKey: "",
-    archiveSelectedImageUrl: ""
+    archiveSelectedImageUrl: "",
+    archiveNoteEditorOpen: false,
+    archiveNoteDraft: "",
+    archiveNoteSaving: false
   };
 
   const lastfmArtistImageCache = new Map();
@@ -70,6 +75,24 @@
     const r = await fetch(url, { cache: "no-store" });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return await r.json();
+  }
+
+  async function archiveApiPost(path, body) {
+    const url = absArchiveApi(path);
+    const r = await fetch(url, {
+      method: "POST",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body || {})
+    });
+
+    const data = await r.json().catch(() => null);
+    if (!r.ok || !data?.ok) {
+      throw new Error(data?.error || `HTTP ${r.status}`);
+    }
+    return data;
   }
 
   function escapeHtml(s) {
@@ -980,6 +1003,12 @@
           display:grid;
           gap:8px;
         }
+        .archiveDetailSectionHead{
+          display:flex;
+          align-items:center;
+          justify-content:space-between;
+          gap:10px;
+        }
         .archiveDetailSectionTitle{
           font-size:11px;
           line-height:1.2;
@@ -987,10 +1016,21 @@
           text-transform:uppercase;
           color:rgba(255,255,255,.46);
         }
+        .archiveDetailAction{
+          border:1px solid rgba(255,255,255,.12);
+          background:rgba(255,255,255,.05);
+          color:rgba(255,255,255,.88);
+          border-radius:999px;
+          padding:7px 11px;
+          font:inherit;
+          font-size:12px;
+          cursor:pointer;
+        }
         .archiveDetailText{
           font-size:14px;
           line-height:1.6;
           color:rgba(255,255,255,.88);
+          white-space:pre-wrap;
         }
         .archiveDetailMuted{
           font-size:13px;
@@ -1010,15 +1050,6 @@
           color:rgba(255,255,255,.88);
           font-size:12px;
         }
-        .archiveDetailList{
-          display:grid;
-          gap:6px;
-          margin:0;
-          padding-left:18px;
-          color:rgba(255,255,255,.88);
-          font-size:13px;
-          line-height:1.5;
-        }
         .archiveDetailPhotoRail{
           display:grid;
           grid-template-columns:repeat(2, minmax(0,1fr));
@@ -1037,6 +1068,75 @@
           text-transform:uppercase;
         }
 
+        .archiveNoteEditorOverlay{
+          position:fixed;
+          inset:0;
+          z-index:1001;
+          background:rgba(0,0,0,.42);
+          backdrop-filter:blur(8px);
+          display:grid;
+          align-items:end;
+        }
+        .archiveNoteEditorSheet{
+          width:100%;
+          border-radius:24px 24px 0 0;
+          background:linear-gradient(180deg, rgba(18,19,24,.99), rgba(10,11,15,.995));
+          border-top:1px solid rgba(255,255,255,.08);
+          box-shadow:0 -20px 60px rgba(0,0,0,.45);
+          padding:18px 18px 20px;
+          display:grid;
+          gap:14px;
+        }
+        .archiveNoteEditorTitle{
+          font-size:16px;
+          line-height:1.2;
+          font-weight:600;
+          color:#fff;
+        }
+        .archiveNoteTextarea{
+          width:100%;
+          min-height:160px;
+          resize:vertical;
+          border-radius:18px;
+          border:1px solid rgba(255,255,255,.10);
+          background:rgba(255,255,255,.04);
+          color:#fff;
+          padding:14px 14px;
+          font:inherit;
+          font-size:14px;
+          line-height:1.6;
+          outline:none;
+          box-sizing:border-box;
+        }
+        .archiveNoteTextarea::placeholder{
+          color:rgba(255,255,255,.34);
+        }
+        .archiveNoteEditorActions{
+          display:flex;
+          gap:10px;
+          justify-content:flex-end;
+        }
+        .archiveNoteBtn{
+          border:none;
+          border-radius:999px;
+          padding:10px 14px;
+          font:inherit;
+          font-size:13px;
+          cursor:pointer;
+        }
+        .archiveNoteBtnSecondary{
+          background:rgba(255,255,255,.08);
+          color:rgba(255,255,255,.88);
+        }
+        .archiveNoteBtnPrimary{
+          background:#fff;
+          color:#111;
+        }
+        .archiveNoteBtn[disabled]{
+          opacity:.55;
+          cursor:default;
+        }
+
         @media (min-width: 420px){
           .archiveRankGrid{
             grid-template-columns:repeat(3, minmax(0,1fr));
@@ -1047,7 +1147,7 @@
     }
 
     syncIdentityTabUi();
-}
+       }
    function syncIdentityTabUi() {
     const identityView = $("viewIdentity");
     if (!identityView) return;
@@ -1268,26 +1368,17 @@
 
   function getArchiveArtistOptions(stats) {
     const items = Array.isArray(stats?.most_seen_artists) ? stats.most_seen_artists : [];
-    return items
-      .slice(0, 10)
-      .map((x) => normalizeSpace(x?.name || ""))
-      .filter(Boolean);
+    return items.slice(0, 10).map((x) => normalizeSpace(x?.name || "")).filter(Boolean);
   }
 
   function getArchiveCityOptions(stats) {
     const items = Array.isArray(stats?.top_cities) ? stats.top_cities : [];
-    return items
-      .slice(0, 10)
-      .map((x) => normalizeSpace(x?.city || ""))
-      .filter(Boolean);
+    return items.slice(0, 10).map((x) => normalizeSpace(x?.city || "")).filter(Boolean);
   }
 
   function getArchiveVenueOptions(stats) {
     const items = Array.isArray(stats?.top_venues) ? stats.top_venues : [];
-    return items
-      .slice(0, 10)
-      .map((x) => normalizeSpace(x?.venue_family || ""))
-      .filter(Boolean);
+    return items.slice(0, 10).map((x) => normalizeSpace(x?.venue_family || "")).filter(Boolean);
   }
 
   function getArchiveFilterOptions(mode, items, stats) {
@@ -1373,6 +1464,9 @@
 
     state.archiveSelectedEventKey = normalizeSpace(item.event_key || "");
     state.archiveSelectedImageUrl = "";
+    state.archiveNoteEditorOpen = false;
+    state.archiveNoteDraft = "";
+    state.archiveNoteSaving = false;
     renderArchiveView();
     ensureArchiveModalImage(item);
   }
@@ -1380,7 +1474,72 @@
   function closeArchiveDetail() {
     state.archiveSelectedEventKey = "";
     state.archiveSelectedImageUrl = "";
+    state.archiveNoteEditorOpen = false;
+    state.archiveNoteDraft = "";
+    state.archiveNoteSaving = false;
     renderArchiveView();
+  }
+
+  function openArchiveNoteEditor() {
+    const item = findArchiveItemByEventKey(state.archiveSelectedEventKey);
+    if (!item) return;
+
+    state.archiveNoteDraft = String(item?.notes || "");
+    state.archiveNoteEditorOpen = true;
+    state.archiveNoteSaving = false;
+    renderArchiveView();
+
+    requestAnimationFrame(() => {
+      const textarea = document.querySelector(".archiveNoteTextarea");
+      if (textarea) {
+        textarea.focus();
+        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      }
+    });
+  }
+
+  function closeArchiveNoteEditor() {
+    state.archiveNoteEditorOpen = false;
+    state.archiveNoteDraft = "";
+    state.archiveNoteSaving = false;
+    renderArchiveView();
+  }
+
+  async function saveArchiveNote() {
+    const item = findArchiveItemByEventKey(state.archiveSelectedEventKey);
+    if (!item || state.archiveNoteSaving) return;
+
+    try {
+      state.archiveNoteSaving = true;
+      renderArchiveView();
+
+      const data = await archiveApiPost("/concert-note", {
+        event_key: item.event_key,
+        notes: state.archiveNoteDraft
+      });
+
+      if (data?.item) {
+        const idx = state.lastArchive.findIndex((x) => normalizeSpace(x?.event_key || "") === normalizeSpace(item.event_key));
+        if (idx >= 0) {
+          state.lastArchive[idx] = data.item;
+        }
+        if (state.archiveStats?.highlights?.first_concert?.event_key === data.item.event_key) {
+          state.archiveStats.highlights.first_concert.notes = data.item.notes || "";
+        }
+        if (state.archiveStats?.highlights?.latest_concert?.event_key === data.item.event_key) {
+          state.archiveStats.highlights.latest_concert.notes = data.item.notes || "";
+        }
+      }
+
+      state.archiveNoteSaving = false;
+      state.archiveNoteEditorOpen = false;
+      state.archiveNoteDraft = "";
+      renderArchiveView();
+    } catch (err) {
+      state.archiveNoteSaving = false;
+      renderArchiveView();
+      alert(`Could not save note.\n\n${String(err.message || err)}`);
+    }
   }
 
   function renderArchiveExplore(items, stats) {
@@ -1548,7 +1707,7 @@
         ${cards.map((card) => renderArchiveDnaCard(card)).join("")}
       </div>
     `;
-                                }
+           }
    function renderArchiveMilestoneCard({ label, item }) {
     const title = item?.title || "—";
     const date = formatArchiveDate(item?.date || "");
@@ -1734,13 +1893,23 @@
 
   function renderArchiveDetailNotes(item) {
     const notes = normalizeSpace(item?.notes || "");
+    const actionLabel = notes ? "Edit" : "Add note";
 
     return `
       <section class="archiveDetailSection">
-        <div class="archiveDetailSectionTitle">Notes</div>
+        <div class="archiveDetailSectionHead">
+          <div class="archiveDetailSectionTitle">Notes</div>
+          <button
+            type="button"
+            class="archiveDetailAction"
+            data-archive-note-edit="true"
+          >
+            ${escapeHtml(actionLabel)}
+          </button>
+        </div>
         ${
           notes
-            ? `<div class="archiveDetailText">${escapeHtml(notes)}</div>`
+            ? `<div class="archiveDetailText">${escapeHtml(item.notes || "")}</div>`
             : `<div class="archiveDetailMuted">No notes yet</div>`
         }
       </section>
@@ -1759,12 +1928,60 @@
   function renderArchiveDetailPhotos() {
     return `
       <section class="archiveDetailSection">
-        <div class="archiveDetailSectionTitle">Photos</div>
+        <div class="archiveDetailSectionHead">
+          <div class="archiveDetailSectionTitle">Photos</div>
+          <button
+            type="button"
+            class="archiveDetailAction"
+            data-archive-photo-add="true"
+          >
+            Add photos
+          </button>
+        </div>
         <div class="archiveDetailPhotoRail">
           <div class="archiveDetailPhotoPlaceholder">No photos yet</div>
           <div class="archiveDetailPhotoPlaceholder">No photos yet</div>
         </div>
       </section>
+    `;
+  }
+
+  function renderArchiveNoteEditor() {
+    if (!state.archiveNoteEditorOpen) return "";
+
+    const title = normalizeSpace(findArchiveItemByEventKey(state.archiveSelectedEventKey)?.notes || "")
+      ? "Edit note"
+      : "Add note";
+
+    return `
+      <div class="archiveNoteEditorOverlay" data-archive-note-overlay="true">
+        <div class="archiveNoteEditorSheet">
+          <div class="archiveNoteEditorTitle">${escapeHtml(title)}</div>
+          <textarea
+            class="archiveNoteTextarea"
+            placeholder="Write what made this concert memorable..."
+            data-archive-note-textarea="true"
+          >${escapeHtml(state.archiveNoteDraft)}</textarea>
+          <div class="archiveNoteEditorActions">
+            <button
+              type="button"
+              class="archiveNoteBtn archiveNoteBtnSecondary"
+              data-archive-note-cancel="true"
+              ${state.archiveNoteSaving ? "disabled" : ""}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="archiveNoteBtn archiveNoteBtnPrimary"
+              data-archive-note-save="true"
+              ${state.archiveNoteSaving ? "disabled" : ""}
+            >
+              ${state.archiveNoteSaving ? "Saving..." : "Save"}
+            </button>
+          </div>
+        </div>
+      </div>
     `;
   }
 
@@ -1817,6 +2034,7 @@
           </div>
         </div>
       </div>
+      ${renderArchiveNoteEditor()}
     `;
   }
 
@@ -2046,7 +2264,45 @@
   function bindArchiveInteractions() {
     if (!archiveList) return;
 
+    archiveList.addEventListener("input", (e) => {
+      const textarea = e.target.closest("[data-archive-note-textarea]");
+      if (textarea) {
+        state.archiveNoteDraft = textarea.value;
+      }
+    });
+
     archiveList.addEventListener("click", (e) => {
+      const noteOverlay = e.target.closest("[data-archive-note-overlay]");
+      const noteSheet = e.target.closest(".archiveNoteEditorSheet");
+      if (noteOverlay && !noteSheet && !state.archiveNoteSaving) {
+        closeArchiveNoteEditor();
+        return;
+      }
+
+      const noteCancel = e.target.closest("[data-archive-note-cancel]");
+      if (noteCancel && !state.archiveNoteSaving) {
+        closeArchiveNoteEditor();
+        return;
+      }
+
+      const noteSave = e.target.closest("[data-archive-note-save]");
+      if (noteSave) {
+        saveArchiveNote();
+        return;
+      }
+
+      const noteEdit = e.target.closest("[data-archive-note-edit]");
+      if (noteEdit) {
+        openArchiveNoteEditor();
+        return;
+      }
+
+      const photoAdd = e.target.closest("[data-archive-photo-add]");
+      if (photoAdd) {
+        alert("Photos are next.");
+        return;
+      }
+
       const closeBtn = e.target.closest("[data-archive-detail-close]");
       if (closeBtn) {
         closeArchiveDetail();
@@ -2123,18 +2379,33 @@
 
     archiveList.addEventListener("keydown", (e) => {
       const rowBtn = e.target.closest("[data-archive-event-key]");
-      if (!rowBtn) return;
-
-      if (e.key === "Enter" || e.key === " ") {
+      if (rowBtn && (e.key === "Enter" || e.key === " ")) {
         e.preventDefault();
         const eventKey = normalizeSpace(rowBtn.dataset.archiveEventKey || "");
         if (eventKey) openArchiveDetail(eventKey);
+        return;
+      }
+
+      if (e.key === "Escape") {
+        if (state.archiveNoteEditorOpen && !state.archiveNoteSaving) {
+          closeArchiveNoteEditor();
+          return;
+        }
+        if (state.archiveSelectedEventKey) {
+          closeArchiveDetail();
+        }
       }
     });
 
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && state.archiveSelectedEventKey) {
-        closeArchiveDetail();
+      if (e.key === "Escape") {
+        if (state.archiveNoteEditorOpen && !state.archiveNoteSaving) {
+          closeArchiveNoteEditor();
+          return;
+        }
+        if (state.archiveSelectedEventKey) {
+          closeArchiveDetail();
+        }
       }
     });
   }
@@ -2247,7 +2518,10 @@
         archiveFilterValue: state.archiveFilterValue,
         archiveYearOlderOpen: state.archiveYearOlderOpen,
         archiveSelectedEventKey: state.archiveSelectedEventKey,
-        archiveSelectedImageUrl: state.archiveSelectedImageUrl
+        archiveSelectedImageUrl: state.archiveSelectedImageUrl,
+        archiveNoteEditorOpen: state.archiveNoteEditorOpen,
+        archiveNoteDraft: state.archiveNoteDraft,
+        archiveNoteSaving: state.archiveNoteSaving
       };
     }
   };

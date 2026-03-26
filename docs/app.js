@@ -1,6 +1,7 @@
-/* app.js (FULL FILE REPLACE)
+/* app.js (FULL FILE REPLACE) — PART 1/3
    Listening Mirror — Identity tabs + Archive rich stats
-   Returning Artist + Archive Timeline now use automatic Last.fm artwork/image lookup
+   Returning Artist + Archive Timeline use automatic Last.fm artwork/image lookup
+   Phase 2C: Spotify-like Archive navigation pills/chips
 */
 
 (() => {
@@ -31,7 +32,9 @@
     archiveStats: null,
     archiveHeroImages: {
       returningArtist: ""
-    }
+    },
+    archiveFilterMode: "all",
+    archiveFilterValue: ""
   };
 
   const lastfmArtistImageCache = new Map();
@@ -538,9 +541,9 @@
           inset:0;
           background-size:cover;
           background-position:center center;
-          transform:scale(1.06);
-          filter:none;
-          opacity:.64;
+          transform:scale(1.03);
+          filter:blur(0px);
+          opacity:.52;
           pointer-events:none;
         }
         .archiveDnaBackdrop::after{
@@ -548,8 +551,8 @@
           position:absolute;
           inset:0;
           background:
-            linear-gradient(180deg, rgba(6,7,10,.10) 0%, rgba(6,7,10,v28) 34%, rgba(6,7,10,.54) 100%),
-            radial-gradient(circle at 20% 18%, rgba(255,255,255,.10), transparent 42%);
+            linear-gradient(180deg, rgba(6,7,10,.18) 0%, rgba(6,7,10,.52) 34%, rgba(6,7,10,.82) 100%),
+            radial-gradient(circle at 18% 15%, rgba(255,255,255,.08), transparent 42%);
         }
         .archiveDnaInner{
           position:relative;
@@ -583,6 +586,8 @@
           gap:10px;
         }
         .archiveMilestoneCard{
+          position:relative;
+          overflow:hidden;
           border-radius:18px;
           background:
             radial-gradient(circle at 16% 20%, rgba(255,255,255,.04), transparent 38%),
@@ -592,6 +597,31 @@
           box-shadow:
             inset 0 1px 0 rgba(255,255,255,.03),
             0 12px 26px rgba(0,0,0,.12);
+        }
+        .archiveMilestoneCardVisual{
+          background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.015));
+        }
+        .archiveMilestoneBackdrop{
+          position:absolute;
+          inset:0;
+          background-size:cover;
+          background-position:center center;
+          transform:scale(1.03);
+          filter:blur(0px);
+          opacity:.46;
+          pointer-events:none;
+        }
+        .archiveMilestoneBackdrop::after{
+          content:"";
+          position:absolute;
+          inset:0;
+          background:
+            linear-gradient(180deg, rgba(6,7,10,.16) 0%, rgba(6,7,10,.40) 34%, rgba(6,7,10,.72) 100%),
+            radial-gradient(circle at 18% 15%, rgba(255,255,255,.08), transparent 42%);
+        }
+        .archiveMilestoneInner{
+          position:relative;
+          z-index:1;
         }
         .archiveMilestoneLabel{
           font-size:10px;
@@ -673,6 +703,52 @@
           white-space:nowrap;
         }
 
+        .archiveExplore{
+          display:grid;
+          gap:10px;
+        }
+        .archiveFilterModes,
+        .archiveFilterValues{
+          display:flex;
+          gap:8px;
+          flex-wrap:wrap;
+        }
+        .archiveFilterBtn,
+        .archiveFilterChip{
+          border:1px solid rgba(255,255,255,.12);
+          background:rgba(255,255,255,.04);
+          color:rgba(255,255,255,.84);
+          border-radius:999px;
+          font:inherit;
+          cursor:pointer;
+          transition:
+            background .18s ease,
+            border-color .18s ease,
+            color .18s ease,
+            transform .18s ease;
+        }
+        .archiveFilterBtn{
+          padding:10px 14px;
+          font-size:13px;
+        }
+        .archiveFilterChip{
+          padding:8px 12px;
+          font-size:12px;
+        }
+        .archiveFilterBtn:hover,
+        .archiveFilterChip:hover{
+          background:rgba(255,255,255,.07);
+          border-color:rgba(255,255,255,.18);
+          color:#fff;
+        }
+        .archiveFilterBtn.is-active,
+        .archiveFilterChip.is-active{
+          background:rgba(255,255,255,.14);
+          border-color:rgba(255,255,255,.26);
+          color:#fff;
+          box-shadow:0 8px 20px rgba(0,0,0,.10);
+        }
+
         .archiveTimeline{
           display:grid;
           gap:10px;
@@ -693,9 +769,9 @@
           inset:0;
           background-size:cover;
           background-position:center center;
-          transform:scale(1.05);
-          filter:none;
-          opacity:.70;
+          transform:scale(1.03);
+          filter:blur(0px);
+          opacity:.48;
           pointer-events:none;
         }
         .archiveRowBackdrop::after{
@@ -703,8 +779,8 @@
           position:absolute;
           inset:0;
           background:
-            linear-gradient(180deg, rgba(5,6,9,.18) 0%, rgba(5,6,9,.44) 38%, rgba(5,6,9,.76) 100%),
-            radial-gradient(circle at 20% 18%, rgba(255,255,255,.06), transparent 38%);
+            linear-gradient(180deg, rgba(5,6,9,.10) 0%, rgba(5,6,9,.28) 38%, rgba(5,6,9,.54) 100%),
+            radial-gradient(circle at 20% 18%, rgba(255,255,255,.10), transparent 42%);
         }
         .archiveRowInner{
           position:relative;
@@ -721,7 +797,7 @@
         .archiveSupport{
           font-size:12px;
           line-height:1.35;
-          color:rgba(255,255,255,.68);
+          color:rgba(255,255,255,.72);
           font-style:italic;
           margin-top:4px;
           white-space:nowrap;
@@ -730,11 +806,11 @@
         }
         .archiveMeta{
           margin-top:8px;
-          color:rgba(255,255,255,.52);
+          color:rgba(255,255,255,.58);
         }
         .archiveVenue{
           margin-top:2px;
-          color:rgba(255,255,255,.38);
+          color:rgba(255,255,255,.42);
         }
         .archiveRight{
           display:flex;
@@ -763,8 +839,7 @@
 
     syncIdentityTabUi();
   }
-
-  function syncIdentityTabUi() {
+   function syncIdentityTabUi() {
     const identityView = $("viewIdentity");
     if (!identityView) return;
 
@@ -929,13 +1004,35 @@
     state.archiveHeroImages.returningArtist = imageUrl || "";
   }
 
+  async function enrichArchiveMilestoneImages(highlights) {
+    if (!highlights || typeof highlights !== "object") return;
+
+    const firstItem = highlights.first_concert || null;
+    const latestItem = highlights.latest_concert || null;
+
+    if (firstItem && !firstItem.__imageUrl) {
+      const firstLookup = chooseArchiveRowLookupName(firstItem);
+      firstItem.__imageUrl = firstLookup ? await fetchLastfmArtworkImage(firstLookup) : "";
+    }
+
+    if (latestItem && !latestItem.__imageUrl) {
+      const latestLookup = chooseArchiveRowLookupName(latestItem);
+      latestItem.__imageUrl = latestLookup ? await fetchLastfmArtworkImage(latestLookup) : "";
+    }
+  }
+
   async function loadArchiveStats() {
     if (!archiveList) return false;
 
     try {
       const j = await archiveApiGet("/stats");
       state.archiveStats = j || null;
-      await enrichArchiveHeroImages(state.archiveStats);
+
+      await Promise.all([
+        enrichArchiveHeroImages(state.archiveStats),
+        enrichArchiveMilestoneImages(state.archiveStats?.highlights || {})
+      ]);
+
       return true;
     } catch (e) {
       state.archiveStats = null;
@@ -944,45 +1041,141 @@
     }
   }
 
-  async function loadArchiveList() {
-    if (!archiveList) return false;
+  function getArchiveYearOptions(items) {
+    const years = new Set();
 
-    try {
-      setLoading(archiveList, "Loading…", "Fetching archive concerts…");
+    (items || []).forEach((it) => {
+      const date = String(it?.date || "").trim();
+      const m = /^(\d{4})-/.exec(date);
+      if (m) years.add(m[1]);
+    });
 
-      await loadArchiveStats();
+    return Array.from(years).sort((a, b) => Number(b) - Number(a));
+  }
 
-      const j = await archiveApiGet(`/concerts?limit=${ARCHIVE_LIMIT_DEFAULT}`);
-      const items = Array.isArray(j?.items) ? j.items : [];
+  function getArchiveArtistOptions(stats) {
+    const items = Array.isArray(stats?.most_seen_artists) ? stats.most_seen_artists : [];
+    return items
+      .slice(0, 10)
+      .map((x) => normalizeSpace(x?.name || ""))
+      .filter(Boolean);
+  }
 
-      state.lastArchive = items.slice();
+  function getArchiveCityOptions(stats) {
+    const items = Array.isArray(stats?.top_cities) ? stats.top_cities : [];
+    return items
+      .slice(0, 10)
+      .map((x) => normalizeSpace(x?.city || ""))
+      .filter(Boolean);
+  }
 
-      if (!items.length) {
-        setEmpty(archiveList, "No archive concerts yet", "Your live history will appear here.");
-        return true;
-      }
+  function getArchiveVenueOptions(stats) {
+    const items = Array.isArray(stats?.top_venues) ? stats.top_venues : [];
+    return items
+      .slice(0, 10)
+      .map((x) => normalizeSpace(x?.venue_family || ""))
+      .filter(Boolean);
+  }
 
-      const statsHtml = renderArchiveStatsPanel(state.archiveStats);
-      const rowsHtml = items.map(renderArchiveRow).join("");
-
-      archiveList.innerHTML = `
-        <div class="archiveCanvas">
-          ${statsHtml}
-          <section class="archiveSection">
-            <h3 class="archiveSectionTitle">Archive Timeline</h3>
-            <div class="archiveTimeline">
-              ${rowsHtml}
-            </div>
-          </section>
-        </div>
-      `;
-
-      setupArchiveRowImageEnhancement();
-      return true;
-    } catch (e) {
-      setError(archiveList, "Couldn’t load Archive.", "Check archive worker / database.");
-      return false;
+  function getArchiveFilterOptions(mode, items, stats) {
+    switch (mode) {
+      case "year":
+        return getArchiveYearOptions(items);
+      case "artist":
+        return getArchiveArtistOptions(stats);
+      case "city":
+        return getArchiveCityOptions(stats);
+      case "venue":
+        return getArchiveVenueOptions(stats);
+      default:
+        return [];
     }
+  }
+
+  function matchesArchiveFilter(it) {
+    const mode = state.archiveFilterMode;
+    const value = normalizeSpace(state.archiveFilterValue || "");
+
+    if (mode === "all" || !value) return true;
+
+    if (mode === "year") {
+      const date = String(it?.date || "").trim();
+      return date.startsWith(`${value}-`);
+    }
+
+    if (mode === "artist") {
+      const mainArtist = normalizeSpace(it?.main_artist || "");
+      const title = normalizeSpace(it?.title || "");
+      return mainArtist === value || title === value;
+    }
+
+    if (mode === "city") {
+      return normalizeSpace(it?.city || "") === value;
+    }
+
+    if (mode === "venue") {
+      const venueFamily = normalizeSpace(it?.venue_family || "");
+      const venue = normalizeSpace(it?.venue || "");
+      return venueFamily === value || venue === value;
+    }
+
+    return true;
+  }
+
+  function getFilteredArchiveItems() {
+    return (state.lastArchive || []).filter(matchesArchiveFilter);
+  }
+
+  function renderArchiveExplore(items, stats) {
+    const mode = state.archiveFilterMode || "all";
+    const options = getArchiveFilterOptions(mode, items, stats);
+
+    return `
+      <section class="archiveSection">
+        <h3 class="archiveSectionTitle">Explore Archive</h3>
+        <div class="archiveExplore">
+          <div class="archiveFilterModes" role="tablist" aria-label="Archive navigation">
+            ${renderArchiveModeBtn("all", "All")}
+            ${renderArchiveModeBtn("year", "Year")}
+            ${renderArchiveModeBtn("artist", "Artist")}
+            ${renderArchiveModeBtn("city", "City")}
+            ${renderArchiveModeBtn("venue", "Venue")}
+          </div>
+
+          ${mode !== "all" && options.length ? `
+            <div class="archiveFilterValues" role="list" aria-label="${escapeHtml(mode)} options">
+              ${options.map((value) => renderArchiveValueBtn(value)).join("")}
+            </div>
+          ` : ""}
+        </div>
+      </section>
+    `;
+  }
+
+  function renderArchiveModeBtn(mode, label) {
+    const active = state.archiveFilterMode === mode;
+    return `
+      <button
+        type="button"
+        class="archiveFilterBtn${active ? " is-active" : ""}"
+        data-archive-filter-mode="${escapeAttr(mode)}"
+      >
+        ${escapeHtml(label)}
+      </button>
+    `;
+  }
+
+  function renderArchiveValueBtn(value) {
+    const active = normalizeSpace(state.archiveFilterValue || "") === normalizeSpace(value || "");
+    return `
+      <button
+        type="button"
+        class="archiveFilterChip${active ? " is-active" : ""}"
+        data-archive-filter-value="${escapeAttr(value)}"
+      >
+        ${escapeHtml(value)}
+      </button>
+    `;
   }
 
   function renderArchiveStatsPanel(stats) {
@@ -1093,35 +1286,40 @@
       </div>
     `;
   }
+   function renderArchiveMilestoneCard({ label, item }) {
+    const title = item?.title || "—";
+    const date = formatArchiveDate(item?.date || "");
+    const city = item?.city || "";
+    const venue = item?.venue || "";
+    const meta = [date, city].filter(Boolean).join(" · ");
+    const imageUrl = normalizeSpace(item?.__imageUrl || "");
+    const hasImage = !!imageUrl;
+
+    return `
+      <div class="archiveMilestoneCard${hasImage ? " archiveMilestoneCardVisual" : ""}">
+        ${hasImage ? `<div class="archiveMilestoneBackdrop" style="background-image:url('${escapeAttr(imageUrl)}');"></div>` : ""}
+        <div class="archiveMilestoneInner">
+          <div class="archiveMilestoneLabel">${escapeHtml(label)}</div>
+          <div class="archiveMilestoneTitle">${escapeHtml(title)}</div>
+          <div class="archiveMilestoneMeta">${escapeHtml(meta)}</div>
+          <div class="archiveMilestoneVenue">${escapeHtml(venue)}</div>
+        </div>
+      </div>
+    `;
+  }
 
   function renderArchiveMilestones(highlights) {
     const firstConcert = highlights?.first_concert || null;
     const latestConcert = highlights?.latest_concert || null;
 
     const cards = [
-      { label: "First Concert", item: firstConcert },
-      { label: "Latest Concert", item: latestConcert }
+      { label: "First Concert", item: firstConcert || {} },
+      { label: "Latest Concert", item: latestConcert || {} }
     ];
 
     return `
       <div class="archiveMilestoneGrid" role="group" aria-label="Archive milestones">
-        ${cards.map((card) => {
-          const item = card.item || {};
-          const title = item.title || "—";
-          const date = formatArchiveDate(item.date || "");
-          const city = item.city || "";
-          const venue = item.venue || "";
-          const meta = [date, city].filter(Boolean).join(" · ");
-
-          return `
-            <div class="archiveMilestoneCard">
-              <div class="archiveMilestoneLabel">${escapeHtml(card.label)}</div>
-              <div class="archiveMilestoneTitle">${escapeHtml(title)}</div>
-              <div class="archiveMilestoneMeta">${escapeHtml(meta)}</div>
-              <div class="archiveMilestoneVenue">${escapeHtml(venue)}</div>
-            </div>
-          `;
-        }).join("")}
+        ${cards.map((card) => renderArchiveMilestoneCard(card)).join("")}
       </div>
     `;
   }
@@ -1219,6 +1417,38 @@
         </div>
       </div>
     `;
+  }
+
+  function renderArchiveTimeline(items) {
+    if (!items.length) {
+      return cardMessageHTML("No concerts match this selection", "Try another path through the archive.");
+    }
+
+    return items.map(renderArchiveRow).join("");
+  }
+
+  function renderArchiveView() {
+    if (!archiveList) return;
+
+    const filteredItems = getFilteredArchiveItems();
+    const statsHtml = renderArchiveStatsPanel(state.archiveStats);
+    const exploreHtml = renderArchiveExplore(state.lastArchive, state.archiveStats);
+    const rowsHtml = renderArchiveTimeline(filteredItems);
+
+    archiveList.innerHTML = `
+      <div class="archiveCanvas">
+        ${statsHtml}
+        ${exploreHtml}
+        <section class="archiveSection">
+          <h3 class="archiveSectionTitle">Archive Timeline</h3>
+          <div class="archiveTimeline">
+            ${rowsHtml}
+          </div>
+        </section>
+      </div>
+    `;
+
+    setupArchiveRowImageEnhancement();
   }
 
   function normalizeArchiveSupports(s) {
@@ -1417,6 +1647,42 @@
     });
   }
 
+  function bindArchiveExplore() {
+    if (!archiveList) return;
+
+    archiveList.addEventListener("click", (e) => {
+      const modeBtn = e.target.closest("[data-archive-filter-mode]");
+      if (modeBtn) {
+        const nextMode = normalizeSpace(modeBtn.dataset.archiveFilterMode || "all").toLowerCase();
+
+        if (nextMode === "all") {
+          state.archiveFilterMode = "all";
+          state.archiveFilterValue = "";
+          renderArchiveView();
+          return;
+        }
+
+        state.archiveFilterMode = nextMode;
+
+        const nextOptions = getArchiveFilterOptions(nextMode, state.lastArchive, state.archiveStats);
+        const currentValue = normalizeSpace(state.archiveFilterValue || "");
+
+        if (!nextOptions.includes(currentValue)) {
+          state.archiveFilterValue = nextOptions[0] || "";
+        }
+
+        renderArchiveView();
+        return;
+      }
+
+      const valueBtn = e.target.closest("[data-archive-filter-value]");
+      if (valueBtn) {
+        state.archiveFilterValue = normalizeSpace(valueBtn.dataset.archiveFilterValue || "");
+        renderArchiveView();
+      }
+    });
+  }
+
   function bindTabPrefetch() {
     const tabConcerts = $("tabConcerts");
     const tabIdentity = $("tabIdentity");
@@ -1443,9 +1709,41 @@
     });
   }
 
+  async function loadArchiveList() {
+    if (!archiveList) return false;
+
+    try {
+      setLoading(archiveList, "Loading…", "Fetching archive concerts…");
+
+      await loadArchiveStats();
+
+      const j = await archiveApiGet(`/concerts?limit=${ARCHIVE_LIMIT_DEFAULT}`);
+      const items = Array.isArray(j?.items) ? j.items : [];
+
+      state.lastArchive = items.slice();
+
+      const availableOptions = getArchiveFilterOptions(
+        state.archiveFilterMode,
+        state.lastArchive,
+        state.archiveStats
+      );
+
+      if (state.archiveFilterMode !== "all" && !availableOptions.includes(state.archiveFilterValue)) {
+        state.archiveFilterValue = availableOptions[0] || "";
+      }
+
+      renderArchiveView();
+      return true;
+    } catch (e) {
+      setError(archiveList, "Couldn’t load Archive.", "Check archive worker / database.");
+      return false;
+    }
+  }
+
   async function boot() {
     ensureIdentityUi();
     bindIdentityTabs();
+    bindArchiveExplore();
     bindTopPanelControls();
     bindTabPrefetch();
 
@@ -1488,7 +1786,9 @@
         lastTop: Array.isArray(state.lastTop) ? state.lastTop.slice() : [],
         lastArchive: Array.isArray(state.lastArchive) ? state.lastArchive.slice() : [],
         archiveStats: state.archiveStats ? { ...state.archiveStats } : null,
-        archiveHeroImages: { ...state.archiveHeroImages }
+        archiveHeroImages: { ...state.archiveHeroImages },
+        archiveFilterMode: state.archiveFilterMode,
+        archiveFilterValue: state.archiveFilterValue
       };
     }
   };

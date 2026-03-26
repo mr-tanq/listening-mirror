@@ -2,7 +2,7 @@
    Listening Mirror — Identity tabs + Archive rich stats
    Returning Artist + Archive Timeline use automatic Last.fm artwork/image lookup
    Phase 2C: Spotify-like Archive navigation pills/chips
-   Year mode includes compact recent years + Older expand
+   Phase 3A: Archive concert detail bottom sheet
 */
 
 (() => {
@@ -36,7 +36,9 @@
     },
     archiveFilterMode: "all",
     archiveFilterValue: "",
-    archiveYearOlderOpen: false
+    archiveYearOlderOpen: false,
+    archiveSelectedEventKey: "",
+    archiveSelectedImageUrl: ""
   };
 
   const lastfmArtistImageCache = new Map();
@@ -763,6 +765,13 @@
           grid-template-columns:minmax(0,1fr) auto;
           align-items:center;
         }
+        .archiveRowButton{
+          cursor:pointer;
+        }
+        .archiveRowButton:focus-visible{
+          outline:2px solid rgba(255,255,255,.28);
+          outline-offset:2px;
+        }
         .archiveRowVisual{
           background:linear-gradient(180deg, rgba(255,255,255,.022), rgba(255,255,255,.014));
         }
@@ -830,6 +839,204 @@
           letter-spacing:.04em;
         }
 
+        .archiveDetailOverlay{
+          position:fixed;
+          inset:0;
+          z-index:999;
+          background:rgba(0,0,0,.58);
+          backdrop-filter:blur(10px);
+          display:grid;
+          align-items:end;
+          padding:0;
+        }
+        .archiveDetailSheet{
+          position:relative;
+          width:100%;
+          max-height:min(86vh, 820px);
+          overflow:auto;
+          border-radius:26px 26px 0 0;
+          background:
+            linear-gradient(180deg, rgba(15,16,20,.98), rgba(10,11,15,.995));
+          border-top:1px solid rgba(255,255,255,.08);
+          box-shadow:0 -20px 60px rgba(0,0,0,.45);
+        }
+        .archiveDetailHero{
+          position:relative;
+          min-height:260px;
+          overflow:hidden;
+          padding:20px 18px 18px;
+          display:flex;
+          flex-direction:column;
+          justify-content:flex-end;
+          background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
+        }
+        .archiveDetailHeroBackdrop{
+          position:absolute;
+          inset:0;
+          background-size:cover;
+          background-position:center center;
+          transform:scale(1.04);
+          opacity:.52;
+        }
+        .archiveDetailHeroBackdrop::after{
+          content:"";
+          position:absolute;
+          inset:0;
+          background:
+            linear-gradient(180deg, rgba(7,8,10,.18) 0%, rgba(7,8,10,.40) 30%, rgba(7,8,10,.82) 100%),
+            radial-gradient(circle at 18% 12%, rgba(255,255,255,.12), transparent 38%);
+        }
+        .archiveDetailHeroInner{
+          position:relative;
+          z-index:1;
+        }
+        .archiveDetailHandle{
+          position:absolute;
+          top:10px;
+          left:50%;
+          transform:translateX(-50%);
+          width:42px;
+          height:4px;
+          border-radius:999px;
+          background:rgba(255,255,255,.24);
+          z-index:2;
+        }
+        .archiveDetailClose{
+          position:absolute;
+          top:14px;
+          right:14px;
+          z-index:2;
+          width:34px;
+          height:34px;
+          border:none;
+          border-radius:999px;
+          background:rgba(255,255,255,.12);
+          color:#fff;
+          font:inherit;
+          font-size:18px;
+          line-height:1;
+          display:grid;
+          place-items:center;
+          cursor:pointer;
+        }
+        .archiveDetailBadge{
+          display:inline-flex;
+          align-items:center;
+          gap:6px;
+          padding:6px 10px;
+          border-radius:999px;
+          background:rgba(255,255,255,.10);
+          border:1px solid rgba(255,255,255,.12);
+          color:rgba(255,255,255,.86);
+          font-size:11px;
+          letter-spacing:.06em;
+          text-transform:uppercase;
+          margin-bottom:12px;
+        }
+        .archiveDetailTitle{
+          font-size:24px;
+          line-height:1.1;
+          font-weight:700;
+          color:#fff;
+          text-wrap:balance;
+          text-shadow:0 8px 24px rgba(0,0,0,.34);
+        }
+        .archiveDetailMeta{
+          margin-top:10px;
+          font-size:13px;
+          line-height:1.45;
+          color:rgba(255,255,255,.74);
+        }
+        .archiveDetailBody{
+          padding:16px 18px 24px;
+          display:grid;
+          gap:16px;
+        }
+        .archiveDetailFacts{
+          display:grid;
+          grid-template-columns:repeat(2, minmax(0,1fr));
+          gap:10px;
+        }
+        .archiveDetailFact{
+          border-radius:16px;
+          background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+          outline:1px solid rgba(255,255,255,.08);
+          padding:12px 12px;
+        }
+        .archiveDetailFactLabel{
+          font-size:10px;
+          line-height:1.2;
+          letter-spacing:.12em;
+          text-transform:uppercase;
+          color:rgba(255,255,255,.42);
+          margin-bottom:8px;
+        }
+        .archiveDetailFactValue{
+          font-size:13px;
+          line-height:1.45;
+          color:rgba(255,255,255,.92);
+        }
+        .archiveDetailSection{
+          display:grid;
+          gap:8px;
+        }
+        .archiveDetailSectionTitle{
+          font-size:11px;
+          line-height:1.2;
+          letter-spacing:.14em;
+          text-transform:uppercase;
+          color:rgba(255,255,255,.46);
+        }
+        .archiveDetailText{
+          font-size:14px;
+          line-height:1.6;
+          color:rgba(255,255,255,.88);
+        }
+        .archiveDetailMuted{
+          font-size:13px;
+          line-height:1.55;
+          color:rgba(255,255,255,.46);
+        }
+        .archiveDetailSupportChips{
+          display:flex;
+          flex-wrap:wrap;
+          gap:8px;
+        }
+        .archiveDetailSupportChip{
+          padding:8px 12px;
+          border-radius:999px;
+          background:rgba(255,255,255,.05);
+          border:1px solid rgba(255,255,255,.08);
+          color:rgba(255,255,255,.88);
+          font-size:12px;
+        }
+        .archiveDetailList{
+          display:grid;
+          gap:6px;
+          margin:0;
+          padding-left:18px;
+          color:rgba(255,255,255,.88);
+          font-size:13px;
+          line-height:1.5;
+        }
+        .archiveDetailPhotoRail{
+          display:grid;
+          grid-template-columns:repeat(2, minmax(0,1fr));
+          gap:10px;
+        }
+        .archiveDetailPhotoPlaceholder{
+          min-height:92px;
+          border-radius:16px;
+          background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.015));
+          outline:1px solid rgba(255,255,255,.07);
+          display:grid;
+          place-items:center;
+          color:rgba(255,255,255,.34);
+          font-size:12px;
+          letter-spacing:.06em;
+          text-transform:uppercase;
+        }
+
         @media (min-width: 420px){
           .archiveRankGrid{
             grid-template-columns:repeat(3, minmax(0,1fr));
@@ -840,7 +1047,7 @@
     }
 
     syncIdentityTabUi();
-    }
+}
    function syncIdentityTabUi() {
     const identityView = $("viewIdentity");
     if (!identityView) return;
@@ -1138,6 +1345,44 @@
     return (state.lastArchive || []).filter(matchesArchiveFilter);
   }
 
+  function findArchiveItemByEventKey(eventKey) {
+    const key = normalizeSpace(eventKey || "");
+    if (!key) return null;
+    return (state.lastArchive || []).find((it) => normalizeSpace(it?.event_key || "") === key) || null;
+  }
+
+  async function ensureArchiveModalImage(item) {
+    if (!item) return;
+
+    const lookupName = chooseArchiveRowLookupName(item);
+    if (!lookupName) {
+      state.archiveSelectedImageUrl = "";
+      return;
+    }
+
+    const imageUrl = await fetchLastfmArtworkImage(lookupName);
+    if (normalizeSpace(state.archiveSelectedEventKey) === normalizeSpace(item?.event_key || "")) {
+      state.archiveSelectedImageUrl = imageUrl || "";
+      renderArchiveView();
+    }
+  }
+
+  function openArchiveDetail(eventKey) {
+    const item = findArchiveItemByEventKey(eventKey);
+    if (!item) return;
+
+    state.archiveSelectedEventKey = normalizeSpace(item.event_key || "");
+    state.archiveSelectedImageUrl = "";
+    renderArchiveView();
+    ensureArchiveModalImage(item);
+  }
+
+  function closeArchiveDetail() {
+    state.archiveSelectedEventKey = "";
+    state.archiveSelectedImageUrl = "";
+    renderArchiveView();
+  }
+
   function renderArchiveExplore(items, stats) {
     const mode = state.archiveFilterMode || "all";
     const options = getArchiveFilterOptions(mode, items, stats);
@@ -1303,7 +1548,7 @@
         ${cards.map((card) => renderArchiveDnaCard(card)).join("")}
       </div>
     `;
-              }
+                                }
    function renderArchiveMilestoneCard({ label, item }) {
     const title = item?.title || "—";
     const date = formatArchiveDate(item?.date || "");
@@ -1404,6 +1649,8 @@
     const venueText = escapeHtml(it?.venue || "");
     const festival = Number(it?.festival || 0) === 1;
     const lookupName = chooseArchiveRowLookupName(it);
+    const eventKey = normalizeSpace(it?.event_key || "");
+    const isSelected = normalizeSpace(state.archiveSelectedEventKey) === eventKey;
 
     const metaLine = [dateText, cityText].filter(Boolean).join(" · ");
     const supportLine = supports
@@ -1418,11 +1665,13 @@
 
     return `
       <div
-        class="row archiveRow"
-        role="listitem"
+        class="row archiveRow archiveRowButton${isSelected ? " is-active" : ""}"
+        role="button"
+        tabindex="0"
         aria-label="${title}"
         data-archive-image-row="true"
         data-archive-lookup-name="${escapeAttr(lookupName)}"
+        data-archive-event-key="${escapeAttr(eventKey)}"
       >
         <div class="archiveRowInner">
           <div class="mid">
@@ -1445,6 +1694,132 @@
     return items.map(renderArchiveRow).join("");
   }
 
+  function renderArchiveDetailFacts(item) {
+    const facts = [
+      { label: "Artist", value: item?.main_artist || item?.title || "—" },
+      { label: "Venue", value: item?.venue || "—" },
+      { label: "City", value: item?.city || "—" },
+      { label: "Type", value: Number(item?.festival || 0) === 1 ? "Festival" : "Concert" }
+    ];
+
+    return `
+      <div class="archiveDetailFacts">
+        ${facts.map((fact) => `
+          <div class="archiveDetailFact">
+            <div class="archiveDetailFactLabel">${escapeHtml(fact.label)}</div>
+            <div class="archiveDetailFactValue">${escapeHtml(fact.value)}</div>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  function renderArchiveDetailSupports(item) {
+    const supports = normalizeArchiveSupports(item?.supports || "");
+    if (!supports) return "";
+
+    const supportItems = supports.split(",").map((x) => x.trim()).filter(Boolean);
+
+    return `
+      <section class="archiveDetailSection">
+        <div class="archiveDetailSectionTitle">Support</div>
+        <div class="archiveDetailSupportChips">
+          ${supportItems.map((name) => `
+            <div class="archiveDetailSupportChip">${escapeHtml(name)}</div>
+          `).join("")}
+        </div>
+      </section>
+    `;
+  }
+
+  function renderArchiveDetailNotes(item) {
+    const notes = normalizeSpace(item?.notes || "");
+
+    return `
+      <section class="archiveDetailSection">
+        <div class="archiveDetailSectionTitle">Notes</div>
+        ${
+          notes
+            ? `<div class="archiveDetailText">${escapeHtml(notes)}</div>`
+            : `<div class="archiveDetailMuted">No notes yet</div>`
+        }
+      </section>
+    `;
+  }
+
+  function renderArchiveDetailSetlist() {
+    return `
+      <section class="archiveDetailSection">
+        <div class="archiveDetailSectionTitle">Setlist</div>
+        <div class="archiveDetailMuted">No setlist yet</div>
+      </section>
+    `;
+  }
+
+  function renderArchiveDetailPhotos() {
+    return `
+      <section class="archiveDetailSection">
+        <div class="archiveDetailSectionTitle">Photos</div>
+        <div class="archiveDetailPhotoRail">
+          <div class="archiveDetailPhotoPlaceholder">No photos yet</div>
+          <div class="archiveDetailPhotoPlaceholder">No photos yet</div>
+        </div>
+      </section>
+    `;
+  }
+
+  function renderArchiveDetailModal() {
+    const item = findArchiveItemByEventKey(state.archiveSelectedEventKey);
+    if (!item) return "";
+
+    const title = item?.title || item?.main_artist || "—";
+    const date = formatArchiveDate(item?.date || "");
+    const venue = item?.venue || "";
+    const city = item?.city || "";
+    const meta = [date, city, venue].filter(Boolean).join(" · ");
+    const imageUrl = normalizeSpace(state.archiveSelectedImageUrl || "");
+    const isFestival = Number(item?.festival || 0) === 1;
+
+    return `
+      <div class="archiveDetailOverlay" data-archive-detail-overlay="true" aria-hidden="false">
+        <div
+          class="archiveDetailSheet"
+          role="dialog"
+          aria-modal="true"
+          aria-label="${escapeAttr(title)}"
+        >
+          <div class="archiveDetailHero">
+            <div class="archiveDetailHandle" aria-hidden="true"></div>
+            <button
+              type="button"
+              class="archiveDetailClose"
+              aria-label="Close"
+              data-archive-detail-close="true"
+            >
+              ×
+            </button>
+
+            ${imageUrl ? `<div class="archiveDetailHeroBackdrop" style="background-image:url('${escapeAttr(imageUrl)}');"></div>` : ""}
+
+            <div class="archiveDetailHeroInner">
+              ${isFestival ? `<div class="archiveDetailBadge">Festival</div>` : ""}
+              <div class="archiveDetailTitle">${escapeHtml(title)}</div>
+              <div class="archiveDetailMeta">${escapeHtml(meta)}</div>
+            </div>
+          </div>
+
+          <div class="archiveDetailBody">
+            ${renderArchiveDetailFacts(item)}
+            ${renderArchiveDetailSupports(item)}
+            ${renderArchiveDetailNotes(item)}
+            ${renderArchiveDetailSetlist()}
+            ${renderArchiveDetailPhotos()}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   function renderArchiveView() {
     if (!archiveList) return;
 
@@ -1452,6 +1827,7 @@
     const statsHtml = renderArchiveStatsPanel(state.archiveStats);
     const exploreHtml = renderArchiveExplore(state.lastArchive, state.archiveStats);
     const rowsHtml = renderArchiveTimeline(filteredItems);
+    const modalHtml = renderArchiveDetailModal();
 
     archiveList.innerHTML = `
       <div class="archiveCanvas">
@@ -1464,9 +1840,11 @@
           </div>
         </section>
       </div>
+      ${modalHtml}
     `;
 
     setupArchiveRowImageEnhancement();
+    document.body.style.overflow = state.archiveSelectedEventKey ? "hidden" : "";
   }
 
   function normalizeArchiveSupports(s) {
@@ -1665,10 +2043,23 @@
     });
   }
 
-  function bindArchiveExplore() {
+  function bindArchiveInteractions() {
     if (!archiveList) return;
 
     archiveList.addEventListener("click", (e) => {
+      const closeBtn = e.target.closest("[data-archive-detail-close]");
+      if (closeBtn) {
+        closeArchiveDetail();
+        return;
+      }
+
+      const overlay = e.target.closest("[data-archive-detail-overlay]");
+      const sheet = e.target.closest(".archiveDetailSheet");
+      if (overlay && !sheet) {
+        closeArchiveDetail();
+        return;
+      }
+
       const modeBtn = e.target.closest("[data-archive-filter-mode]");
       if (modeBtn) {
         const nextMode = normalizeSpace(modeBtn.dataset.archiveFilterMode || "all").toLowerCase();
@@ -1720,6 +2111,30 @@
         }
 
         renderArchiveView();
+        return;
+      }
+
+      const rowBtn = e.target.closest("[data-archive-event-key]");
+      if (rowBtn) {
+        const eventKey = normalizeSpace(rowBtn.dataset.archiveEventKey || "");
+        if (eventKey) openArchiveDetail(eventKey);
+      }
+    });
+
+    archiveList.addEventListener("keydown", (e) => {
+      const rowBtn = e.target.closest("[data-archive-event-key]");
+      if (!rowBtn) return;
+
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        const eventKey = normalizeSpace(rowBtn.dataset.archiveEventKey || "");
+        if (eventKey) openArchiveDetail(eventKey);
+      }
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && state.archiveSelectedEventKey) {
+        closeArchiveDetail();
       }
     });
   }
@@ -1784,7 +2199,7 @@
   async function boot() {
     ensureIdentityUi();
     bindIdentityTabs();
-    bindArchiveExplore();
+    bindArchiveInteractions();
     bindTopPanelControls();
     bindTabPrefetch();
 
@@ -1830,7 +2245,9 @@
         archiveHeroImages: { ...state.archiveHeroImages },
         archiveFilterMode: state.archiveFilterMode,
         archiveFilterValue: state.archiveFilterValue,
-        archiveYearOlderOpen: state.archiveYearOlderOpen
+        archiveYearOlderOpen: state.archiveYearOlderOpen,
+        archiveSelectedEventKey: state.archiveSelectedEventKey,
+        archiveSelectedImageUrl: state.archiveSelectedImageUrl
       };
     }
   };

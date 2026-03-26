@@ -1039,10 +1039,10 @@
   state.archiveSetlistError = "";
   state.archiveSetlistResolvedForKey = eventKey;
 
-  let showSearching = false;
-  const searchingTimer = setTimeout(() => {
+  let showedSearching = false;
+  const timer = setTimeout(() => {
     if (normalizeSpace(state.archiveSelectedEventKey || "") !== eventKey) return;
-    showSearching = true;
+    showedSearching = true;
     state.archiveSetlistSearching = true;
     renderArchiveView();
   }, 320);
@@ -1051,13 +1051,12 @@
     const saved = await archiveApiGet(`/concert-setlist?event_key=${encodeURIComponent(eventKey)}`);
 
     if (normalizeSpace(state.archiveSelectedEventKey || "") !== eventKey) {
-      clearTimeout(searchingTimer);
+      clearTimeout(timer);
       return;
     }
 
     if (saved?.item) {
-      clearTimeout(searchingTimer);
-      state.archiveSetlistLoading = false;
+      clearTimeout(timer);
       state.archiveSetlistSearching = false;
       state.archiveSetlistData = saved.item;
       state.archiveSetlistError = "";
@@ -1069,29 +1068,24 @@
       const fetched = await archiveApiPost("/concert-setlist-fetch", { event_key: eventKey });
 
       if (normalizeSpace(state.archiveSelectedEventKey || "") !== eventKey) {
-        clearTimeout(searchingTimer);
+        clearTimeout(timer);
         return;
       }
 
-      clearTimeout(searchingTimer);
-      state.archiveSetlistLoading = false;
+      clearTimeout(timer);
       state.archiveSetlistSearching = false;
       state.archiveSetlistData = fetched?.item || null;
       state.archiveSetlistError = fetched?.item ? "" : "No setlist found";
 
-      if (!showSearching) {
-        requestAnimationFrame(() => renderArchiveView());
-      } else {
-        renderArchiveView();
-      }
+      if (showedSearching) renderArchiveView();
+      else requestAnimationFrame(() => renderArchiveView());
     } catch (err) {
       if (normalizeSpace(state.archiveSelectedEventKey || "") !== eventKey) {
-        clearTimeout(searchingTimer);
+        clearTimeout(timer);
         return;
       }
 
-      clearTimeout(searchingTimer);
-      state.archiveSetlistLoading = false;
+      clearTimeout(timer);
       state.archiveSetlistSearching = false;
       state.archiveSetlistData = null;
       state.archiveSetlistError = /No matching setlist found/i.test(String(err?.message || ""))
@@ -1101,12 +1095,11 @@
     }
   } catch {
     if (normalizeSpace(state.archiveSelectedEventKey || "") !== eventKey) {
-      clearTimeout(searchingTimer);
+      clearTimeout(timer);
       return;
     }
 
-    clearTimeout(searchingTimer);
-    state.archiveSetlistLoading = false;
+    clearTimeout(timer);
     state.archiveSetlistSearching = false;
     state.archiveSetlistData = null;
     state.archiveSetlistError = "Could not load setlist";

@@ -1030,62 +1030,88 @@
   }
 
   async function loadArchiveSetlistForSelectedEvent() {
-    const eventKey = normalizeSpace(state.archiveSelectedEventKey || "");
-    if (!eventKey) return;
+  const eventKey = normalizeSpace(state.archiveSelectedEventKey || "");
+  if (!eventKey) return;
 
-    state.archiveSetlistLoading = true;
-    state.archiveSetlistSearching = false;
-    state.archiveSetlistData = null;
-    state.archiveSetlistError = "";
-    state.archiveSetlistResolvedForKey = eventKey;
+  state.archiveSetlistLoading = false;
+  state.archiveSetlistSearching = false;
+  state.archiveSetlistData = null;
+  state.archiveSetlistError = "";
+  state.archiveSetlistResolvedForKey = eventKey;
+
+  let showSearching = false;
+  const searchingTimer = setTimeout(() => {
+    if (normalizeSpace(state.archiveSelectedEventKey || "") !== eventKey) return;
+    showSearching = true;
+    state.archiveSetlistSearching = true;
     renderArchiveView();
+  }, 320);
+
+  try {
+    const saved = await archiveApiGet(`/concert-setlist?event_key=${encodeURIComponent(eventKey)}`);
+
+    if (normalizeSpace(state.archiveSelectedEventKey || "") !== eventKey) {
+      clearTimeout(searchingTimer);
+      return;
+    }
+
+    if (saved?.item) {
+      clearTimeout(searchingTimer);
+      state.archiveSetlistLoading = false;
+      state.archiveSetlistSearching = false;
+      state.archiveSetlistData = saved.item;
+      state.archiveSetlistError = "";
+      renderArchiveView();
+      return;
+    }
 
     try {
-      const saved = await archiveApiGet(`/concert-setlist?event_key=${encodeURIComponent(eventKey)}`);
+      const fetched = await archiveApiPost("/concert-setlist-fetch", { event_key: eventKey });
 
-      if (normalizeSpace(state.archiveSelectedEventKey || "") !== eventKey) return;
-
-      if (saved?.item) {
-        state.archiveSetlistLoading = false;
-        state.archiveSetlistSearching = false;
-        state.archiveSetlistData = saved.item;
-        state.archiveSetlistError = "";
-        renderArchiveView();
+      if (normalizeSpace(state.archiveSelectedEventKey || "") !== eventKey) {
+        clearTimeout(searchingTimer);
         return;
       }
 
+      clearTimeout(searchingTimer);
       state.archiveSetlistLoading = false;
-      state.archiveSetlistSearching = true;
-      state.archiveSetlistData = null;
-      state.archiveSetlistError = "";
-      renderArchiveView();
+      state.archiveSetlistSearching = false;
+      state.archiveSetlistData = fetched?.item || null;
+      state.archiveSetlistError = fetched?.item ? "" : "No setlist found";
 
-      try {
-        const fetched = await archiveApiPost("/concert-setlist-fetch", { event_key: eventKey });
-
-        if (normalizeSpace(state.archiveSelectedEventKey || "") !== eventKey) return;
-
-        state.archiveSetlistSearching = false;
-        state.archiveSetlistData = fetched?.item || null;
-        state.archiveSetlistError = fetched?.item ? "" : "No setlist found";
-        renderArchiveView();
-      } catch (err) {
-        if (normalizeSpace(state.archiveSelectedEventKey || "") !== eventKey) return;
-        state.archiveSetlistSearching = false;
-        state.archiveSetlistData = null;
-        state.archiveSetlistError = /No matching setlist found/i.test(String(err?.message || ""))
-          ? "No setlist found"
-          : "Could not load setlist";
+      if (!showSearching) {
+        requestAnimationFrame(() => renderArchiveView());
+      } else {
         renderArchiveView();
       }
-    } catch {
-      if (normalizeSpace(state.archiveSelectedEventKey || "") !== eventKey) return;
+    } catch (err) {
+      if (normalizeSpace(state.archiveSelectedEventKey || "") !== eventKey) {
+        clearTimeout(searchingTimer);
+        return;
+      }
+
+      clearTimeout(searchingTimer);
       state.archiveSetlistLoading = false;
       state.archiveSetlistSearching = false;
       state.archiveSetlistData = null;
-      state.archiveSetlistError = "Could not load setlist";
+      state.archiveSetlistError = /No matching setlist found/i.test(String(err?.message || ""))
+        ? "No setlist found"
+        : "Could not load setlist";
       renderArchiveView();
     }
+  } catch {
+    if (normalizeSpace(state.archiveSelectedEventKey || "") !== eventKey) {
+      clearTimeout(searchingTimer);
+      return;
+    }
+
+    clearTimeout(searchingTimer);
+    state.archiveSetlistLoading = false;
+    state.archiveSetlistSearching = false;
+    state.archiveSetlistData = null;
+    state.archiveSetlistError = "Could not load setlist";
+    renderArchiveView();
+  }
   }
 
   function openArchiveDetail(eventKey) {

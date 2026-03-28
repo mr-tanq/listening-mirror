@@ -996,26 +996,41 @@
   }
 
   function matchesArchiveFilter(it) {
-    const mode = state.archiveFilterMode;
-    const value = normalizeSpace(state.archiveFilterValue || "");
+  const mode = state.archiveFilterMode;
+  const value = normalizeSpace(state.archiveFilterValue || "");
 
-    if (mode === "all" || !value) return true;
+  if (mode === "all" || !value) return true;
 
-    if (mode === "year") return String(it?.date || "").trim().startsWith(`${value}-`);
-    if (mode === "artist") {
-      const mainArtist = normalizeSpace(it?.main_artist || "");
-      const title = normalizeSpace(it?.title || "");
-      return mainArtist === value || title === value;
-    }
-    if (mode === "city") return normalizeSpace(it?.city || "") === value;
-    if (mode === "venue") {
-      const venueFamily = normalizeSpace(it?.venue_family || "");
-      const venue = normalizeSpace(it?.venue || "");
-      return venueFamily === value || venue === value;
-    }
+  if (mode === "year") return String(it?.date || "").trim().startsWith(`${value}-`);
 
-    return true;
+  if (mode === "artist") {
+    const selected = normalizeSpace(value);
+
+    const mainArtist = normalizeSpace(it?.main_artist || "");
+    const title = normalizeSpace(it?.title || "");
+
+    const supports = String(it?.supports || "")
+      .split(",")
+      .map((x) => normalizeSpace(x))
+      .filter(Boolean);
+
+    return (
+      mainArtist === selected ||
+      title === selected ||
+      supports.includes(selected)
+    );
   }
+
+  if (mode === "city") return normalizeSpace(it?.city || "") === value;
+
+  if (mode === "venue") {
+    const venueFamily = normalizeSpace(it?.venue_family || "");
+    const venue = normalizeSpace(it?.venue || "");
+    return venueFamily === value || venue === value;
+  }
+
+  return true;
+}
 
   function getFilteredArchiveItems() {
     return (state.lastArchive || []).filter(matchesArchiveFilter);

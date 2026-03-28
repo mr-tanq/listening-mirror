@@ -6,6 +6,7 @@
    - detail sheet
    - editable notes
    - auto setlist load/fetch
+   - setlist duration + match info + source link
 */
 
 (() => {
@@ -688,9 +689,30 @@
           border-radius:16px;background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
           outline:1px solid rgba(255,255,255,.08);padding:12px 12px;
         }
+        .archiveSetlistMeta{
+          display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;
+        }
+        .archiveSetlistMetaPill{
+          display:inline-flex;align-items:center;gap:6px;
+          padding:7px 10px;border-radius:999px;
+          background:rgba(255,255,255,.05);
+          border:1px solid rgba(255,255,255,.08);
+          color:rgba(255,255,255,.84);
+          font-size:11px;line-height:1.2;letter-spacing:.04em;
+        }
         .archiveSetlistSource{
-          margin-top:8px;font-size:11px;line-height:1.3;letter-spacing:.06em;
+          margin-top:10px;font-size:11px;line-height:1.3;letter-spacing:.06em;
           text-transform:uppercase;color:rgba(255,255,255,.40);
+          display:flex;flex-wrap:wrap;gap:8px;align-items:center;
+        }
+        .archiveSetlistSource a{
+          color:rgba(255,255,255,.78);
+          text-decoration:none;
+          border-bottom:1px solid rgba(255,255,255,.20);
+        }
+        .archiveSetlistSource a:hover{
+          color:#fff;
+          border-bottom-color:rgba(255,255,255,.45);
         }
         .archiveSetBlock{display:grid;gap:8px}
         .archiveSetBlock + .archiveSetBlock{margin-top:12px}
@@ -732,8 +754,9 @@
     }
 
     syncIdentityTabUi();
-}
-   function syncIdentityTabUi() {
+  }
+
+  function syncIdentityTabUi() {
     const identityView = $("viewIdentity");
     if (!identityView) return;
 
@@ -920,9 +943,8 @@
       state.archiveHeroImages.returningArtist = "";
       return false;
     }
-  }
-
-  function getArchiveYearOptions(items) {
+       }
+   function getArchiveYearOptions(items) {
     const years = new Set();
     (items || []).forEach((it) => {
       const date = String(it?.date || "").trim();
@@ -1030,56 +1052,70 @@
   }
 
   async function loadArchiveSetlistForSelectedEvent() {
-  const eventKey = normalizeSpace(state.archiveSelectedEventKey || "");
-  if (!eventKey) return;
+    const eventKey = normalizeSpace(state.archiveSelectedEventKey || "");
+    if (!eventKey) return;
 
-  state.archiveSetlistLoading = false;
-  state.archiveSetlistSearching = false;
-  state.archiveSetlistData = null;
-  state.archiveSetlistError = "";
-  state.archiveSetlistResolvedForKey = eventKey;
+    state.archiveSetlistLoading = false;
+    state.archiveSetlistSearching = false;
+    state.archiveSetlistData = null;
+    state.archiveSetlistError = "";
+    state.archiveSetlistResolvedForKey = eventKey;
 
-  let showedSearching = false;
-  const timer = setTimeout(() => {
-    if (normalizeSpace(state.archiveSelectedEventKey || "") !== eventKey) return;
-    showedSearching = true;
-    state.archiveSetlistSearching = true;
-    renderArchiveView();
-  }, 320);
-
-  try {
-    const saved = await archiveApiGet(`/concert-setlist?event_key=${encodeURIComponent(eventKey)}`);
-
-    if (normalizeSpace(state.archiveSelectedEventKey || "") !== eventKey) {
-      clearTimeout(timer);
-      return;
-    }
-
-    if (saved?.item) {
-      clearTimeout(timer);
-      state.archiveSetlistSearching = false;
-      state.archiveSetlistData = saved.item;
-      state.archiveSetlistError = "";
+    let showedSearching = false;
+    const timer = setTimeout(() => {
+      if (normalizeSpace(state.archiveSelectedEventKey || "") !== eventKey) return;
+      showedSearching = true;
+      state.archiveSetlistSearching = true;
       renderArchiveView();
-      return;
-    }
+    }, 320);
 
     try {
-      const fetched = await archiveApiPost("/concert-setlist-fetch", { event_key: eventKey });
+      const saved = await archiveApiGet(`/concert-setlist?event_key=${encodeURIComponent(eventKey)}`);
 
       if (normalizeSpace(state.archiveSelectedEventKey || "") !== eventKey) {
         clearTimeout(timer);
         return;
       }
 
-      clearTimeout(timer);
-      state.archiveSetlistSearching = false;
-      state.archiveSetlistData = fetched?.item || null;
-      state.archiveSetlistError = fetched?.item ? "" : "No setlist found";
+      if (saved?.item) {
+        clearTimeout(timer);
+        state.archiveSetlistSearching = false;
+        state.archiveSetlistData = saved.item;
+        state.archiveSetlistError = "";
+        renderArchiveView();
+        return;
+      }
 
-      if (showedSearching) renderArchiveView();
-      else requestAnimationFrame(() => renderArchiveView());
-    } catch (err) {
+      try {
+        const fetched = await archiveApiPost("/concert-setlist-fetch", { event_key: eventKey });
+
+        if (normalizeSpace(state.archiveSelectedEventKey || "") !== eventKey) {
+          clearTimeout(timer);
+          return;
+        }
+
+        clearTimeout(timer);
+        state.archiveSetlistSearching = false;
+        state.archiveSetlistData = fetched?.item || null;
+        state.archiveSetlistError = fetched?.item ? "" : "No setlist found";
+
+        if (showedSearching) renderArchiveView();
+        else requestAnimationFrame(() => renderArchiveView());
+      } catch (err) {
+        if (normalizeSpace(state.archiveSelectedEventKey || "") !== eventKey) {
+          clearTimeout(timer);
+          return;
+        }
+
+        clearTimeout(timer);
+        state.archiveSetlistSearching = false;
+        state.archiveSetlistData = null;
+        state.archiveSetlistError = /No matching setlist found/i.test(String(err?.message || ""))
+          ? "No setlist found"
+          : "Could not load setlist";
+        renderArchiveView();
+      }
+    } catch {
       if (normalizeSpace(state.archiveSelectedEventKey || "") !== eventKey) {
         clearTimeout(timer);
         return;
@@ -1088,23 +1124,9 @@
       clearTimeout(timer);
       state.archiveSetlistSearching = false;
       state.archiveSetlistData = null;
-      state.archiveSetlistError = /No matching setlist found/i.test(String(err?.message || ""))
-        ? "No setlist found"
-        : "Could not load setlist";
+      state.archiveSetlistError = "Could not load setlist";
       renderArchiveView();
     }
-  } catch {
-    if (normalizeSpace(state.archiveSelectedEventKey || "") !== eventKey) {
-      clearTimeout(timer);
-      return;
-    }
-
-    clearTimeout(timer);
-    state.archiveSetlistSearching = false;
-    state.archiveSetlistData = null;
-    state.archiveSetlistError = "Could not load setlist";
-    renderArchiveView();
-  }
   }
 
   function openArchiveDetail(eventKey) {
@@ -1358,8 +1380,9 @@
         ${cards.map((card) => renderArchiveDnaCard(card)).join("")}
       </div>
     `;
-           }
-   function renderArchiveMilestoneCard({ label, item }) {
+  }
+
+  function renderArchiveMilestoneCard({ label, item }) {
     const title = item?.title || "—";
     const date = formatArchiveDate(item?.date || "");
     const city = item?.city || "";
@@ -1545,6 +1568,49 @@
       </section>
     `;
   }
+   function formatEstimatedDuration(seconds) {
+    const total = Number(seconds || 0);
+    if (!Number.isFinite(total) || total <= 0) return "";
+
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.round((total % 3600) / 60);
+
+    if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
+    if (hours > 0) return `${hours}h`;
+    return `${minutes}m`;
+  }
+
+  function renderArchiveSetlistMeta(setlistData) {
+    const setlist = setlistData?.setlist || {};
+    const durationText = formatEstimatedDuration(setlist?.estimated_duration_sec);
+    const matched = Number(setlist?.matched_tracks || 0);
+    const total = Number(setlist?.total_tracks || 0);
+
+    const pills = [];
+
+    if (durationText) {
+      pills.push(`<div class="archiveSetlistMetaPill">Estimated duration: ${escapeHtml(durationText)}</div>`);
+    }
+
+    if (total > 0) {
+      pills.push(`<div class="archiveSetlistMetaPill">Matched ${escapeHtml(String(matched))}/${escapeHtml(String(total))} tracks</div>`);
+    }
+
+    if (!pills.length) return "";
+    return `<div class="archiveSetlistMeta">${pills.join("")}</div>`;
+  }
+
+  function renderArchiveSetlistSource(setlistData) {
+    const source = normalizeSpace(setlistData?.source || "setlistfm");
+    const sourceUrl = normalizeSpace(setlistData?.source_url || "");
+
+    return `
+      <div class="archiveSetlistSource">
+        <span>${escapeHtml(source)}</span>
+        ${sourceUrl ? `<a href="${escapeAttr(sourceUrl)}" target="_blank" rel="noopener noreferrer">Open source</a>` : ""}
+      </div>
+    `;
+  }
 
   function renderArchiveSetlistInner() {
     if (state.archiveSetlistLoading) {
@@ -1569,6 +1635,8 @@
 
       return `
         <div class="archiveSetlistCard">
+          ${renderArchiveSetlistMeta(state.archiveSetlistData)}
+
           ${sets.map((setObj, idx) => {
             const songs = Array.isArray(setObj?.songs) ? setObj.songs : [];
             const setName = normalizeSpace(setObj?.name || "") || (idx === 0 ? "Set" : `Set ${idx + 1}`);
@@ -1583,9 +1651,7 @@
             `;
           }).join("")}
 
-          <div class="archiveSetlistSource">
-            ${escapeHtml(state.archiveSetlistData?.source || "setlistfm")}
-          </div>
+          ${renderArchiveSetlistSource(state.archiveSetlistData)}
         </div>
       `;
     }

@@ -7,8 +7,9 @@
    - editable notes
    - auto setlist load/fetch
    - setlist duration + match info + source link
+   - clickable milestones
 */
- 
+
 (() => {
   "use strict";
 
@@ -444,6 +445,7 @@
           border-color:rgba(255,255,255,.22);
           color:#fff;
         }
+
         .thumbButton{position:relative;border:none;padding:0;cursor:pointer}
         .thumbButton:focus-visible{outline:2px solid rgba(255,255,255,.34);outline-offset:2px}
         .thumbOverlay{
@@ -488,7 +490,9 @@
         .archiveDnaGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
         .archiveDnaCard{
           position:relative;overflow:hidden;border-radius:18px;
-          background:radial-gradient(circle at 18% 16%, rgba(255,255,255,.055), transparent 40%),linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.022));
+          background:
+            radial-gradient(circle at 18% 16%, rgba(255,255,255,.055), transparent 40%),
+            linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.022));
           outline:1px solid rgba(255,255,255,.08);padding:16px 13px;
           box-shadow:inset 0 1px 0 rgba(255,255,255,.03),0 12px 26px rgba(0,0,0,.12);
         }
@@ -515,18 +519,35 @@
         .archiveMilestoneGrid{display:grid;gap:10px}
         .archiveMilestoneCard{
           position:relative;overflow:hidden;border-radius:18px;
-          background:radial-gradient(circle at 16% 20%, rgba(255,255,255,.04), transparent 38%),linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.022));
-          outline:1px solid rgba(255,255,255,.08);padding:15px 14px;
+          background:
+            radial-gradient(circle at 16% 20%, rgba(255,255,255,.04), transparent 38%),
+            linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.022));
+          outline:1px solid rgba(255,255,255,.08);
+          padding:15px 14px;
           box-shadow:inset 0 1px 0 rgba(255,255,255,.03),0 12px 26px rgba(0,0,0,.12);
+          transition:transform .18s ease, box-shadow .18s ease, outline-color .18s ease, background .18s ease;
         }
         .archiveMilestoneCardVisual{background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.015))}
+        .archiveMilestoneCardButton{cursor:pointer}
+        .archiveMilestoneCardButton:hover{
+          transform:translateY(-1px);
+          outline-color:rgba(255,255,255,.12);
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 16px 34px rgba(0,0,0,.16);
+        }
+        .archiveMilestoneCardButton:active{transform:translateY(0)}
+        .archiveMilestoneCardButton:focus-visible{
+          outline:2px solid rgba(255,255,255,.28);
+          outline-offset:2px;
+        }
         .archiveMilestoneBackdrop{
           position:absolute;inset:0;background-size:cover;background-position:center center;
-          transform:scale(1.03);filter:blur(0px);opacity:.46;pointer-events:none;
+          transform:scale(1.03);filter:blur(0px);opacity:.50;pointer-events:none;
         }
         .archiveMilestoneBackdrop::after{
           content:"";position:absolute;inset:0;
-          background:linear-gradient(180deg, rgba(6,7,10,.16) 0%, rgba(6,7,10,.40) 34%, rgba(6,7,10,.72) 100%),radial-gradient(circle at 18% 15%, rgba(255,255,255,.08), transparent 42%);
+          background:
+            linear-gradient(180deg, rgba(6,7,10,.14) 0%, rgba(6,7,10,.38) 34%, rgba(6,7,10,.74) 100%),
+            radial-gradient(circle at 18% 15%, rgba(255,255,255,.08), transparent 42%);
         }
         .archiveMilestoneInner{position:relative;z-index:1}
         .archiveMilestoneLabel{
@@ -576,8 +597,16 @@
         }
 
         .archiveTimeline{display:grid;gap:10px;margin-top:2px}
-        .archiveRow{position:relative;overflow:hidden;grid-template-columns:minmax(0,1fr) auto;align-items:center}
+        .archiveRow{
+          position:relative;overflow:hidden;grid-template-columns:minmax(0,1fr) auto;align-items:center;
+          transition:transform .18s ease, box-shadow .18s ease, outline-color .18s ease;
+        }
         .archiveRowButton{cursor:pointer}
+        .archiveRowButton:hover{
+          transform:translateY(-1px);
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.03),0 14px 28px rgba(0,0,0,.14);
+        }
+        .archiveRowButton:active{transform:translateY(0)}
         .archiveRowButton:focus-visible{outline:2px solid rgba(255,255,255,.28);outline-offset:2px}
         .archiveRowVisual{background:linear-gradient(180deg, rgba(255,255,255,.022), rgba(255,255,255,.014))}
         .archiveRowBackdrop{
@@ -664,6 +693,17 @@
         .archiveDetailAction{
           border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:rgba(255,255,255,.88);
           border-radius:999px;padding:7px 11px;font:inherit;font-size:12px;cursor:pointer;
+          transition:background .18s ease,border-color .18s ease,color .18s ease,transform .18s ease;
+        }
+        .archiveDetailAction:hover{
+          background:rgba(255,255,255,.09);
+          border-color:rgba(255,255,255,.18);
+          color:#fff;
+        }
+        .archiveDetailAction:active{transform:translateY(1px)}
+        .archiveDetailAction:focus-visible{
+          outline:2px solid rgba(255,255,255,.24);
+          outline-offset:2px;
         }
         .archiveDetailText{
           font-size:14px;line-height:1.6;color:rgba(255,255,255,.88);white-space:pre-wrap;
@@ -943,8 +983,9 @@
       state.archiveHeroImages.returningArtist = "";
       return false;
     }
-       }
-   function getArchiveYearOptions(items) {
+  }
+
+  function getArchiveYearOptions(items) {
     const years = new Set();
     (items || []).forEach((it) => {
       const date = String(it?.date || "").trim();
@@ -996,41 +1037,39 @@
   }
 
   function matchesArchiveFilter(it) {
-  const mode = state.archiveFilterMode;
-  const value = normalizeSpace(state.archiveFilterValue || "");
+    const mode = state.archiveFilterMode;
+    const value = normalizeSpace(state.archiveFilterValue || "");
 
-  if (mode === "all" || !value) return true;
+    if (mode === "all" || !value) return true;
 
-  if (mode === "year") return String(it?.date || "").trim().startsWith(`${value}-`);
+    if (mode === "year") return String(it?.date || "").trim().startsWith(`${value}-`);
 
-  if (mode === "artist") {
-    const selected = normalizeSpace(value);
+    if (mode === "artist") {
+      const selected = normalizeSpace(value);
+      const mainArtist = normalizeSpace(it?.main_artist || "");
+      const title = normalizeSpace(it?.title || "");
+      const supports = String(it?.supports || "")
+        .split(",")
+        .map((x) => normalizeSpace(x))
+        .filter(Boolean);
 
-    const mainArtist = normalizeSpace(it?.main_artist || "");
-    const title = normalizeSpace(it?.title || "");
+      return (
+        mainArtist === selected ||
+        title === selected ||
+        supports.includes(selected)
+      );
+    }
 
-    const supports = String(it?.supports || "")
-      .split(",")
-      .map((x) => normalizeSpace(x))
-      .filter(Boolean);
+    if (mode === "city") return normalizeSpace(it?.city || "") === value;
 
-    return (
-      mainArtist === selected ||
-      title === selected ||
-      supports.includes(selected)
-    );
+    if (mode === "venue") {
+      const venueFamily = normalizeSpace(it?.venue_family || "");
+      const venue = normalizeSpace(it?.venue || "");
+      return venueFamily === value || venue === value;
+    }
+
+    return true;
   }
-
-  if (mode === "city") return normalizeSpace(it?.city || "") === value;
-
-  if (mode === "venue") {
-    const venueFamily = normalizeSpace(it?.venue_family || "");
-    const venue = normalizeSpace(it?.venue || "");
-    return venueFamily === value || venue === value;
-  }
-
-  return true;
-}
 
   function getFilteredArchiveItems() {
     return (state.lastArchive || []).filter(matchesArchiveFilter);
@@ -1405,9 +1444,14 @@
     const meta = [date, city].filter(Boolean).join(" · ");
     const imageUrl = normalizeSpace(item?.__imageUrl || "");
     const hasImage = !!imageUrl;
+    const eventKey = normalizeSpace(item?.event_key || "");
+    const interactive = !!eventKey;
 
     return `
-      <div class="archiveMilestoneCard${hasImage ? " archiveMilestoneCardVisual" : ""}">
+      <div
+        class="archiveMilestoneCard${hasImage ? " archiveMilestoneCardVisual" : ""}${interactive ? " archiveMilestoneCardButton" : ""}"
+        ${interactive ? `role="button" tabindex="0" data-archive-event-key="${escapeAttr(eventKey)}" aria-label="${escapeAttr(title)}"` : ""}
+      >
         ${hasImage ? `<div class="archiveMilestoneBackdrop" style="background-image:url('${escapeAttr(imageUrl)}');"></div>` : ""}
         <div class="archiveMilestoneInner">
           <div class="archiveMilestoneLabel">${escapeHtml(label)}</div>
@@ -1583,7 +1627,8 @@
       </section>
     `;
   }
-   function formatEstimatedDuration(seconds) {
+
+  function formatEstimatedDuration(seconds) {
     const total = Number(seconds || 0);
     if (!Number.isFinite(total) || total <= 0) return "";
 

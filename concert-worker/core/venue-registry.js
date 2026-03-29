@@ -10,6 +10,7 @@ import { fetchFluorEvents } from "../parsers/parser-fluor.js";
 import { fetchNeushoornEvents } from "../parsers/parser-neushoorn.js";
 import { fetchBoerderijEvents } from "../parsers/parser-boerderij.js";
 import { fetchAcuEvents } from "../parsers/parser-acu.js";
+import { fetchVeraEvents } from "../parsers/parser-vera.js";
 
 export const venueRegistry = {
   paradiso: fetchParadisoEvents,
@@ -23,5 +24,6 @@ export const venueRegistry = {
   fluor: fetchFluorEvents,
   neushoorn: fetchNeushoornEvents,
   boerderij: fetchBoerderijEvents,
-  acu: fetchAcuEvents
+  acu: fetchAcuEvents,
+  vera: fetchVeraEvents
 };

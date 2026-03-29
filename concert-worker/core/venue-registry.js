@@ -13,6 +13,7 @@ import { fetchAcuEvents } from "../parsers/parser-acu.js";
 import { fetchVeraEvents } from "../parsers/parser-vera.js";
 import { fetchHedonEvents } from "../parsers/parser-hedon.js";
 import { fetchDbsEvents } from "../parsers/parser-dbs.js";
+import { fetchMuziekgieterijEvents } from "../parsers/parser-muziekgieterij.js";
 
 export const venueRegistry = {
   paradiso: fetchParadisoEvents,
@@ -29,5 +30,6 @@ export const venueRegistry = {
   acu: fetchAcuEvents,
   vera: fetchVeraEvents,
   hedon: fetchHedonEvents,
-  dbs: fetchDbsEvents
+  dbs: fetchDbsEvents,
+  muziekgieterij: fetchMuziekgieterijEvents
 };

@@ -6,6 +6,7 @@ import { fetchEffenaarEvents } from "../parsers/parser-effenaar.js";
 import { fetchDoornroosjeEvents } from "../parsers/parser-doornroosje.js";
 import { fetch013Events } from "../parsers/parser-013.js";
 import { fetchPaardEvents } from "../parsers/parser-paard.js";
+import { fetchFluorEvents } from "../parsers/parser-fluor.js";
 
 export const venueRegistry = {
   paradiso: fetchParadisoEvents,
@@ -15,5 +16,6 @@ export const venueRegistry = {
   effenaar: fetchEffenaarEvents,
   doornroosje: fetchDoornroosjeEvents,
   "013": fetch013Events,
-  paard: fetchPaardEvents
+  paard: fetchPaardEvents,
+  fluor: fetchFluorEvents
 };

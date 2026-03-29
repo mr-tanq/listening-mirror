@@ -1,4 +1,4 @@
-/* app.js (FULL FILE REPLACE) — PART 1/3
+/* app.js (FULL FILE REPLACE)
    Listening Mirror — Identity tabs + Archive rich stats
    Archive includes:
    - automatic Last.fm visuals
@@ -7,7 +7,7 @@
    - editable notes
    - auto setlist load/fetch
    - setlist duration + match info + source link
-   - clickable milestones
+   - multi-artist setlists (main / support / festival)
 */
 
 (() => {
@@ -445,7 +445,6 @@
           border-color:rgba(255,255,255,.22);
           color:#fff;
         }
-
         .thumbButton{position:relative;border:none;padding:0;cursor:pointer}
         .thumbButton:focus-visible{outline:2px solid rgba(255,255,255,.34);outline-offset:2px}
         .thumbOverlay{
@@ -490,9 +489,7 @@
         .archiveDnaGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
         .archiveDnaCard{
           position:relative;overflow:hidden;border-radius:18px;
-          background:
-            radial-gradient(circle at 18% 16%, rgba(255,255,255,.055), transparent 40%),
-            linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.022));
+          background:radial-gradient(circle at 18% 16%, rgba(255,255,255,.055), transparent 40%),linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.022));
           outline:1px solid rgba(255,255,255,.08);padding:16px 13px;
           box-shadow:inset 0 1px 0 rgba(255,255,255,.03),0 12px 26px rgba(0,0,0,.12);
         }
@@ -519,35 +516,27 @@
         .archiveMilestoneGrid{display:grid;gap:10px}
         .archiveMilestoneCard{
           position:relative;overflow:hidden;border-radius:18px;
-          background:
-            radial-gradient(circle at 16% 20%, rgba(255,255,255,.04), transparent 38%),
-            linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.022));
-          outline:1px solid rgba(255,255,255,.08);
-          padding:15px 14px;
+          background:radial-gradient(circle at 16% 20%, rgba(255,255,255,.04), transparent 38%),linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.022));
+          outline:1px solid rgba(255,255,255,.08);padding:15px 14px;
           box-shadow:inset 0 1px 0 rgba(255,255,255,.03),0 12px 26px rgba(0,0,0,.12);
-          transition:transform .18s ease, box-shadow .18s ease, outline-color .18s ease, background .18s ease;
+        }
+        .archiveMilestoneBtn{
+          display:block;width:100%;border:none;text-align:left;font:inherit;color:inherit;
+          cursor:pointer;padding:0;background:transparent;
+        }
+        .archiveMilestoneBtn:focus-visible{
+          outline:2px solid rgba(255,255,255,.28);
+          outline-offset:3px;
+          border-radius:18px;
         }
         .archiveMilestoneCardVisual{background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.015))}
-        .archiveMilestoneCardButton{cursor:pointer}
-        .archiveMilestoneCardButton:hover{
-          transform:translateY(-1px);
-          outline-color:rgba(255,255,255,.12);
-          box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 16px 34px rgba(0,0,0,.16);
-        }
-        .archiveMilestoneCardButton:active{transform:translateY(0)}
-        .archiveMilestoneCardButton:focus-visible{
-          outline:2px solid rgba(255,255,255,.28);
-          outline-offset:2px;
-        }
         .archiveMilestoneBackdrop{
           position:absolute;inset:0;background-size:cover;background-position:center center;
-          transform:scale(1.03);filter:blur(0px);opacity:.50;pointer-events:none;
+          transform:scale(1.03);filter:blur(0px);opacity:.46;pointer-events:none;
         }
         .archiveMilestoneBackdrop::after{
           content:"";position:absolute;inset:0;
-          background:
-            linear-gradient(180deg, rgba(6,7,10,.14) 0%, rgba(6,7,10,.38) 34%, rgba(6,7,10,.74) 100%),
-            radial-gradient(circle at 18% 15%, rgba(255,255,255,.08), transparent 42%);
+          background:linear-gradient(180deg, rgba(6,7,10,.16) 0%, rgba(6,7,10,.40) 34%, rgba(6,7,10,.72) 100%),radial-gradient(circle at 18% 15%, rgba(255,255,255,.08), transparent 42%);
         }
         .archiveMilestoneInner{position:relative;z-index:1}
         .archiveMilestoneLabel{
@@ -597,16 +586,8 @@
         }
 
         .archiveTimeline{display:grid;gap:10px;margin-top:2px}
-        .archiveRow{
-          position:relative;overflow:hidden;grid-template-columns:minmax(0,1fr) auto;align-items:center;
-          transition:transform .18s ease, box-shadow .18s ease, outline-color .18s ease;
-        }
+        .archiveRow{position:relative;overflow:hidden;grid-template-columns:minmax(0,1fr) auto;align-items:center}
         .archiveRowButton{cursor:pointer}
-        .archiveRowButton:hover{
-          transform:translateY(-1px);
-          box-shadow:inset 0 1px 0 rgba(255,255,255,.03),0 14px 28px rgba(0,0,0,.14);
-        }
-        .archiveRowButton:active{transform:translateY(0)}
         .archiveRowButton:focus-visible{outline:2px solid rgba(255,255,255,.28);outline-offset:2px}
         .archiveRowVisual{background:linear-gradient(180deg, rgba(255,255,255,.022), rgba(255,255,255,.014))}
         .archiveRowBackdrop{
@@ -693,17 +674,6 @@
         .archiveDetailAction{
           border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:rgba(255,255,255,.88);
           border-radius:999px;padding:7px 11px;font:inherit;font-size:12px;cursor:pointer;
-          transition:background .18s ease,border-color .18s ease,color .18s ease,transform .18s ease;
-        }
-        .archiveDetailAction:hover{
-          background:rgba(255,255,255,.09);
-          border-color:rgba(255,255,255,.18);
-          color:#fff;
-        }
-        .archiveDetailAction:active{transform:translateY(1px)}
-        .archiveDetailAction:focus-visible{
-          outline:2px solid rgba(255,255,255,.24);
-          outline-offset:2px;
         }
         .archiveDetailText{
           font-size:14px;line-height:1.6;color:rgba(255,255,255,.88);white-space:pre-wrap;
@@ -725,6 +695,7 @@
           border-radius:16px;background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.022));
           outline:1px solid rgba(255,255,255,.08);padding:12px 12px;
         }
+
         .archiveSetlistCard{
           border-radius:16px;background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
           outline:1px solid rgba(255,255,255,.08);padding:12px 12px;
@@ -754,6 +725,61 @@
           color:#fff;
           border-bottom-color:rgba(255,255,255,.45);
         }
+
+        .archiveArtistSetlistGroup{
+          border-radius:18px;
+          background:linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.018));
+          outline:1px solid rgba(255,255,255,.07);
+          padding:12px 12px;
+        }
+        .archiveArtistSetlistGroup + .archiveArtistSetlistGroup{
+          margin-top:12px;
+        }
+        .archiveArtistSetlistHead{
+          display:flex;
+          align-items:flex-start;
+          justify-content:space-between;
+          gap:10px;
+          margin-bottom:10px;
+        }
+        .archiveArtistSetlistTitleWrap{
+          min-width:0;
+        }
+        .archiveArtistSetlistTitle{
+          font-size:15px;
+          line-height:1.3;
+          font-weight:600;
+          color:rgba(255,255,255,.96);
+          word-break:break-word;
+        }
+        .archiveArtistSetlistRole{
+          margin-top:4px;
+          font-size:10px;
+          line-height:1.2;
+          letter-spacing:.12em;
+          text-transform:uppercase;
+          color:rgba(255,255,255,.44);
+        }
+        .archiveArtistSetlistStats{
+          display:flex;
+          flex-wrap:wrap;
+          gap:6px;
+          justify-content:flex-end;
+        }
+        .archiveArtistSetlistStat{
+          display:inline-flex;
+          align-items:center;
+          gap:6px;
+          padding:6px 9px;
+          border-radius:999px;
+          background:rgba(255,255,255,.05);
+          border:1px solid rgba(255,255,255,.08);
+          color:rgba(255,255,255,.82);
+          font-size:11px;
+          line-height:1.2;
+          white-space:nowrap;
+        }
+
         .archiveSetBlock{display:grid;gap:8px}
         .archiveSetBlock + .archiveSetBlock{margin-top:12px}
         .archiveSetName{
@@ -1046,8 +1072,10 @@
 
     if (mode === "artist") {
       const selected = normalizeSpace(value);
+
       const mainArtist = normalizeSpace(it?.main_artist || "");
       const title = normalizeSpace(it?.title || "");
+
       const supports = String(it?.supports || "")
         .split(",")
         .map((x) => normalizeSpace(x))
@@ -1445,21 +1473,24 @@
     const imageUrl = normalizeSpace(item?.__imageUrl || "");
     const hasImage = !!imageUrl;
     const eventKey = normalizeSpace(item?.event_key || "");
-    const interactive = !!eventKey;
 
     return `
-      <div
-        class="archiveMilestoneCard${hasImage ? " archiveMilestoneCardVisual" : ""}${interactive ? " archiveMilestoneCardButton" : ""}"
-        ${interactive ? `role="button" tabindex="0" data-archive-event-key="${escapeAttr(eventKey)}" aria-label="${escapeAttr(title)}"` : ""}
+      <button
+        type="button"
+        class="archiveMilestoneBtn"
+        data-archive-event-key="${escapeAttr(eventKey)}"
+        aria-label="${escapeAttr(title)}"
       >
-        ${hasImage ? `<div class="archiveMilestoneBackdrop" style="background-image:url('${escapeAttr(imageUrl)}');"></div>` : ""}
-        <div class="archiveMilestoneInner">
-          <div class="archiveMilestoneLabel">${escapeHtml(label)}</div>
-          <div class="archiveMilestoneTitle">${escapeHtml(title)}</div>
-          <div class="archiveMilestoneMeta">${escapeHtml(meta)}</div>
-          <div class="archiveMilestoneVenue">${escapeHtml(venue)}</div>
+        <div class="archiveMilestoneCard${hasImage ? " archiveMilestoneCardVisual" : ""}">
+          ${hasImage ? `<div class="archiveMilestoneBackdrop" style="background-image:url('${escapeAttr(imageUrl)}');"></div>` : ""}
+          <div class="archiveMilestoneInner">
+            <div class="archiveMilestoneLabel">${escapeHtml(label)}</div>
+            <div class="archiveMilestoneTitle">${escapeHtml(title)}</div>
+            <div class="archiveMilestoneMeta">${escapeHtml(meta)}</div>
+            <div class="archiveMilestoneVenue">${escapeHtml(venue)}</div>
+          </div>
         </div>
-      </div>
+      </button>
     `;
   }
 
@@ -1640,34 +1671,79 @@
     return `${minutes}m`;
   }
 
-  function renderArchiveSetlistMeta(setlistData) {
-    const setlist = setlistData?.setlist || {};
-    const durationText = formatEstimatedDuration(setlist?.estimated_duration_sec);
-    const matched = Number(setlist?.matched_tracks || 0);
-    const total = Number(setlist?.total_tracks || 0);
-
+  function renderArchiveSetlistMetaFromCounts(durationSec, matched, total) {
     const pills = [];
+    const durationText = formatEstimatedDuration(durationSec);
 
     if (durationText) {
       pills.push(`<div class="archiveSetlistMetaPill">Estimated duration: ${escapeHtml(durationText)}</div>`);
     }
 
-    if (total > 0) {
-      pills.push(`<div class="archiveSetlistMetaPill">Matched ${escapeHtml(String(matched))}/${escapeHtml(String(total))} tracks</div>`);
+    if (Number(total || 0) > 0) {
+      pills.push(`<div class="archiveSetlistMetaPill">Matched ${escapeHtml(String(matched || 0))}/${escapeHtml(String(total || 0))} tracks</div>`);
     }
 
     if (!pills.length) return "";
     return `<div class="archiveSetlistMeta">${pills.join("")}</div>`;
   }
 
-  function renderArchiveSetlistSource(setlistData) {
-    const source = normalizeSpace(setlistData?.source || "setlistfm");
-    const sourceUrl = normalizeSpace(setlistData?.source_url || "");
+  function renderArchiveSetlistSourceLine(source, sourceUrl) {
+    const safeSource = normalizeSpace(source || "setlistfm");
+    const safeUrl = normalizeSpace(sourceUrl || "");
 
     return `
       <div class="archiveSetlistSource">
-        <span>${escapeHtml(source)}</span>
-        ${sourceUrl ? `<a href="${escapeAttr(sourceUrl)}" target="_blank" rel="noopener noreferrer">Open source</a>` : ""}
+        <span>${escapeHtml(safeSource)}</span>
+        ${safeUrl ? `<a href="${escapeAttr(safeUrl)}" target="_blank" rel="noopener noreferrer">Open source</a>` : ""}
+      </div>
+    `;
+  }
+
+  function renderArchiveSingleArtistSet(artistSet) {
+    const sets = Array.isArray(artistSet?.sets) ? artistSet.sets : [];
+    const role = normalizeSpace(artistSet?.role || "support");
+    const roleLabel =
+      role === "main" ? "Main artist" :
+      role === "support" ? "Support" :
+      role === "festival" ? "Festival set" :
+      role;
+
+    return `
+      <div class="archiveArtistSetlistGroup">
+        <div class="archiveArtistSetlistHead">
+          <div class="archiveArtistSetlistTitleWrap">
+            <div class="archiveArtistSetlistTitle">${escapeHtml(artistSet?.artist || "—")}</div>
+            <div class="archiveArtistSetlistRole">${escapeHtml(roleLabel)}</div>
+          </div>
+          <div class="archiveArtistSetlistStats">
+            ${
+              Number(artistSet?.estimated_duration_sec || 0) > 0
+                ? `<div class="archiveArtistSetlistStat">${escapeHtml(formatEstimatedDuration(artistSet?.estimated_duration_sec || 0))}</div>`
+                : ""
+            }
+            ${
+              Number(artistSet?.total_tracks || 0) > 0
+                ? `<div class="archiveArtistSetlistStat">${escapeHtml(String(artistSet?.matched_tracks || 0))}/${escapeHtml(String(artistSet?.total_tracks || 0))}</div>`
+                : ""
+            }
+          </div>
+        </div>
+
+        ${sets.map((setObj, idx) => {
+          const songs = Array.isArray(setObj?.songs) ? setObj.songs : [];
+          const setName = normalizeSpace(setObj?.name || "") || (idx === 0 ? "Set" : `Set ${idx + 1}`);
+
+          return `
+            <div class="archiveSetBlock">
+              <div class="archiveSetName">${escapeHtml(setName)}</div>
+              <ol class="archiveSetSongs">
+                ${songs.map((song) => `<li>${escapeHtml(song || "—")}</li>`).join("")}
+              </ol>
+            </div>
+          `;
+        }).join("")}
+
+        ${renderArchiveSetlistSourceLine(artistSet?.source, artistSet?.source_url)}
       </div>
     `;
   }
@@ -1681,10 +1757,27 @@
       return `<div class="archiveDetailMuted">Searching for setlist...</div>`;
     }
 
-    if (state.archiveSetlistData?.setlist) {
-      const setlist = state.archiveSetlistData.setlist;
-      const sets = Array.isArray(setlist?.sets) ? setlist.sets : [];
+    const setlistData = state.archiveSetlistData;
+    const setlist = setlistData?.setlist || null;
 
+    if (setlist) {
+      const kind = normalizeSpace(setlist?.kind || "");
+      const artistSetlists = Array.isArray(setlist?.artist_setlists) ? setlist.artist_setlists : [];
+
+      if (kind === "multi_artist" && artistSetlists.length) {
+        return `
+          <div class="archiveSetlistCard">
+            ${renderArchiveSetlistMetaFromCounts(
+              setlist?.estimated_duration_sec,
+              setlist?.matched_tracks,
+              setlist?.total_tracks
+            )}
+            ${artistSetlists.map(renderArchiveSingleArtistSet).join("")}
+          </div>
+        `;
+      }
+
+      const sets = Array.isArray(setlist?.sets) ? setlist.sets : [];
       if (!sets.length) {
         return `
           <div class="archiveSetlistCard">
@@ -1695,7 +1788,11 @@
 
       return `
         <div class="archiveSetlistCard">
-          ${renderArchiveSetlistMeta(state.archiveSetlistData)}
+          ${renderArchiveSetlistMetaFromCounts(
+            setlist?.estimated_duration_sec,
+            setlist?.matched_tracks,
+            setlist?.total_tracks
+          )}
 
           ${sets.map((setObj, idx) => {
             const songs = Array.isArray(setObj?.songs) ? setObj.songs : [];
@@ -1711,7 +1808,7 @@
             `;
           }).join("")}
 
-          ${renderArchiveSetlistSource(state.archiveSetlistData)}
+          ${renderArchiveSetlistSourceLine(setlistData?.source, setlistData?.source_url)}
         </div>
       `;
     }
@@ -2205,6 +2302,40 @@
     }
   }
 
+  function removeArchivePlaceholderText() {
+    const archiveView = $("viewArchive");
+    if (!archiveView) return;
+
+    const titles = Array.from(archiveView.querySelectorAll(".card__title, h2, h3, h4"));
+    titles.forEach((el) => {
+      const txt = normalizeSpace(el.textContent).toLowerCase();
+      if (txt === "archive") {
+        const card = el.closest(".card");
+        if (!card) return;
+
+        const isArchiveListCard = !!card.querySelector("#archiveList");
+        if (isArchiveListCard) return;
+
+        const maybeSubs = Array.from(card.querySelectorAll(".card__sub, .card__desc, p"));
+        maybeSubs.forEach((sub) => {
+          const t = normalizeSpace(sub.textContent).toLowerCase();
+          if (
+            t.includes("saved sessions") ||
+            t.includes("history") ||
+            t.includes("archived mirror states") ||
+            t.includes("render here")
+          ) {
+            sub.style.display = "none";
+          }
+        });
+
+        if (maybeSubs.some((sub) => sub.style.display === "none")) {
+          el.style.display = "none";
+        }
+      }
+    });
+  }
+
   async function boot() {
     ensureIdentityUi();
     bindIdentityTabs();
@@ -2216,20 +2347,7 @@
 
     await Promise.all([loadRecent(), loadTop(), loadArchiveList()]);
     syncIdentityTabUi();
-
-    const archiveCard = archiveList?.closest(".card");
-    if (archiveCard) {
-      const titleEl = archiveCard.querySelector(".card__title");
-      const allSubs = Array.from(archiveCard.querySelectorAll(".card__sub, .card__desc, p"));
-      if (titleEl && normalizeSpace(titleEl.textContent).toLowerCase() === "archive") {
-        allSubs.forEach((el) => {
-          const t = normalizeSpace(el.textContent).toLowerCase();
-          if (t.includes("saved sessions") || t.includes("archived mirror states") || t === "archive list") {
-            el.style.display = "none";
-          }
-        });
-      }
-    }
+    removeArchivePlaceholderText();
   }
 
   window.__LM_APP__ = {

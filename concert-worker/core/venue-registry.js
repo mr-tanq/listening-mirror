@@ -15,6 +15,7 @@ import { fetchHedonEvents } from "../parsers/parser-hedon.js";
 import { fetchDbsEvents } from "../parsers/parser-dbs.js";
 import { fetchMuziekgieterijEvents } from "../parsers/parser-muziekgieterij.js";
 import { fetchCarreEvents } from "../parsers/parser-carre.js";
+import { fetchMusiconEvents } from "../parsers/parser-musicon.js";
 
 export const venueRegistry = {
   paradiso: fetchParadisoEvents,
@@ -33,5 +34,6 @@ export const venueRegistry = {
   hedon: fetchHedonEvents,
   dbs: fetchDbsEvents,
   muziekgieterij: fetchMuziekgieterijEvents,
-  carre: fetchCarreEvents
+  carre: fetchCarreEvents,
+  musicon: fetchMusiconEvents
 };

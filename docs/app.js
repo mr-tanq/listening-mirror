@@ -1,4 +1,4 @@
-/* app.js (FULL FILE REPLACE)
+/* app.js (FULL FILE REPLACE) — PART 1/3
    Listening Mirror — Identity tabs + Archive rich stats
    Archive includes:
    - automatic Last.fm visuals
@@ -6,8 +6,8 @@
    - detail sheet
    - editable notes
    - auto setlist load/fetch
-   - setlist duration + match info + source link
-   - multi-artist setlists (main / support / festival)
+   - single-artist + multi-artist setlists
+   - polished archive shell cleanup
 */
 
 (() => {
@@ -56,6 +56,7 @@
 
   const lastfmArtistImageCache = new Map();
   let archiveRowImageObserver = null;
+  let archiveShellCleaned = false;
 
   function absApi(urlOrPath) {
     if (!urlOrPath) return "";
@@ -445,6 +446,7 @@
           border-color:rgba(255,255,255,.22);
           color:#fff;
         }
+
         .thumbButton{position:relative;border:none;padding:0;cursor:pointer}
         .thumbButton:focus-visible{outline:2px solid rgba(255,255,255,.34);outline-offset:2px}
         .thumbOverlay{
@@ -517,17 +519,23 @@
         .archiveMilestoneCard{
           position:relative;overflow:hidden;border-radius:18px;
           background:radial-gradient(circle at 16% 20%, rgba(255,255,255,.04), transparent 38%),linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.022));
-          outline:1px solid rgba(255,255,255,.08);padding:15px 14px;
+          outline:1px solid rgba(255,255,255,.08);padding:0;
           box-shadow:inset 0 1px 0 rgba(255,255,255,.03),0 12px 26px rgba(0,0,0,.12);
         }
-        .archiveMilestoneBtn{
-          display:block;width:100%;border:none;text-align:left;font:inherit;color:inherit;
-          cursor:pointer;padding:0;background:transparent;
+        .archiveMilestoneCardButton{
+          position:relative;
+          width:100%;
+          border:none;
+          background:transparent;
+          color:inherit;
+          text-align:left;
+          padding:15px 14px;
+          cursor:pointer;
+          display:block;
         }
-        .archiveMilestoneBtn:focus-visible{
+        .archiveMilestoneCardButton:focus-visible{
           outline:2px solid rgba(255,255,255,.28);
-          outline-offset:3px;
-          border-radius:18px;
+          outline-offset:2px;
         }
         .archiveMilestoneCardVisual{background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.015))}
         .archiveMilestoneBackdrop{
@@ -548,6 +556,14 @@
         }
         .archiveMilestoneMeta{margin-top:8px;font-size:12px;line-height:1.45;color:rgba(255,255,255,.62)}
         .archiveMilestoneVenue{margin-top:3px;font-size:12px;line-height:1.45;color:rgba(255,255,255,.40)}
+        .archiveMilestoneHint{
+          margin-top:10px;
+          font-size:11px;
+          line-height:1.2;
+          color:rgba(255,255,255,.34);
+          letter-spacing:.06em;
+          text-transform:uppercase;
+        }
 
         .archiveRankGrid{display:grid;gap:10px}
         .archiveRankCard{
@@ -726,60 +742,42 @@
           border-bottom-color:rgba(255,255,255,.45);
         }
 
-        .archiveArtistSetlistGroup{
-          border-radius:18px;
+        .archiveSetlistArtistGroup{
+          border-radius:16px;
+          padding:12px;
           background:linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.018));
           outline:1px solid rgba(255,255,255,.07);
-          padding:12px 12px;
         }
-        .archiveArtistSetlistGroup + .archiveArtistSetlistGroup{
+        .archiveSetlistArtistGroup + .archiveSetlistArtistGroup{
           margin-top:12px;
         }
-        .archiveArtistSetlistHead{
+        .archiveSetlistArtistHeader{
           display:flex;
           align-items:flex-start;
           justify-content:space-between;
           gap:10px;
           margin-bottom:10px;
         }
-        .archiveArtistSetlistTitleWrap{
-          min-width:0;
-        }
-        .archiveArtistSetlistTitle{
+        .archiveSetlistArtistName{
           font-size:15px;
           line-height:1.3;
-          font-weight:600;
           color:rgba(255,255,255,.96);
-          word-break:break-word;
+          font-weight:600;
         }
-        .archiveArtistSetlistRole{
+        .archiveSetlistArtistRole{
           margin-top:4px;
           font-size:10px;
           line-height:1.2;
           letter-spacing:.12em;
           text-transform:uppercase;
-          color:rgba(255,255,255,.44);
+          color:rgba(255,255,255,.42);
         }
-        .archiveArtistSetlistStats{
+        .archiveSetlistArtistMeta{
           display:flex;
           flex-wrap:wrap;
-          gap:6px;
           justify-content:flex-end;
-        }
-        .archiveArtistSetlistStat{
-          display:inline-flex;
-          align-items:center;
           gap:6px;
-          padding:6px 9px;
-          border-radius:999px;
-          background:rgba(255,255,255,.05);
-          border:1px solid rgba(255,255,255,.08);
-          color:rgba(255,255,255,.82);
-          font-size:11px;
-          line-height:1.2;
-          white-space:nowrap;
         }
-
         .archiveSetBlock{display:grid;gap:8px}
         .archiveSetBlock + .archiveSetBlock{margin-top:12px}
         .archiveSetName{
@@ -1067,12 +1065,10 @@
     const value = normalizeSpace(state.archiveFilterValue || "");
 
     if (mode === "all" || !value) return true;
-
     if (mode === "year") return String(it?.date || "").trim().startsWith(`${value}-`);
 
     if (mode === "artist") {
       const selected = normalizeSpace(value);
-
       const mainArtist = normalizeSpace(it?.main_artist || "");
       const title = normalizeSpace(it?.title || "");
 
@@ -1115,9 +1111,8 @@
     state.archiveSetlistData = null;
     state.archiveSetlistError = "";
     state.archiveSetlistResolvedForKey = "";
-  }
-
-  async function ensureArchiveModalImage(item) {
+}
+   async function ensureArchiveModalImage(item) {
     if (!item) return;
 
     const lookupName = chooseArchiveRowLookupName(item);
@@ -1465,6 +1460,7 @@
   }
 
   function renderArchiveMilestoneCard({ label, item }) {
+    const eventKey = normalizeSpace(item?.event_key || "");
     const title = item?.title || "—";
     const date = formatArchiveDate(item?.date || "");
     const city = item?.city || "";
@@ -1472,25 +1468,25 @@
     const meta = [date, city].filter(Boolean).join(" · ");
     const imageUrl = normalizeSpace(item?.__imageUrl || "");
     const hasImage = !!imageUrl;
-    const eventKey = normalizeSpace(item?.event_key || "");
 
     return `
-      <button
-        type="button"
-        class="archiveMilestoneBtn"
-        data-archive-event-key="${escapeAttr(eventKey)}"
-        aria-label="${escapeAttr(title)}"
-      >
-        <div class="archiveMilestoneCard${hasImage ? " archiveMilestoneCardVisual" : ""}">
-          ${hasImage ? `<div class="archiveMilestoneBackdrop" style="background-image:url('${escapeAttr(imageUrl)}');"></div>` : ""}
+      <div class="archiveMilestoneCard${hasImage ? " archiveMilestoneCardVisual" : ""}">
+        ${hasImage ? `<div class="archiveMilestoneBackdrop" style="background-image:url('${escapeAttr(imageUrl)}');"></div>` : ""}
+        <button
+          type="button"
+          class="archiveMilestoneCardButton"
+          data-archive-event-key="${escapeAttr(eventKey)}"
+          aria-label="${escapeAttr(title)}"
+        >
           <div class="archiveMilestoneInner">
             <div class="archiveMilestoneLabel">${escapeHtml(label)}</div>
             <div class="archiveMilestoneTitle">${escapeHtml(title)}</div>
             <div class="archiveMilestoneMeta">${escapeHtml(meta)}</div>
             <div class="archiveMilestoneVenue">${escapeHtml(venue)}</div>
+            <div class="archiveMilestoneHint">Open concert</div>
           </div>
-        </div>
-      </button>
+        </button>
+      </div>
     `;
   }
 
@@ -1671,84 +1667,115 @@
     return `${minutes}m`;
   }
 
-  function renderArchiveSetlistMetaFromCounts(durationSec, matched, total) {
+  function isMultiArtistSetlist(setlistData) {
+    return setlistData?.setlist?.kind === "multi_artist" &&
+      Array.isArray(setlistData?.setlist?.artist_setlists);
+  }
+
+  function renderArchiveSetlistMeta(setlistData) {
+    const setlist = setlistData?.setlist || {};
+    const durationText = formatEstimatedDuration(setlist?.estimated_duration_sec);
+    const matched = Number(setlist?.matched_tracks || 0);
+    const total = Number(setlist?.total_tracks || 0);
+
     const pills = [];
-    const durationText = formatEstimatedDuration(durationSec);
 
     if (durationText) {
       pills.push(`<div class="archiveSetlistMetaPill">Estimated duration: ${escapeHtml(durationText)}</div>`);
     }
 
-    if (Number(total || 0) > 0) {
-      pills.push(`<div class="archiveSetlistMetaPill">Matched ${escapeHtml(String(matched || 0))}/${escapeHtml(String(total || 0))} tracks</div>`);
+    if (total > 0) {
+      pills.push(`<div class="archiveSetlistMetaPill">Matched ${escapeHtml(String(matched))}/${escapeHtml(String(total))} tracks</div>`);
     }
 
     if (!pills.length) return "";
     return `<div class="archiveSetlistMeta">${pills.join("")}</div>`;
   }
 
-  function renderArchiveSetlistSourceLine(source, sourceUrl) {
-    const safeSource = normalizeSpace(source || "setlistfm");
-    const safeUrl = normalizeSpace(sourceUrl || "");
+  function renderArchiveSetlistSource(setlistData) {
+    const source = normalizeSpace(setlistData?.source || "setlistfm");
+    const sourceUrl = normalizeSpace(setlistData?.source_url || setlistData?.setlist?.source_url || "");
 
     return `
       <div class="archiveSetlistSource">
-        <span>${escapeHtml(safeSource)}</span>
-        ${safeUrl ? `<a href="${escapeAttr(safeUrl)}" target="_blank" rel="noopener noreferrer">Open source</a>` : ""}
+        <span>${escapeHtml(source)}</span>
+        ${sourceUrl ? `<a href="${escapeAttr(sourceUrl)}" target="_blank" rel="noopener noreferrer">Open source</a>` : ""}
       </div>
     `;
   }
 
-  function renderArchiveSingleArtistSet(artistSet) {
-    const sets = Array.isArray(artistSet?.sets) ? artistSet.sets : [];
-    const role = normalizeSpace(artistSet?.role || "support");
-    const roleLabel =
-      role === "main" ? "Main artist" :
-      role === "support" ? "Support" :
-      role === "festival" ? "Festival set" :
-      role;
+  function renderArtistRoleLabel(role) {
+    const r = normalizeSpace(role || "").toLowerCase();
+    if (r === "main") return "Main artist";
+    if (r === "support") return "Support";
+    if (r === "festival") return "Festival artist";
+    return "Artist";
+  }
+
+  function renderArchiveSingleSetBlocks(sets) {
+    return (sets || []).map((setObj, idx) => {
+      const songs = Array.isArray(setObj?.songs) ? setObj.songs : [];
+      const setName = normalizeSpace(setObj?.name || "") || (idx === 0 ? "Set" : `Set ${idx + 1}`);
+
+      return `
+        <div class="archiveSetBlock">
+          <div class="archiveSetName">${escapeHtml(setName)}</div>
+          <ol class="archiveSetSongs">
+            ${songs.map((song) => `<li>${escapeHtml(song || "—")}</li>`).join("")}
+          </ol>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function renderArchiveMultiArtistSetlist(setlistData) {
+    const artistSetlists = Array.isArray(setlistData?.setlist?.artist_setlists)
+      ? setlistData.setlist.artist_setlists
+      : [];
+
+    if (!artistSetlists.length) {
+      return `<div class="archiveDetailMuted">No setlist found</div>`;
+    }
 
     return `
-      <div class="archiveArtistSetlistGroup">
-        <div class="archiveArtistSetlistHead">
-          <div class="archiveArtistSetlistTitleWrap">
-            <div class="archiveArtistSetlistTitle">${escapeHtml(artistSet?.artist || "—")}</div>
-            <div class="archiveArtistSetlistRole">${escapeHtml(roleLabel)}</div>
-          </div>
-          <div class="archiveArtistSetlistStats">
-            ${
-              Number(artistSet?.estimated_duration_sec || 0) > 0
-                ? `<div class="archiveArtistSetlistStat">${escapeHtml(formatEstimatedDuration(artistSet?.estimated_duration_sec || 0))}</div>`
-                : ""
-            }
-            ${
-              Number(artistSet?.total_tracks || 0) > 0
-                ? `<div class="archiveArtistSetlistStat">${escapeHtml(String(artistSet?.matched_tracks || 0))}/${escapeHtml(String(artistSet?.total_tracks || 0))}</div>`
-                : ""
-            }
-          </div>
-        </div>
+      <div class="archiveSetlistCard">
+        ${renderArchiveSetlistMeta(setlistData)}
 
-        ${sets.map((setObj, idx) => {
-          const songs = Array.isArray(setObj?.songs) ? setObj.songs : [];
-          const setName = normalizeSpace(setObj?.name || "") || (idx === 0 ? "Set" : `Set ${idx + 1}`);
+        ${artistSetlists.map((artistBlock) => {
+          const roleText = renderArtistRoleLabel(artistBlock?.role);
+          const durationText = formatEstimatedDuration(artistBlock?.estimated_duration_sec);
+          const matched = Number(artistBlock?.matched_tracks || 0);
+          const total = Number(artistBlock?.total_tracks || 0);
 
           return `
-            <div class="archiveSetBlock">
-              <div class="archiveSetName">${escapeHtml(setName)}</div>
-              <ol class="archiveSetSongs">
-                ${songs.map((song) => `<li>${escapeHtml(song || "—")}</li>`).join("")}
-              </ol>
+            <div class="archiveSetlistArtistGroup">
+              <div class="archiveSetlistArtistHeader">
+                <div>
+                  <div class="archiveSetlistArtistName">${escapeHtml(artistBlock?.artist || "—")}</div>
+                  <div class="archiveSetlistArtistRole">${escapeHtml(roleText)}</div>
+                </div>
+
+                <div class="archiveSetlistArtistMeta">
+                  ${durationText ? `<div class="archiveSetlistMetaPill">${escapeHtml(durationText)}</div>` : ""}
+                  ${total > 0 ? `<div class="archiveSetlistMetaPill">Matched ${escapeHtml(String(matched))}/${escapeHtml(String(total))}</div>` : ""}
+                </div>
+              </div>
+
+              ${renderArchiveSingleSetBlocks(artistBlock?.sets || [])}
+
+              <div class="archiveSetlistSource">
+                <span>${escapeHtml(artistBlock?.source || "setlistfm")}</span>
+                ${artistBlock?.source_url ? `<a href="${escapeAttr(artistBlock.source_url)}" target="_blank" rel="noopener noreferrer">Open source</a>` : ""}
+              </div>
             </div>
           `;
         }).join("")}
 
-        ${renderArchiveSetlistSourceLine(artistSet?.source, artistSet?.source_url)}
+        ${renderArchiveSetlistSource(setlistData)}
       </div>
     `;
-  }
-
-  function renderArchiveSetlistInner() {
+       }
+   function renderArchiveSetlistInner() {
     if (state.archiveSetlistLoading) {
       return `<div class="archiveDetailMuted">Loading setlist...</div>`;
     }
@@ -1757,27 +1784,14 @@
       return `<div class="archiveDetailMuted">Searching for setlist...</div>`;
     }
 
-    const setlistData = state.archiveSetlistData;
-    const setlist = setlistData?.setlist || null;
-
-    if (setlist) {
-      const kind = normalizeSpace(setlist?.kind || "");
-      const artistSetlists = Array.isArray(setlist?.artist_setlists) ? setlist.artist_setlists : [];
-
-      if (kind === "multi_artist" && artistSetlists.length) {
-        return `
-          <div class="archiveSetlistCard">
-            ${renderArchiveSetlistMetaFromCounts(
-              setlist?.estimated_duration_sec,
-              setlist?.matched_tracks,
-              setlist?.total_tracks
-            )}
-            ${artistSetlists.map(renderArchiveSingleArtistSet).join("")}
-          </div>
-        `;
+    if (state.archiveSetlistData?.setlist) {
+      if (isMultiArtistSetlist(state.archiveSetlistData)) {
+        return renderArchiveMultiArtistSetlist(state.archiveSetlistData);
       }
 
+      const setlist = state.archiveSetlistData.setlist;
       const sets = Array.isArray(setlist?.sets) ? setlist.sets : [];
+
       if (!sets.length) {
         return `
           <div class="archiveSetlistCard">
@@ -1788,27 +1802,9 @@
 
       return `
         <div class="archiveSetlistCard">
-          ${renderArchiveSetlistMetaFromCounts(
-            setlist?.estimated_duration_sec,
-            setlist?.matched_tracks,
-            setlist?.total_tracks
-          )}
-
-          ${sets.map((setObj, idx) => {
-            const songs = Array.isArray(setObj?.songs) ? setObj.songs : [];
-            const setName = normalizeSpace(setObj?.name || "") || (idx === 0 ? "Set" : `Set ${idx + 1}`);
-
-            return `
-              <div class="archiveSetBlock">
-                <div class="archiveSetName">${escapeHtml(setName)}</div>
-                <ol class="archiveSetSongs">
-                  ${songs.map((song) => `<li>${escapeHtml(song || "—")}</li>`).join("")}
-                </ol>
-              </div>
-            `;
-          }).join("")}
-
-          ${renderArchiveSetlistSourceLine(setlistData?.source, setlistData?.source_url)}
+          ${renderArchiveSetlistMeta(state.archiveSetlistData)}
+          ${renderArchiveSingleSetBlocks(sets)}
+          ${renderArchiveSetlistSource(state.archiveSetlistData)}
         </div>
       `;
     }
@@ -1937,6 +1933,7 @@
     `;
 
     setupArchiveRowImageEnhancement();
+    cleanupArchiveShell();
     document.body.style.overflow = state.archiveSelectedEventKey ? "hidden" : "";
   }
 
@@ -2005,6 +2002,74 @@
     });
 
     rows.forEach((row) => archiveRowImageObserver.observe(row));
+  }
+
+  function cleanupArchiveShell() {
+    if (!archiveList) return;
+
+    const styleId = "lmArchiveShellCleanupCss";
+    if (!document.getElementById(styleId)) {
+      const st = document.createElement("style");
+      st.id = styleId;
+      st.textContent = `
+        .lmArchiveShellHidden{display:none !important;}
+      `;
+      document.head.appendChild(st);
+    }
+
+    const archiveView = $("viewArchive") || archiveList.closest("[data-view='archive']") || archiveList.closest(".view");
+    if (!archiveView) return;
+
+    const archiveCard = archiveList.closest(".card");
+    if (archiveCard) {
+      const cardTitle = archiveCard.querySelector(".card__title");
+      if (cardTitle && normalizeSpace(cardTitle.textContent).toLowerCase() === "archive list") {
+        cardTitle.classList.add("lmArchiveShellHidden");
+      }
+
+      archiveCard.querySelectorAll(".card__sub, .card__desc, p").forEach((el) => {
+        const txt = normalizeSpace(el.textContent).toLowerCase();
+        if (
+          txt === "archive list" ||
+          txt.includes("saved sessions") ||
+          txt.includes("archived mirror states") ||
+          txt.includes("history, or archived mirror states can render here")
+        ) {
+          el.classList.add("lmArchiveShellHidden");
+        }
+      });
+    }
+
+    if (!archiveShellCleaned) {
+      const stack = archiveView.querySelector(".stack") || archiveView;
+      const cards = Array.from(stack.querySelectorAll(":scope > .card"));
+      if (cards.length) {
+        for (const child of Array.from(stack.children)) {
+          if (child === archiveCard) break;
+
+          const txt = normalizeSpace(child.textContent).toLowerCase();
+          if (
+            txt.includes("saved sessions") ||
+            txt.includes("archived mirror states can render here")
+          ) {
+            child.classList.add("lmArchiveShellHidden");
+          } else if (
+            /archive/.test(txt) &&
+            child.querySelector &&
+            child.querySelector("h1,h2,h3,.title,.card__title")
+          ) {
+            const blockText = normalizeSpace(child.textContent).toLowerCase();
+            if (
+              blockText.includes("saved sessions") ||
+              blockText.includes("archived mirror states")
+            ) {
+              child.classList.add("lmArchiveShellHidden");
+            }
+          }
+        }
+      }
+      archiveShellCleaned = true;
+    }
   }
 
   function bindTopPanelControls() {
@@ -2302,40 +2367,6 @@
     }
   }
 
-  function removeArchivePlaceholderText() {
-    const archiveView = $("viewArchive");
-    if (!archiveView) return;
-
-    const titles = Array.from(archiveView.querySelectorAll(".card__title, h2, h3, h4"));
-    titles.forEach((el) => {
-      const txt = normalizeSpace(el.textContent).toLowerCase();
-      if (txt === "archive") {
-        const card = el.closest(".card");
-        if (!card) return;
-
-        const isArchiveListCard = !!card.querySelector("#archiveList");
-        if (isArchiveListCard) return;
-
-        const maybeSubs = Array.from(card.querySelectorAll(".card__sub, .card__desc, p"));
-        maybeSubs.forEach((sub) => {
-          const t = normalizeSpace(sub.textContent).toLowerCase();
-          if (
-            t.includes("saved sessions") ||
-            t.includes("history") ||
-            t.includes("archived mirror states") ||
-            t.includes("render here")
-          ) {
-            sub.style.display = "none";
-          }
-        });
-
-        if (maybeSubs.some((sub) => sub.style.display === "none")) {
-          el.style.display = "none";
-        }
-      }
-    });
-  }
-
   async function boot() {
     ensureIdentityUi();
     bindIdentityTabs();
@@ -2347,7 +2378,7 @@
 
     await Promise.all([loadRecent(), loadTop(), loadArchiveList()]);
     syncIdentityTabUi();
-    removeArchivePlaceholderText();
+    cleanupArchiveShell();
   }
 
   window.__LM_APP__ = {

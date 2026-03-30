@@ -5,8 +5,8 @@ const PARADISO_SLUG = "Paradiso";
 
 export async function fetchParadisoEvents(options = {}) {
   const {
-    maxPages = 20,
-    stopAfterEmptyPages = 3,
+    maxPages = 80,
+    stopAfterEmptyPages = 2,
     retriesPerPage = 2
   } = options;
 

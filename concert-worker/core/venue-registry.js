@@ -16,11 +16,13 @@ import { fetchDbsEvents } from "../parsers/parser-dbs.js";
 import { fetchMuziekgieterijEvents } from "../parsers/parser-muziekgieterij.js";
 import { fetchCarreEvents } from "../parsers/parser-carre.js";
 import { fetchMusiconEvents } from "../parsers/parser-musicon.js";
+import { fetchDeHellingEvents } from "../parsers/parser-dehelling.js";
 
 export const venueRegistry = {
   paradiso: fetchParadisoEvents,
   melkweg: fetchMelkwegEvents,
   tivoli: fetchTivoliEvents,
+  dehelling: fetchDeHellingEvents,
   patronaat: fetchPatronaatEvents,
   effenaar: fetchEffenaarEvents,
   doornroosje: fetchDoornroosjeEvents,

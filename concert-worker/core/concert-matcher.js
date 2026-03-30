@@ -6,7 +6,9 @@ export function scoreConcertEvents(events, tasteProfile, relatedProfile, options
     includeHidden = false
   } = options;
 
-  const scored = list.map((event) => scoreConcertEvent(event, tasteProfile, relatedProfile));
+  const scored = list.map((event) =>
+    scoreConcertEvent(event, tasteProfile, relatedProfile)
+  );
 
   const filtered = includeHidden
     ? scored
@@ -30,7 +32,10 @@ export function scoreConcertEvent(event, tasteProfile, relatedProfile) {
     })
     .filter(Boolean)
     .sort((a, b) => {
-      return b.match.score - a.match.score || a.candidate.raw.localeCompare(b.candidate.raw);
+      return (
+        Number(b?.match?.score || 0) - Number(a?.match?.score || 0) ||
+        String(a?.candidate?.raw || "").localeCompare(String(b?.candidate?.raw || ""))
+      );
     });
 
   const relatedMatches = normalizedCandidates
@@ -45,14 +50,17 @@ export function scoreConcertEvent(event, tasteProfile, relatedProfile) {
     })
     .filter(Boolean)
     .sort((a, b) => {
-      return b.match.score - a.match.score || a.candidate.raw.localeCompare(b.candidate.raw);
+      return (
+        Number(b?.match?.score || 0) - Number(a?.match?.score || 0) ||
+        String(a?.candidate?.raw || "").localeCompare(String(b?.candidate?.raw || ""))
+      );
     });
 
   const bestDirect = directMatches[0] || null;
   const bestRelated = relatedMatches[0] || null;
 
-  const directScore = bestDirect?.match?.score || 0;
-  const relatedScore = bestRelated?.match?.score || 0;
+  const directScore = roundTo(Number(bestDirect?.match?.score || 0), 2);
+  const relatedScore = roundTo(Number(bestRelated?.match?.score || 0), 2);
 
   const directWeighted = directScore;
   const relatedWeighted = roundTo(relatedScore * 0.85, 2);
@@ -60,13 +68,16 @@ export function scoreConcertEvent(event, tasteProfile, relatedProfile) {
   const finalScore = clampScore(Math.max(directWeighted, relatedWeighted));
 
   const matchType = resolveMatchType({
+    bestDirect,
+    bestRelated,
     directScore,
     relatedScore
   });
 
   const reasons = buildReasons({
     bestDirect,
-    bestRelated
+    bestRelated,
+    matchType
   });
 
   return {
@@ -98,20 +109,20 @@ export function scoreConcertEvent(event, tasteProfile, relatedProfile) {
   };
 }
 
-function resolveMatchType({ directScore, relatedScore }) {
-  if (directScore > 0 && directScore >= relatedScore * 0.85) {
+function resolveMatchType({ bestDirect, bestRelated, directScore, relatedScore }) {
+  if (bestDirect && directScore > 0 && directScore >= relatedScore * 0.85) {
     return {
       matchedBy: "direct",
-      matchedArtist: null,
-      matchedTier: null
+      matchedArtist: bestDirect?.match?.name || null,
+      matchedTier: bestDirect?.match?.tier || null
     };
   }
 
-  if (relatedScore > 0) {
+  if (bestRelated && relatedScore > 0) {
     return {
       matchedBy: "related",
-      matchedArtist: null,
-      matchedTier: null
+      matchedArtist: bestRelated?.match?.name || null,
+      matchedTier: bestRelated?.match?.tier || null
     };
   }
 
@@ -121,7 +132,7 @@ function resolveMatchType({ directScore, relatedScore }) {
     matchedTier: null
   };
 }
-function buildReasons({ bestDirect, bestRelated }) {
+function buildReasons({ bestDirect, bestRelated, matchType }) {
   const reasons = [];
 
   if (bestDirect) {
@@ -152,12 +163,15 @@ function buildReasons({ bestDirect, bestRelated }) {
       : [];
 
     if (topSources.length) {
-      const sourceNames = topSources.map((source) => source.name).filter(Boolean);
+      const sourceNames = topSources
+        .map((source) => source?.name)
+        .filter(Boolean);
+
       if (sourceNames.length) {
         reasons.push(`Similar to: ${sourceNames.join(", ")}`);
       }
-    } else {
-      reasons.push(`Related recommendation: ${bestRelated.match.name}`);
+    } else if (matchType?.matchedArtist) {
+      reasons.push(`Related recommendation: ${matchType.matchedArtist}`);
     }
   }
 
@@ -192,15 +206,24 @@ function getRelatedMatch(normalized, relatedProfile) {
 }
 
 function compareScoredConcerts(a, b) {
-  const scoreDiff = (b.finalScore || 0) - (a.finalScore || 0);
+  const visibilityDiff = visibilityRank(a?.visibility) - visibilityRank(b?.visibility);
+  if (visibilityDiff !== 0) return visibilityDiff;
+
+  const scoreDiff = Number(b?.finalScore || 0) - Number(a?.finalScore || 0);
   if (scoreDiff !== 0) return scoreDiff;
 
-  const dateA = `${a.date_local || ""} ${a.time_local || "99:99"}`;
-  const dateB = `${b.date_local || ""} ${b.time_local || "99:99"}`;
+  const directDiff = Number(b?.directScore || 0) - Number(a?.directScore || 0);
+  if (directDiff !== 0) return directDiff;
+
+  const relatedDiff = Number(b?.relatedScore || 0) - Number(a?.relatedScore || 0);
+  if (relatedDiff !== 0) return relatedDiff;
+
+  const dateA = `${a?.date_local || ""} ${a?.time_local || "99:99"}`;
+  const dateB = `${b?.date_local || ""} ${b?.time_local || "99:99"}`;
   const dateCmp = dateA.localeCompare(dateB);
   if (dateCmp !== 0) return dateCmp;
 
-  return String(a.title || "").localeCompare(String(b.title || ""));
+  return String(a?.title || "").localeCompare(String(b?.title || ""));
 }
 function extractNormalizedArtistCandidates(event) {
   const rawCandidates = [];
@@ -252,7 +275,7 @@ function splitPotentialArtists(value) {
   const stripped = stripEventSuffixes(text);
 
   const parts = stripped
-    .split(/\s+(?:\+|\/|&|and|with|w\/)\s+/i)
+    .split(/\s+(?:\+|\/|&|and|with|w\/|x)\s+/i)
     .map(cleanText)
     .filter(Boolean);
 
@@ -282,6 +305,55 @@ function normalizeArtistKey(value) {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+export function dedupeScoredConcerts(events) {
+  const list = Array.isArray(events) ? events : [];
+  const bestByKey = new Map();
+
+  for (const event of list) {
+    const key = buildConcertDedupeKey(event);
+    const prev = bestByKey.get(key);
+
+    if (!prev) {
+      bestByKey.set(key, event);
+      continue;
+    }
+
+    if (compareDuplicatePreference(event, prev) < 0) {
+      bestByKey.set(key, event);
+    }
+  }
+
+  return Array.from(bestByKey.values()).sort(compareScoredConcerts);
+}
+
+function buildConcertDedupeKey(event) {
+  const sourceId = cleanText(event?.source_id);
+  if (sourceId) {
+    return `sid::${sourceId}`;
+  }
+
+  return [
+    normalizeLooseKey(event?.title),
+    cleanText(event?.date_local),
+    normalizeLooseKey(event?.venue_name),
+    normalizeLooseKey(event?.city)
+  ].join("::");
+}
+
+function compareDuplicatePreference(a, b) {
+  const visibilityDiff = visibilityRank(a?.visibility) - visibilityRank(b?.visibility);
+  if (visibilityDiff !== 0) return visibilityDiff;
+
+  const scoreDiff = Number(b?.finalScore || 0) - Number(a?.finalScore || 0);
+  if (scoreDiff !== 0) return scoreDiff > 0 ? 1 : -1;
+
+  const fetchedA = Number(a?.fetched_at || 0);
+  const fetchedB = Number(b?.fetched_at || 0);
+  if (fetchedA !== fetchedB) return fetchedB - fetchedA > 0 ? 1 : -1;
+
+  return 0;
+}
 export function summarizeScoredConcerts(scoredEvents) {
   const list = Array.isArray(scoredEvents) ? scoredEvents : [];
 
@@ -310,10 +382,40 @@ export function summarizeScoredConcerts(scoredEvents) {
       directScore: event.directScore,
       relatedScore: event.relatedScore,
       matchedBy: event.matchedBy,
+      matchedArtist: event.matchedArtist,
+      matchedTier: event.matchedTier,
       visibility: event.visibility,
       reasons: event.reasons
     }))
   };
+}
+
+function visibilityRank(value) {
+  switch (value) {
+    case "top":
+      return 1;
+    case "strong":
+      return 2;
+    case "recommended":
+      return 3;
+    case "older-taste":
+      return 4;
+    case "borderline":
+      return 5;
+    default:
+      return 99;
+  }
+}
+
+function normalizeLooseKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[’']/g, "")
+    .replace(/[^\w\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function cleanText(value) {

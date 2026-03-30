@@ -8,6 +8,10 @@
    - auto setlist load/fetch
    - single-artist + multi-artist setlists
    - polished archive shell cleanup
+
+   Concerts tab:
+   - only relevant concerts from eConcerts recommender
+   - direct matches + recommended based on listening taste
 */
 
 (() => {
@@ -15,10 +19,12 @@
 
   const API_BASE = "https://i.errtanq9.workers.dev";
   const ARCHIVE_API_BASE = "https://listening-mirror-archive.errtanq9.workers.dev";
+  const ECONCERTS_API_BASE = "https://econcerts.errtanq9.workers.dev";
 
   const TOP_LIMIT_DEFAULT = 10;
   const RECENT_LIMIT_DEFAULT = 20;
   const ARCHIVE_LIMIT_DEFAULT = 300;
+  const CONCERTS_LIMIT_DEFAULT = 300;
 
   const $ = (id) => document.getElementById(id);
 
@@ -34,6 +40,11 @@
     identityTab: "recent",
     lastRecent: [],
     lastTop: [],
+
+    lastConcertRecommendations: [],
+    lastConcertBuckets: null,
+    concertsLoaded: false,
+
     lastArchive: [],
     archiveStats: null,
     archiveHeroImages: {
@@ -72,6 +83,13 @@
     return ARCHIVE_API_BASE + "/" + urlOrPath;
   }
 
+  function absEconcertsApi(urlOrPath) {
+    if (!urlOrPath) return "";
+    if (/^https?:\/\//i.test(urlOrPath)) return urlOrPath;
+    if (urlOrPath.startsWith("/")) return ECONCERTS_API_BASE + urlOrPath;
+    return ECONCERTS_API_BASE + "/" + urlOrPath;
+  }
+
   async function apiGet(path) {
     const url = absApi(path);
     const r = await fetch(url, { cache: "no-store" });
@@ -102,6 +120,14 @@
     if (!r.ok || !data?.ok) {
       throw new Error(data?.error || `HTTP ${r.status}`);
     }
+    return data;
+  }
+
+  async function econcertsApiGet(path) {
+    const url = absEconcertsApi(path);
+    const r = await fetch(url, { cache: "no-store" });
+    const data = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(data?.error || `HTTP ${r.status}`);
     return data;
   }
 
@@ -458,6 +484,104 @@
           display:grid;place-items:center;width:24px;height:24px;border-radius:999px;
           background:rgba(255,255,255,.92);color:#111;font-size:11px;line-height:1;
           padding-left:2px;box-shadow:0 4px 12px rgba(0,0,0,.2);
+        }
+
+        .lmConcertCard{
+          border-radius:16px;
+          background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.022));
+          outline:1px solid rgba(255,255,255,.08);
+          padding:13px 13px;
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.02),0 8px 18px rgba(0,0,0,.09);
+        }
+        .lmConcertCard + .lmConcertCard{margin-top:10px}
+        .lmConcertTop{
+          display:flex;
+          align-items:flex-start;
+          justify-content:space-between;
+          gap:10px;
+        }
+        .lmConcertTitle{
+          font-size:15px;
+          line-height:1.35;
+          font-weight:600;
+          color:rgba(255,255,255,.96);
+        }
+        .lmConcertMeta{
+          margin-top:8px;
+          font-size:12px;
+          line-height:1.45;
+          color:rgba(255,255,255,.62);
+        }
+        .lmConcertVenue{
+          margin-top:3px;
+          font-size:12px;
+          line-height:1.45;
+          color:rgba(255,255,255,.44);
+        }
+        .lmConcertFooter{
+          margin-top:10px;
+          display:flex;
+          flex-wrap:wrap;
+          gap:8px;
+        }
+        .lmConcertPill{
+          display:inline-flex;
+          align-items:center;
+          gap:6px;
+          padding:7px 10px;
+          border-radius:999px;
+          background:rgba(255,255,255,.05);
+          border:1px solid rgba(255,255,255,.08);
+          color:rgba(255,255,255,.82);
+          font-size:11px;
+          line-height:1.2;
+          letter-spacing:.04em;
+        }
+        .lmConcertScore{
+          border-radius:999px;
+          padding:7px 10px;
+          background:rgba(255,255,255,.10);
+          border:1px solid rgba(255,255,255,.12);
+          color:#fff;
+          font-size:12px;
+          font-weight:600;
+          white-space:nowrap;
+        }
+        .lmConcertReason{
+          margin-top:10px;
+          font-size:12px;
+          line-height:1.5;
+          color:rgba(255,255,255,.58);
+        }
+        .lmConcertLink{
+          color:rgba(255,255,255,.96);
+          text-decoration:none;
+          border-bottom:1px solid rgba(255,255,255,.18);
+        }
+        .lmConcertLink:hover{
+          color:#fff;
+          border-bottom-color:rgba(255,255,255,.42);
+        }
+        .lmConcertSectionHead{
+          display:flex;
+          align-items:center;
+          justify-content:space-between;
+          gap:10px;
+          margin-bottom:12px;
+        }
+        .lmConcertSectionTitle{
+          font-size:12px;
+          line-height:1.2;
+          letter-spacing:.14em;
+          text-transform:uppercase;
+          color:rgba(255,255,255,.50);
+        }
+        .lmConcertMiniStat{
+          font-size:11px;
+          line-height:1.2;
+          color:rgba(255,255,255,.42);
+          letter-spacing:.05em;
+          text-transform:uppercase;
         }
 
         .archiveCanvas{display:grid;gap:18px}
@@ -955,12 +1079,225 @@
     }
   }
 
+  function formatConcertDate(dateLocal, timeLocal) {
+    const s = String(dateLocal || "").trim();
+    if (!s) return "";
+
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    let dateText = s;
+
+    if (m) {
+      const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+      dateText = dt.toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        timeZone: "UTC"
+      });
+    }
+
+    const t = normalizeSpace(timeLocal || "");
+    return [dateText, t].filter(Boolean).join(" • ");
+  }
+
+  function concertScoreEmoji(score) {
+    const s = Number(score || 0);
+    if (s >= 85) return "🔥";
+    if (s >= 70) return "✨";
+    if (s >= 55) return "👍";
+    if (s >= 40) return "👀";
+    return "·";
+  }
+
+  function concertVisibilityLabel(visibility) {
+    switch (String(visibility || "").toLowerCase()) {
+      case "top": return "Top";
+      case "strong": return "Strong";
+      case "recommended": return "Recommended";
+      case "older-taste": return "Older taste";
+      case "borderline": return "Borderline";
+      default: return "Match";
+    }
+  }
+
+  function renderConcertCard(event, opts = {}) {
+    const {
+      showScore = true,
+      showReasons = true
+    } = opts;
+
+    const title = normalizeSpace(event?.title || event?.artists_main || "—");
+    const meta = [formatConcertDate(event?.date_local, event?.time_local), normalizeSpace(event?.city || "")]
+      .filter(Boolean)
+      .join(" • ");
+    const venue = normalizeSpace(event?.venue_name || "");
+    const source = normalizeSpace(event?.source || "");
+    const visibility = normalizeSpace(event?.visibility || "");
+    const score = Number(event?.finalScore || 0);
+    const url = normalizeSpace(event?.url || "");
+    const matchedArtist = normalizeSpace(event?.matchedArtist || "");
+    const reasons = Array.isArray(event?.reasons) ? event.reasons.slice(0, 2) : [];
+
+    return `
+      <div class="lmConcertCard">
+        <div class="lmConcertTop">
+          <div class="mid">
+            <div class="lmConcertTitle">
+              ${
+                url
+                  ? `<a class="lmConcertLink" href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a>`
+                  : escapeHtml(title)
+              }
+            </div>
+            <div class="lmConcertMeta">${escapeHtml(meta)}</div>
+            <div class="lmConcertVenue">${escapeHtml(venue)}</div>
+          </div>
+          ${
+            showScore
+              ? `<div class="lmConcertScore">${escapeHtml(`${concertScoreEmoji(score)} ${Math.round(score)}`)}</div>`
+              : ``
+          }
+        </div>
+
+        <div class="lmConcertFooter">
+          ${visibility ? `<div class="lmConcertPill">${escapeHtml(concertVisibilityLabel(visibility))}</div>` : ``}
+          ${matchedArtist ? `<div class="lmConcertPill">${escapeHtml(`match: ${matchedArtist}`)}</div>` : ``}
+          ${source ? `<div class="lmConcertPill">${escapeHtml(source)}</div>` : ``}
+        </div>
+
+        ${
+          showReasons && reasons.length
+            ? `<div class="lmConcertReason">${escapeHtml(reasons.join(" • "))}</div>`
+            : ``
+        }
+      </div>
+    `;
+  }
+   function renderConcertSection(el, title, statText, events) {
+    if (!el) return;
+
+    if (!events.length) {
+      el.innerHTML = `
+        <div class="lmConcertSectionHead">
+          <div class="lmConcertSectionTitle">${escapeHtml(title)}</div>
+          <div class="lmConcertMiniStat">${escapeHtml(statText || "")}</div>
+        </div>
+        ${cardMessageHTML("Nothing here yet", "No relevant concerts found right now.")}
+      `;
+      return;
+    }
+
+    el.innerHTML = `
+      <div class="lmConcertSectionHead">
+        <div class="lmConcertSectionTitle">${escapeHtml(title)}</div>
+        <div class="lmConcertMiniStat">${escapeHtml(statText || "")}</div>
+      </div>
+      ${events.map((ev) => renderConcertCard(ev)).join("")}
+    `;
+  }
+
   function loadConcertPlaceholders() {
     if (concertsList && !concertsList.children.length) {
-      concertsList.innerHTML = cardMessageHTML("Concert feed not wired yet", "Your real concerts source can be connected next.");
+      concertsList.innerHTML = cardMessageHTML(
+        "Loading matches…",
+        "Fetching concerts that actually fit what you listen to."
+      );
     }
     if (concertMatchesList && !concertMatchesList.children.length) {
-      concertMatchesList.innerHTML = cardMessageHTML("No matches yet", "Matches will appear here when the concerts feed is connected.");
+      concertMatchesList.innerHTML = cardMessageHTML(
+        "Loading recommendations…",
+        "Finding more relevant concerts based on your taste."
+      );
+    }
+  }
+
+  async function loadConcertRecommendations() {
+    if (!concertsList || !concertMatchesList) return false;
+
+    try {
+      setLoading(concertsList, "Loading…", "Fetching concerts that match your listening…");
+      setLoading(concertMatchesList, "Loading…", "Fetching recommended concerts based on your taste…");
+
+      const data = await econcertsApiGet(
+        `/concerts/recommended?bucketed=1&limit=${CONCERTS_LIMIT_DEFAULT}&includeHidden=0`
+      );
+
+      const events = Array.isArray(data?.events) ? data.events : [];
+      const buckets = data?.buckets || {};
+
+      state.lastConcertRecommendations = events.slice();
+      state.lastConcertBuckets = buckets || null;
+      state.concertsLoaded = true;
+
+      const directMatches = [
+        ...(Array.isArray(buckets?.top) ? buckets.top : []),
+        ...(Array.isArray(buckets?.strong) ? buckets.strong : [])
+      ];
+
+      const recommendedMatches = [
+        ...(Array.isArray(buckets?.recommended) ? buckets.recommended : []),
+        ...(Array.isArray(buckets?.olderTaste) ? buckets.olderTaste : [])
+      ];
+
+      renderConcertSection(
+        concertsList,
+        "Best Matches",
+        `${directMatches.length} direct`,
+        directMatches.slice(0, 24)
+      );
+
+      renderConcertSection(
+        concertMatchesList,
+        "Recommended For You",
+        `${recommendedMatches.length} related`,
+        recommendedMatches.slice(0, 24)
+      );
+
+      if (!directMatches.length && !recommendedMatches.length) {
+        const fallbackVisible = events.filter((ev) => {
+          const v = String(ev?.visibility || "").toLowerCase();
+          return v === "top" || v === "strong" || v === "recommended" || v === "older-taste";
+        });
+
+        if (fallbackVisible.length) {
+          renderConcertSection(
+            concertsList,
+            "Relevant Concerts",
+            `${fallbackVisible.length} visible`,
+            fallbackVisible.slice(0, 24)
+          );
+
+          concertMatchesList.innerHTML = cardMessageHTML(
+            "No extra recommendations yet",
+            "Only direct relevant matches were found for now."
+          );
+        } else {
+          setEmpty(
+            concertsList,
+            "No relevant concerts right now",
+            "Nothing in the current feed strongly matches your taste."
+          );
+          setEmpty(
+            concertMatchesList,
+            "No recommendations right now",
+            "Try again after the venues refresh."
+          );
+        }
+      }
+
+      return true;
+    } catch (err) {
+      setError(
+        concertsList,
+        "Couldn’t load relevant concerts.",
+        String(err?.message || "Check eConcerts worker.")
+      );
+      setError(
+        concertMatchesList,
+        "Couldn’t load recommendations.",
+        String(err?.message || "Check eConcerts worker.")
+      );
+      return false;
     }
   }
 
@@ -1111,8 +1448,9 @@
     state.archiveSetlistData = null;
     state.archiveSetlistError = "";
     state.archiveSetlistResolvedForKey = "";
-}
-   async function ensureArchiveModalImage(item) {
+  }
+
+  async function ensureArchiveModalImage(item) {
     if (!item) return;
 
     const lookupName = chooseArchiveRowLookupName(item);
@@ -1291,9 +1629,8 @@
       renderArchiveView();
       alert(`Could not save note.\n\n${String(err.message || err)}`);
     }
-  }
-
-  function renderArchiveExplore(items, stats) {
+ }
+   function renderArchiveExplore(items, stats) {
     const mode = state.archiveFilterMode || "all";
     const options = getArchiveFilterOptions(mode, items, stats);
 
@@ -1774,8 +2111,9 @@
         ${renderArchiveSetlistSource(setlistData)}
       </div>
     `;
-       }
-   function renderArchiveSetlistInner() {
+  }
+
+  function renderArchiveSetlistInner() {
     if (state.archiveSetlistLoading) {
       return `<div class="archiveDetailMuted">Loading setlist...</div>`;
     }
@@ -2328,8 +2666,10 @@
       if (!topList?.children.length || topList.textContent.includes("No data")) await loadTop();
     });
 
-    tabConcerts?.addEventListener("click", () => {
-      loadConcertPlaceholders();
+    tabConcerts?.addEventListener("click", async () => {
+      if (!state.concertsLoaded) {
+        await loadConcertRecommendations();
+      }
     });
 
     tabArchive?.addEventListener("click", async () => {
@@ -2376,7 +2716,7 @@
 
     loadConcertPlaceholders();
 
-    await Promise.all([loadRecent(), loadTop(), loadArchiveList()]);
+    await Promise.all([loadRecent(), loadTop(), loadConcertRecommendations(), loadArchiveList()]);
     syncIdentityTabUi();
     cleanupArchiveShell();
   }
@@ -2389,6 +2729,9 @@
         identityTab: state.identityTab,
         lastRecent: Array.isArray(state.lastRecent) ? state.lastRecent.slice() : [],
         lastTop: Array.isArray(state.lastTop) ? state.lastTop.slice() : [],
+        lastConcertRecommendations: Array.isArray(state.lastConcertRecommendations) ? state.lastConcertRecommendations.slice() : [],
+        lastConcertBuckets: state.lastConcertBuckets ? { ...state.lastConcertBuckets } : null,
+        concertsLoaded: state.concertsLoaded,
         lastArchive: Array.isArray(state.lastArchive) ? state.lastArchive.slice() : [],
         archiveStats: state.archiveStats ? { ...state.archiveStats } : null,
         archiveHeroImages: { ...state.archiveHeroImages },

@@ -1,25 +1,19 @@
 /* econcerts.js (FULL FILE REPLACE)
-   Listening Mirror — Concerts tab (recommended-only from econcerts worker)
-
-   ✅ Uses NEW econcerts worker only
-   ✅ Shows only relevant concerts:
-      - top
-      - strong
-      - recommended
-   ✅ No unrelated / hidden concerts
-   ✅ Auto-refresh on Concerts tab open
-   ✅ Uses images in this order:
-      1) event.imageUrl / event.image_url
-      2) Top/Recent images already loaded by app.js
-      3) Last.fm lookup via window.LASTFM_API_KEY
-      4) cinematic fallback
-   ✅ Keeps Plan / Dismissed local state
+   Listening Mirror — Concerts tab
+   Uses ONLY the new econcerts worker recommended endpoint
 */
 
 (() => {
   "use strict";
 
   const $ = (sel, root = document) => root.querySelector(sel);
+
+  const listEl = document.querySelector("#econcertsList");
+  if (!listEl) return;
+
+  const STORE_KEY = "lm_econcerts_ui_v60_recommended_worker_only";
+  const ECONCERTS_BASE = "https://econcerts.errtanq9.workers.dev";
+  const RECOMMENDED_LIMIT = 5000;
 
   function safeStr(v) {
     return String(v || "").trim();
@@ -33,24 +27,29 @@
     return d instanceof Date && !Number.isNaN(d.getTime());
   }
 
-  function parseIsoToDate(s) {
-    const t = safeStr(s);
-    if (!t) return null;
-    const d = new Date(t);
-    return isValidDate(d) ? d : null;
+  function parseAmsterdamDate(dateLocal, timeLocal) {
+    const datePart = safeStr(dateLocal);
+    if (!datePart) return null;
+
+    const timePart = safeStr(timeLocal) || "20:00";
+    const normalizedTime = /^\d{2}:\d{2}$/.test(timePart) ? timePart : "20:00";
+
+    const dt = new Date(`${datePart}T${normalizedTime}:00+02:00`);
+    return isValidDate(dt) ? dt : null;
   }
 
   async function fetchJson(url, init = undefined) {
     const res = await fetch(url, init);
     const data = await res.json().catch(() => ({}));
+
     if (!res.ok) {
-      const msg = safeStr(data?.error || data?.message || `HTTP ${res.status}`);
-      throw new Error(msg);
+      throw new Error(safeStr(data?.error || data?.message || `HTTP ${res.status}`));
     }
+
     if (data && data.ok === false) {
-      const msg = safeStr(data?.error || data?.message || "Unknown error");
-      throw new Error(msg);
+      throw new Error(safeStr(data?.error || data?.message || "Unknown error"));
     }
+
     return data;
   }
 
@@ -58,22 +57,18 @@
     const s0 = safeStr(input);
     if (!s0) return "";
 
-    const KEEP_UPPER = new Set([
-      "DJ","MC","II","III","IV","V","VI","VII","VIII","IX","X",
-      "USA","UK","EU","EP","LP","TV","DJ'S","IDM","EDM","V.I.C.","dEUS"
+    const KEEP_AS_IS = new Set([
+      "dEUS", "MØ", "A$AP", "V.I.C.", "DJ", "MC", "II", "III", "IV", "UK", "USA", "EU"
     ]);
 
     const parts = s0.split(/(\s+|[-–—/&+])/);
 
-    const fixed = parts.map((tok) => {
+    return parts.map((tok) => {
       if (!tok) return tok;
       if (/^\s+$/.test(tok)) return tok;
       if (/^[-–—/&+]$/.test(tok)) return tok;
-
-      const up = tok.toUpperCase();
-      if (KEEP_UPPER.has(tok) || KEEP_UPPER.has(up)) return tok;
-      if (tok.includes(".") && tok === tok.toUpperCase()) return tok;
-      if (/^[a-z][A-Z]/.test(tok) || /[A-Z].*[A-Z]/.test(tok)) return tok;
+      if (KEEP_AS_IS.has(tok)) return tok;
+      if (/^[A-Z0-9.$&'’+-]+$/.test(tok) && tok.length <= 4) return tok;
 
       const m = tok.match(/^([("'[\{]*)([A-Za-zÀ-ÖØ-öø-ÿ])([\s\S]*)$/u);
       if (!m) return tok;
@@ -82,9 +77,7 @@
       const first = m[2] || "";
       const rest = (m[3] || "").toLowerCase();
       return lead + first.toUpperCase() + rest;
-    });
-
-    return fixed.join("");
+    }).join("");
   }
 
   function formatShortDayDate(d) {
@@ -93,7 +86,7 @@
       timeZone: "Europe/Amsterdam",
       weekday: "short",
       day: "numeric",
-      month: "short",
+      month: "short"
     }).format(d);
   }
 
@@ -102,7 +95,7 @@
     return new Intl.DateTimeFormat("en-GB", {
       timeZone: "Europe/Amsterdam",
       day: "numeric",
-      month: "short",
+      month: "short"
     }).format(d);
   }
 
@@ -121,240 +114,6 @@
     return Math.floor((d.getTime() - Date.now()) / 86400000);
   }
 
-  const STORE_KEY = "lm_econcerts_ui_v51_recommended_only";
-
-  function loadStore() {
-    try {
-      const raw = localStorage.getItem(STORE_KEY);
-      if (!raw) {
-        return {
-          planIds: [],
-          dismissedIds: [],
-          lastRefreshAt: 0,
-          activeTab: "announced",
-        };
-      }
-      const obj = JSON.parse(raw);
-      return {
-        planIds: Array.isArray(obj.planIds) ? obj.planIds : [],
-        dismissedIds: Array.isArray(obj.dismissedIds) ? obj.dismissedIds : [],
-        lastRefreshAt: Number(obj.lastRefreshAt || 0),
-        activeTab: ["announced", "plan", "dismissed"].includes(String(obj.activeTab))
-          ? String(obj.activeTab)
-          : "announced",
-      };
-    } catch {
-      return {
-        planIds: [],
-        dismissedIds: [],
-        lastRefreshAt: 0,
-        activeTab: "announced",
-      };
-    }
-  }
-
-  function saveStore(next) {
-    localStorage.setItem(STORE_KEY, JSON.stringify(next));
-  }
-
-  let store = loadStore();
-
-  const ECONCERTS_BASE = "https://econcerts.errtanq9.workers.dev";
-
-  function buildRecommendedUrl() {
-    const u = new URL(ECONCERTS_BASE + "/concerts/recommended");
-    u.searchParams.set("bucketed", "1");
-    u.searchParams.set("includeHidden", "0");
-    u.searchParams.set("directOnly", "0");
-    u.searchParams.set("limit", "500");
-    u.searchParams.set("minFinalScore", "20");
-    u.searchParams.set("maxSeeds", "8");
-    u.searchParams.set("similarPerSeed", "12");
-    u.searchParams.set("minRelatedScore", "10");
-    return u.toString();
-  }
-
-  function parseEventDate(ev) {
-    const dateLocal = safeStr(ev?.date_local);
-    const timeLocal = safeStr(ev?.time_local) || "20:00";
-
-    if (dateLocal) {
-      const dt = new Date(`${dateLocal}T${timeLocal.length === 5 ? timeLocal : "20:00"}:00+02:00`);
-      if (isValidDate(dt)) return dt;
-    }
-
-    return parseIsoToDate(ev?.start) || null;
-  }
-
-  function mapVisibilityToTier(visibility) {
-    const v = safeStr(visibility);
-    if (v === "top") return "strong";
-    if (v === "strong") return "strong";
-    if (v === "recommended") return "suggested";
-    if (v === "older-taste") return "suggested";
-    if (v === "borderline") return "suggested";
-    return "none";
-  }
-
-  function buildReasonText(ev) {
-    const reasons = Array.isArray(ev?.reasons) ? ev.reasons.filter(Boolean) : [];
-    if (reasons.length) return reasons[0];
-    if (safeStr(ev?.matchedBy) === "direct") return "Direct listening match";
-    if (safeStr(ev?.matchedBy) === "related") return "Recommended from similar artists";
-    return "Listening-linked recommendation";
-  }
-
-  function normalizeRecommendedEvent(ev) {
-    const start = parseEventDate(ev);
-    if (!isValidDate(start)) return null;
-
-    const title = safeStr(ev?.title || ev?.artists_main || ev?.matchedArtist);
-    if (!title) return null;
-
-    const source = safeStr(ev?.source || "econcerts");
-    const sourceId = safeStr(ev?.source_id || `${source}-${title}-${safeStr(ev?.date_local)}`);
-    const id = `econcerts:${source}:${sourceId}`;
-
-    const imageUrl =
-      safeStr(ev?.image_url) ||
-      safeStr(ev?.imageUrl) ||
-      "";
-
-    return {
-      id,
-      source,
-      sourceId,
-      artist: title,
-      title,
-      city: safeStr(ev?.city),
-      venue: safeStr(ev?.venue_name || ev?.venue),
-      start,
-      startTs: start.getTime(),
-      url: safeStr(ev?.url),
-      imageUrl,
-      score: Number(ev?.finalScore || ev?.directScore || ev?.relatedScore || 0) || 0,
-      directScore: Number(ev?.directScore || 0) || 0,
-      relatedScore: Number(ev?.relatedScore || 0) || 0,
-      matchedBy: safeStr(ev?.matchedBy),
-      matchedArtist: safeStr(ev?.matchedArtist),
-      matchedTier: safeStr(ev?.matchedTier),
-      visibility: safeStr(ev?.visibility),
-      tier: mapVisibilityToTier(ev?.visibility),
-      reason: buildReasonText(ev),
-      reasons: Array.isArray(ev?.reasons) ? ev.reasons.slice() : []
-    };
-  }
-
-  const isPlanned = (id) => store.planIds.includes(id);
-  const isDismissed = (id) => store.dismissedIds.includes(id);
-
-  async function addToPlan(id) {
-    if (!store.planIds.includes(id)) store.planIds.push(id);
-    store.dismissedIds = store.dismissedIds.filter((x) => x !== id);
-    saveStore(store);
-  }
-
-  async function dismiss(id) {
-    if (!store.dismissedIds.includes(id)) store.dismissedIds.push(id);
-    store.planIds = store.planIds.filter((x) => x !== id);
-    saveStore(store);
-  }
-
-  async function removeFromPlan(id) {
-    store.planIds = store.planIds.filter((x) => x !== id);
-    saveStore(store);
-  }
-
-  async function undismiss(id) {
-    store.dismissedIds = store.dismissedIds.filter((x) => x !== id);
-    saveStore(store);
-  }
-
-  function sortChronoAsc(a, b) {
-    return a.start.getTime() - b.start.getTime();
-  }
-
-  function splitVisibleEventsByState(events) {
-    const plannedIds = new Set(store.planIds);
-    const dismissedIds = new Set(store.dismissedIds);
-
-    const announced = [];
-    const planned = [];
-    const dismissed = [];
-
-    for (const ev of events) {
-      if (dismissedIds.has(ev.id)) dismissed.push(ev);
-      else if (plannedIds.has(ev.id)) planned.push(ev);
-      else announced.push(ev);
-    }
-
-    announced.sort(sortChronoAsc);
-    planned.sort(sortChronoAsc);
-    dismissed.sort(sortChronoAsc);
-
-    return { announced, planned, dismissed };
-  }
-
-  function getStrong(events) {
-    return events.filter((ev) => ev.tier === "strong");
-  }
-
-  function getSuggested(events) {
-    return events.filter((ev) => ev.tier === "suggested");
-  }
-
-  function getAlertEvent(events) {
-    const candidates = events
-      .filter((ev) => {
-        const d = daysUntil(ev.start);
-        return d !== null && d >= 0 && d <= 45;
-      })
-      .sort((a, b) => {
-        const ad = daysUntil(a.start) ?? 9999;
-        const bd = daysUntil(b.start) ?? 9999;
-        if (ad !== bd) return ad - bd;
-        return Number(b.score || 0) - Number(a.score || 0);
-      });
-
-    return candidates[0] || null;
-  }
-
-  function getHeroEvent(events) {
-    const ranked = [...events].sort((a, b) => {
-      const as = a.tier === "strong" ? 1 : 0;
-      const bs = b.tier === "strong" ? 1 : 0;
-      if (as !== bs) return bs - as;
-
-      const aScore = Number(a.score || 0);
-      const bScore = Number(b.score || 0);
-      if (aScore !== bScore) return bScore - aScore;
-
-      return a.startTs - b.startTs;
-    });
-
-    return ranked[0] || null;
-  }
-
-  const artistImageCache = new Map();
-
-  function getLastfmApiKey() {
-    const w = typeof window !== "undefined" ? window : {};
-    return safeStr(w.LASTFM_API_KEY);
-  }
-
-  function isBadLastfmImage(url) {
-    const u = lowerKey(url);
-    if (!u) return true;
-    return (
-      u.includes("/2a96cbd8b46e442fc41c2b86b821562f") ||
-      u.includes("noimage") ||
-      u.includes("default") ||
-      u.includes("placeholder") ||
-      u.includes("/4128a6eb29f94943c9d206c08e625904") ||
-      u.endsWith(".gif")
-    );
-  }
-
   function normalizeArtistForLookup(raw) {
     let s = safeStr(raw);
     if (!s) return "";
@@ -369,7 +128,7 @@
       /\s+with\s+/i,
       /\s+feat\.?\s+/i,
       /\s+ft\.?\s+/i,
-      /\s*,\s*/i,
+      /\s*,\s*/i
     ];
 
     for (const re of splitters) {
@@ -390,6 +149,80 @@
       .replace(/[^a-z0-9à-öø-ÿ]+/g, " ")
       .replace(/\s+/g, " ")
       .trim();
+  }
+
+  function loadStore() {
+    try {
+      const raw = localStorage.getItem(STORE_KEY);
+      if (!raw) {
+        return {
+          activeTab: "announced",
+          planIds: [],
+          dismissedIds: [],
+          lastRefreshAt: 0
+        };
+      }
+
+      const obj = JSON.parse(raw);
+      return {
+        activeTab: ["announced", "plan", "dismissed"].includes(String(obj.activeTab))
+          ? String(obj.activeTab)
+          : "announced",
+        planIds: Array.isArray(obj.planIds) ? obj.planIds : [],
+        dismissedIds: Array.isArray(obj.dismissedIds) ? obj.dismissedIds : [],
+        lastRefreshAt: Number(obj.lastRefreshAt || 0)
+      };
+    } catch {
+      return {
+        activeTab: "announced",
+        planIds: [],
+        dismissedIds: [],
+        lastRefreshAt: 0
+      };
+    }
+  }
+
+  function saveStore(next) {
+    localStorage.setItem(STORE_KEY, JSON.stringify(next));
+  }
+
+  let store = loadStore();
+  let lastEvents = [];
+  let lastMeta = null;
+
+  const artistImageCache = new Map();
+
+  function setEmpty(msg) {
+    listEl.innerHTML = `<div class="lmc-empty">${msg}</div>`;
+  }
+
+  function getRecommendedUrl() {
+    const u = new URL(`${ECONCERTS_BASE}/concerts/recommended`);
+    u.searchParams.set("bucketed", "1");
+    u.searchParams.set("limit", String(RECOMMENDED_LIMIT));
+    u.searchParams.set("includeHidden", "0");
+    u.searchParams.set("minFinalScore", "20");
+    u.searchParams.set("maxSeeds", "8");
+    u.searchParams.set("similarPerSeed", "12");
+    u.searchParams.set("minRelatedScore", "10");
+    return u.toString();
+  }
+
+  function getLastfmApiKey() {
+    return safeStr(window.LASTFM_API_KEY);
+  }
+
+  function isBadLastfmImage(url) {
+    const u = lowerKey(url);
+    if (!u) return true;
+
+    return (
+      u.includes("2a96cbd8b46e442fc41c2b86b821562f") ||
+      u.includes("4128a6eb29f94943c9d206c08e625904") ||
+      u.includes("noimage") ||
+      u.includes("placeholder") ||
+      u.endsWith(".gif")
+    );
   }
 
   function getAppState() {
@@ -418,10 +251,7 @@
   }
 
   function pickBestImage(candidates) {
-    const valid = candidates
-      .map((x) => safeStr(x))
-      .filter(Boolean);
-
+    const valid = candidates.map((x) => safeStr(x)).filter(Boolean);
     if (!valid.length) return "";
 
     valid.sort((a, b) => scoreImageUrl(b) - scoreImageUrl(a));
@@ -438,8 +268,7 @@
     const top = Array.isArray(appState.lastTop) ? appState.lastTop : [];
     const recent = Array.isArray(appState.lastRecent) ? appState.lastRecent : [];
 
-    const topMatches = [];
-    const recentMatches = [];
+    const found = [];
 
     for (const it of top) {
       const topType = safeStr(appState.topType);
@@ -450,9 +279,9 @@
       if (!img) continue;
 
       if (topType === "artists") {
-        if (normalizeArtistForDedupe(name) === artistNorm) topMatches.push(img);
+        if (normalizeArtistForDedupe(name) === artistNorm) found.push(img);
       } else {
-        if (normalizeArtistForDedupe(subArtist) === artistNorm) topMatches.push(img);
+        if (normalizeArtistForDedupe(subArtist) === artistNorm) found.push(img);
       }
     }
 
@@ -460,10 +289,10 @@
       const recentArtist = safeStr(it?.artist);
       const img = safeStr(it?.image);
       if (!img) continue;
-      if (normalizeArtistForDedupe(recentArtist) === artistNorm) recentMatches.push(img);
+      if (normalizeArtistForDedupe(recentArtist) === artistNorm) found.push(img);
     }
 
-    return pickBestImage([...topMatches, ...recentMatches]);
+    return pickBestImage(found);
   }
 
   async function resolveLastfmArtistImage(artistRaw) {
@@ -472,7 +301,9 @@
     if (!apiKey || !artist) return "";
 
     const cacheKey = `lastfm:${lowerKey(artist)}`;
-    if (artistImageCache.has(cacheKey)) return artistImageCache.get(cacheKey) || "";
+    if (artistImageCache.has(cacheKey)) {
+      return artistImageCache.get(cacheKey) || "";
+    }
 
     try {
       const u = new URL("https://ws.audioscrobbler.com/2.0/");
@@ -480,6 +311,7 @@
       u.searchParams.set("artist", artist);
       u.searchParams.set("api_key", apiKey);
       u.searchParams.set("format", "json");
+      u.searchParams.set("autocorrect", "1");
 
       const data = await fetchJson(u.toString());
       const imgs = Array.isArray(data?.artist?.image) ? data.artist.image : [];
@@ -502,26 +334,28 @@
   async function resolveImageForEvent(ev) {
     if (safeStr(ev.imageUrl)) return safeStr(ev.imageUrl);
 
-    const appStateImg = findImageFromAppState(ev.artist);
-    if (appStateImg) return appStateImg;
+    const fromApp = findImageFromAppState(ev.artist);
+    if (fromApp) return fromApp;
 
     return await resolveLastfmArtistImage(ev.artist);
-  }
-
-  async function enrichEventsWithImages(events) {
-    const out = await Promise.all(events.map(async (ev) => {
-      const imageUrl = await resolveImageForEvent(ev);
-      return { ...ev, imageUrl: imageUrl || "" };
-    }));
+       }
+   async function enrichEventsWithImages(events) {
+    const out = await Promise.all(
+      events.map(async (ev) => {
+        const imageUrl = await resolveImageForEvent(ev);
+        return { ...ev, imageUrl: imageUrl || "" };
+      })
+    );
     return out;
   }
 
   function getFallbackVisual(seed) {
     const s = lowerKey(seed);
     let hue = 18;
+
     if (s) {
       let sum = 0;
-      for (let i = 0; i < s.length; i++) sum += s.charCodeAt(i);
+      for (let i = 0; i < s.length; i += 1) sum += s.charCodeAt(i);
       hue = sum % 360;
     }
 
@@ -547,132 +381,288 @@
     return getFallbackVisual(event?.artist || event?.id || "concert");
   }
 
+  function reasonFromEvent(ev) {
+    if (Array.isArray(ev?.reasons) && ev.reasons.length) return safeStr(ev.reasons[0]);
+    if (safeStr(ev?.matchedBy) === "direct") return "Direct listening match";
+    if (safeStr(ev?.matchedBy) === "related") return "Recommended from similar artists";
+    return "Listening-linked recommendation";
+  }
+
+  function tierFromVisibility(visibility) {
+    const v = safeStr(visibility);
+    if (v === "top" || v === "strong") return "strong";
+    if (v === "recommended" || v === "older-taste" || v === "borderline") return "suggested";
+    return "none";
+  }
+
+  function normalizeRecommendedEvent(ev) {
+    const start = parseAmsterdamDate(ev?.date_local, ev?.time_local);
+    if (!isValidDate(start)) return null;
+
+    const artist = safeStr(ev?.title || ev?.artists_main || ev?.matchedArtist);
+    if (!artist) return null;
+
+    const source = safeStr(ev?.source || "econcerts");
+    const sourceId = safeStr(ev?.source_id || `${source}-${artist}-${safeStr(ev?.date_local)}`);
+    const id = `econcerts:${source}:${sourceId}`;
+
+    return {
+      id,
+      source,
+      sourceId,
+      artist,
+      title: artist,
+      city: safeStr(ev?.city),
+      venue: safeStr(ev?.venue_name),
+      start,
+      startTs: start.getTime(),
+      url: safeStr(ev?.url),
+      imageUrl: safeStr(ev?.image_url || ev?.imageUrl),
+      visibility: safeStr(ev?.visibility),
+      tier: tierFromVisibility(ev?.visibility),
+      score: Number(ev?.finalScore || 0) || 0,
+      directScore: Number(ev?.directScore || 0) || 0,
+      relatedScore: Number(ev?.relatedScore || 0) || 0,
+      matchedBy: safeStr(ev?.matchedBy),
+      matchedArtist: safeStr(ev?.matchedArtist),
+      matchedTier: safeStr(ev?.matchedTier),
+      reasons: Array.isArray(ev?.reasons) ? ev.reasons.slice() : [],
+      reason: reasonFromEvent(ev)
+    };
+  }
+
+  function extractWorkerEvents(payload) {
+    const all = [];
+
+    if (Array.isArray(payload?.events)) {
+      all.push(...payload.events);
+    }
+
+    const buckets = payload?.buckets || {};
+    for (const name of ["top", "strong", "recommended"]) {
+      const arr = Array.isArray(buckets?.[name]) ? buckets[name] : [];
+      all.push(...arr);
+    }
+
+    const byId = new Map();
+
+    for (const raw of all) {
+      const ev = normalizeRecommendedEvent(raw);
+      if (!ev) continue;
+      if (ev.tier === "none") continue;
+
+      const prev = byId.get(ev.id);
+      if (!prev || Number(ev.score || 0) > Number(prev.score || 0)) {
+        byId.set(ev.id, ev);
+      }
+    }
+
+    return Array.from(byId.values()).sort((a, b) => {
+      const tierA = a.tier === "strong" ? 1 : 0;
+      const tierB = b.tier === "strong" ? 1 : 0;
+      if (tierA !== tierB) return tierB - tierA;
+
+      const scoreDiff = Number(b.score || 0) - Number(a.score || 0);
+      if (scoreDiff !== 0) return scoreDiff;
+
+      return a.startTs - b.startTs;
+    });
+  }
+
+  const isPlanned = (id) => store.planIds.includes(id);
+  const isDismissed = (id) => store.dismissedIds.includes(id);
+
+  async function addToPlan(id) {
+    if (!store.planIds.includes(id)) store.planIds.push(id);
+    store.dismissedIds = store.dismissedIds.filter((x) => x !== id);
+    saveStore(store);
+  }
+
+  async function dismiss(id) {
+    if (!store.dismissedIds.includes(id)) store.dismissedIds.push(id);
+    store.planIds = store.planIds.filter((x) => x !== id);
+    saveStore(store);
+  }
+
+  async function removeFromPlan(id) {
+    store.planIds = store.planIds.filter((x) => x !== id);
+    saveStore(store);
+  }
+
+  async function undismiss(id) {
+    store.dismissedIds = store.dismissedIds.filter((x) => x !== id);
+    saveStore(store);
+  }
+
+  function splitVisibleEventsByState(events) {
+    const plannedIds = new Set(store.planIds);
+    const dismissedIds = new Set(store.dismissedIds);
+
+    const announced = [];
+    const planned = [];
+    const dismissed = [];
+
+    for (const ev of events) {
+      if (dismissedIds.has(ev.id)) dismissed.push(ev);
+      else if (plannedIds.has(ev.id)) planned.push(ev);
+      else announced.push(ev);
+    }
+
+    announced.sort((a, b) => a.startTs - b.startTs);
+    planned.sort((a, b) => a.startTs - b.startTs);
+    dismissed.sort((a, b) => a.startTs - b.startTs);
+
+    return { announced, planned, dismissed };
+  }
+
+  function getStrong(events) {
+    return events.filter((ev) => ev.tier === "strong");
+  }
+
+  function getSuggested(events) {
+    return events.filter((ev) => ev.tier === "suggested");
+  }
+
+  function getHeroEvent(events) {
+    return [...events].sort((a, b) => {
+      const aStrong = a.tier === "strong" ? 1 : 0;
+      const bStrong = b.tier === "strong" ? 1 : 0;
+      if (aStrong !== bStrong) return bStrong - aStrong;
+
+      const scoreDiff = Number(b.score || 0) - Number(a.score || 0);
+      if (scoreDiff !== 0) return scoreDiff;
+
+      return a.startTs - b.startTs;
+    })[0] || null;
+  }
+
+  function getAlertEvent(events) {
+    return [...events]
+      .filter((ev) => {
+        const d = daysUntil(ev.start);
+        return d !== null && d >= 0 && d <= 45;
+      })
+      .sort((a, b) => {
+        const ad = daysUntil(a.start) ?? 9999;
+        const bd = daysUntil(b.start) ?? 9999;
+        if (ad !== bd) return ad - bd;
+        return Number(b.score || 0) - Number(a.score || 0);
+      })[0] || null;
+  }
+
   function injectStylesOnce() {
     if (document.getElementById("lmConcertsMockupStyles")) return;
 
     const style = document.createElement("style");
     style.id = "lmConcertsMockupStyles";
     style.textContent = `
-      #econcertsList{ display:block; }
-      .lmc-wrap{ display:flex; flex-direction:column; gap:16px; }
-      .lmc-topbar{ display:flex; flex-direction:column; gap:10px; margin-bottom:2px; }
-      .lmc-heading{ margin:0; font-size:1.12rem; font-weight:900; letter-spacing:.01em; color:rgba(255,255,255,.98); }
-      .lmc-pills{ display:flex; flex-wrap:wrap; gap:8px; }
+      #econcertsList{display:block}
+      .lmc-wrap{display:flex;flex-direction:column;gap:16px}
+      .lmc-topbar{display:flex;flex-direction:column;gap:10px;margin-bottom:2px}
+      .lmc-heading{margin:0;font-size:1.12rem;font-weight:900;letter-spacing:.01em;color:rgba(255,255,255,.98)}
+      .lmc-pills{display:flex;flex-wrap:wrap;gap:8px}
       .lmc-pill-btn{
-        appearance:none; border:none; outline:none; border-radius:999px; padding:9px 13px;
-        background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.08);
-        color:inherit; font:inherit; font-weight:800; cursor:pointer;
+        appearance:none;border:none;outline:none;border-radius:999px;padding:9px 13px;
+        background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);
+        color:inherit;font:inherit;font-weight:800;cursor:pointer
       }
       .lmc-pill-btn.is-on{
         background:linear-gradient(180deg, rgba(187,225,255,.16), rgba(125,175,255,.10));
-        border-color:rgba(150,205,255,.22);
+        border-color:rgba(150,205,255,.22)
       }
       .lmc-signal{
-        border-radius:22px; padding:14px 16px; border:1px solid rgba(255,255,255,.08);
+        border-radius:22px;padding:14px 16px;border:1px solid rgba(255,255,255,.08);
         background:
           radial-gradient(circle at 18% 18%, rgba(106,181,255,.22), transparent 18%),
           linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03));
-        box-shadow:0 18px 38px rgba(0,0,0,.24);
+        box-shadow:0 18px 38px rgba(0,0,0,.24)
       }
       .lmc-signal-badge{
-        display:inline-flex; align-items:center; gap:8px; border-radius:999px; padding:7px 11px;
-        font-size:.82rem; font-weight:900; letter-spacing:.03em;
-        background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08); margin-bottom:8px;
+        display:inline-flex;align-items:center;gap:8px;border-radius:999px;padding:7px 11px;
+        font-size:.82rem;font-weight:900;letter-spacing:.03em;
+        background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);margin-bottom:8px
       }
-      .lmc-signal-text{ font-size:.98rem; line-height:1.35; color:rgba(255,255,255,.92); }
-      .lmc-section{ display:flex; flex-direction:column; gap:10px; }
-      .lmc-section-title{ margin:0; font-size:1.02rem; font-weight:900; }
+      .lmc-signal-text{font-size:.98rem;line-height:1.35;color:rgba(255,255,255,.92)}
+      .lmc-section{display:flex;flex-direction:column;gap:10px}
+      .lmc-section-title{margin:0;font-size:1.02rem;font-weight:900}
       .lmc-hero,.lmc-strong{
-        position:relative; overflow:hidden; border-radius:24px; min-height:218px;
-        border:1px solid rgba(255,255,255,.09); box-shadow:0 18px 42px rgba(0,0,0,.28);
+        position:relative;overflow:hidden;border-radius:24px;min-height:218px;
+        border:1px solid rgba(255,255,255,.09);box-shadow:0 18px 42px rgba(0,0,0,.28)
       }
-      .lmc-hero{ min-height:250px; }
+      .lmc-hero{min-height:250px}
       .lmc-cover{
-        position:absolute; inset:0; background-size:cover; background-position:center center; transform:scale(1.02);
+        position:absolute;inset:0;background-size:cover;background-position:center center;transform:scale(1.02)
       }
       .lmc-cover::after{
-        content:""; position:absolute; inset:0;
-        background:linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.18) 34%, rgba(0,0,0,.72) 100%);
+        content:"";position:absolute;inset:0;
+        background:linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.18) 34%, rgba(0,0,0,.72) 100%)
       }
       .lmc-body{
-        position:relative; z-index:1; min-height:inherit; display:flex; flex-direction:column;
-        justify-content:flex-end; gap:9px; padding:14px;
+        position:relative;z-index:1;min-height:inherit;display:flex;flex-direction:column;
+        justify-content:flex-end;gap:9px;padding:14px
       }
       .lmc-badge{
-        align-self:flex-start; display:inline-flex; align-items:center; gap:7px; padding:7px 12px;
-        border-radius:999px; font-size:.79rem; font-weight:900; letter-spacing:.03em;
+        align-self:flex-start;display:inline-flex;align-items:center;gap:7px;padding:7px 12px;
+        border-radius:999px;font-size:.79rem;font-weight:900;letter-spacing:.03em;
         background:linear-gradient(180deg, rgba(195,72,35,.92), rgba(147,27,18,.82));
-        border:1px solid rgba(255,255,255,.10); box-shadow:0 8px 20px rgba(110,20,12,.20);
+        border:1px solid rgba(255,255,255,.10);box-shadow:0 8px 20px rgba(110,20,12,.20)
       }
-      .lmc-title{ margin:0; font-size:1.82rem; line-height:1.02; font-weight:900; text-transform:uppercase; }
-      .lmc-meta{ margin:0; font-size:1rem; font-weight:700; }
-      .lmc-submeta{ margin:0; font-size:.96rem; opacity:.96; }
-      .lmc-reason{ margin:0; font-size:.92rem; opacity:.88; }
-      .lmc-actions{ display:flex; flex-wrap:wrap; gap:8px; margin-top:2px; }
+      .lmc-title{margin:0;font-size:1.82rem;line-height:1.02;font-weight:900;text-transform:uppercase}
+      .lmc-meta{margin:0;font-size:1rem;font-weight:700}
+      .lmc-submeta{margin:0;font-size:.96rem;opacity:.96}
+      .lmc-reason{margin:0;font-size:.92rem;opacity:.88}
+      .lmc-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:2px}
       .lmc-btn{
-        appearance:none; border:none; outline:none; border-radius:12px; padding:10px 13px;
-        font:inherit; font-weight:800; color:inherit; cursor:pointer;
-        background:rgba(255,255,255,.09); border:1px solid rgba(255,255,255,.08);
+        appearance:none;border:none;outline:none;border-radius:12px;padding:10px 13px;
+        font:inherit;font-weight:800;color:inherit;cursor:pointer;
+        background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.08)
       }
-      .lmc-btn--primary{ background:linear-gradient(180deg, rgba(191,57,39,.96), rgba(149,24,14,.88)); }
+      .lmc-btn--primary{background:linear-gradient(180deg, rgba(191,57,39,.96), rgba(149,24,14,.88))}
       .lmc-upcoming-shell{
-        border-radius:22px; border:1px solid rgba(255,255,255,.08);
+        border-radius:22px;border:1px solid rgba(255,255,255,.08);
         background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.03));
-        box-shadow:0 16px 34px rgba(0,0,0,.22); overflow:hidden;
+        box-shadow:0 16px 34px rgba(0,0,0,.22);overflow:hidden
       }
       .lmc-upcoming-head{
-        display:flex; align-items:center; justify-content:space-between; gap:10px;
-        padding:14px 14px 10px; border-bottom:1px solid rgba(255,255,255,.05);
+        display:flex;align-items:center;justify-content:space-between;gap:10px;
+        padding:14px 14px 10px;border-bottom:1px solid rgba(255,255,255,.05)
       }
-      .lmc-upcoming-title{ margin:0; font-size:1rem; font-weight:900; }
-      .lmc-chevron{ opacity:.7; font-weight:900; }
-      .lmc-mini-list{ display:flex; flex-direction:column; gap:10px; padding:12px; }
+      .lmc-upcoming-title{margin:0;font-size:1rem;font-weight:900}
+      .lmc-chevron{opacity:.7;font-weight:900}
+      .lmc-mini-list{display:flex;flex-direction:column;gap:10px;padding:12px}
       .lmc-mini-card{
-        position:relative; overflow:hidden; min-height:96px; border-radius:16px;
-        border:1px solid rgba(255,255,255,.08); box-shadow:0 12px 26px rgba(0,0,0,.20);
+        position:relative;overflow:hidden;min-height:96px;border-radius:16px;
+        border:1px solid rgba(255,255,255,.08);box-shadow:0 12px 26px rgba(0,0,0,.20)
       }
       .lmc-mini-body{
-        position:relative; z-index:1; min-height:96px; display:flex; align-items:flex-end;
-        justify-content:space-between; gap:12px; padding:12px;
+        position:relative;z-index:1;min-height:96px;display:flex;align-items:flex-end;
+        justify-content:space-between;gap:12px;padding:12px
       }
-      .lmc-mini-info{ min-width:0; display:flex; flex-direction:column; gap:4px; }
-      .lmc-mini-title{ margin:0; font-size:1.38rem; line-height:1.04; font-weight:900; text-transform:uppercase; }
-      .lmc-mini-meta{ margin:0; font-size:.95rem; opacity:.96; }
-      .lmc-mini-right{ display:flex; align-items:center; gap:8px; }
+      .lmc-mini-info{min-width:0;display:flex;flex-direction:column;gap:4px}
+      .lmc-mini-title{margin:0;font-size:1.38rem;line-height:1.04;font-weight:900;text-transform:uppercase}
+      .lmc-mini-meta{margin:0;font-size:.95rem;opacity:.96}
+      .lmc-mini-right{display:flex;align-items:center;gap:8px}
       .lmc-alert{
-        border-radius:22px; border:1px solid rgba(255,255,255,.08);
+        border-radius:22px;border:1px solid rgba(255,255,255,.08);
         background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.03));
-        box-shadow:0 16px 34px rgba(0,0,0,.22); overflow:hidden;
+        box-shadow:0 16px 34px rgba(0,0,0,.22);overflow:hidden
       }
       .lmc-alert-top{
-        display:flex; align-items:center; gap:9px; padding:12px 14px 8px;
-        font-size:.88rem; font-weight:900; letter-spacing:.03em;
+        display:flex;align-items:center;gap:9px;padding:12px 14px 8px;
+        font-size:.88rem;font-weight:900;letter-spacing:.03em
       }
-      .lmc-alert-body{ padding:0 14px 14px; }
-      .lmc-alert-band{ font-size:1.18rem; font-weight:900; margin:0 0 6px; }
-      .lmc-alert-text{ margin:0 0 10px; color:rgba(255,255,255,.90); }
-      .lmc-alert-dates{ margin:0 0 12px; color:rgba(255,255,255,.85); line-height:1.55; }
+      .lmc-alert-body{padding:0 14px 14px}
+      .lmc-alert-band{font-size:1.18rem;font-weight:900;margin:0 0 6px}
+      .lmc-alert-text{margin:0 0 10px;color:rgba(255,255,255,.90)}
+      .lmc-alert-dates{margin:0 0 12px;color:rgba(255,255,255,.85);line-height:1.55}
       .lmc-empty{
-        padding:16px 14px; border-radius:18px; background:rgba(255,255,255,.04);
-        border:1px solid rgba(255,255,255,.06); color:rgba(255,255,255,.74);
+        padding:16px 14px;border-radius:18px;background:rgba(255,255,255,.04);
+        border:1px solid rgba(255,255,255,.06);color:rgba(255,255,255,.74)
       }
     `;
     document.head.appendChild(style);
   }
-
-  const listEl = $("#econcertsList");
-  if (!listEl) return;
-
-  injectStylesOnce();
-
-  let lastEvents = [];
-  let lastMeta = null;
-
-  function setEmpty(msg) {
-    listEl.innerHTML = `<div class="lmc-empty">${msg}</div>`;
-  }
-
-  function makeTopPill(label, tabKey) {
+   function makeTopPill(label, tabKey) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = `lmc-pill-btn${store.activeTab === tabKey ? " is-on" : ""}`;
@@ -792,7 +782,7 @@
 
     const meta = document.createElement("p");
     meta.className = "lmc-meta";
-    meta.textContent = safeStr(event.city) || "";
+    meta.textContent = safeStr(event.city);
 
     const subMeta = document.createElement("p");
     subMeta.className = "lmc-submeta";
@@ -804,7 +794,7 @@
 
     const reason = document.createElement("p");
     reason.className = "lmc-reason";
-    reason.textContent = event.reason;
+    reason.textContent = safeStr(event.reason);
 
     body.appendChild(badge);
     body.appendChild(title);
@@ -831,7 +821,7 @@
 
     const badge = document.createElement("div");
     badge.className = "lmc-badge";
-    badge.textContent = event.visibility === "recommended" ? "✨ RECOMMENDED" : "🔥 STRONG MATCH";
+    badge.textContent = event.tier === "strong" ? "🔥 STRONG MATCH" : "✨ RECOMMENDED";
 
     const title = document.createElement("h3");
     title.className = "lmc-title";
@@ -848,7 +838,7 @@
 
     const reason = document.createElement("p");
     reason.className = "lmc-reason";
-    reason.textContent = event.reason;
+    reason.textContent = safeStr(event.reason);
 
     body.appendChild(badge);
     body.appendChild(title);
@@ -940,11 +930,11 @@
 
     const txt = document.createElement("p");
     txt.className = "lmc-alert-text";
-    txt.textContent = event.reason || "New relevant concert detected";
+    txt.textContent = safeStr(event.reason || "New relevant concert detected");
 
     const dates = document.createElement("p");
     dates.className = "lmc-alert-dates";
-    dates.innerHTML = [
+    dates.textContent = [
       safeStr(event.city),
       safeStr(event.venue),
       formatMonthDay(event.start),
@@ -975,9 +965,9 @@
     const hero = getHeroEvent([...strong, ...suggested]);
     const heroId = hero?.id || "";
     const thisWeek = strong.filter((ev) => ev.id !== heroId).slice(0, 2);
-    const upcoming = [...suggested, ...strong.filter((ev) => ev.id !== heroId)]
-      .filter((ev, i, arr) => arr.findIndex(x => x.id === ev.id) === i)
-      .slice(0, 6);
+    const upcoming = [...strong, ...suggested]
+      .filter((ev) => ev.id !== heroId)
+      .slice(0, 10);
     const alertEvent = getAlertEvent(events);
 
     const wrap = document.createElement("div");
@@ -1009,7 +999,7 @@
 
     const text = document.createElement("div");
     text.className = "lmc-signal-text";
-    text.textContent = `${strong.length + suggested.length} concerts matching your listening`;
+    text.textContent = `${events.length} concerts matching your listening`;
 
     signal.appendChild(badge);
     signal.appendChild(text);
@@ -1063,7 +1053,7 @@
       wrap.appendChild(buildAlertCard(alertEvent));
     }
 
-    if (!hero && !thisWeek.length && !upcoming.length) {
+    if (!events.length) {
       const empty = document.createElement("div");
       empty.className = "lmc-empty";
       empty.textContent = "No listening-linked concerts found right now.";
@@ -1136,53 +1126,13 @@
     renderAnnounced(split.announced);
   }
 
-  function extractWorkerEvents(payload) {
-    const all = [];
-
-    const directEvents = Array.isArray(payload?.events) ? payload.events : [];
-    if (directEvents.length) all.push(...directEvents);
-
-    const buckets = payload?.buckets || {};
-    const bucketNames = ["top", "strong", "recommended"];
-
-    for (const name of bucketNames) {
-      const arr = Array.isArray(buckets?.[name]) ? buckets[name] : [];
-      for (const ev of arr) all.push(ev);
-    }
-
-    const seen = new Map();
-
-    for (const raw of all) {
-      const mapped = normalizeRecommendedEvent(raw);
-      if (!mapped) continue;
-
-      if (!["top", "strong", "recommended", "older-taste", "borderline"].includes(mapped.visibility)) {
-        continue;
-      }
-
-      const prev = seen.get(mapped.id);
-      if (!prev) {
-        seen.set(mapped.id, mapped);
-        continue;
-      }
-
-      if (Number(mapped.score || 0) > Number(prev.score || 0)) {
-        seen.set(mapped.id, mapped);
-      }
-    }
-
-    return Array.from(seen.values())
-      .filter((ev) => ev.tier === "strong" || ev.tier === "suggested")
-      .sort(sortChronoAsc);
-  }
-
   async function refresh() {
     store.lastRefreshAt = Date.now();
     saveStore(store);
 
     setEmpty("Refreshing concert signals…");
 
-    const payload = await fetchJson(buildRecommendedUrl());
+    const payload = await fetchJson(getRecommendedUrl());
     const mapped = extractWorkerEvents(payload);
     const enriched = await enrichEventsWithImages(mapped);
 
@@ -1203,12 +1153,19 @@
     }, { passive: true });
   }
 
+  injectStylesOnce();
   wireConcertsTabRefresh();
 
   window.__LM_ECONCERTS__ = {
-    get store() { return store; },
-    get lastEvents() { return lastEvents; },
-    forceRefresh() { refresh().catch(() => {}); }
+    get store() {
+      return store;
+    },
+    get lastEvents() {
+      return lastEvents;
+    },
+    forceRefresh() {
+      refresh().catch(() => {});
+    }
   };
 
   refresh().catch((e) => {

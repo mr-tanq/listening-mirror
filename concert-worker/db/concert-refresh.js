@@ -15,10 +15,6 @@ const ALL_VENUE_SOURCES = [
   "boerderij"
 ];
 
-const DEFAULT_BATCH_DELAY_MS = 1200;
-const DEFAULT_ZERO_RETRY_DELAY_MS = 2200;
-const DEFAULT_ZERO_RETRIES = 1;
-
 export async function refreshSource(db, source) {
   const startedAt = Date.now();
   const safeSource = cleanParam(source);
@@ -46,75 +42,26 @@ export async function refreshSource(db, source) {
   };
 }
 
-export async function refreshAllSources(
-  db,
-  sources = ALL_VENUE_SOURCES,
-  options = {}
-) {
+export async function refreshAllSources(db, sources = ALL_VENUE_SOURCES) {
   const startedAt = Date.now();
   await ensureConcertsSchema(db);
 
-  const requestedSources =
-    Array.isArray(sources) && sources.length
-      ? sources.map(cleanParam).filter(Boolean)
-      : [...ALL_VENUE_SOURCES];
-
-  const batchDelayMs = clampInt(
-    options?.batchDelayMs,
-    0,
-    10000,
-    DEFAULT_BATCH_DELAY_MS
-  );
-
-  const zeroRetryDelayMs = clampInt(
-    options?.zeroRetryDelayMs,
-    0,
-    15000,
-    DEFAULT_ZERO_RETRY_DELAY_MS
-  );
-
-  const zeroRetries = clampInt(
-    options?.zeroRetries,
-    0,
-    5,
-    DEFAULT_ZERO_RETRIES
-  );
+  const requestedSources = Array.isArray(sources) && sources.length
+    ? sources.map(cleanParam).filter(Boolean)
+    : [...ALL_VENUE_SOURCES];
 
   const results = [];
   const failed = [];
-  const suspicious = [];
 
-  for (let i = 0; i < requestedSources.length; i += 1) {
-    const source = requestedSources[i];
-
+  for (const source of requestedSources) {
     try {
-      const result = await refreshSourceWithZeroRetry(db, source, {
-        zeroRetries,
-        zeroRetryDelayMs
-      });
-
+      const result = await refreshSource(db, source);
       results.push(result);
-
-      if (result?.suspiciousZero) {
-        suspicious.push({
-          source: result.source,
-          fetched: result.fetched,
-          normalized: result.normalized,
-          attempts: result.attempts,
-          zeroRetryUsed: result.zeroRetryUsed,
-          durationMs: result.durationMs
-        });
-      }
     } catch (err) {
       failed.push({
         source,
         error: err?.message || "Unknown refresh error"
       });
-    }
-
-    const isLast = i === requestedSources.length - 1;
-    if (!isLast && batchDelayMs > 0) {
-      await sleep(batchDelayMs);
     }
   }
 
@@ -125,69 +72,9 @@ export async function refreshAllSources(
     totalSourcesRequested: requestedSources.length,
     totalSourcesSucceeded: results.length,
     totalSourcesFailed: failed.length,
-    totalSuspicious: suspicious.length,
     durationMs: Date.now() - startedAt,
-    config: {
-      batchDelayMs,
-      zeroRetryDelayMs,
-      zeroRetries
-    },
     results,
-    suspicious,
     failed
-  };
-}
-async function refreshSourceWithZeroRetry(db, source, options = {}) {
-  const {
-    zeroRetries = DEFAULT_ZERO_RETRIES,
-    zeroRetryDelayMs = DEFAULT_ZERO_RETRY_DELAY_MS
-  } = options;
-
-  let lastResult = null;
-  let attempts = 0;
-  let zeroRetryUsed = false;
-
-  for (let attempt = 0; attempt <= zeroRetries; attempt += 1) {
-    attempts += 1;
-
-    const result = await refreshSource(db, source);
-    lastResult = result;
-
-    if ((result?.fetched || 0) > 0) {
-      return {
-        ...result,
-        attempts,
-        zeroRetryUsed,
-        suspiciousZero: false
-      };
-    }
-
-    const shouldRetry = attempt < zeroRetries;
-    if (!shouldRetry) {
-      break;
-    }
-
-    zeroRetryUsed = true;
-
-    if (zeroRetryDelayMs > 0) {
-      await sleep(zeroRetryDelayMs);
-    }
-  }
-
-  return {
-    ...(lastResult || {
-      source: cleanParam(source),
-      fetched: 0,
-      normalized: 0,
-      inserted: 0,
-      updated: 0,
-      skipped: 0,
-      deletedPast: 0,
-      durationMs: 0
-    }),
-    attempts,
-    zeroRetryUsed,
-    suspiciousZero: true
   };
 }
 
@@ -254,7 +141,6 @@ function normalizeIncomingEvents(events, forcedSource) {
 
   return out.sort(compareEventsByDate);
 }
-
 function normalizeSingleEvent(raw, forcedSource) {
   if (!raw || typeof raw !== "object") return null;
 
@@ -276,11 +162,7 @@ function normalizeSingleEvent(raw, forcedSource) {
       city: raw.city
     });
 
-  const artistsAll = normalizeArtistsAll(
-    raw.artists_all,
-    raw.artists_main,
-    raw.title
-  );
+  const artistsAll = normalizeArtistsAll(raw.artists_all, raw.artists_main, raw.title);
 
   return {
     source,
@@ -300,6 +182,7 @@ function normalizeSingleEvent(raw, forcedSource) {
     fetched_at: toSafeInteger(raw.fetched_at) || Date.now()
   };
 }
+
 async function upsertConcertsForSource(db, source, events) {
   let inserted = 0;
   let updated = 0;
@@ -375,8 +258,7 @@ async function upsertConcertsForSource(db, source, events) {
         country,
         url,
         image_url,
-        genre_hint,
-        fetched_at
+        genre_hint
       FROM concerts
       WHERE source = ? AND source_id = ?
       LIMIT 1
@@ -438,7 +320,6 @@ async function upsertConcertsForSource(db, source, events) {
 
   return { inserted, updated, skipped };
 }
-
 async function deletePastConcertsForSource(db, source) {
   const today = amsterdamToday();
 
@@ -468,8 +349,7 @@ function hasConcertChanged(existing, incoming) {
     cleanText(existing?.country) !== cleanText(incoming?.country) ||
     cleanText(existing?.url) !== cleanText(incoming?.url) ||
     cleanText(existing?.image_url) !== cleanText(incoming?.image_url) ||
-    cleanText(existing?.genre_hint) !== cleanText(incoming?.genre_hint) ||
-    toSafeInteger(existing?.fetched_at) !== toSafeInteger(incoming?.fetched_at)
+    cleanText(existing?.genre_hint) !== cleanText(incoming?.genre_hint)
   );
 }
 
@@ -495,7 +375,13 @@ function normalizeArtistsAll(value, artistsMain, title) {
 }
 
 function buildFallbackSourceId({ source, title, dateLocal, venueName, city }) {
-  return [source, slugify(title), slugify(venueName || ""), slugify(city || ""), dateLocal]
+  return [
+    source,
+    slugify(title),
+    slugify(venueName || ""),
+    slugify(city || ""),
+    dateLocal
+  ]
     .filter(Boolean)
     .join("-");
 }
@@ -563,15 +449,4 @@ function slugify(value) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .replace(/-+/g, "-");
-}
-
-function clampInt(value, min, max, fallback) {
-  const n = Number.parseInt(String(value ?? ""), 10);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(min, Math.min(max, n));
-}
-
-function sleep(ms) {
-  const safeMs = Math.max(0, Number(ms || 0));
-  return new Promise((resolve) => setTimeout(resolve, safeMs));
 }

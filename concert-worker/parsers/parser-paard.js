@@ -5,8 +5,8 @@ const VENUE_SLUG = "Paard";
 
 export async function fetchPaardEvents(options = {}) {
   const {
-    maxPages = 20,
-    stopAfterEmptyPages = 3,
+    maxPages = 80,
+    stopAfterEmptyPages = 2,
     retriesPerPage = 2
   } = options;
 

@@ -5,8 +5,8 @@ const TIVOLI_SLUG = "TivoliVredenburg";
 
 export async function fetchTivoliEvents(options = {}) {
   const {
-    maxPages = 180,
-    stopAfterEmptyPages = 2,
+    maxPages = 500,
+    stopAfterEmptyPages = 3,
     retriesPerPage = 2
   } = options; 
 

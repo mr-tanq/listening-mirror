@@ -6,19 +6,27 @@ import {
 } from "../core/concert-recommender.js";
  
 const ALL_VENUE_SOURCES = [
-  "tivoli",
-  "dehelling",
-  "013",
   "paradiso",
   "melkweg",
-  "paard",
-  "doornroosje",
+  "tivoli",
+  "dehelling",
   "patronaat",
   "effenaar",
+  "doornroosje",
+  "013",
+  "paard",
+  "fluor",
+  "neushoorn",
+  "boerderij",
+  "acu",
   "vera",
   "hedon",
+  "dbs",
   "muziekgieterij",
-  "boerderij"
+  "carre",
+  "musicon",
+  "ziggo",
+  "afas"
 ];
 
 export default {

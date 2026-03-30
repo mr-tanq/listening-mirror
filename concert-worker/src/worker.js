@@ -4,7 +4,7 @@ import {
   buildConcertRecommendationsLight,
   buildBucketedConcertRecommendations
 } from "../core/concert-recommender.js";
-   
+
 export default {
   async fetch(req, env) {
     try {
@@ -77,7 +77,8 @@ export default {
           events: Array.isArray(events) ? events : []
         });
       }
-if (pathname === "/concerts/db-latest") {
+
+      if (pathname === "/concerts/db-latest") {
         if (!env?.DB) {
           return json({ ok: false, error: "Missing DB binding" }, 500);
         }
@@ -124,15 +125,60 @@ if (pathname === "/concerts/db-latest") {
           return json({ ok: false, error: "Missing DB binding" }, 500);
         }
 
-        const limit = clampInt(url.searchParams.get("limit"), 1, 2000, 500);
-        const includeHidden = parseBoolean(url.searchParams.get("includeHidden"), false);
-        const bucketed = parseBoolean(url.searchParams.get("bucketed"), false);
-        const minFinalScore = clampNumber(url.searchParams.get("minFinalScore"), 0, 100, 20);
+        const limit = clampInt(
+          url.searchParams.get("limit"),
+          1,
+          2000,
+          500
+        );
+
+        const includeHidden = parseBoolean(
+          url.searchParams.get("includeHidden"),
+          false
+        );
+
+        const bucketed = parseBoolean(
+          url.searchParams.get("bucketed"),
+          false
+        );
+
+        const minFinalScore = clampNumber(
+          url.searchParams.get("minFinalScore"),
+          0,
+          100,
+          20
+        );
 
         const futureEvents = await loadFutureConcerts(env.DB, { limit });
 
         if (bucketed) {
-          const result = await buildBucketedConcertRecommendations(env, futureEvents, {
+          const result = await buildBucketedConcertRecommendations(
+            env,
+            futureEvents,
+            {
+              matcher: {
+                minFinalScore,
+                includeHidden
+              },
+              related: {
+                maxSeeds: 50,
+                similarPerSeed: 30,
+                minRelatedScore: 10
+              }
+            }
+          );
+
+          return json({
+            ok: true,
+            mode: "recommended-bucketed",
+            ...result
+          });
+        }
+
+        const result = await buildConcertRecommendationsLight(
+          env,
+          futureEvents,
+          {
             matcher: {
               minFinalScore,
               includeHidden
@@ -142,26 +188,8 @@ if (pathname === "/concerts/db-latest") {
               similarPerSeed: 30,
               minRelatedScore: 10
             }
-          });
-
-          return json({
-            ok: true,
-            mode: "recommended-bucketed",
-            ...result
-          });
-        }
-
-        const result = await buildConcertRecommendationsLight(env, futureEvents, {
-          matcher: {
-            minFinalScore,
-            includeHidden
-          },
-          related: {
-            maxSeeds: 50,
-            similarPerSeed: 30,
-            minRelatedScore: 10
           }
-        });
+        );
 
         return json({
           ok: true,
@@ -192,7 +220,8 @@ if (pathname === "/concerts/db-latest") {
           }
         });
       }
-if (pathname === "/debug/paradiso/section") {
+
+      if (pathname === "/debug/paradiso/section") {
         const page = Number(url.searchParams.get("page") || "1");
         const target =
           `https://www.podiuminfo.nl/podium/2/concerten/${page}/Paradiso/Amsterdam/`;
@@ -208,8 +237,10 @@ if (pathname === "/debug/paradiso/section") {
         const startIdx = text.indexOf("DATUM");
 
         let out = text;
+
         if (startIdx !== -1) {
           out = text.slice(startIdx);
+
           const cutCandidates = [
             out.indexOf("## "),
             out.indexOf("Meer concerten"),
@@ -230,16 +261,22 @@ if (pathname === "/debug/paradiso/section") {
         });
       }
 
-      return json({
-        ok: false,
-        error: "Not found",
-        pathname
-      }, 404);
+      return json(
+        {
+          ok: false,
+          error: "Not found",
+          pathname
+        },
+        404
+      );
     } catch (err) {
-      return json({
-        ok: false,
-        error: err?.message || "Unknown error"
-      }, 500);
+      return json(
+        {
+          ok: false,
+          error: err?.message || "Unknown error"
+        },
+        500
+      );
     }
   }
 };
@@ -299,6 +336,7 @@ function parseArtistsAll(value) {
     return [];
   }
 }
+
 function cleanParam(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -328,9 +366,12 @@ function corsHeaders() {
 
 function parseBoolean(value, fallback = false) {
   if (value == null) return fallback;
+
   const v = String(value).trim().toLowerCase();
+
   if (["1", "true", "yes", "y"].includes(v)) return true;
   if (["0", "false", "no", "n"].includes(v)) return false;
+
   return fallback;
 }
 
@@ -359,4 +400,4 @@ function amsterdamToday() {
   const d = parts.find((p) => p.type === "day")?.value || "";
 
   return `${y}-${m}-${d}`;
-}
+        }

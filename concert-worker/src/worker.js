@@ -1,4 +1,4 @@
-import { refreshSource } from "../db/concert-refresh.js";
+import { refreshSource, refreshAllSources } from "../db/concert-refresh.js";
 import { fetchVenueEventsById } from "../core/concert-fetch-engine.js";
 import {
   buildConcertRecommendationsLight,
@@ -27,9 +27,7 @@ export default {
       const pathname = normalizePath(url.pathname);
 
       if (req.method === "OPTIONS") {
-        return new Response(null, {
-          headers: corsHeaders()
-        });
+        return new Response(null, { headers: corsHeaders() });
       }
 
       if (pathname === "/") {
@@ -39,17 +37,16 @@ export default {
           endpoints: [
             "/health",
             "/admin/refresh-source?source=paradiso",
+            "/admin/refresh-all-sources",
+            "/admin/refresh-all-sources?sources=paradiso,tivoli,melkweg",
             "/concerts/venues",
             "/concerts/venues?source=paradiso",
             "/concerts/venues?source=all",
             "/concerts/venues?sources=paradiso,melkweg,tivoli",
-            "/concerts/venues?sources=all",
             "/concerts/db-latest",
             "/concerts/recommended",
             "/concerts/recommended?bucketed=1",
-            "/concerts/recommended?directOnly=1",
-            "/debug/paradiso/raw?page=1",
-            "/debug/paradiso/section?page=1"
+            "/concerts/recommended?directOnly=1"
           ],
           supportedVenueSources: ALL_VENUE_SOURCES
         });
@@ -78,6 +75,35 @@ export default {
 
         return json({
           ok: true,
+          mode: "refresh-source",
+          ...result
+        });
+      }
+
+      if (pathname === "/admin/refresh-all-sources") {
+        if (!env?.DB) {
+          return json({ ok: false, error: "Missing DB binding" }, 500);
+        }
+
+        const sourcesParam = cleanParam(url.searchParams.get("sources"));
+        const requestedSources = resolveRequestedVenueSources({
+          source: "",
+          sources: sourcesParam || "all"
+        });
+
+        if (!requestedSources.length) {
+          return json({
+            ok: false,
+            error: "No valid venue sources requested",
+            supportedVenueSources: ALL_VENUE_SOURCES
+          }, 400);
+        }
+
+        const result = await refreshAllSources(env.DB, requestedSources);
+
+        return json({
+          ok: true,
+          mode: "refresh-all-sources",
           ...result
         });
       }
@@ -123,6 +149,8 @@ export default {
           return json({ ok: false, error: "Missing DB binding" }, 500);
         }
 
+        const limit = clampInt(url.searchParams.get("limit"), 1, 2000, 300);
+
         const rows = await env.DB
           .prepare(`
             SELECT
@@ -148,8 +176,9 @@ export default {
             WHERE date_local IS NOT NULL
               AND date_local != ''
             ORDER BY date_local ASC, time_local ASC, title ASC
-            LIMIT 100
+            LIMIT ?
           `)
+          .bind(limit)
           .all();
 
         return json({
@@ -159,32 +188,16 @@ export default {
           events: (rows?.results || []).map(hydrateConcertRow)
         });
       }
+
       if (pathname === "/concerts/recommended") {
         if (!env?.DB) {
           return json({ ok: false, error: "Missing DB binding" }, 500);
         }
 
-        const limit = clampInt(
-          url.searchParams.get("limit"),
-          1,
-          2000,
-          200
-        );
-
-        const includeHidden = parseBoolean(
-          url.searchParams.get("includeHidden"),
-          false
-        );
-
-        const bucketed = parseBoolean(
-          url.searchParams.get("bucketed"),
-          false
-        );
-
-        const directOnly = parseBoolean(
-          url.searchParams.get("directOnly"),
-          false
-        );
+        const limit = clampInt(url.searchParams.get("limit"), 1, 2000, 500);
+        const includeHidden = parseBoolean(url.searchParams.get("includeHidden"), false);
+        const bucketed = parseBoolean(url.searchParams.get("bucketed"), false);
+        const directOnly = parseBoolean(url.searchParams.get("directOnly"), false);
 
         const minFinalScore = clampNumber(
           url.searchParams.get("minFinalScore"),
@@ -269,67 +282,6 @@ export default {
         });
       }
 
-      if (pathname === "/debug/paradiso/raw") {
-        const page = Number(url.searchParams.get("page") || "1");
-        const target =
-          `https://www.podiuminfo.nl/podium/2/concerten/${page}/Paradiso/Amsterdam/`;
-
-        const res = await fetch(target, {
-          headers: {
-            "user-agent": "Mozilla/5.0",
-            "accept": "text/html,application/xhtml+xml"
-          }
-        });
-
-        const text = await res.text();
-
-        return new Response(text, {
-          status: 200,
-          headers: {
-            "content-type": "text/plain; charset=utf-8",
-            ...corsHeaders()
-          }
-        });
-      }
-
-      if (pathname === "/debug/paradiso/section") {
-        const page = Number(url.searchParams.get("page") || "1");
-        const target =
-          `https://www.podiuminfo.nl/podium/2/concerten/${page}/Paradiso/Amsterdam/`;
-
-        const res = await fetch(target, {
-          headers: {
-            "user-agent": "Mozilla/5.0",
-            "accept": "text/html,application/xhtml+xml"
-          }
-        });
-
-        const text = await res.text();
-        const startIdx = text.indexOf("DATUM");
-
-        let out = text;
-        if (startIdx !== -1) {
-          out = text.slice(startIdx);
-          const cutCandidates = [
-            out.indexOf("## "),
-            out.indexOf("Meer concerten"),
-            out.indexOf("Gerelateerde concerten")
-          ].filter((x) => x !== -1);
-
-          if (cutCandidates.length) {
-            out = out.slice(0, Math.min(...cutCandidates));
-          }
-        }
-
-        return new Response(out, {
-          status: 200,
-          headers: {
-            "content-type": "text/plain; charset=utf-8",
-            ...corsHeaders()
-          }
-        });
-      }
-
       return json({
         ok: false,
         error: "Not found",
@@ -366,7 +318,6 @@ async function fetchMultipleVenueSources(sources) {
       rawEvents.push(...hydrated);
     } catch (err) {
       countsBySource[source] = 0;
-
       failedSources.push({
         source,
         error: err?.message || "Unknown parser error"
@@ -511,27 +462,19 @@ function buildVenueDedupeKey(event) {
     normalizeLooseKey(event?.city)
   ].join("::");
 }
+
 function preferVenueEvent(nextEvent, prevEvent) {
   const nextHasImage = Boolean(cleanText(nextEvent?.image_url));
   const prevHasImage = Boolean(cleanText(prevEvent?.image_url));
-
-  if (nextHasImage !== prevHasImage) {
-    return nextHasImage;
-  }
+  if (nextHasImage !== prevHasImage) return nextHasImage;
 
   const nextHasUrl = Boolean(cleanText(nextEvent?.url));
   const prevHasUrl = Boolean(cleanText(prevEvent?.url));
-
-  if (nextHasUrl !== prevHasUrl) {
-    return nextHasUrl;
-  }
+  if (nextHasUrl !== prevHasUrl) return nextHasUrl;
 
   const nextFetched = Number(nextEvent?.fetched_at || 0);
   const prevFetched = Number(prevEvent?.fetched_at || 0);
-
-  if (nextFetched !== prevFetched) {
-    return nextFetched > prevFetched;
-  }
+  if (nextFetched !== prevFetched) return nextFetched > prevFetched;
 
   return false;
 }
@@ -630,4 +573,4 @@ function cleanText(value) {
     .replace(/\u00a0/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-}
+    }

@@ -15,6 +15,10 @@ const ALL_VENUE_SOURCES = [
   "boerderij"
 ];
 
+const DEFAULT_BATCH_DELAY_MS = 1200;
+const DEFAULT_ZERO_RETRY_DELAY_MS = 2200;
+const DEFAULT_ZERO_RETRIES = 1;
+
 export async function refreshSource(db, source) {
   const startedAt = Date.now();
   const safeSource = cleanParam(source);
@@ -42,26 +46,75 @@ export async function refreshSource(db, source) {
   };
 }
 
-export async function refreshAllSources(db, sources = ALL_VENUE_SOURCES) {
+export async function refreshAllSources(
+  db,
+  sources = ALL_VENUE_SOURCES,
+  options = {}
+) {
   const startedAt = Date.now();
   await ensureConcertsSchema(db);
 
-  const requestedSources = Array.isArray(sources) && sources.length
-    ? sources.map(cleanParam).filter(Boolean)
-    : [...ALL_VENUE_SOURCES];
+  const requestedSources =
+    Array.isArray(sources) && sources.length
+      ? sources.map(cleanParam).filter(Boolean)
+      : [...ALL_VENUE_SOURCES];
+
+  const batchDelayMs = clampInt(
+    options?.batchDelayMs,
+    0,
+    10000,
+    DEFAULT_BATCH_DELAY_MS
+  );
+
+  const zeroRetryDelayMs = clampInt(
+    options?.zeroRetryDelayMs,
+    0,
+    15000,
+    DEFAULT_ZERO_RETRY_DELAY_MS
+  );
+
+  const zeroRetries = clampInt(
+    options?.zeroRetries,
+    0,
+    5,
+    DEFAULT_ZERO_RETRIES
+  );
 
   const results = [];
   const failed = [];
+  const suspicious = [];
 
-  for (const source of requestedSources) {
+  for (let i = 0; i < requestedSources.length; i += 1) {
+    const source = requestedSources[i];
+
     try {
-      const result = await refreshSource(db, source);
+      const result = await refreshSourceWithZeroRetry(db, source, {
+        zeroRetries,
+        zeroRetryDelayMs
+      });
+
       results.push(result);
+
+      if (result?.suspiciousZero) {
+        suspicious.push({
+          source: result.source,
+          fetched: result.fetched,
+          normalized: result.normalized,
+          attempts: result.attempts,
+          zeroRetryUsed: result.zeroRetryUsed,
+          durationMs: result.durationMs
+        });
+      }
     } catch (err) {
       failed.push({
         source,
         error: err?.message || "Unknown refresh error"
       });
+    }
+
+    const isLast = i === requestedSources.length - 1;
+    if (!isLast && batchDelayMs > 0) {
+      await sleep(batchDelayMs);
     }
   }
 
@@ -72,11 +125,72 @@ export async function refreshAllSources(db, sources = ALL_VENUE_SOURCES) {
     totalSourcesRequested: requestedSources.length,
     totalSourcesSucceeded: results.length,
     totalSourcesFailed: failed.length,
+    totalSuspicious: suspicious.length,
     durationMs: Date.now() - startedAt,
+    config: {
+      batchDelayMs,
+      zeroRetryDelayMs,
+      zeroRetries
+    },
     results,
+    suspicious,
     failed
   };
 }
+async function refreshSourceWithZeroRetry(db, source, options = {}) {
+  const {
+    zeroRetries = DEFAULT_ZERO_RETRIES,
+    zeroRetryDelayMs = DEFAULT_ZERO_RETRY_DELAY_MS
+  } = options;
+
+  let lastResult = null;
+  let attempts = 0;
+  let zeroRetryUsed = false;
+
+  for (let attempt = 0; attempt <= zeroRetries; attempt += 1) {
+    attempts += 1;
+
+    const result = await refreshSource(db, source);
+    lastResult = result;
+
+    if ((result?.fetched || 0) > 0) {
+      return {
+        ...result,
+        attempts,
+        zeroRetryUsed,
+        suspiciousZero: false
+      };
+    }
+
+    const shouldRetry = attempt < zeroRetries;
+    if (!shouldRetry) {
+      break;
+    }
+
+    zeroRetryUsed = true;
+
+    if (zeroRetryDelayMs > 0) {
+      await sleep(zeroRetryDelayMs);
+    }
+  }
+
+  return {
+    ...(lastResult || {
+      source: cleanParam(source),
+      fetched: 0,
+      normalized: 0,
+      inserted: 0,
+      updated: 0,
+      skipped: 0,
+      deletedPast: 0,
+      durationMs: 0
+    }),
+    attempts,
+    zeroRetryUsed,
+    suspiciousZero: true
+  };
+}
+
 async function ensureConcertsSchema(db) {
   await db.prepare(`
     CREATE TABLE IF NOT EXISTS concerts (
@@ -162,7 +276,11 @@ function normalizeSingleEvent(raw, forcedSource) {
       city: raw.city
     });
 
-  const artistsAll = normalizeArtistsAll(raw.artists_all, raw.artists_main, raw.title);
+  const artistsAll = normalizeArtistsAll(
+    raw.artists_all,
+    raw.artists_main,
+    raw.title
+  );
 
   return {
     source,
@@ -181,7 +299,7 @@ function normalizeSingleEvent(raw, forcedSource) {
     genre_hint: cleanNullableText(raw.genre_hint),
     fetched_at: toSafeInteger(raw.fetched_at) || Date.now()
   };
-    }
+}
 async function upsertConcertsForSource(db, source, events) {
   let inserted = 0;
   let updated = 0;
@@ -354,6 +472,7 @@ function hasConcertChanged(existing, incoming) {
     toSafeInteger(existing?.fetched_at) !== toSafeInteger(incoming?.fetched_at)
   );
 }
+
 function normalizeArtistsAll(value, artistsMain, title) {
   if (Array.isArray(value)) {
     const cleaned = value.map(cleanText).filter(Boolean);
@@ -376,13 +495,7 @@ function normalizeArtistsAll(value, artistsMain, title) {
 }
 
 function buildFallbackSourceId({ source, title, dateLocal, venueName, city }) {
-  return [
-    source,
-    slugify(title),
-    slugify(venueName || ""),
-    slugify(city || ""),
-    dateLocal
-  ]
+  return [source, slugify(title), slugify(venueName || ""), slugify(city || ""), dateLocal]
     .filter(Boolean)
     .join("-");
 }
@@ -404,7 +517,6 @@ function isUniqueConstraintError(err) {
   const msg = String(err?.message || err || "");
   return msg.includes("UNIQUE constraint failed");
 }
-
 function amsterdamToday() {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Europe/Amsterdam",
@@ -451,4 +563,15 @@ function slugify(value) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .replace(/-+/g, "-");
+}
+
+function clampInt(value, min, max, fallback) {
+  const n = Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
+function sleep(ms) {
+  const safeMs = Math.max(0, Number(ms || 0));
+  return new Promise((resolve) => setTimeout(resolve, safeMs));
 }

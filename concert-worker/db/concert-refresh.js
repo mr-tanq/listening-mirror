@@ -131,9 +131,9 @@ function normalizeIncomingEvents(events, forcedSource) {
     const event = normalizeSingleEvent(raw, forcedSource);
     if (!event) continue;
 
-    const dedupeKey = `${event.source}::${event.source_id}`;
-    if (seen.has(dedupeKey)) continue;
-    seen.add(dedupeKey);
+    const key = `${event.source}::${event.source_id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
 
     out.push(event);
   }
@@ -181,7 +181,7 @@ function normalizeSingleEvent(raw, forcedSource) {
     genre_hint: cleanNullableText(raw.genre_hint),
     fetched_at: toSafeInteger(raw.fetched_at) || Date.now()
   };
-                                         }
+    }
 async function upsertConcertsForSource(db, source, events) {
   let inserted = 0;
   let updated = 0;
@@ -190,52 +190,58 @@ async function upsertConcertsForSource(db, source, events) {
   const nowTs = Date.now();
 
   for (const event of events) {
-    const insertResult = await db.prepare(`
-      INSERT OR IGNORE INTO concerts (
-        source,
-        source_id,
-        title,
-        artists_main,
-        artists_all,
-        raw_title,
-        date_local,
-        time_local,
-        venue_name,
-        city,
-        country,
-        url,
-        image_url,
-        genre_hint,
-        fetched_at,
-        created_at,
-        updated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(
-      event.source,
-      event.source_id,
-      event.title,
-      event.artists_main,
-      event.artists_all,
-      event.raw_title,
-      event.date_local,
-      event.time_local,
-      event.venue_name,
-      event.city,
-      event.country,
-      event.url,
-      event.image_url,
-      event.genre_hint,
-      event.fetched_at,
-      nowTs,
-      nowTs
-    ).run();
+    try {
+      const insertResult = await db.prepare(`
+        INSERT OR IGNORE INTO concerts (
+          source,
+          source_id,
+          title,
+          artists_main,
+          artists_all,
+          raw_title,
+          date_local,
+          time_local,
+          venue_name,
+          city,
+          country,
+          url,
+          image_url,
+          genre_hint,
+          fetched_at,
+          created_at,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        event.source,
+        event.source_id,
+        event.title,
+        event.artists_main,
+        event.artists_all,
+        event.raw_title,
+        event.date_local,
+        event.time_local,
+        event.venue_name,
+        event.city,
+        event.country,
+        event.url,
+        event.image_url,
+        event.genre_hint,
+        event.fetched_at,
+        nowTs,
+        nowTs
+      ).run();
 
-    const insertedNow = Number(insertResult?.meta?.changes || 0) > 0;
+      const insertedNow = Number(insertResult?.meta?.changes || 0) > 0;
 
-    if (insertedNow) {
-      inserted += 1;
-      continue;
+      if (insertedNow) {
+        inserted += 1;
+        continue;
+      }
+    } catch (err) {
+      if (!isUniqueConstraintError(err)) {
+        throw err;
+      }
     }
 
     const existing = await db.prepare(`
@@ -366,8 +372,7 @@ function normalizeArtistsAll(value, artistsMain, title) {
     }
   }
 
-  const fallback = [cleanText(artistsMain) || cleanText(title)].filter(Boolean);
-  return fallback;
+  return [cleanText(artistsMain) || cleanText(title)].filter(Boolean);
 }
 
 function buildFallbackSourceId({ source, title, dateLocal, venueName, city }) {
@@ -393,6 +398,11 @@ function compareEventsByDate(a, b) {
   if (venueCmp !== 0) return venueCmp;
 
   return cleanText(a?.title).localeCompare(cleanText(b?.title));
+}
+
+function isUniqueConstraintError(err) {
+  const msg = String(err?.message || err || "");
+  return msg.includes("UNIQUE constraint failed");
 }
 
 function amsterdamToday() {

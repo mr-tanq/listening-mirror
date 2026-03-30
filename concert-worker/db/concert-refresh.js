@@ -181,7 +181,7 @@ function normalizeSingleEvent(raw, forcedSource) {
     genre_hint: cleanNullableText(raw.genre_hint),
     fetched_at: toSafeInteger(raw.fetched_at) || Date.now()
   };
-}
+                                         }
 async function upsertConcertsForSource(db, source, events) {
   let inserted = 0;
   let updated = 0;
@@ -190,9 +190,56 @@ async function upsertConcertsForSource(db, source, events) {
   const nowTs = Date.now();
 
   for (const event of events) {
+    const insertResult = await db.prepare(`
+      INSERT OR IGNORE INTO concerts (
+        source,
+        source_id,
+        title,
+        artists_main,
+        artists_all,
+        raw_title,
+        date_local,
+        time_local,
+        venue_name,
+        city,
+        country,
+        url,
+        image_url,
+        genre_hint,
+        fetched_at,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      event.source,
+      event.source_id,
+      event.title,
+      event.artists_main,
+      event.artists_all,
+      event.raw_title,
+      event.date_local,
+      event.time_local,
+      event.venue_name,
+      event.city,
+      event.country,
+      event.url,
+      event.image_url,
+      event.genre_hint,
+      event.fetched_at,
+      nowTs,
+      nowTs
+    ).run();
+
+    const insertedNow = Number(insertResult?.meta?.changes || 0) > 0;
+
+    if (insertedNow) {
+      inserted += 1;
+      continue;
+    }
+
     const existing = await db.prepare(`
       SELECT
-        id,
         title,
         artists_main,
         artists_all,
@@ -214,48 +261,7 @@ async function upsertConcertsForSource(db, source, events) {
       .first();
 
     if (!existing) {
-      await db.prepare(`
-        INSERT INTO concerts (
-          source,
-          source_id,
-          title,
-          artists_main,
-          artists_all,
-          raw_title,
-          date_local,
-          time_local,
-          venue_name,
-          city,
-          country,
-          url,
-          image_url,
-          genre_hint,
-          fetched_at,
-          created_at,
-          updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).bind(
-        event.source,
-        event.source_id,
-        event.title,
-        event.artists_main,
-        event.artists_all,
-        event.raw_title,
-        event.date_local,
-        event.time_local,
-        event.venue_name,
-        event.city,
-        event.country,
-        event.url,
-        event.image_url,
-        event.genre_hint,
-        event.fetched_at,
-        nowTs,
-        nowTs
-      ).run();
-
-      inserted += 1;
+      skipped += 1;
       continue;
     }
 
@@ -341,7 +347,7 @@ function hasConcertChanged(existing, incoming) {
     cleanText(existing?.genre_hint) !== cleanText(incoming?.genre_hint) ||
     toSafeInteger(existing?.fetched_at) !== toSafeInteger(incoming?.fetched_at)
   );
-    }
+}
 function normalizeArtistsAll(value, artistsMain, title) {
   if (Array.isArray(value)) {
     const cleaned = value.map(cleanText).filter(Boolean);

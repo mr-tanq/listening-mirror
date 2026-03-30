@@ -1,16 +1,19 @@
 /* econcerts.js (FULL FILE REPLACE)
-   Listening Mirror — Concerts tab (signals-only, mockup-style)
+   Listening Mirror — Concerts tab (recommended-only from econcerts worker)
 
-   ✅ Signals-only UI
+   ✅ Uses NEW econcerts worker only
+   ✅ Shows only relevant concerts:
+      - top
+      - strong
+      - recommended
+   ✅ No unrelated / hidden concerts
    ✅ Auto-refresh on Concerts tab open
    ✅ Uses images in this order:
-      1) event.imageUrl
+      1) event.imageUrl / event.image_url
       2) Top/Recent images already loaded by app.js
       3) Last.fm lookup via window.LASTFM_API_KEY
       4) cinematic fallback
-   ✅ Artist lookup cleanup
-   ✅ Rejects bad Last.fm placeholder images
-   ✅ Same-band same-day smart dedupe
+   ✅ Keeps Plan / Dismissed local state
 */
 
 (() => {
@@ -57,7 +60,7 @@
 
     const KEEP_UPPER = new Set([
       "DJ","MC","II","III","IV","V","VI","VII","VIII","IX","X",
-      "USA","UK","EU","EP","LP","TV","DJ'S","IDM","EDM","V.I.C."
+      "USA","UK","EU","EP","LP","TV","DJ'S","IDM","EDM","V.I.C.","dEUS"
     ]);
 
     const parts = s0.split(/(\s+|[-–—/&+])/);
@@ -68,8 +71,9 @@
       if (/^[-–—/&+]$/.test(tok)) return tok;
 
       const up = tok.toUpperCase();
-      if (KEEP_UPPER.has(up)) return up;
+      if (KEEP_UPPER.has(tok) || KEEP_UPPER.has(up)) return tok;
       if (tok.includes(".") && tok === tok.toUpperCase()) return tok;
+      if (/^[a-z][A-Z]/.test(tok) || /[A-Z].*[A-Z]/.test(tok)) return tok;
 
       const m = tok.match(/^([("'[\{]*)([A-Za-zÀ-ÖØ-öø-ÿ])([\s\S]*)$/u);
       if (!m) return tok;
@@ -102,22 +106,22 @@
     }).format(d);
   }
 
+  function formatTimeHM(d) {
+    if (!isValidDate(d)) return "";
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/Amsterdam",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    }).format(d);
+  }
+
   function daysUntil(d) {
     if (!isValidDate(d)) return null;
     return Math.floor((d.getTime() - Date.now()) / 86400000);
   }
 
-  function getDateKeyLocal(d) {
-    if (!isValidDate(d)) return "";
-    return new Intl.DateTimeFormat("sv-SE", {
-      timeZone: "Europe/Amsterdam",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(d);
-  }
-
-  const STORE_KEY = "lm_econcerts_ui_v41_signals_with_app_images";
+  const STORE_KEY = "lm_econcerts_ui_v51_recommended_only";
 
   function loadStore() {
     try {
@@ -127,7 +131,6 @@
           planIds: [],
           dismissedIds: [],
           lastRefreshAt: 0,
-          baseApi: "",
           activeTab: "announced",
         };
       }
@@ -136,7 +139,6 @@
         planIds: Array.isArray(obj.planIds) ? obj.planIds : [],
         dismissedIds: Array.isArray(obj.dismissedIds) ? obj.dismissedIds : [],
         lastRefreshAt: Number(obj.lastRefreshAt || 0),
-        baseApi: safeStr(obj.baseApi),
         activeTab: ["announced", "plan", "dismissed"].includes(String(obj.activeTab))
           ? String(obj.activeTab)
           : "announced",
@@ -146,7 +148,6 @@
         planIds: [],
         dismissedIds: [],
         lastRefreshAt: 0,
-        baseApi: "",
         activeTab: "announced",
       };
     }
@@ -158,72 +159,200 @@
 
   let store = loadStore();
 
-  const FALLBACK_LIVE2_BASE = "https://live2.errtanq9.workers.dev";
+  const ECONCERTS_BASE = "https://econcerts.errtanq9.workers.dev";
 
-  function getLive2Base() {
-    const w = typeof window !== "undefined" ? window : {};
-    const fromWindow = typeof w.LIVE2_BASE_API === "string"
-      ? w.LIVE2_BASE_API
-      : (typeof w.BASE_API === "string" ? w.BASE_API : "");
-    const fromStore = safeStr(store?.baseApi || "");
-    return (fromWindow || fromStore || FALLBACK_LIVE2_BASE).replace(/\/+$/, "");
-  }
-
-  const LIVE2_DEFAULTS = {
-    size: 400,
-    tasteArtists: 2000,
-    scoreMin: 1,
-    reco: false,
-  };
-
-  function buildSignalsUrl() {
-    const u = new URL(getLive2Base() + "/econcerts");
-    u.searchParams.set("size", String(LIVE2_DEFAULTS.size));
-    u.searchParams.set("tasteArtists", String(LIVE2_DEFAULTS.tasteArtists));
-    u.searchParams.set("scoreMin", String(LIVE2_DEFAULTS.scoreMin));
+  function buildRecommendedUrl() {
+    const u = new URL(ECONCERTS_BASE + "/concerts/recommended");
+    u.searchParams.set("bucketed", "1");
+    u.searchParams.set("includeHidden", "0");
+    u.searchParams.set("directOnly", "0");
+    u.searchParams.set("limit", "500");
+    u.searchParams.set("minFinalScore", "20");
+    u.searchParams.set("maxSeeds", "8");
+    u.searchParams.set("similarPerSeed", "12");
+    u.searchParams.set("minRelatedScore", "10");
     return u.toString();
   }
 
-  function normalizeLive2Event(ev) {
-    const id = safeStr(ev?.id);
-    const artist = safeStr(ev?.artist);
-    const venue = safeStr(ev?.venue);
-    const city = safeStr(ev?.city);
-    const startTs = Number(ev?.startTs || 0);
-    const startIso = safeStr(ev?.start);
-    const url = safeStr(ev?.url);
+  function parseEventDate(ev) {
+    const dateLocal = safeStr(ev?.date_local);
+    const timeLocal = safeStr(ev?.time_local) || "20:00";
 
-    const start =
-      (Number.isFinite(startTs) && startTs > 0) ? new Date(startTs) :
-      parseIsoToDate(startIso) ||
-      new Date(0);
+    if (dateLocal) {
+      const dt = new Date(`${dateLocal}T${timeLocal.length === 5 ? timeLocal : "20:00"}:00+02:00`);
+      if (isValidDate(dt)) return dt;
+    }
 
-    if (!id || !artist || !isValidDate(start) || start.getTime() <= 0) return null;
+    return parseIsoToDate(ev?.start) || null;
+  }
+
+  function mapVisibilityToTier(visibility) {
+    const v = safeStr(visibility);
+    if (v === "top") return "strong";
+    if (v === "strong") return "strong";
+    if (v === "recommended") return "suggested";
+    if (v === "older-taste") return "suggested";
+    if (v === "borderline") return "suggested";
+    return "none";
+  }
+
+  function buildReasonText(ev) {
+    const reasons = Array.isArray(ev?.reasons) ? ev.reasons.filter(Boolean) : [];
+    if (reasons.length) return reasons[0];
+    if (safeStr(ev?.matchedBy) === "direct") return "Direct listening match";
+    if (safeStr(ev?.matchedBy) === "related") return "Recommended from similar artists";
+    return "Listening-linked recommendation";
+  }
+
+  function normalizeRecommendedEvent(ev) {
+    const start = parseEventDate(ev);
+    if (!isValidDate(start)) return null;
+
+    const title = safeStr(ev?.title || ev?.artists_main || ev?.matchedArtist);
+    if (!title) return null;
+
+    const source = safeStr(ev?.source || "econcerts");
+    const sourceId = safeStr(ev?.source_id || `${source}-${title}-${safeStr(ev?.date_local)}`);
+    const id = `econcerts:${source}:${sourceId}`;
 
     const imageUrl =
+      safeStr(ev?.image_url) ||
       safeStr(ev?.imageUrl) ||
-      safeStr(ev?.artistImage) ||
-      safeStr(ev?.spotifyArtistImage) ||
-      safeStr(ev?.lastfmArtistImage) ||
-      safeStr(ev?.coverUrl) ||
       "";
 
     return {
-      id: `live2:${id}`,
-      artist,
-      attractions: Array.isArray(ev?.attractions) ? ev.attractions : [],
-      city,
-      venue,
+      id,
+      source,
+      sourceId,
+      artist: title,
+      title,
+      city: safeStr(ev?.city),
+      venue: safeStr(ev?.venue_name || ev?.venue),
       start,
       startTs: start.getTime(),
-      url,
-      plays: Number(ev?.plays || 0) || 0,
-      score: Number(ev?.score || 0) || 0,
-      star: !!ev?.star,
-      matched: safeStr(ev?.matched || ""),
-      source: safeStr(ev?.source || "live2"),
+      url: safeStr(ev?.url),
       imageUrl,
+      score: Number(ev?.finalScore || ev?.directScore || ev?.relatedScore || 0) || 0,
+      directScore: Number(ev?.directScore || 0) || 0,
+      relatedScore: Number(ev?.relatedScore || 0) || 0,
+      matchedBy: safeStr(ev?.matchedBy),
+      matchedArtist: safeStr(ev?.matchedArtist),
+      matchedTier: safeStr(ev?.matchedTier),
+      visibility: safeStr(ev?.visibility),
+      tier: mapVisibilityToTier(ev?.visibility),
+      reason: buildReasonText(ev),
+      reasons: Array.isArray(ev?.reasons) ? ev.reasons.slice() : []
     };
+  }
+
+  const isPlanned = (id) => store.planIds.includes(id);
+  const isDismissed = (id) => store.dismissedIds.includes(id);
+
+  async function addToPlan(id) {
+    if (!store.planIds.includes(id)) store.planIds.push(id);
+    store.dismissedIds = store.dismissedIds.filter((x) => x !== id);
+    saveStore(store);
+  }
+
+  async function dismiss(id) {
+    if (!store.dismissedIds.includes(id)) store.dismissedIds.push(id);
+    store.planIds = store.planIds.filter((x) => x !== id);
+    saveStore(store);
+  }
+
+  async function removeFromPlan(id) {
+    store.planIds = store.planIds.filter((x) => x !== id);
+    saveStore(store);
+  }
+
+  async function undismiss(id) {
+    store.dismissedIds = store.dismissedIds.filter((x) => x !== id);
+    saveStore(store);
+  }
+
+  function sortChronoAsc(a, b) {
+    return a.start.getTime() - b.start.getTime();
+  }
+
+  function splitVisibleEventsByState(events) {
+    const plannedIds = new Set(store.planIds);
+    const dismissedIds = new Set(store.dismissedIds);
+
+    const announced = [];
+    const planned = [];
+    const dismissed = [];
+
+    for (const ev of events) {
+      if (dismissedIds.has(ev.id)) dismissed.push(ev);
+      else if (plannedIds.has(ev.id)) planned.push(ev);
+      else announced.push(ev);
+    }
+
+    announced.sort(sortChronoAsc);
+    planned.sort(sortChronoAsc);
+    dismissed.sort(sortChronoAsc);
+
+    return { announced, planned, dismissed };
+  }
+
+  function getStrong(events) {
+    return events.filter((ev) => ev.tier === "strong");
+  }
+
+  function getSuggested(events) {
+    return events.filter((ev) => ev.tier === "suggested");
+  }
+
+  function getAlertEvent(events) {
+    const candidates = events
+      .filter((ev) => {
+        const d = daysUntil(ev.start);
+        return d !== null && d >= 0 && d <= 45;
+      })
+      .sort((a, b) => {
+        const ad = daysUntil(a.start) ?? 9999;
+        const bd = daysUntil(b.start) ?? 9999;
+        if (ad !== bd) return ad - bd;
+        return Number(b.score || 0) - Number(a.score || 0);
+      });
+
+    return candidates[0] || null;
+  }
+
+  function getHeroEvent(events) {
+    const ranked = [...events].sort((a, b) => {
+      const as = a.tier === "strong" ? 1 : 0;
+      const bs = b.tier === "strong" ? 1 : 0;
+      if (as !== bs) return bs - as;
+
+      const aScore = Number(a.score || 0);
+      const bScore = Number(b.score || 0);
+      if (aScore !== bScore) return bScore - aScore;
+
+      return a.startTs - b.startTs;
+    });
+
+    return ranked[0] || null;
+  }
+
+  const artistImageCache = new Map();
+
+  function getLastfmApiKey() {
+    const w = typeof window !== "undefined" ? window : {};
+    return safeStr(w.LASTFM_API_KEY);
+  }
+
+  function isBadLastfmImage(url) {
+    const u = lowerKey(url);
+    if (!u) return true;
+    return (
+      u.includes("/2a96cbd8b46e442fc41c2b86b821562f") ||
+      u.includes("noimage") ||
+      u.includes("default") ||
+      u.includes("placeholder") ||
+      u.includes("/4128a6eb29f94943c9d206c08e625904") ||
+      u.endsWith(".gif")
+    );
   }
 
   function normalizeArtistForLookup(raw) {
@@ -261,332 +390,6 @@
       .replace(/[^a-z0-9à-öø-ÿ]+/g, " ")
       .replace(/\s+/g, " ")
       .trim();
-  }
-
-  function normalizeVenueName(raw) {
-    const v = lowerKey(raw)
-      .replace(/[^a-z0-9à-öø-ÿ]+/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-
-    if (!v) return "";
-    if (v.includes("tivolivredenburg")) return "tivolivredenburg";
-    if (v === "tivoli") return "tivolivredenburg";
-    if (v.includes("de helling")) return "de helling";
-    if (v.includes("patronaat")) return "patronaat";
-    if (v.includes("paradiso")) return "paradiso";
-    if (v.includes("melkweg")) return "melkweg";
-    if (v.includes("paard")) return "paard";
-    return v;
-  }
-
-  function normalizeCityName(raw) {
-    const c = lowerKey(raw)
-      .replace(/[^a-z0-9à-öø-ÿ]+/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-
-    if (!c) return "";
-    if (c === "den haag" || c === "the hague") return "den haag";
-    return c;
-  }
-
-  function sameDaySameBandKey(ev) {
-    return `${normalizeArtistForDedupe(ev.artist)}|${getDateKeyLocal(ev.start)}`;
-  }
-
-  function getPreferredVenueScore(ev) {
-    const venue = normalizeVenueName(ev.venue);
-    const city = normalizeCityName(ev.city);
-    let score = 0;
-
-    if (ev.url) score += 4;
-    if (ev.venue) score += 3;
-    if (ev.city) score += 2;
-    if (Array.isArray(ev.attractions) && ev.attractions.length) score += 1;
-    if (Number(ev.score || 0) > 0) score += 1;
-    if (Number(ev.plays || 0) > 0) score += 1;
-
-    if (venue === "tivolivredenburg") score += 4;
-    if (venue === "patronaat") score += 3;
-    if (venue === "paradiso") score += 3;
-    if (venue === "melkweg") score += 3;
-    if (venue === "paard") score += 3;
-
-    if (city === "utrecht") score += 1;
-    if (city === "amsterdam") score += 1;
-    if (city === "den haag") score += 1;
-
-    return score;
-  }
-
-  function areLikelyDuplicateShows(a, b) {
-    if (sameDaySameBandKey(a) !== sameDaySameBandKey(b)) return false;
-
-    const venueA = normalizeVenueName(a.venue);
-    const venueB = normalizeVenueName(b.venue);
-    const cityA = normalizeCityName(a.city);
-    const cityB = normalizeCityName(b.city);
-
-    if (venueA && venueB && venueA === venueB) return true;
-    if (cityA && cityB && cityA === cityB) return true;
-
-    const tivoliFamily = new Set(["tivolivredenburg", "de helling"]);
-    if (tivoliFamily.has(venueA) && tivoliFamily.has(venueB) && cityA === "utrecht" && cityB === "utrecht") {
-      return true;
-    }
-
-    if (cityA && cityB && cityA !== cityB) return true;
-    return false;
-  }
-
-  function pickBetterDuplicate(a, b) {
-    const aScore = getPreferredVenueScore(a);
-    const bScore = getPreferredVenueScore(b);
-    if (aScore !== bScore) return bScore > aScore ? b : a;
-
-    const aVenueLen = safeStr(a.venue).length;
-    const bVenueLen = safeStr(b.venue).length;
-    if (aVenueLen !== bVenueLen) return bVenueLen > aVenueLen ? b : a;
-
-    const aUrlLen = safeStr(a.url).length;
-    const bUrlLen = safeStr(b.url).length;
-    if (aUrlLen !== bUrlLen) return bUrlLen > aUrlLen ? b : a;
-
-    return Number(b.score || 0) > Number(a.score || 0) ? b : a;
-  }
-
-  function isVipUrl(url) {
-    const u = lowerKey(url);
-    return u.includes("vip") || u.includes("package") || u.includes("packages") || u.includes("hospitality") || u.includes("comfort");
-  }
-
-  function venueLooksLikeSubRoom(venue) {
-    const v = lowerKey(venue);
-    return v.includes("club") || v.includes("room") || v.includes("lounge") || v.includes("vinyl") || v.includes("bar");
-  }
-
-  function timeBucket(ts) {
-    const step = 10 * 60 * 1000;
-    return Math.round(ts / step) * step;
-  }
-
-  function softKey(ev) {
-    const ts = Number(ev.startTs || 0) || (ev.start ? ev.start.getTime() : 0);
-    return [normalizeArtistForDedupe(ev.artist), String(timeBucket(ts)), normalizeCityName(ev.city), normalizeVenueName(ev.venue)].join("|");
-  }
-
-  function pickBetterEvent(a, b) {
-    const aVip = isVipUrl(a.url);
-    const bVip = isVipUrl(b.url);
-    if (aVip !== bVip) return aVip ? b : a;
-
-    const aSub = venueLooksLikeSubRoom(a.venue);
-    const bSub = venueLooksLikeSubRoom(b.venue);
-    if (aSub !== bSub) return aSub ? b : a;
-
-    const aMeta = (a.venue ? 1 : 0) + (a.city ? 1 : 0) + (a.attractions?.length ? 1 : 0) + (a.url ? 1 : 0);
-    const bMeta = (b.venue ? 1 : 0) + (b.city ? 1 : 0) + (b.attractions?.length ? 1 : 0) + (b.url ? 1 : 0);
-    if (aMeta !== bMeta) return bMeta > aMeta ? b : a;
-
-    const aScore = Number(a.score || 0);
-    const bScore = Number(b.score || 0);
-    if (aScore !== bScore) return bScore > aScore ? b : a;
-
-    return a;
-  }
-
-  function dedupeEvents(events) {
-    const byId = new Map();
-    for (const ev of events) {
-      if (!ev || !ev.id) continue;
-      if (!byId.has(ev.id)) byId.set(ev.id, ev);
-      else byId.set(ev.id, pickBetterEvent(byId.get(ev.id), ev));
-    }
-
-    const bySoft = new Map();
-    for (const ev of byId.values()) {
-      const k = softKey(ev);
-      if (!bySoft.has(k)) bySoft.set(k, ev);
-      else bySoft.set(k, pickBetterEvent(bySoft.get(k), ev));
-    }
-
-    const result = [];
-    const groups = new Map();
-
-    for (const ev of bySoft.values()) {
-      const k = sameDaySameBandKey(ev);
-      if (!groups.has(k)) groups.set(k, []);
-      groups.get(k).push(ev);
-    }
-
-    for (const group of groups.values()) {
-      if (group.length === 1) {
-        result.push(group[0]);
-        continue;
-      }
-
-      let kept = group[0];
-      for (let i = 1; i < group.length; i++) {
-        const cur = group[i];
-        if (areLikelyDuplicateShows(kept, cur)) {
-          kept = pickBetterDuplicate(kept, cur);
-        } else {
-          result.push(cur);
-        }
-      }
-      result.push(kept);
-    }
-
-    return result;
-  }
-
-  const isPlanned = (id) => store.planIds.includes(id);
-  const isDismissed = (id) => store.dismissedIds.includes(id);
-
-  async function addToPlan(id) {
-    if (!store.planIds.includes(id)) store.planIds.push(id);
-    store.dismissedIds = store.dismissedIds.filter((x) => x !== id);
-    saveStore(store);
-  }
-
-  async function dismiss(id) {
-    if (!store.dismissedIds.includes(id)) store.dismissedIds.push(id);
-    store.planIds = store.planIds.filter((x) => x !== id);
-    saveStore(store);
-  }
-
-  async function removeFromPlan(id) {
-    store.planIds = store.planIds.filter((x) => x !== id);
-    saveStore(store);
-  }
-
-  async function undismiss(id) {
-    store.dismissedIds = store.dismissedIds.filter((x) => x !== id);
-    saveStore(store);
-  }
-
-  function getMatchTier(event) {
-    const score = Number(event?.score || 0);
-    const plays = Number(event?.plays || 0);
-    const matched = safeStr(event?.matched);
-    const starred = !!event?.star;
-
-    if (starred || score >= 82 || plays >= 20) return "strong";
-    if (score >= 55 || plays >= 2 || matched) return "suggested";
-    if (score > 0 || plays > 0) return "suggested";
-    return "none";
-  }
-
-  function getReasonText(event) {
-    if (!event) return "";
-    const score = Number(event.score || 0);
-    const plays = Number(event.plays || 0);
-    const matched = safeStr(event.matched);
-
-    if (plays >= 20) return "Top artist in your listening";
-    if (score >= 82) return "Very strong listening match";
-    if (plays >= 8) return `You played this artist ${plays} times`;
-    if (matched) return `Matched from your listening: ${matched}`;
-    if (plays > 0) return "You played this artist before";
-    return "Listening-linked recommendation";
-  }
-
-  function isStrongMatch(event) {
-    return getMatchTier(event) === "strong";
-  }
-
-  function isSuggestedMatch(event) {
-    return getMatchTier(event) === "suggested";
-  }
-
-  function sortChronoAsc(a, b) {
-    return a.start.getTime() - b.start.getTime();
-  }
-
-  function splitVisibleEventsByState(events) {
-    const plannedIds = new Set(store.planIds);
-    const dismissedIds = new Set(store.dismissedIds);
-
-    const announced = [];
-    const planned = [];
-    const dismissed = [];
-
-    for (const ev of events) {
-      if (dismissedIds.has(ev.id)) dismissed.push(ev);
-      else if (plannedIds.has(ev.id)) planned.push(ev);
-      else announced.push(ev);
-    }
-
-    announced.sort(sortChronoAsc);
-    planned.sort(sortChronoAsc);
-    dismissed.sort(sortChronoAsc);
-
-    return { announced, planned, dismissed };
-  }
-
-  function getStrong(events) {
-    return events.filter(isStrongMatch);
-  }
-
-  function getSuggested(events) {
-    return events.filter((ev) => isSuggestedMatch(ev) && !isStrongMatch(ev));
-  }
-
-  function getAlertEvent(events) {
-    const candidates = events
-      .filter((ev) => {
-        const d = daysUntil(ev.start);
-        return d !== null && d >= 0 && d <= 45;
-      })
-      .sort((a, b) => {
-        const ad = daysUntil(a.start) ?? 9999;
-        const bd = daysUntil(b.start) ?? 9999;
-        if (ad !== bd) return ad - bd;
-        return Number(b.score || 0) - Number(a.score || 0);
-      });
-
-    return candidates[0] || null;
-  }
-
-  function getHeroEvent(events) {
-    const ranked = [...events].sort((a, b) => {
-      const as = isStrongMatch(a) ? 1 : 0;
-      const bs = isStrongMatch(b) ? 1 : 0;
-      if (as !== bs) return bs - as;
-
-      const aScore = Number(a.score || 0);
-      const bScore = Number(b.score || 0);
-      if (aScore !== bScore) return bScore - aScore;
-
-      const aPlays = Number(a.plays || 0);
-      const bPlays = Number(b.plays || 0);
-      if (aPlays !== bPlays) return bPlays - aPlays;
-
-      return a.startTs - b.startTs;
-    });
-
-    return ranked[0] || null;
-  }
-
-  const artistImageCache = new Map();
-
-  function getLastfmApiKey() {
-    const w = typeof window !== "undefined" ? window : {};
-    return safeStr(w.LASTFM_API_KEY);
-  }
-
-  function isBadLastfmImage(url) {
-    const u = lowerKey(url);
-    if (!u) return true;
-    return (
-      u.includes("/2a96cbd8b46e442fc41c2b86b821562f") ||
-      u.includes("noimage") ||
-      u.includes("default") ||
-      u.includes("placeholder") ||
-      u.includes("/4128a6eb29f94943c9d206c08e625904") ||
-      u.endsWith(".gif")
-    );
   }
 
   function getAppState() {
@@ -981,7 +784,7 @@
 
     const badge = document.createElement("div");
     badge.className = "lmc-badge";
-    badge.textContent = "🔥 STRONG MATCH";
+    badge.textContent = event.visibility === "top" ? "🔥 TOP MATCH" : "🔥 STRONG MATCH";
 
     const title = document.createElement("h3");
     title.className = "lmc-title";
@@ -993,11 +796,15 @@
 
     const subMeta = document.createElement("p");
     subMeta.className = "lmc-submeta";
-    subMeta.textContent = [safeStr(event.venue), formatShortDayDate(event.start)].filter(Boolean).join(" • ");
+    subMeta.textContent = [
+      safeStr(event.venue),
+      formatShortDayDate(event.start),
+      formatTimeHM(event.start)
+    ].filter(Boolean).join(" • ");
 
     const reason = document.createElement("p");
     reason.className = "lmc-reason";
-    reason.textContent = getReasonText(event);
+    reason.textContent = event.reason;
 
     body.appendChild(badge);
     body.appendChild(title);
@@ -1024,7 +831,7 @@
 
     const badge = document.createElement("div");
     badge.className = "lmc-badge";
-    badge.textContent = "🔥 STRONG MATCH";
+    badge.textContent = event.visibility === "recommended" ? "✨ RECOMMENDED" : "🔥 STRONG MATCH";
 
     const title = document.createElement("h3");
     title.className = "lmc-title";
@@ -1037,12 +844,17 @@
 
     const subMeta = document.createElement("p");
     subMeta.className = "lmc-submeta";
-    subMeta.textContent = formatShortDayDate(event.start);
+    subMeta.textContent = [formatShortDayDate(event.start), formatTimeHM(event.start)].filter(Boolean).join(" • ");
+
+    const reason = document.createElement("p");
+    reason.className = "lmc-reason";
+    reason.textContent = event.reason;
 
     body.appendChild(badge);
     body.appendChild(title);
     body.appendChild(meta);
     body.appendChild(subMeta);
+    body.appendChild(reason);
     body.appendChild(buildActionButtons(event, view));
 
     card.appendChild(cover);
@@ -1070,7 +882,11 @@
 
     const meta = document.createElement("p");
     meta.className = "lmc-mini-meta";
-    meta.textContent = `${safeStr(event.city)} | ${formatMonthDay(event.start)}`;
+    meta.textContent = [
+      safeStr(event.city),
+      formatMonthDay(event.start),
+      formatTimeHM(event.start)
+    ].filter(Boolean).join(" | ");
 
     info.appendChild(title);
     info.appendChild(meta);
@@ -1124,11 +940,16 @@
 
     const txt = document.createElement("p");
     txt.className = "lmc-alert-text";
-    txt.textContent = "New Netherlands date detected";
+    txt.textContent = event.reason || "New relevant concert detected";
 
     const dates = document.createElement("p");
     dates.className = "lmc-alert-dates";
-    dates.innerHTML = `${safeStr(event.city)} • ${formatMonthDay(event.start)}`;
+    dates.innerHTML = [
+      safeStr(event.city),
+      safeStr(event.venue),
+      formatMonthDay(event.start),
+      formatTimeHM(event.start)
+    ].filter(Boolean).join(" • ");
 
     const btn = document.createElement("button");
     btn.type = "button";
@@ -1156,7 +977,7 @@
     const thisWeek = strong.filter((ev) => ev.id !== heroId).slice(0, 2);
     const upcoming = [...suggested, ...strong.filter((ev) => ev.id !== heroId)]
       .filter((ev, i, arr) => arr.findIndex(x => x.id === ev.id) === i)
-      .slice(0, 4);
+      .slice(0, 6);
     const alertEvent = getAlertEvent(events);
 
     const wrap = document.createElement("div");
@@ -1315,17 +1136,55 @@
     renderAnnounced(split.announced);
   }
 
+  function extractWorkerEvents(payload) {
+    const all = [];
+
+    const directEvents = Array.isArray(payload?.events) ? payload.events : [];
+    if (directEvents.length) all.push(...directEvents);
+
+    const buckets = payload?.buckets || {};
+    const bucketNames = ["top", "strong", "recommended"];
+
+    for (const name of bucketNames) {
+      const arr = Array.isArray(buckets?.[name]) ? buckets[name] : [];
+      for (const ev of arr) all.push(ev);
+    }
+
+    const seen = new Map();
+
+    for (const raw of all) {
+      const mapped = normalizeRecommendedEvent(raw);
+      if (!mapped) continue;
+
+      if (!["top", "strong", "recommended", "older-taste", "borderline"].includes(mapped.visibility)) {
+        continue;
+      }
+
+      const prev = seen.get(mapped.id);
+      if (!prev) {
+        seen.set(mapped.id, mapped);
+        continue;
+      }
+
+      if (Number(mapped.score || 0) > Number(prev.score || 0)) {
+        seen.set(mapped.id, mapped);
+      }
+    }
+
+    return Array.from(seen.values())
+      .filter((ev) => ev.tier === "strong" || ev.tier === "suggested")
+      .sort(sortChronoAsc);
+  }
+
   async function refresh() {
     store.lastRefreshAt = Date.now();
     saveStore(store);
 
     setEmpty("Refreshing concert signals…");
 
-    const payload = await fetchJson(buildSignalsUrl());
-    const arr = Array.isArray(payload?.events) ? payload.events : [];
-    const mapped = arr.map(normalizeLive2Event).filter(Boolean);
-    const deduped = dedupeEvents(mapped);
-    const enriched = await enrichEventsWithImages(deduped);
+    const payload = await fetchJson(buildRecommendedUrl());
+    const mapped = extractWorkerEvents(payload);
+    const enriched = await enrichEventsWithImages(mapped);
 
     render(enriched, payload?.meta || null);
   }

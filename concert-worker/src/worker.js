@@ -5,6 +5,21 @@ import {
   buildBucketedConcertRecommendations
 } from "../core/concert-recommender.js";
 
+const ALL_VENUE_SOURCES = [
+  "tivoli",
+  "013",
+  "paradiso",
+  "melkweg",
+  "paard",
+  "doornroosje",
+  "patronaat",
+  "effenaar",
+  "vera",
+  "hedon",
+  "muziekgieterij",
+  "boerderij"
+];
+
 export default {
   async fetch(req, env) {
     try {
@@ -24,21 +39,27 @@ export default {
           endpoints: [
             "/health",
             "/admin/refresh-source?source=paradiso",
+            "/concerts/venues",
             "/concerts/venues?source=paradiso",
+            "/concerts/venues?source=all",
+            "/concerts/venues?sources=paradiso,melkweg,tivoli",
+            "/concerts/venues?sources=all",
             "/concerts/db-latest",
             "/concerts/recommended",
             "/concerts/recommended?bucketed=1",
             "/concerts/recommended?directOnly=1",
             "/debug/paradiso/raw?page=1",
             "/debug/paradiso/section?page=1"
-          ]
+          ],
+          supportedVenueSources: ALL_VENUE_SOURCES
         });
       }
 
       if (pathname === "/health") {
         return json({
           ok: true,
-          service: "econcerts"
+          service: "econcerts",
+          supportedVenueSources: ALL_VENUE_SOURCES
         });
       }
 
@@ -62,20 +83,38 @@ export default {
       }
 
       if (pathname === "/concerts/venues") {
-        const source = cleanParam(url.searchParams.get("source"));
+        const singleSource = cleanParam(url.searchParams.get("source"));
+        const sourcesParam = cleanParam(url.searchParams.get("sources"));
+        const grouped = parseBoolean(url.searchParams.get("grouped"), true);
 
-        if (!source) {
-          return json({ ok: false, error: "Missing source" }, 400);
+        const requestedSources = resolveRequestedVenueSources({
+          source: singleSource,
+          sources: sourcesParam
+        });
+
+        if (!requestedSources.length) {
+          return json({
+            ok: false,
+            error: "No valid venue sources requested",
+            supportedVenueSources: ALL_VENUE_SOURCES
+          }, 400);
         }
 
-        const events = await fetchVenueEventsById(source);
+        const result = await fetchMultipleVenueSources(requestedSources);
 
         return json({
           ok: true,
-          mode: "single-source",
-          source,
-          count: Array.isArray(events) ? events.length : 0,
-          events: Array.isArray(events) ? events : []
+          mode: requestedSources.length === 1 ? "single-source" : "multi-source",
+          requestedSources,
+          totalSourcesRequested: requestedSources.length,
+          totalSourcesSucceeded: result.succeededSources.length,
+          totalSourcesFailed: result.failedSources.length,
+          totalRaw: result.totalRaw,
+          totalAfterDedupe: result.events.length,
+          countsBySource: result.countsBySource,
+          failedSources: result.failedSources,
+          sources: grouped ? result.groupedSources : undefined,
+          events: result.events
         });
       }
 
@@ -192,7 +231,9 @@ export default {
 
           return json({
             ok: true,
-            mode: directOnly ? "recommended-bucketed-direct-only" : "recommended-bucketed",
+            mode: directOnly
+              ? "recommended-bucketed-direct-only"
+              : "recommended-bucketed",
             config: {
               limit,
               includeHidden,
@@ -250,6 +291,7 @@ export default {
           }
         });
       }
+
       if (pathname === "/debug/paradiso/section") {
         const page = Number(url.searchParams.get("page") || "1");
         const target =
@@ -301,6 +343,84 @@ export default {
     }
   }
 };
+async function fetchMultipleVenueSources(sources) {
+  const groupedSources = [];
+  const failedSources = [];
+  const countsBySource = Object.create(null);
+  const rawEvents = [];
+
+  for (const source of sources) {
+    try {
+      const events = await fetchVenueEventsById(source);
+      const safeEvents = Array.isArray(events) ? events : [];
+      const hydrated = safeEvents.map(hydrateConcertRow);
+
+      countsBySource[source] = hydrated.length;
+
+      groupedSources.push({
+        source,
+        count: hydrated.length,
+        events: hydrated
+      });
+
+      rawEvents.push(...hydrated);
+    } catch (err) {
+      countsBySource[source] = 0;
+
+      failedSources.push({
+        source,
+        error: err?.message || "Unknown parser error"
+      });
+    }
+  }
+
+  const dedupedEvents = dedupeVenueEvents(rawEvents).sort(compareVenueEvents);
+
+  return {
+    requestedSources: sources,
+    succeededSources: groupedSources.map((x) => x.source),
+    failedSources,
+    groupedSources,
+    countsBySource,
+    totalRaw: rawEvents.length,
+    events: dedupedEvents
+  };
+}
+
+function resolveRequestedVenueSources({ source, sources }) {
+  if (source && source !== "all") {
+    return ALL_VENUE_SOURCES.includes(source) ? [source] : [];
+  }
+
+  if (source === "all") {
+    return [...ALL_VENUE_SOURCES];
+  }
+
+  if (sources) {
+    if (sources === "all") {
+      return [...ALL_VENUE_SOURCES];
+    }
+
+    const parsed = sources
+      .split(",")
+      .map((x) => cleanParam(x))
+      .filter(Boolean);
+
+    const uniqueValid = [];
+    const seen = new Set();
+
+    for (const item of parsed) {
+      if (!ALL_VENUE_SOURCES.includes(item)) continue;
+      if (seen.has(item)) continue;
+      seen.add(item);
+      uniqueValid.push(item);
+    }
+
+    return uniqueValid;
+  }
+
+  return [...ALL_VENUE_SOURCES];
+}
 
 async function loadFutureConcerts(db, { limit = 500 } = {}) {
   const today = amsterdamToday();
@@ -357,6 +477,81 @@ function parseArtistsAll(value) {
     return [];
   }
 }
+
+function dedupeVenueEvents(events) {
+  const list = Array.isArray(events) ? events : [];
+  const bestByKey = new Map();
+
+  for (const event of list) {
+    const key = buildVenueDedupeKey(event);
+    const prev = bestByKey.get(key);
+
+    if (!prev) {
+      bestByKey.set(key, event);
+      continue;
+    }
+
+    if (preferVenueEvent(event, prev)) {
+      bestByKey.set(key, event);
+    }
+  }
+
+  return Array.from(bestByKey.values());
+}
+
+function buildVenueDedupeKey(event) {
+  const sourceId = cleanText(event?.source_id);
+  if (sourceId) return `sid::${sourceId}`;
+
+  return [
+    normalizeLooseKey(event?.title),
+    cleanText(event?.date_local),
+    cleanText(event?.time_local),
+    normalizeLooseKey(event?.venue_name),
+    normalizeLooseKey(event?.city)
+  ].join("::");
+}
+function preferVenueEvent(nextEvent, prevEvent) {
+  const nextHasImage = Boolean(cleanText(nextEvent?.image_url));
+  const prevHasImage = Boolean(cleanText(prevEvent?.image_url));
+
+  if (nextHasImage !== prevHasImage) {
+    return nextHasImage;
+  }
+
+  const nextHasUrl = Boolean(cleanText(nextEvent?.url));
+  const prevHasUrl = Boolean(cleanText(prevEvent?.url));
+
+  if (nextHasUrl !== prevHasUrl) {
+    return nextHasUrl;
+  }
+
+  const nextFetched = Number(nextEvent?.fetched_at || 0);
+  const prevFetched = Number(prevEvent?.fetched_at || 0);
+
+  if (nextFetched !== prevFetched) {
+    return nextFetched > prevFetched;
+  }
+
+  return false;
+}
+
+function compareVenueEvents(a, b) {
+  const dateA = `${a?.date_local || ""} ${a?.time_local || "99:99"}`;
+  const dateB = `${b?.date_local || ""} ${b?.time_local || "99:99"}`;
+
+  const dateCmp = dateA.localeCompare(dateB);
+  if (dateCmp !== 0) return dateCmp;
+
+  const cityCmp = String(a?.city || "").localeCompare(String(b?.city || ""));
+  if (cityCmp !== 0) return cityCmp;
+
+  const venueCmp = String(a?.venue_name || "").localeCompare(String(b?.venue_name || ""));
+  if (venueCmp !== 0) return venueCmp;
+
+  return String(a?.title || "").localeCompare(String(b?.title || ""));
+}
+
 function cleanParam(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -417,4 +612,22 @@ function amsterdamToday() {
   const d = parts.find((p) => p.type === "day")?.value || "";
 
   return `${y}-${m}-${d}`;
+}
+
+function normalizeLooseKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[’']/g, "")
+    .replace(/[^\w\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cleanText(value) {
+  return String(value || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }

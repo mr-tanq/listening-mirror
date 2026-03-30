@@ -17,6 +17,8 @@ import { fetchMuziekgieterijEvents } from "../parsers/parser-muziekgieterij.js";
 import { fetchCarreEvents } from "../parsers/parser-carre.js";
 import { fetchMusiconEvents } from "../parsers/parser-musicon.js";
 import { fetchDeHellingEvents } from "../parsers/parser-dehelling.js";
+import { fetchZiggoEvents } from "../parsers/parser-ziggo.js";
+import { fetchAfasEvents } from "../parsers/parser-afas.js";
 
 export const venueRegistry = {
   paradiso: fetchParadisoEvents,
@@ -37,5 +39,7 @@ export const venueRegistry = {
   dbs: fetchDbsEvents,
   muziekgieterij: fetchMuziekgieterijEvents,
   carre: fetchCarreEvents,
-  musicon: fetchMusiconEvents
+  musicon: fetchMusiconEvents,
+  ziggo: fetchZiggoEvents,
+  afas: fetchAfasEvents
 };

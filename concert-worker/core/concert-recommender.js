@@ -10,7 +10,8 @@ import {
 
 import {
   scoreConcertEvents,
-  summarizeScoredConcerts
+  summarizeScoredConcerts,
+  dedupeScoredConcerts
 } from "./concert-matcher.js";
 
 export async function buildConcertRecommendations(env, events, options = {}) {
@@ -35,11 +36,14 @@ export async function buildConcertRecommendations(env, events, options = {}) {
     matcher
   );
 
+  const dedupedEvents = dedupeScoredConcerts(scoredEvents);
+
   return {
     meta: {
       generatedAt: new Date().toISOString(),
       inputEventCount: eventList.length,
-      outputEventCount: scoredEvents.length
+      scoredEventCount: scoredEvents.length,
+      outputEventCount: dedupedEvents.length
     },
     profiles: {
       taste: tasteProfile,
@@ -48,9 +52,9 @@ export async function buildConcertRecommendations(env, events, options = {}) {
     summary: {
       taste: summarizeTasteProfile(tasteProfile),
       related: summarizeRelatedProfile(relatedProfile),
-      concerts: summarizeScoredConcerts(scoredEvents)
+      concerts: summarizeScoredConcerts(dedupedEvents)
     },
-    events: scoredEvents
+    events: dedupedEvents
   };
 }
 
@@ -163,10 +167,13 @@ export function getTopRecommendationCandidates(scoredEvents, limit = 50) {
       directScore: event.directScore,
       relatedScore: event.relatedScore,
       matchedBy: event.matchedBy,
+      matchedArtist: event.matchedArtist,
+      matchedTier: event.matchedTier,
       visibility: event.visibility,
       reasons: event.reasons
     }));
 }
+
 function visibilityRank(value) {
   switch (value) {
     case "top":

@@ -15,7 +15,14 @@ const ALL_VENUE_SOURCES = [
   "boerderij"
 ];
 
-export async function refreshSource(db, source) {
+const DEFAULT_REFRESH_ALL_CONFIG = {
+  batchSize: 1,
+  batchDelayMs: 1200,
+  zeroRetryDelayMs: 2200,
+  zeroRetries: 1
+};
+
+export async function refreshSource(db, source, options = {}) {
   const startedAt = Date.now();
   const safeSource = cleanParam(source);
 
@@ -42,7 +49,7 @@ export async function refreshSource(db, source) {
   };
 }
 
-export async function refreshAllSources(db, sources = ALL_VENUE_SOURCES) {
+export async function refreshAllSources(db, sources = ALL_VENUE_SOURCES, options = {}) {
   const startedAt = Date.now();
   await ensureConcertsSchema(db);
 
@@ -50,18 +57,44 @@ export async function refreshAllSources(db, sources = ALL_VENUE_SOURCES) {
     ? sources.map(cleanParam).filter(Boolean)
     : [...ALL_VENUE_SOURCES];
 
+  const config = {
+    ...DEFAULT_REFRESH_ALL_CONFIG,
+    ...sanitizeRefreshAllOptions(options)
+  };
+
   const results = [];
   const failed = [];
+  const suspicious = [];
 
-  for (const source of requestedSources) {
-    try {
-      const result = await refreshSource(db, source);
-      results.push(result);
-    } catch (err) {
-      failed.push({
-        source,
-        error: err?.message || "Unknown refresh error"
-      });
+  const batches = chunkArray(requestedSources, config.batchSize);
+
+  for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
+    const batch = batches[batchIndex];
+
+    for (const source of batch) {
+      try {
+        const result = await refreshSourceWithZeroRetry(db, source, config);
+        results.push(result);
+
+        if (result.suspiciousZero) {
+          suspicious.push({
+            source: result.source,
+            fetched: result.fetched,
+            attempts: result.attempts,
+            zeroRetryUsed: result.zeroRetryUsed
+          });
+        }
+      } catch (err) {
+        failed.push({
+          source,
+          error: err?.message || "Unknown refresh error"
+        });
+      }
+    }
+
+    const isLastBatch = batchIndex === batches.length - 1;
+    if (!isLastBatch && config.batchDelayMs > 0) {
+      await sleep(config.batchDelayMs);
     }
   }
 
@@ -72,9 +105,61 @@ export async function refreshAllSources(db, sources = ALL_VENUE_SOURCES) {
     totalSourcesRequested: requestedSources.length,
     totalSourcesSucceeded: results.length,
     totalSourcesFailed: failed.length,
+    totalSuspicious: suspicious.length,
     durationMs: Date.now() - startedAt,
+    config: {
+      batchSize: config.batchSize,
+      batchDelayMs: config.batchDelayMs,
+      zeroRetryDelayMs: config.zeroRetryDelayMs,
+      zeroRetries: config.zeroRetries
+    },
     results,
+    suspicious,
     failed
+  };
+}
+async function refreshSourceWithZeroRetry(db, source, config) {
+  const startedAt = Date.now();
+  const safeSource = cleanParam(source);
+
+  let attempts = 0;
+  let zeroRetryUsed = false;
+  let lastResult = null;
+
+  while (attempts <= config.zeroRetries) {
+    attempts += 1;
+
+    const result = await refreshSource(db, safeSource);
+    lastResult = result;
+
+    if (result.fetched > 0 || result.normalized > 0) {
+      return {
+        ...result,
+        durationMs: Date.now() - startedAt,
+        attempts,
+        zeroRetryUsed,
+        suspiciousZero: false
+      };
+    }
+
+    const canRetryZero = attempts <= config.zeroRetries;
+    if (!canRetryZero) {
+      break;
+    }
+
+    zeroRetryUsed = true;
+
+    if (config.zeroRetryDelayMs > 0) {
+      await sleep(config.zeroRetryDelayMs);
+    }
+  }
+
+  return {
+    ...lastResult,
+    durationMs: Date.now() - startedAt,
+    attempts,
+    zeroRetryUsed,
+    suspiciousZero: true
   };
 }
 
@@ -141,6 +226,7 @@ function normalizeIncomingEvents(events, forcedSource) {
 
   return out.sort(compareEventsByDate);
 }
+
 function normalizeSingleEvent(raw, forcedSource) {
   if (!raw || typeof raw !== "object") return null;
 
@@ -181,8 +267,7 @@ function normalizeSingleEvent(raw, forcedSource) {
     genre_hint: cleanNullableText(raw.genre_hint),
     fetched_at: toSafeInteger(raw.fetched_at) || Date.now()
   };
-}
-
+    }
 async function upsertConcertsForSource(db, source, events) {
   let inserted = 0;
   let updated = 0;
@@ -258,7 +343,8 @@ async function upsertConcertsForSource(db, source, events) {
         country,
         url,
         image_url,
-        genre_hint
+        genre_hint,
+        fetched_at
       FROM concerts
       WHERE source = ? AND source_id = ?
       LIMIT 1
@@ -320,6 +406,7 @@ async function upsertConcertsForSource(db, source, events) {
 
   return { inserted, updated, skipped };
 }
+
 async function deletePastConcertsForSource(db, source) {
   const today = amsterdamToday();
 
@@ -349,7 +436,8 @@ function hasConcertChanged(existing, incoming) {
     cleanText(existing?.country) !== cleanText(incoming?.country) ||
     cleanText(existing?.url) !== cleanText(incoming?.url) ||
     cleanText(existing?.image_url) !== cleanText(incoming?.image_url) ||
-    cleanText(existing?.genre_hint) !== cleanText(incoming?.genre_hint)
+    cleanText(existing?.genre_hint) !== cleanText(incoming?.genre_hint) ||
+    toSafeInteger(existing?.fetched_at) !== toSafeInteger(incoming?.fetched_at)
   );
 }
 
@@ -402,7 +490,48 @@ function compareEventsByDate(a, b) {
 function isUniqueConstraintError(err) {
   const msg = String(err?.message || err || "");
   return msg.includes("UNIQUE constraint failed");
+  }
+function sanitizeRefreshAllOptions(options) {
+  const batchSize = clampInt(options?.batchSize, 1, 12, DEFAULT_REFRESH_ALL_CONFIG.batchSize);
+  const batchDelayMs = clampInt(options?.batchDelayMs, 0, 20000, DEFAULT_REFRESH_ALL_CONFIG.batchDelayMs);
+  const zeroRetryDelayMs = clampInt(
+    options?.zeroRetryDelayMs,
+    0,
+    20000,
+    DEFAULT_REFRESH_ALL_CONFIG.zeroRetryDelayMs
+  );
+  const zeroRetries = clampInt(options?.zeroRetries, 0, 3, DEFAULT_REFRESH_ALL_CONFIG.zeroRetries);
+
+  return {
+    batchSize,
+    batchDelayMs,
+    zeroRetryDelayMs,
+    zeroRetries
+  };
 }
+
+function chunkArray(list, size) {
+  const out = [];
+  const safeSize = Math.max(1, Number(size || 1));
+
+  for (let i = 0; i < list.length; i += safeSize) {
+    out.push(list.slice(i, i + safeSize));
+  }
+
+  return out;
+}
+
+function sleep(ms) {
+  const safeMs = Math.max(0, Number(ms || 0));
+  return new Promise((resolve) => setTimeout(resolve, safeMs));
+}
+
+function clampInt(value, min, max, fallback) {
+  const n = Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
 function amsterdamToday() {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Europe/Amsterdam",
@@ -449,4 +578,4 @@ function slugify(value) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .replace(/-+/g, "-");
-}
+    }

@@ -1,46 +1,69 @@
-const ZIGGO_BASE = "https://www.ziggodome.nl";
-const ZIGGO_AGENDA_URL = `${ZIGGO_BASE}/agenda`;
+const ZIGGO_BASE = "https://www.podiuminfo.nl";
+const ZIGGO_VENUE_ID = 1968;
+const ZIGGO_CITY = "Amsterdam";
+const ZIGGO_SLUG = "Ziggo-Dome";
 
 export async function fetchZiggoEvents(options = {}) {
   const {
-    retries = 2
+    maxPages = 40,
+    stopAfterEmptyPages = 2,
+    retriesPerPage = 2
   } = options;
 
-  const nowTs = Date.now();
-  let html = "";
-  let lastError = null;
+  const allEvents = [];
+  const seen = new Set();
+  let emptyPagesInRow = 0;
 
-  for (let attempt = 0; attempt <= retries; attempt += 1) {
-    try {
-      html = await fetchText(ZIGGO_AGENDA_URL);
-      if (html) break;
-    } catch (err) {
-      lastError = err;
+  for (let page = 1; page <= maxPages; page += 1) {
+    const url = buildAgendaUrl(page);
+
+    let pageEvents = [];
+    let lastError = null;
+
+    for (let attempt = 0; attempt <= retriesPerPage; attempt += 1) {
+      try {
+        const html = await fetchText(url);
+        pageEvents = parsePage(html);
+
+        if (pageEvents.length > 0) {
+          break;
+        }
+      } catch (err) {
+        lastError = err;
+      }
+    }
+
+    if (pageEvents.length === 0) {
+      emptyPagesInRow += 1;
+
+      if (emptyPagesInRow >= stopAfterEmptyPages) {
+        break;
+      }
+
+      continue;
+    }
+
+    emptyPagesInRow = 0;
+
+    for (const ev of pageEvents) {
+      const key = ev.source_id || makeNormalizedKey(ev);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      allEvents.push(ev);
     }
   }
 
-  if (!html) {
-    throw lastError || new Error("Failed to fetch Ziggo Dome agenda");
-  }
-
-  const events = parseAgendaPage(html, nowTs);
-  const seen = new Set();
-  const out = [];
-
-  for (const ev of events) {
-    const key = ev.source_id || makeNormalizedKey(ev);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(ev);
-  }
-
-  out.sort((a, b) => {
+  allEvents.sort((a, b) => {
     const ad = `${a.date_local || ""} ${a.time_local || "99:99"}`;
     const bd = `${b.date_local || ""} ${b.time_local || "99:99"}`;
     return ad.localeCompare(bd) || String(a.title || "").localeCompare(String(b.title || ""));
   });
 
-  return out;
+  return allEvents;
+}
+
+function buildAgendaUrl(page = 1) {
+  return `${ZIGGO_BASE}/podium/${ZIGGO_VENUE_ID}/concerten/${page}/${ZIGGO_SLUG}/${ZIGGO_CITY}/`;
 }
 
 async function fetchText(url) {
@@ -58,195 +81,18 @@ async function fetchText(url) {
   return await res.text();
 }
 
-function parseAgendaPage(html, nowTs) {
-  const blocks = extractNextDataEvents(html);
-  if (!blocks.length) {
-    return parseJsonLdFallback(html, nowTs, "ziggo");
-  }
+function parsePage(html) {
+  const nowTs = Date.now();
 
-  const results = [];
-
-  for (const item of blocks) {
-    const ev = normalizeZiggoItem(item, nowTs);
-    if (ev) results.push(ev);
-  }
-
-  return results;
-}
-
-function extractNextDataEvents(html) {
-  const m = String(html || "").match(
-    /<script[^>]*id=["']__NEXT_DATA__["'][^>]*type=["']application\/json["'][^>]*>([\s\S]*?)<\/script>/i
-  );
-
-  if (!m?.[1]) return [];
-
-  try {
-    const parsed = JSON.parse(m[1]);
-    const out = [];
-    walkJson(parsed, (node) => {
-      if (!node || typeof node !== "object") return;
-
-      const maybeUrl = clean(
-        node.url ||
-        node.href ||
-        node.path ||
-        node.slug ||
-        ""
-      );
-
-      const maybeTitle = clean(
-        node.title ||
-        node.name ||
-        node.eventTitle ||
-        ""
-      );
-
-      const maybeDate =
-        node.date ||
-        node.startDate ||
-        node.start ||
-        node.datetime ||
-        node.eventDate ||
-        null;
-
-      if (!maybeTitle || !maybeDate) return;
-
-      if (
-        maybeUrl.includes("/agenda/") ||
-        maybeUrl.includes("/event/") ||
-        maybeUrl.includes("/concert/")
-      ) {
-        out.push(node);
-      }
-    });
-
-    return uniqueObjects(out);
-  } catch {
-    return [];
-  }
-}
-
-function normalizeZiggoItem(item, nowTs) {
-  const rawTitle = clean(
-    item.title ||
-    item.name ||
-    item.eventTitle ||
-    ""
-  );
-  if (!rawTitle) return null;
-
-  const rawUrl = absoluteUrl(
-    item.url ||
-    item.href ||
-    item.path ||
-    ""
-  );
-
-  const rawImage = normalizeImage(
-    item.image ||
-    item.imageUrl ||
-    item.thumbnail ||
-    item.poster ||
-    item.heroImage ||
-    null
-  );
-
-  const start = parseDateFromUnknownShape(item);
-  if (!start) return null;
-  if (start.timestamp < startOfTodayAmsterdam(nowTs)) return null;
-
-  const title = extractArtistFromTitle(rawTitle) || rawTitle;
-  const supportActs = extractSupportActs(item);
-  const artistsAll = uniqueStrings([title, ...supportActs]);
-
-  return {
-    source: "ziggo",
-    source_id: buildSourceId({
-      prefix: "ziggo",
-      title,
-      dateLocal: start.date_local,
-      venueName: "Ziggo Dome"
-    }),
-    title,
-    artists_main: title,
-    artists_all: artistsAll,
-    raw_title: rawTitle,
-    date_local: start.date_local,
-    time_local: start.time_local,
-    venue_name: "Ziggo Dome",
-    city: "Amsterdam",
-    country: "NL",
-    url: rawUrl || null,
-    image_url: rawImage || null,
-    genre_hint: null,
-    fetched_at: nowTs
-  };
-}
-
-function extractSupportActs(item) {
-  const candidates = [];
-
-  const directArrays = [
-    item.supportActs,
-    item.supports,
-    item.support,
-    item.lineup,
-    item.artists,
-    item.performers
-  ];
-
-  for (const arr of directArrays) {
-    if (Array.isArray(arr)) {
-      for (const x of arr) {
-        if (typeof x === "string") candidates.push(clean(x));
-        else if (x && typeof x === "object") {
-          candidates.push(clean(x.name || x.title || x.artist || ""));
-        }
-      }
-    }
-  }
-
-  const textFields = [
-    item.subtitle,
-    item.subTitle,
-    item.description,
-    item.summary,
-    item.intro
-  ];
-
-  for (const field of textFields) {
-    const parsed = extractSupportsFromText(field);
-    for (const x of parsed) candidates.push(x);
-  }
-
-  return uniqueStrings(candidates.filter(Boolean));
-}
-
-function extractSupportsFromText(value) {
-  const text = clean(stripHtml(value || ""));
-  if (!text) return [];
-
-  const patterns = [
-    /\b(support|supports|special guest|special guests|with)\b[:\s-]+(.+)$/i
-  ];
-
-  for (const re of patterns) {
-    const m = text.match(re);
-    if (!m?.[2]) continue;
-
-    return splitArtistText(m[2]);
-  }
-
-  return [];
-}
-
-function parseJsonLdFallback(html, nowTs, sourceName) {
   const scripts = [
     ...String(html || "").matchAll(
       /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi
     )
   ];
+
+  if (!scripts.length) {
+    return [];
+  }
 
   const events = [];
   const seen = new Set();
@@ -255,14 +101,15 @@ function parseJsonLdFallback(html, nowTs, sourceName) {
     const candidates = parseJsonLdPayload(match[1]);
 
     for (const candidate of candidates) {
-      if (!candidate || candidate["@type"] !== "Event" && candidate["@type"] !== "MusicEvent") continue;
+      if (!candidate || candidate["@type"] !== "MusicEvent") continue;
 
-      const normalized = normalizeJsonLdMusicEvent(candidate, nowTs, sourceName);
+      const normalized = normalizeMusicEvent(candidate, nowTs);
       if (!normalized) continue;
 
       const key = normalized.source_id;
       if (seen.has(key)) continue;
       seen.add(key);
+
       events.push(normalized);
     }
   }
@@ -270,37 +117,67 @@ function parseJsonLdFallback(html, nowTs, sourceName) {
   return events;
 }
 
-function normalizeJsonLdMusicEvent(json, nowTs, sourceName) {
+function parseJsonLdPayload(raw) {
+  try {
+    const parsed = JSON.parse(raw);
+
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+
+    if (parsed && Array.isArray(parsed["@graph"])) {
+      return parsed["@graph"];
+    }
+
+    return [parsed];
+  } catch {
+    return [];
+  }
+}
+
+function normalizeMusicEvent(json, nowTs) {
   const rawName = clean(json?.name);
   const rawUrl = absoluteUrl(json?.url || "");
   const rawImage = normalizeImage(json?.image);
+
   const start = parseStartDate(json?.startDate);
+  if (!start) return null;
 
-  if (!rawName || !start) return null;
-  if (start.timestamp < startOfTodayAmsterdam(nowTs)) return null;
+  if (start.timestamp < startOfTodayAmsterdam(nowTs)) {
+    return null;
+  }
 
-  const venueName = clean(json?.location?.name || (sourceName === "ziggo" ? "Ziggo Dome" : "AFAS Live")) ||
-    (sourceName === "ziggo" ? "Ziggo Dome" : "AFAS Live");
+  const venueNameRaw = clean(json?.location?.name || "Ziggo Dome");
+  const venueName = normalizeVenueName(venueNameRaw);
 
-  const title = extractArtistFromTitle(rawName) || rawName;
+  const performerNames = extractPerformers(json);
+  const artistName =
+    performerNames[0] ||
+    extractArtistFromName(rawName, venueName) ||
+    extractArtistFromUrl(rawUrl) ||
+    rawName;
+
+  const artistsAll = uniqueStrings([
+    artistName,
+    ...performerNames
+  ]);
 
   return {
-    source: sourceName,
+    source: "ziggo",
     source_id: buildSourceId({
-      prefix: sourceName,
-      title,
+      title: artistName,
       dateLocal: start.date_local,
       venueName
     }),
-    title,
-    artists_main: title,
-    artists_all: [title],
+    title: artistName,
+    artists_main: artistName,
+    artists_all: artistsAll,
     raw_title: rawName,
     date_local: start.date_local,
     time_local: start.time_local,
     venue_name: venueName,
-    city: clean(json?.location?.address?.addressLocality || "Amsterdam") || "Amsterdam",
-    country: clean(json?.location?.address?.addressCountry || "NL") || "NL",
+    city: extractCity(json) || "Amsterdam",
+    country: extractCountry(json) || "NL",
     url: rawUrl || null,
     image_url: rawImage || null,
     genre_hint: null,
@@ -308,89 +185,96 @@ function normalizeJsonLdMusicEvent(json, nowTs, sourceName) {
   };
 }
 
-function parseDateFromUnknownShape(item) {
-  const candidates = [
-    item.startDate,
-    item.date,
-    item.start,
-    item.datetime,
-    item.eventDate,
-    item.start_at
-  ];
+function extractPerformers(json) {
+  const raw = json?.performer;
 
-  for (const value of candidates) {
-    const parsed = parseStartDate(value);
-    if (parsed) return parsed;
-  }
+  const arr = Array.isArray(raw) ? raw : (raw ? [raw] : []);
 
-  const nested = item.dateTime || item.date_time || null;
-  if (nested && typeof nested === "object") {
-    const joined = clean(`${nested.date || ""} ${nested.time || ""}`);
-    const parsed = parseStartDate(joined);
-    if (parsed) return parsed;
-  }
-
-  return null;
-}
-
-function extractArtistFromTitle(title) {
-  let out = clean(title);
-  if (!out) return "";
-
-  out = out
-    .replace(/\s+\((uitverkocht|sold out)\)$/i, "")
-    .replace(/\s+-\s+extra show$/i, "")
-    .replace(/\s+-\s+matinee$/i, "")
-    .trim();
-
-  return out;
+  return arr
+    .map((item) => {
+      if (typeof item === "string") return clean(item);
+      return clean(item?.name || "");
+    })
+    .filter(Boolean);
 }
 
 function normalizeImage(image) {
   if (!image) return null;
   if (typeof image === "string") return clean(image) || null;
-  if (Array.isArray(image)) {
-    for (const x of image) {
-      const picked = normalizeImage(x);
-      if (picked) return picked;
-    }
-    return null;
-  }
-  if (typeof image === "object") {
-    return clean(image.url || image.src || image.href || "") || null;
-  }
+  if (Array.isArray(image)) return clean(image[0] || "") || null;
+  if (typeof image === "object" && image.url) return clean(image.url) || null;
   return null;
+}
+
+function extractArtistFromName(name, venueName) {
+  const n = clean(name);
+  if (!n) return "";
+
+  let out = n
+    .replace(/\s+@\s+.+$/i, "")
+    .replace(/\s+-\s+at\s+.+$/i, "")
+    .replace(/\s+at\s+.+$/i, "")
+    .replace(/\s+\|\s+.+$/i, "")
+    .trim();
+
+  if (venueName) {
+    const escapedVenue = escapeRegExp(
+      venueName.replace(/^Ziggo Dome\s*-\s*/i, "").trim()
+    );
+
+    if (escapedVenue) {
+      out = out.replace(new RegExp(`\\s*@\\s*${escapedVenue}$`, "i"), "").trim();
+      out = out.replace(new RegExp(`\\s+${escapedVenue}$`, "i"), "").trim();
+    }
+  }
+
+  return clean(out);
+}
+
+function extractArtistFromUrl(url) {
+  const u = String(url || "");
+  const m = u.match(/\/concert\/\d+\/([^/]+)\//i);
+  if (!m?.[1]) return "";
+
+  return titleCaseFromSlug(m[1]);
+}
+
+function normalizeVenueName(raw) {
+  const t = clean(raw);
+
+  if (!t) return "Ziggo Dome";
+  if (/^ziggo dome$/i.test(t)) return "Ziggo Dome";
+
+  return t;
+}
+
+function extractCity(json) {
+  return clean(
+    json?.location?.address?.addressLocality ||
+    json?.location?.address?.addressRegion ||
+    ""
+  );
+}
+
+function extractCountry(json) {
+  const value = clean(json?.location?.address?.addressCountry || "");
+  return value || "NL";
 }
 
 function parseStartDate(value) {
   if (!value) return null;
 
-  const raw = clean(value);
-  if (!raw) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
 
-  const d = new Date(raw);
-  if (!Number.isNaN(d.getTime())) {
-    return {
-      timestamp: d.getTime(),
-      date_local: formatAmsterdamDate(d),
-      time_local: formatAmsterdamTime(d)
-    };
-  }
+  const date_local = formatAmsterdamDate(d);
+  const time_local = formatAmsterdamTime(d);
 
-  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?$/);
-  if (m) {
-    const iso = `${m[1]}-${m[2]}-${m[3]}T${m[4] || "20"}:${m[5] || "00"}:00`;
-    const d2 = new Date(iso);
-    if (!Number.isNaN(d2.getTime())) {
-      return {
-        timestamp: d2.getTime(),
-        date_local: formatAmsterdamDate(d2),
-        time_local: m[4] && m[5] ? `${m[4]}:${m[5]}` : null
-      };
-    }
-  }
-
-  return null;
+  return {
+    timestamp: d.getTime(),
+    date_local,
+    time_local
+  };
 }
 
 function formatAmsterdamDate(date) {
@@ -429,83 +313,16 @@ function startOfTodayAmsterdam(nowTs) {
   return midnightLocal.getTime() - 2 * 60 * 60 * 1000;
 }
 
-function buildSourceId({ prefix, title, dateLocal, venueName }) {
-  return `${prefix}-${slugify(title)}-${slugify(venueName)}-${dateLocal}`;
+function titleCaseFromSlug(slug) {
+  return decodeURIComponent(String(slug || ""))
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function parseJsonLdPayload(raw) {
-  try {
-    const parsed = JSON.parse(raw);
-
-    if (Array.isArray(parsed)) return parsed;
-    if (parsed && Array.isArray(parsed["@graph"])) return parsed["@graph"];
-    return [parsed];
-  } catch {
-    return [];
-  }
-}
-
-function absoluteUrl(url) {
-  const u = clean(url);
-  if (!u) return "";
-  if (u.startsWith("http://") || u.startsWith("https://")) return u;
-  if (u.startsWith("/")) return `${ZIGGO_BASE}${u}`;
-  return `${ZIGGO_BASE}/${u}`;
-}
-
-function walkJson(node, visit) {
-  if (!node || typeof node !== "object") return;
-  visit(node);
-
-  if (Array.isArray(node)) {
-    for (const x of node) walkJson(x, visit);
-    return;
-  }
-
-  for (const value of Object.values(node)) {
-    walkJson(value, visit);
-  }
-}
-
-function uniqueObjects(arr) {
-  const seen = new Set();
-  const out = [];
-
-  for (const item of arr || []) {
-    const key = JSON.stringify(item);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(item);
-  }
-
-  return out;
-}
-
-function uniqueStrings(arr) {
-  const seen = new Set();
-  const out = [];
-
-  for (const value of arr || []) {
-    const v = clean(value);
-    if (!v) continue;
-    const k = v.toLowerCase();
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push(v);
-  }
-
-  return out;
-}
-
-function splitArtistText(value) {
-  return String(value || "")
-    .split(/,|\/| \u2022 | & | and /i)
-    .map((x) => clean(x))
-    .filter(Boolean);
-}
-
-function stripHtml(value) {
-  return String(value || "").replace(/<[^>]+>/g, " ");
+function buildSourceId({ title, dateLocal, venueName }) {
+  return `ziggo-${slugify(title)}-${slugify(venueName)}-${dateLocal}`;
 }
 
 function makeNormalizedKey(ev) {
@@ -517,6 +334,31 @@ function makeNormalizedKey(ev) {
   ]
     .map((x) => clean(String(x).toLowerCase()))
     .join("::");
+}
+
+function absoluteUrl(url) {
+  if (!url) return "";
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  if (url.startsWith("/")) return `${ZIGGO_BASE}${url}`;
+  return `${ZIGGO_BASE}/${url}`;
+}
+
+function uniqueStrings(values) {
+  const seen = new Set();
+  const out = [];
+
+  for (const value of values || []) {
+    const v = clean(value);
+    if (!v) continue;
+
+    const key = v.toLowerCase();
+    if (seen.has(key)) continue;
+
+    seen.add(key);
+    out.push(v);
+  }
+
+  return out;
 }
 
 function clean(value) {
@@ -535,4 +377,8 @@ function slugify(value) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .replace(/-+/g, "-");
+}
+
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

@@ -4,7 +4,7 @@ import {
   buildConcertRecommendationsLight,
   buildBucketedConcertRecommendations
 } from "../core/concert-recommender.js";
-
+ 
 export default {
   async fetch(req, env) {
     try {

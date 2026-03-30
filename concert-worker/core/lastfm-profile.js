@@ -1,4 +1,4 @@
-import { fetchLastfmProfile, summarizeLastfmProfile } from "./lastfm-client.js";
+import { fetchLastfmProfile, summarizeLastfmProfile } from "../src/lastfm-client.js";
 
 export async function buildLastfmTasteProfile(env) {
   const rawProfile = await fetchLastfmProfile(env);

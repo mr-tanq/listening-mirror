@@ -1,10 +1,13 @@
 /* app.js (FULL FILE REPLACE) — PART 1/3
-   Listening Mirror — Identity tabs + Concerts + Archive rich stats
-   Concerts includes:
-   - Upcoming concerts from eConcerts D1
-   - Recommended/matched concerts from taste engine
-   - score badges
-   - source / venue / city / date rendering
+   Listening Mirror — Identity tabs + Archive rich stats
+   Archive includes:
+   - automatic Last.fm visuals
+   - filters
+   - detail sheet
+   - editable notes
+   - auto setlist load/fetch
+   - single-artist + multi-artist setlists
+   - polished archive shell cleanup
 */
 
 (() => {
@@ -12,13 +15,10 @@
 
   const API_BASE = "https://i.errtanq9.workers.dev";
   const ARCHIVE_API_BASE = "https://listening-mirror-archive.errtanq9.workers.dev";
-  const ECONCERTS_API_BASE = "https://econcerts.errtanq9.workers.dev";
 
   const TOP_LIMIT_DEFAULT = 10;
   const RECENT_LIMIT_DEFAULT = 20;
   const ARCHIVE_LIMIT_DEFAULT = 300;
-  const CONCERTS_LIMIT_DEFAULT = 300;
-  const CONCERT_MATCHES_LIMIT_DEFAULT = 300;
 
   const $ = (id) => document.getElementById(id);
 
@@ -32,16 +32,8 @@
     topType: "tracks",
     topPeriod: "today",
     identityTab: "recent",
-
     lastRecent: [],
     lastTop: [],
-
-    lastConcerts: [],
-    lastConcertMatches: [],
-    concertBuckets: null,
-    concertsLoaded: false,
-    concertMatchesLoaded: false,
-
     lastArchive: [],
     archiveStats: null,
     archiveHeroImages: {
@@ -80,13 +72,6 @@
     return ARCHIVE_API_BASE + "/" + urlOrPath;
   }
 
-  function absEconcertsApi(urlOrPath) {
-    if (!urlOrPath) return "";
-    if (/^https?:\/\//i.test(urlOrPath)) return urlOrPath;
-    if (urlOrPath.startsWith("/")) return ECONCERTS_API_BASE + urlOrPath;
-    return ECONCERTS_API_BASE + "/" + urlOrPath;
-  }
-
   async function apiGet(path) {
     const url = absApi(path);
     const r = await fetch(url, { cache: "no-store" });
@@ -117,14 +102,6 @@
     if (!r.ok || !data?.ok) {
       throw new Error(data?.error || `HTTP ${r.status}`);
     }
-    return data;
-  }
-
-  async function econcertsApiGet(path) {
-    const url = absEconcertsApi(path);
-    const r = await fetch(url, { cache: "no-store" });
-    const data = await r.json().catch(() => null);
-    if (!r.ok) throw new Error(data?.error || `HTTP ${r.status}`);
     return data;
   }
 
@@ -483,70 +460,6 @@
           padding-left:2px;box-shadow:0 4px 12px rgba(0,0,0,.2);
         }
 
-        .lmConcertCard{
-          border-radius:18px;
-          background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
-          outline:1px solid rgba(255,255,255,.08);
-          padding:13px 13px;
-          box-shadow:inset 0 1px 0 rgba(255,255,255,.02),0 8px 18px rgba(0,0,0,.10);
-        }
-        .lmConcertCard + .lmConcertCard{margin-top:10px}
-        .lmConcertTop{
-          display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
-        }
-        .lmConcertTitle{
-          font-size:15px;line-height:1.35;font-weight:600;color:rgba(255,255,255,.96);
-          text-wrap:balance;
-        }
-        .lmConcertMeta{
-          margin-top:8px;
-          font-size:12px;line-height:1.5;color:rgba(255,255,255,.62);
-        }
-        .lmConcertVenue{
-          margin-top:3px;
-          font-size:12px;line-height:1.45;color:rgba(255,255,255,.44);
-        }
-        .lmConcertFooter{
-          margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;
-        }
-        .lmConcertPill{
-          display:inline-flex;align-items:center;gap:6px;
-          padding:7px 10px;border-radius:999px;
-          background:rgba(255,255,255,.05);
-          border:1px solid rgba(255,255,255,.08);
-          color:rgba(255,255,255,.82);
-          font-size:11px;line-height:1.2;letter-spacing:.04em;
-        }
-        .lmConcertScore{
-          min-width:52px;text-align:center;
-          border-radius:999px;padding:7px 10px;
-          background:rgba(255,255,255,.10);
-          border:1px solid rgba(255,255,255,.12);
-          color:#fff;font-size:12px;font-weight:600;
-        }
-        .lmConcertReason{
-          margin-top:10px;font-size:12px;line-height:1.5;color:rgba(255,255,255,.58);
-        }
-        .lmConcertLink{
-          color:rgba(255,255,255,.92);
-          text-decoration:none;
-          border-bottom:1px solid rgba(255,255,255,.16);
-        }
-        .lmConcertLink:hover{
-          color:#fff;border-bottom-color:rgba(255,255,255,.42);
-        }
-        .lmConcertSectionHead{
-          display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;
-        }
-        .lmConcertSectionTitle{
-          font-size:12px;line-height:1.2;letter-spacing:.14em;text-transform:uppercase;
-          color:rgba(255,255,255,.50);
-        }
-        .lmConcertMiniStat{
-          font-size:11px;line-height:1.2;color:rgba(255,255,255,.44);
-          letter-spacing:.05em;text-transform:uppercase;
-        }
-
         .archiveCanvas{display:grid;gap:18px}
         .archiveIntro{margin:0}
         .archiveIntroTitle{
@@ -601,13 +514,313 @@
           margin-top:10px;font-size:10px;line-height:1.2;letter-spacing:.12em;
           text-transform:uppercase;color:rgba(255,255,255,.40);
         }
+
+        .archiveMilestoneGrid{display:grid;gap:10px}
+        .archiveMilestoneCard{
+          position:relative;overflow:hidden;border-radius:18px;
+          background:radial-gradient(circle at 16% 20%, rgba(255,255,255,.04), transparent 38%),linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.022));
+          outline:1px solid rgba(255,255,255,.08);padding:0;
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.03),0 12px 26px rgba(0,0,0,.12);
+        }
+        .archiveMilestoneCardButton{
+          position:relative;
+          width:100%;
+          border:none;
+          background:transparent;
+          color:inherit;
+          text-align:left;
+          padding:15px 14px;
+          cursor:pointer;
+          display:block;
+        }
+        .archiveMilestoneCardButton:focus-visible{
+          outline:2px solid rgba(255,255,255,.28);
+          outline-offset:2px;
+        }
+        .archiveMilestoneCardVisual{background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.015))}
+        .archiveMilestoneBackdrop{
+          position:absolute;inset:0;background-size:cover;background-position:center center;
+          transform:scale(1.03);filter:blur(0px);opacity:.46;pointer-events:none;
+        }
+        .archiveMilestoneBackdrop::after{
+          content:"";position:absolute;inset:0;
+          background:linear-gradient(180deg, rgba(6,7,10,.16) 0%, rgba(6,7,10,.40) 34%, rgba(6,7,10,.72) 100%),radial-gradient(circle at 18% 15%, rgba(255,255,255,.08), transparent 42%);
+        }
+        .archiveMilestoneInner{position:relative;z-index:1}
+        .archiveMilestoneLabel{
+          font-size:10px;line-height:1.2;letter-spacing:.14em;text-transform:uppercase;
+          color:rgba(255,255,255,.44);margin-bottom:10px;
+        }
+        .archiveMilestoneTitle{
+          font-size:15px;line-height:1.35;font-weight:600;color:rgba(255,255,255,.97);text-wrap:balance;
+        }
+        .archiveMilestoneMeta{margin-top:8px;font-size:12px;line-height:1.45;color:rgba(255,255,255,.62)}
+        .archiveMilestoneVenue{margin-top:3px;font-size:12px;line-height:1.45;color:rgba(255,255,255,.40)}
+        .archiveMilestoneHint{
+          margin-top:10px;
+          font-size:11px;
+          line-height:1.2;
+          color:rgba(255,255,255,.34);
+          letter-spacing:.06em;
+          text-transform:uppercase;
+        }
+
+        .archiveRankGrid{display:grid;gap:10px}
+        .archiveRankCard{
+          border-radius:15px;background:linear-gradient(180deg, rgba(255,255,255,.034), rgba(255,255,255,.02));
+          outline:1px solid rgba(255,255,255,.07);padding:11px 11px;
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.02),0 8px 18px rgba(0,0,0,.09);
+        }
+        .archiveRankTitle{
+          font-size:12px;line-height:1.2;letter-spacing:.10em;text-transform:uppercase;
+          color:rgba(255,255,255,.54);margin-bottom:9px;
+        }
+        .archiveRankList{display:grid;gap:7px}
+        .archiveRankRow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center}
+        .archiveRankIndex{font-size:12px;line-height:1;color:rgba(255,255,255,.40);min-width:14px}
+        .archiveRankName{
+          font-size:13px;line-height:1.35;color:rgba(255,255,255,.90);
+          white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+        }
+        .archiveRankCount{font-size:12px;line-height:1;color:rgba(255,255,255,.56);white-space:nowrap}
+
+        .archiveExplore{display:grid;gap:10px}
+        .archiveFilterModes,.archiveFilterValues{display:flex;gap:8px;flex-wrap:wrap}
+        .archiveFilterBtn,.archiveFilterChip{
+          border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);
+          color:rgba(255,255,255,.84);border-radius:999px;font:inherit;cursor:pointer;
+          transition:background .18s ease,border-color .18s ease,color .18s ease,transform .18s ease;
+        }
+        .archiveFilterBtn{padding:10px 14px;font-size:13px}
+        .archiveFilterChip{padding:8px 12px;font-size:12px}
+        .archiveFilterBtn:hover,.archiveFilterChip:hover{
+          background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.18);color:#fff;
+        }
+        .archiveFilterBtn.is-active,.archiveFilterChip.is-active{
+          background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.26);color:#fff;
+          box-shadow:0 8px 20px rgba(0,0,0,.10);
+        }
+
+        .archiveTimeline{display:grid;gap:10px;margin-top:2px}
+        .archiveRow{position:relative;overflow:hidden;grid-template-columns:minmax(0,1fr) auto;align-items:center}
+        .archiveRowButton{cursor:pointer}
+        .archiveRowButton:focus-visible{outline:2px solid rgba(255,255,255,.28);outline-offset:2px}
+        .archiveRowVisual{background:linear-gradient(180deg, rgba(255,255,255,.022), rgba(255,255,255,.014))}
+        .archiveRowBackdrop{
+          position:absolute;inset:0;background-size:cover;background-position:center center;
+          transform:scale(1.03);filter:blur(0px);opacity:.48;pointer-events:none;
+        }
+        .archiveRowBackdrop::after{
+          content:"";position:absolute;inset:0;
+          background:linear-gradient(180deg, rgba(5,6,9,.10) 0%, rgba(5,6,9,.28) 38%, rgba(5,6,9,.54) 100%),radial-gradient(circle at 20% 18%, rgba(255,255,255,.10), transparent 42%);
+        }
+        .archiveRowInner{
+          position:relative;z-index:1;display:grid;grid-template-columns:minmax(0,1fr) auto;
+          gap:12px;align-items:center;width:100%;
+        }
+        .archiveTitle{color:rgba(255,255,255,.96)}
+        .archiveSupport{
+          font-size:12px;line-height:1.35;color:rgba(255,255,255,.72);font-style:italic;
+          margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+        }
+        .archiveMeta{margin-top:8px;color:rgba(255,255,255,.58)}
+        .archiveVenue{margin-top:2px;color:rgba(255,255,255,.42)}
+        .archiveRight{display:flex;align-items:center;justify-content:flex-end;min-width:74px}
+        .archiveBadge{
+          border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);
+          color:rgba(255,255,255,.78);border-radius:999px;padding:6px 10px;font-size:11px;letter-spacing:.04em;
+        }
+
+        .archiveDetailOverlay{
+          position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.58);
+          backdrop-filter:blur(10px);display:grid;align-items:end;padding:0;
+        }
+        .archiveDetailSheet{
+          position:relative;width:100%;max-height:min(86vh, 820px);overflow:auto;
+          border-radius:26px 26px 0 0;background:linear-gradient(180deg, rgba(15,16,20,.98), rgba(10,11,15,.995));
+          border-top:1px solid rgba(255,255,255,.08);box-shadow:0 -20px 60px rgba(0,0,0,.45);
+        }
+        .archiveDetailHero{
+          position:relative;min-height:250px;overflow:hidden;padding:20px 18px 18px;
+          display:flex;flex-direction:column;justify-content:flex-end;
+          background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
+        }
+        .archiveDetailHeroBackdrop{
+          position:absolute;inset:0;background-size:cover;background-position:center center;transform:scale(1.04);opacity:.52;
+        }
+        .archiveDetailHeroBackdrop::after{
+          content:"";position:absolute;inset:0;
+          background:linear-gradient(180deg, rgba(7,8,10,.18) 0%, rgba(7,8,10,.40) 30%, rgba(7,8,10,.82) 100%),radial-gradient(circle at 18% 12%, rgba(255,255,255,.12), transparent 38%);
+        }
+        .archiveDetailHeroInner{position:relative;z-index:1}
+        .archiveDetailHandle{
+          position:absolute;top:10px;left:50%;transform:translateX(-50%);
+          width:42px;height:4px;border-radius:999px;background:rgba(255,255,255,.24);z-index:2;
+        }
+        .archiveDetailClose{
+          position:absolute;top:14px;right:14px;z-index:2;width:34px;height:34px;border:none;
+          border-radius:999px;background:rgba(255,255,255,.12);color:#fff;font:inherit;
+          font-size:18px;line-height:1;display:grid;place-items:center;cursor:pointer;
+        }
+        .archiveDetailBadge{
+          display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;
+          background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.12);
+          color:rgba(255,255,255,.86);font-size:11px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:12px;
+        }
+        .archiveDetailTitle{
+          font-size:24px;line-height:1.1;font-weight:700;color:#fff;text-wrap:balance;text-shadow:0 8px 24px rgba(0,0,0,.34);
+        }
+        .archiveDetailMeta{margin-top:10px;font-size:13px;line-height:1.45;color:rgba(255,255,255,.74)}
+        .archiveDetailBody{padding:16px 18px 24px;display:grid;gap:16px}
+        .archiveDetailFacts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+        .archiveDetailFact{
+          border-radius:16px;background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+          outline:1px solid rgba(255,255,255,.08);padding:12px 12px;
+        }
+        .archiveDetailFactLabel{
+          font-size:10px;line-height:1.2;letter-spacing:.12em;text-transform:uppercase;
+          color:rgba(255,255,255,.42);margin-bottom:8px;
+        }
+        .archiveDetailFactValue{font-size:13px;line-height:1.45;color:rgba(255,255,255,.92)}
+        .archiveDetailSection{display:grid;gap:8px}
+        .archiveDetailSectionHead{display:flex;align-items:center;justify-content:space-between;gap:10px}
+        .archiveDetailSectionTitle{
+          font-size:11px;line-height:1.2;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.46)
+        }
+        .archiveDetailAction{
+          border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:rgba(255,255,255,.88);
+          border-radius:999px;padding:7px 11px;font:inherit;font-size:12px;cursor:pointer;
+        }
+        .archiveDetailText{
+          font-size:14px;line-height:1.6;color:rgba(255,255,255,.88);white-space:pre-wrap;
+        }
+        .archiveDetailMuted{font-size:13px;line-height:1.55;color:rgba(255,255,255,.46)}
+        .archiveDetailSupportChips{display:flex;flex-wrap:wrap;gap:8px}
+        .archiveDetailSupportChip{
+          padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.05);
+          border:1px solid rgba(255,255,255,.08);color:rgba(255,255,255,.88);font-size:12px;
+        }
+        .archiveDetailPhotoRail{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+        .archiveDetailPhotoPlaceholder{
+          min-height:92px;border-radius:16px;background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.015));
+          outline:1px solid rgba(255,255,255,.07);display:grid;place-items:center;color:rgba(255,255,255,.34);
+          font-size:12px;letter-spacing:.06em;text-transform:uppercase;
+        }
+
+        .archiveNoteCard{
+          border-radius:16px;background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.022));
+          outline:1px solid rgba(255,255,255,.08);padding:12px 12px;
+        }
+
+        .archiveSetlistCard{
+          border-radius:16px;background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+          outline:1px solid rgba(255,255,255,.08);padding:12px 12px;
+        }
+        .archiveSetlistMeta{
+          display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;
+        }
+        .archiveSetlistMetaPill{
+          display:inline-flex;align-items:center;gap:6px;
+          padding:7px 10px;border-radius:999px;
+          background:rgba(255,255,255,.05);
+          border:1px solid rgba(255,255,255,.08);
+          color:rgba(255,255,255,.84);
+          font-size:11px;line-height:1.2;letter-spacing:.04em;
+        }
+        .archiveSetlistSource{
+          margin-top:10px;font-size:11px;line-height:1.3;letter-spacing:.06em;
+          text-transform:uppercase;color:rgba(255,255,255,.40);
+          display:flex;flex-wrap:wrap;gap:8px;align-items:center;
+        }
+        .archiveSetlistSource a{
+          color:rgba(255,255,255,.78);
+          text-decoration:none;
+          border-bottom:1px solid rgba(255,255,255,.20);
+        }
+        .archiveSetlistSource a:hover{
+          color:#fff;
+          border-bottom-color:rgba(255,255,255,.45);
+        }
+
+        .archiveSetlistArtistGroup{
+          border-radius:16px;
+          padding:12px;
+          background:linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.018));
+          outline:1px solid rgba(255,255,255,.07);
+        }
+        .archiveSetlistArtistGroup + .archiveSetlistArtistGroup{
+          margin-top:12px;
+        }
+        .archiveSetlistArtistHeader{
+          display:flex;
+          align-items:flex-start;
+          justify-content:space-between;
+          gap:10px;
+          margin-bottom:10px;
+        }
+        .archiveSetlistArtistName{
+          font-size:15px;
+          line-height:1.3;
+          color:rgba(255,255,255,.96);
+          font-weight:600;
+        }
+        .archiveSetlistArtistRole{
+          margin-top:4px;
+          font-size:10px;
+          line-height:1.2;
+          letter-spacing:.12em;
+          text-transform:uppercase;
+          color:rgba(255,255,255,.42);
+        }
+        .archiveSetlistArtistMeta{
+          display:flex;
+          flex-wrap:wrap;
+          justify-content:flex-end;
+          gap:6px;
+        }
+        .archiveSetBlock{display:grid;gap:8px}
+        .archiveSetBlock + .archiveSetBlock{margin-top:12px}
+        .archiveSetName{
+          font-size:12px;line-height:1.2;letter-spacing:.10em;text-transform:uppercase;color:rgba(255,255,255,.48);
+        }
+        .archiveSetSongs{
+          margin:0;padding-left:18px;display:grid;gap:5px;color:rgba(255,255,255,.90);font-size:13px;line-height:1.45;
+        }
+
+        .archiveNoteEditorOverlay{
+          position:fixed;inset:0;z-index:1001;background:rgba(0,0,0,.42);backdrop-filter:blur(8px);
+          display:grid;align-items:end;
+        }
+        .archiveNoteEditorSheet{
+          width:100%;border-radius:24px 24px 0 0;background:linear-gradient(180deg, rgba(18,19,24,.99), rgba(10,11,15,.995));
+          border-top:1px solid rgba(255,255,255,.08);box-shadow:0 -20px 60px rgba(0,0,0,.45);
+          padding:18px 18px 20px;display:grid;gap:14px;
+        }
+        .archiveNoteEditorTitle{font-size:16px;line-height:1.2;font-weight:600;color:#fff}
+        .archiveNoteEditorSub{font-size:12px;line-height:1.5;color:rgba(255,255,255,.50)}
+        .archiveNoteTextarea{
+          width:100%;min-height:160px;resize:vertical;border-radius:18px;border:1px solid rgba(255,255,255,.10);
+          background:rgba(255,255,255,.04);color:#fff;padding:14px 14px;font:inherit;font-size:14px;
+          line-height:1.6;outline:none;box-sizing:border-box;
+        }
+        .archiveNoteTextarea::placeholder{color:rgba(255,255,255,.34)}
+        .archiveNoteEditorActions{display:flex;gap:10px;justify-content:flex-end}
+        .archiveNoteBtn{border:none;border-radius:999px;padding:10px 14px;font:inherit;font-size:13px;cursor:pointer}
+        .archiveNoteBtnSecondary{background:rgba(255,255,255,.08);color:rgba(255,255,255,.88)}
+        .archiveNoteBtnPrimary{background:#fff;color:#111}
+        .archiveNoteBtn[disabled]{opacity:.55;cursor:default}
+
+        @media (min-width: 420px){
+          .archiveRankGrid{grid-template-columns:repeat(3,minmax(0,1fr))}
+        }
       `;
       document.head.appendChild(st);
     }
 
     syncIdentityTabUi();
-         }
-   function syncIdentityTabUi() {
+  }
+
+  function syncIdentityTabUi() {
     const identityView = $("viewIdentity");
     if (!identityView) return;
 
@@ -742,176 +955,12 @@
     }
   }
 
-  function formatConcertDate(dateLocal, timeLocal) {
-    const date = String(dateLocal || "").trim();
-    if (!date) return "";
-
-    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
-    if (!m) {
-      return [date, timeLocal].filter(Boolean).join(" • ");
+  function loadConcertPlaceholders() {
+    if (concertsList && !concertsList.children.length) {
+      concertsList.innerHTML = cardMessageHTML("Concert feed not wired yet", "Your real concerts source can be connected next.");
     }
-
-    const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-    const formattedDate = dt.toLocaleDateString("en-GB", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      timeZone: "UTC"
-    });
-
-    return [formattedDate, normalizeSpace(timeLocal || "")]
-      .filter(Boolean)
-      .join(" • ");
-  }
-
-  function concertScoreEmoji(score) {
-    const s = Number(score || 0);
-    if (s >= 85) return "🔥";
-    if (s >= 70) return "✨";
-    if (s >= 55) return "👍";
-    if (s >= 40) return "👀";
-    return "·";
-  }
-
-  function concertVisibilityLabel(visibility) {
-    switch (String(visibility || "").toLowerCase()) {
-      case "top": return "Top";
-      case "strong": return "Strong";
-      case "recommended": return "Recommended";
-      case "older-taste": return "Older Taste";
-      case "borderline": return "Borderline";
-      default: return "Upcoming";
-    }
-  }
-
-  function renderConcertCard(event, { showScore = false, showReason = false } = {}) {
-    const title = normalizeSpace(event?.title || event?.artists_main || "—");
-    const dateText = formatConcertDate(event?.date_local, event?.time_local);
-    const city = normalizeSpace(event?.city || "");
-    const venue = normalizeSpace(event?.venue_name || "");
-    const source = normalizeSpace(event?.source || "");
-    const url = normalizeSpace(event?.url || "");
-    const visibility = normalizeSpace(event?.visibility || "");
-    const score = Number(event?.finalScore || 0);
-    const reasonText = Array.isArray(event?.reasons) ? event.reasons.slice(0, 2).join(" • ") : "";
-
-    return `
-      <div class="lmConcertCard">
-        <div class="lmConcertTop">
-          <div class="mid">
-            <div class="lmConcertTitle">
-              ${
-                url
-                  ? `<a class="lmConcertLink" href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a>`
-                  : escapeHtml(title)
-              }
-            </div>
-            <div class="lmConcertMeta">${escapeHtml([dateText, city].filter(Boolean).join(" • "))}</div>
-            <div class="lmConcertVenue">${escapeHtml(venue)}</div>
-          </div>
-          ${
-            showScore
-              ? `<div class="lmConcertScore">${escapeHtml(`${concertScoreEmoji(score)} ${Math.round(score)}`)}</div>`
-              : ``
-          }
-        </div>
-
-        <div class="lmConcertFooter">
-          ${visibility ? `<div class="lmConcertPill">${escapeHtml(concertVisibilityLabel(visibility))}</div>` : ``}
-          ${source ? `<div class="lmConcertPill">${escapeHtml(source)}</div>` : ``}
-          ${event?.matchedArtist ? `<div class="lmConcertPill">${escapeHtml(`match: ${event.matchedArtist}`)}</div>` : ``}
-        </div>
-
-        ${showReason && reasonText ? `<div class="lmConcertReason">${escapeHtml(reasonText)}</div>` : ``}
-      </div>
-    `;
-  }
-
-  function renderConcertSection(el, title, statText, html) {
-    if (!el) return;
-    el.innerHTML = `
-      <div class="lmConcertSectionHead">
-        <div class="lmConcertSectionTitle">${escapeHtml(title)}</div>
-        <div class="lmConcertMiniStat">${escapeHtml(statText || "")}</div>
-      </div>
-      <div>${html}</div>
-    `;
-  }
-
-  async function loadConcerts() {
-    if (!concertsList || !concertMatchesList) return false;
-
-    try {
-      setLoading(concertsList, "Loading…", "Fetching upcoming concerts from your venues…");
-      setLoading(concertMatchesList, "Loading…", "Scoring concerts against your taste…");
-
-      const [upcoming, recommended] = await Promise.all([
-        econcertsApiGet(`/concerts/db-latest?limit=${CONCERTS_LIMIT_DEFAULT}`),
-        econcertsApiGet(`/concerts/recommended?bucketed=1&limit=${CONCERT_MATCHES_LIMIT_DEFAULT}`)
-      ]);
-
-      const upcomingEvents = Array.isArray(upcoming?.events) ? upcoming.events : [];
-      const recommendedEvents = Array.isArray(recommended?.events) ? recommended.events : [];
-      const buckets = recommended?.buckets || null;
-
-      state.lastConcerts = upcomingEvents.slice();
-      state.lastConcertMatches = recommendedEvents.slice();
-      state.concertBuckets = buckets;
-      state.concertsLoaded = true;
-      state.concertMatchesLoaded = true;
-
-      if (!upcomingEvents.length) {
-        setEmpty(concertsList, "No upcoming concerts", "D1 is empty right now.");
-      } else {
-        const upcomingHtml = upcomingEvents
-          .slice(0, 60)
-          .map((event) => renderConcertCard(event, { showScore: false, showReason: false }))
-          .join("");
-
-        renderConcertSection(
-          concertsList,
-          "Upcoming",
-          `${upcomingEvents.length} events`,
-          upcomingHtml
-        );
-      }
-
-      const visibleMatches = recommendedEvents.filter((event) => String(event?.visibility || "").toLowerCase() !== "hidden");
-
-      if (!visibleMatches.length) {
-        setEmpty(concertMatchesList, "No matches yet", "Nothing strong enough has matched your taste so far.");
-      } else {
-        const matchHtml = visibleMatches
-          .slice(0, 40)
-          .map((event) => renderConcertCard(event, { showScore: true, showReason: true }))
-          .join("");
-
-        const bucketStats = [];
-        if (buckets?.top?.length) bucketStats.push(`${buckets.top.length} top`);
-        if (buckets?.strong?.length) bucketStats.push(`${buckets.strong.length} strong`);
-        if (buckets?.recommended?.length) bucketStats.push(`${buckets.recommended.length} recommended`);
-
-        renderConcertSection(
-          concertMatchesList,
-          "Your Matches",
-          bucketStats.join(" • ") || `${visibleMatches.length} matches`,
-          matchHtml
-        );
-      }
-
-      return true;
-    } catch (err) {
-      setError(
-        concertsList,
-        "Couldn’t load upcoming concerts.",
-        String(err?.message || "Check eConcerts worker.")
-      );
-      setError(
-        concertMatchesList,
-        "Couldn’t load concert matches.",
-        String(err?.message || "Check eConcerts recommender.")
-      );
-      return false;
+    if (concertMatchesList && !concertMatchesList.children.length) {
+      concertMatchesList.innerHTML = cardMessageHTML("No matches yet", "Matches will appear here when the concerts feed is connected.");
     }
   }
 
@@ -1043,7 +1092,7 @@
       return venueFamily === value || venue === value;
     }
 
-    return false;
+    return true;
   }
 
   function getFilteredArchiveItems() {
@@ -1062,9 +1111,8 @@
     state.archiveSetlistData = null;
     state.archiveSetlistError = "";
     state.archiveSetlistResolvedForKey = "";
-  }
-
-  async function ensureArchiveModalImage(item) {
+}
+   async function ensureArchiveModalImage(item) {
     if (!item) return;
 
     const lookupName = chooseArchiveRowLookupName(item);
@@ -1243,8 +1291,9 @@
       renderArchiveView();
       alert(`Could not save note.\n\n${String(err.message || err)}`);
     }
-         }
-   function renderArchiveExplore(items, stats) {
+  }
+
+  function renderArchiveExplore(items, stats) {
     const mode = state.archiveFilterMode || "all";
     const options = getArchiveFilterOptions(mode, items, stats);
 
@@ -1551,8 +1600,313 @@
     return items.map(renderArchiveRow).join("");
   }
 
+  function renderArchiveDetailFacts(item) {
+    const facts = [
+      { label: "Artist", value: item?.main_artist || item?.title || "—" },
+      { label: "Venue", value: item?.venue || "—" },
+      { label: "City", value: item?.city || "—" },
+      { label: "Type", value: Number(item?.festival || 0) === 1 ? "Festival" : "Concert" }
+    ];
+
+    return `
+      <div class="archiveDetailFacts">
+        ${facts.map((fact) => `
+          <div class="archiveDetailFact">
+            <div class="archiveDetailFactLabel">${escapeHtml(fact.label)}</div>
+            <div class="archiveDetailFactValue">${escapeHtml(fact.value)}</div>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  function renderArchiveDetailSupports(item) {
+    const supports = normalizeArchiveSupports(item?.supports || "");
+    if (!supports) return "";
+
+    const supportItems = supports.split(",").map((x) => x.trim()).filter(Boolean);
+
+    return `
+      <section class="archiveDetailSection">
+        <div class="archiveDetailSectionTitle">Support</div>
+        <div class="archiveDetailSupportChips">
+          ${supportItems.map((name) => `<div class="archiveDetailSupportChip">${escapeHtml(name)}</div>`).join("")}
+        </div>
+      </section>
+    `;
+  }
+
+  function renderArchiveDetailNotes(item) {
+    const notes = normalizeSpace(item?.notes || "");
+    const actionLabel = notes ? "Edit" : "Add note";
+
+    return `
+      <section class="archiveDetailSection">
+        <div class="archiveDetailSectionHead">
+          <div class="archiveDetailSectionTitle">Notes</div>
+          <button type="button" class="archiveDetailAction" data-archive-note-edit="true">${escapeHtml(actionLabel)}</button>
+        </div>
+        ${
+          notes
+            ? `<div class="archiveNoteCard"><div class="archiveDetailText">${escapeHtml(item.notes || "")}</div></div>`
+            : `<div class="archiveDetailMuted">No notes yet</div>`
+        }
+      </section>
+    `;
+  }
+
+  function formatEstimatedDuration(seconds) {
+    const total = Number(seconds || 0);
+    if (!Number.isFinite(total) || total <= 0) return "";
+
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.round((total % 3600) / 60);
+
+    if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
+    if (hours > 0) return `${hours}h`;
+    return `${minutes}m`;
+  }
+
+  function isMultiArtistSetlist(setlistData) {
+    return setlistData?.setlist?.kind === "multi_artist" &&
+      Array.isArray(setlistData?.setlist?.artist_setlists);
+  }
+
+  function renderArchiveSetlistMeta(setlistData) {
+    const setlist = setlistData?.setlist || {};
+    const durationText = formatEstimatedDuration(setlist?.estimated_duration_sec);
+    const matched = Number(setlist?.matched_tracks || 0);
+    const total = Number(setlist?.total_tracks || 0);
+
+    const pills = [];
+
+    if (durationText) {
+      pills.push(`<div class="archiveSetlistMetaPill">Estimated duration: ${escapeHtml(durationText)}</div>`);
+    }
+
+    if (total > 0) {
+      pills.push(`<div class="archiveSetlistMetaPill">Matched ${escapeHtml(String(matched))}/${escapeHtml(String(total))} tracks</div>`);
+    }
+
+    if (!pills.length) return "";
+    return `<div class="archiveSetlistMeta">${pills.join("")}</div>`;
+  }
+
+  function renderArchiveSetlistSource(setlistData) {
+    const source = normalizeSpace(setlistData?.source || "setlistfm");
+    const sourceUrl = normalizeSpace(setlistData?.source_url || setlistData?.setlist?.source_url || "");
+
+    return `
+      <div class="archiveSetlistSource">
+        <span>${escapeHtml(source)}</span>
+        ${sourceUrl ? `<a href="${escapeAttr(sourceUrl)}" target="_blank" rel="noopener noreferrer">Open source</a>` : ""}
+      </div>
+    `;
+  }
+
+  function renderArtistRoleLabel(role) {
+    const r = normalizeSpace(role || "").toLowerCase();
+    if (r === "main") return "Main artist";
+    if (r === "support") return "Support";
+    if (r === "festival") return "Festival artist";
+    return "Artist";
+  }
+
+  function renderArchiveSingleSetBlocks(sets) {
+    return (sets || []).map((setObj, idx) => {
+      const songs = Array.isArray(setObj?.songs) ? setObj.songs : [];
+      const setName = normalizeSpace(setObj?.name || "") || (idx === 0 ? "Set" : `Set ${idx + 1}`);
+
+      return `
+        <div class="archiveSetBlock">
+          <div class="archiveSetName">${escapeHtml(setName)}</div>
+          <ol class="archiveSetSongs">
+            ${songs.map((song) => `<li>${escapeHtml(song || "—")}</li>`).join("")}
+          </ol>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function renderArchiveMultiArtistSetlist(setlistData) {
+    const artistSetlists = Array.isArray(setlistData?.setlist?.artist_setlists)
+      ? setlistData.setlist.artist_setlists
+      : [];
+
+    if (!artistSetlists.length) {
+      return `<div class="archiveDetailMuted">No setlist found</div>`;
+    }
+
+    return `
+      <div class="archiveSetlistCard">
+        ${renderArchiveSetlistMeta(setlistData)}
+
+        ${artistSetlists.map((artistBlock) => {
+          const roleText = renderArtistRoleLabel(artistBlock?.role);
+          const durationText = formatEstimatedDuration(artistBlock?.estimated_duration_sec);
+          const matched = Number(artistBlock?.matched_tracks || 0);
+          const total = Number(artistBlock?.total_tracks || 0);
+
+          return `
+            <div class="archiveSetlistArtistGroup">
+              <div class="archiveSetlistArtistHeader">
+                <div>
+                  <div class="archiveSetlistArtistName">${escapeHtml(artistBlock?.artist || "—")}</div>
+                  <div class="archiveSetlistArtistRole">${escapeHtml(roleText)}</div>
+                </div>
+
+                <div class="archiveSetlistArtistMeta">
+                  ${durationText ? `<div class="archiveSetlistMetaPill">${escapeHtml(durationText)}</div>` : ""}
+                  ${total > 0 ? `<div class="archiveSetlistMetaPill">Matched ${escapeHtml(String(matched))}/${escapeHtml(String(total))}</div>` : ""}
+                </div>
+              </div>
+
+              ${renderArchiveSingleSetBlocks(artistBlock?.sets || [])}
+
+              <div class="archiveSetlistSource">
+                <span>${escapeHtml(artistBlock?.source || "setlistfm")}</span>
+                ${artistBlock?.source_url ? `<a href="${escapeAttr(artistBlock.source_url)}" target="_blank" rel="noopener noreferrer">Open source</a>` : ""}
+              </div>
+            </div>
+          `;
+        }).join("")}
+
+        ${renderArchiveSetlistSource(setlistData)}
+      </div>
+    `;
+       }
+   function renderArchiveSetlistInner() {
+    if (state.archiveSetlistLoading) {
+      return `<div class="archiveDetailMuted">Loading setlist...</div>`;
+    }
+
+    if (state.archiveSetlistSearching) {
+      return `<div class="archiveDetailMuted">Searching for setlist...</div>`;
+    }
+
+    if (state.archiveSetlistData?.setlist) {
+      if (isMultiArtistSetlist(state.archiveSetlistData)) {
+        return renderArchiveMultiArtistSetlist(state.archiveSetlistData);
+      }
+
+      const setlist = state.archiveSetlistData.setlist;
+      const sets = Array.isArray(setlist?.sets) ? setlist.sets : [];
+
+      if (!sets.length) {
+        return `
+          <div class="archiveSetlistCard">
+            <div class="archiveDetailMuted">No setlist found</div>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="archiveSetlistCard">
+          ${renderArchiveSetlistMeta(state.archiveSetlistData)}
+          ${renderArchiveSingleSetBlocks(sets)}
+          ${renderArchiveSetlistSource(state.archiveSetlistData)}
+        </div>
+      `;
+    }
+
+    if (state.archiveSetlistError) {
+      return `<div class="archiveDetailMuted">${escapeHtml(state.archiveSetlistError)}</div>`;
+    }
+
+    return `<div class="archiveDetailMuted">No setlist yet</div>`;
+  }
+
+  function renderArchiveDetailSetlist() {
+    return `
+      <section class="archiveDetailSection">
+        <div class="archiveDetailSectionTitle">Setlist</div>
+        ${renderArchiveSetlistInner()}
+      </section>
+    `;
+  }
+
+  function renderArchiveDetailPhotos() {
+    return `
+      <section class="archiveDetailSection">
+        <div class="archiveDetailSectionHead">
+          <div class="archiveDetailSectionTitle">Photos</div>
+          <button type="button" class="archiveDetailAction" data-archive-photo-add="true">Add photos</button>
+        </div>
+        <div class="archiveDetailPhotoRail">
+          <div class="archiveDetailPhotoPlaceholder">No photos yet</div>
+          <div class="archiveDetailPhotoPlaceholder">No photos yet</div>
+        </div>
+      </section>
+    `;
+  }
+
+  function renderArchiveNoteEditor() {
+    if (!state.archiveNoteEditorOpen) return "";
+
+    const item = findArchiveItemByEventKey(state.archiveSelectedEventKey);
+    const title = normalizeSpace(item?.notes || "") ? "Edit note" : "Add note";
+    const sub = item
+      ? `${item.main_artist || item.title || "—"} • ${formatArchiveDate(item.date || "")} • ${item.venue || "—"}`
+      : "";
+
+    return `
+      <div class="archiveNoteEditorOverlay" data-archive-note-overlay="true">
+        <div class="archiveNoteEditorSheet">
+          <div class="archiveNoteEditorTitle">${escapeHtml(title)}</div>
+          <div class="archiveNoteEditorSub">${escapeHtml(sub)}</div>
+          <textarea
+            class="archiveNoteTextarea"
+            placeholder="Write what made this concert memorable..."
+            data-archive-note-textarea="true"
+          >${escapeHtml(state.archiveNoteDraft)}</textarea>
+          <div class="archiveNoteEditorActions">
+            <button type="button" class="archiveNoteBtn archiveNoteBtnSecondary" data-archive-note-cancel="true" ${state.archiveNoteSaving ? "disabled" : ""}>Cancel</button>
+            <button type="button" class="archiveNoteBtn archiveNoteBtnPrimary" data-archive-note-save="true" ${state.archiveNoteSaving ? "disabled" : ""}>
+              ${state.archiveNoteSaving ? "Saving..." : "Save"}
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   function renderArchiveDetailModal() {
-    return "";
+    const item = findArchiveItemByEventKey(state.archiveSelectedEventKey);
+    if (!item) return "";
+
+    const title = item?.title || item?.main_artist || "—";
+    const date = formatArchiveDate(item?.date || "");
+    const venue = item?.venue || "";
+    const city = item?.city || "";
+    const meta = [date, city, venue].filter(Boolean).join(" · ");
+    const imageUrl = normalizeSpace(state.archiveSelectedImageUrl || "");
+    const isFestival = Number(item?.festival || 0) === 1;
+
+    return `
+      <div class="archiveDetailOverlay" data-archive-detail-overlay="true" aria-hidden="false">
+        <div class="archiveDetailSheet" role="dialog" aria-modal="true" aria-label="${escapeAttr(title)}">
+          <div class="archiveDetailHero">
+            <div class="archiveDetailHandle" aria-hidden="true"></div>
+            <button type="button" class="archiveDetailClose" aria-label="Close" data-archive-detail-close="true">×</button>
+            ${imageUrl ? `<div class="archiveDetailHeroBackdrop" style="background-image:url('${escapeAttr(imageUrl)}');"></div>` : ""}
+            <div class="archiveDetailHeroInner">
+              ${isFestival ? `<div class="archiveDetailBadge">Festival</div>` : ""}
+              <div class="archiveDetailTitle">${escapeHtml(title)}</div>
+              <div class="archiveDetailMeta">${escapeHtml(meta)}</div>
+            </div>
+          </div>
+
+          <div class="archiveDetailBody">
+            ${renderArchiveDetailFacts(item)}
+            ${renderArchiveDetailSupports(item)}
+            ${renderArchiveDetailNotes(item)}
+            ${renderArchiveDetailSetlist()}
+            ${renderArchiveDetailPhotos()}
+          </div>
+        </div>
+      </div>
+      ${renderArchiveNoteEditor()}
+    `;
   }
 
   function renderArchiveView() {
@@ -1657,7 +2011,9 @@
     if (!document.getElementById(styleId)) {
       const st = document.createElement("style");
       st.id = styleId;
-      st.textContent = `.lmArchiveShellHidden{display:none !important;}`;
+      st.textContent = `
+        .lmArchiveShellHidden{display:none !important;}
+      `;
       document.head.appendChild(st);
     }
 
@@ -1670,9 +2026,50 @@
       if (cardTitle && normalizeSpace(cardTitle.textContent).toLowerCase() === "archive list") {
         cardTitle.classList.add("lmArchiveShellHidden");
       }
+
+      archiveCard.querySelectorAll(".card__sub, .card__desc, p").forEach((el) => {
+        const txt = normalizeSpace(el.textContent).toLowerCase();
+        if (
+          txt === "archive list" ||
+          txt.includes("saved sessions") ||
+          txt.includes("archived mirror states") ||
+          txt.includes("history, or archived mirror states can render here")
+        ) {
+          el.classList.add("lmArchiveShellHidden");
+        }
+      });
     }
 
-    archiveShellCleaned = true;
+    if (!archiveShellCleaned) {
+      const stack = archiveView.querySelector(".stack") || archiveView;
+      const cards = Array.from(stack.querySelectorAll(":scope > .card"));
+      if (cards.length) {
+        for (const child of Array.from(stack.children)) {
+          if (child === archiveCard) break;
+
+          const txt = normalizeSpace(child.textContent).toLowerCase();
+          if (
+            txt.includes("saved sessions") ||
+            txt.includes("archived mirror states can render here")
+          ) {
+            child.classList.add("lmArchiveShellHidden");
+          } else if (
+            /archive/.test(txt) &&
+            child.querySelector &&
+            child.querySelector("h1,h2,h3,.title,.card__title")
+          ) {
+            const blockText = normalizeSpace(child.textContent).toLowerCase();
+            if (
+              blockText.includes("saved sessions") ||
+              blockText.includes("archived mirror states")
+            ) {
+              child.classList.add("lmArchiveShellHidden");
+            }
+          }
+        }
+      }
+      archiveShellCleaned = true;
+    }
   }
 
   function bindTopPanelControls() {
@@ -1791,6 +2188,50 @@
     });
 
     archiveList.addEventListener("click", (e) => {
+      const noteOverlay = e.target.closest("[data-archive-note-overlay]");
+      const noteSheet = e.target.closest(".archiveNoteEditorSheet");
+      if (noteOverlay && !noteSheet && !state.archiveNoteSaving) {
+        closeArchiveNoteEditor();
+        return;
+      }
+
+      const noteCancel = e.target.closest("[data-archive-note-cancel]");
+      if (noteCancel && !state.archiveNoteSaving) {
+        closeArchiveNoteEditor();
+        return;
+      }
+
+      const noteSave = e.target.closest("[data-archive-note-save]");
+      if (noteSave) {
+        saveArchiveNote();
+        return;
+      }
+
+      const noteEdit = e.target.closest("[data-archive-note-edit]");
+      if (noteEdit) {
+        openArchiveNoteEditor();
+        return;
+      }
+
+      const photoAdd = e.target.closest("[data-archive-photo-add]");
+      if (photoAdd) {
+        alert("Photos are next.");
+        return;
+      }
+
+      const closeBtn = e.target.closest("[data-archive-detail-close]");
+      if (closeBtn) {
+        closeArchiveDetail();
+        return;
+      }
+
+      const overlay = e.target.closest("[data-archive-detail-overlay]");
+      const sheet = e.target.closest(".archiveDetailSheet");
+      if (overlay && !sheet) {
+        closeArchiveDetail();
+        return;
+      }
+
       const modeBtn = e.target.closest("[data-archive-filter-mode]");
       if (modeBtn) {
         const nextMode = normalizeSpace(modeBtn.dataset.archiveFilterMode || "all").toLowerCase();
@@ -1835,6 +2276,41 @@
         }
 
         renderArchiveView();
+        return;
+      }
+
+      const rowBtn = e.target.closest("[data-archive-event-key]");
+      if (rowBtn) {
+        const eventKey = normalizeSpace(rowBtn.dataset.archiveEventKey || "");
+        if (eventKey) openArchiveDetail(eventKey);
+      }
+    });
+
+    archiveList.addEventListener("keydown", (e) => {
+      const rowBtn = e.target.closest("[data-archive-event-key]");
+      if (rowBtn && (e.key === "Enter" || e.key === " ")) {
+        e.preventDefault();
+        const eventKey = normalizeSpace(rowBtn.dataset.archiveEventKey || "");
+        if (eventKey) openArchiveDetail(eventKey);
+        return;
+      }
+
+      if (e.key === "Escape") {
+        if (state.archiveNoteEditorOpen && !state.archiveNoteSaving) {
+          closeArchiveNoteEditor();
+          return;
+        }
+        if (state.archiveSelectedEventKey) closeArchiveDetail();
+      }
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        if (state.archiveNoteEditorOpen && !state.archiveNoteSaving) {
+          closeArchiveNoteEditor();
+          return;
+        }
+        if (state.archiveSelectedEventKey) closeArchiveDetail();
       }
     });
   }
@@ -1852,10 +2328,8 @@
       if (!topList?.children.length || topList.textContent.includes("No data")) await loadTop();
     });
 
-    tabConcerts?.addEventListener("click", async () => {
-      if (!state.concertsLoaded || !state.concertMatchesLoaded) {
-        await loadConcerts();
-      }
+    tabConcerts?.addEventListener("click", () => {
+      loadConcertPlaceholders();
     });
 
     tabArchive?.addEventListener("click", async () => {
@@ -1900,13 +2374,9 @@
     bindTopPanelControls();
     bindTabPrefetch();
 
-    await Promise.all([
-      loadRecent(),
-      loadTop(),
-      loadConcerts(),
-      loadArchiveList()
-    ]);
+    loadConcertPlaceholders();
 
+    await Promise.all([loadRecent(), loadTop(), loadArchiveList()]);
     syncIdentityTabUi();
     cleanupArchiveShell();
   }
@@ -1919,13 +2389,22 @@
         identityTab: state.identityTab,
         lastRecent: Array.isArray(state.lastRecent) ? state.lastRecent.slice() : [],
         lastTop: Array.isArray(state.lastTop) ? state.lastTop.slice() : [],
-        lastConcerts: Array.isArray(state.lastConcerts) ? state.lastConcerts.slice() : [],
-        lastConcertMatches: Array.isArray(state.lastConcertMatches) ? state.lastConcertMatches.slice() : [],
-        concertBuckets: state.concertBuckets ? { ...state.concertBuckets } : null,
-        concertsLoaded: state.concertsLoaded,
-        concertMatchesLoaded: state.concertMatchesLoaded,
         lastArchive: Array.isArray(state.lastArchive) ? state.lastArchive.slice() : [],
-        archiveStats: state.archiveStats ? { ...state.archiveStats } : null
+        archiveStats: state.archiveStats ? { ...state.archiveStats } : null,
+        archiveHeroImages: { ...state.archiveHeroImages },
+        archiveFilterMode: state.archiveFilterMode,
+        archiveFilterValue: state.archiveFilterValue,
+        archiveYearOlderOpen: state.archiveYearOlderOpen,
+        archiveSelectedEventKey: state.archiveSelectedEventKey,
+        archiveSelectedImageUrl: state.archiveSelectedImageUrl,
+        archiveNoteEditorOpen: state.archiveNoteEditorOpen,
+        archiveNoteDraft: state.archiveNoteDraft,
+        archiveNoteSaving: state.archiveNoteSaving,
+        archiveSetlistLoading: state.archiveSetlistLoading,
+        archiveSetlistSearching: state.archiveSetlistSearching,
+        archiveSetlistData: state.archiveSetlistData,
+        archiveSetlistError: state.archiveSetlistError,
+        archiveSetlistResolvedForKey: state.archiveSetlistResolvedForKey
       };
     }
   };

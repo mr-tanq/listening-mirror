@@ -5,8 +5,8 @@ const MELKWEG_SLUG = "Melkweg";
 
 export async function fetchMelkwegEvents(options = {}) {
   const {
-    maxPages = 20,
-    stopAfterEmptyPages = 3,
+    maxPages = 80,
+    stopAfterEmptyPages = 2,
     retriesPerPage = 2
   } = options;
 

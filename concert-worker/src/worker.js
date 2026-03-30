@@ -6,7 +6,9 @@ import {
 } from "../core/concert-recommender.js";
 
 const ALL_VENUE_SOURCES = [
+const ALL_VENUE_SOURCES = [
   "tivoli",
+  "dehelling",
   "013",
   "paradiso",
   "melkweg",

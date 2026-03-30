@@ -49,69 +49,6 @@ export async function refreshSource(db, source) {
 
   await ensureConcertsTable(db);
 
-  await db.batch(
-    normalizedEvents.map((event) => {
-      return db
-        .prepare(`
-          INSERT INTO concerts (
-            source,
-            source_id,
-            title,
-            artists_main,
-            artists_all,
-            raw_title,
-            date_local,
-            time_local,
-            venue_name,
-            city,
-            country,
-            url,
-            image_url,
-            genre_hint,
-            fetched_at,
-            created_at,
-            updated_at
-          )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(source_id) DO UPDATE SET
-            source = excluded.source,
-            title = excluded.title,
-            artists_main = excluded.artists_main,
-            artists_all = excluded.artists_all,
-            raw_title = excluded.raw_title,
-            date_local = excluded.date_local,
-            time_local = excluded.time_local,
-            venue_name = excluded.venue_name,
-            city = excluded.city,
-            country = excluded.country,
-            url = excluded.url,
-            image_url = excluded.image_url,
-            genre_hint = excluded.genre_hint,
-            fetched_at = excluded.fetched_at,
-            updated_at = excluded.updated_at
-        `)
-        .bind(
-          event.source,
-          event.source_id,
-          event.title,
-          event.artists_main,
-          JSON.stringify(event.artists_all || []),
-          event.raw_title,
-          event.date_local,
-          event.time_local,
-          event.venue_name,
-          event.city,
-          event.country,
-          event.url,
-          event.image_url,
-          event.genre_hint,
-          event.fetched_at,
-          event.created_at,
-          event.updated_at
-        );
-    })
-  );
-
   const existingRows = await db
     .prepare(`
       SELECT source_id
@@ -133,6 +70,71 @@ export async function refreshSource(db, source) {
       .map((event) => cleanText(event?.source_id))
       .filter(Boolean)
   );
+
+  if (normalizedEvents.length > 0) {
+    await db.batch(
+      normalizedEvents.map((event) =>
+        db
+          .prepare(`
+            INSERT INTO concerts (
+              source,
+              source_id,
+              title,
+              artists_main,
+              artists_all,
+              raw_title,
+              date_local,
+              time_local,
+              venue_name,
+              city,
+              country,
+              url,
+              image_url,
+              genre_hint,
+              fetched_at,
+              created_at,
+              updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(source_id) DO UPDATE SET
+              source = excluded.source,
+              title = excluded.title,
+              artists_main = excluded.artists_main,
+              artists_all = excluded.artists_all,
+              raw_title = excluded.raw_title,
+              date_local = excluded.date_local,
+              time_local = excluded.time_local,
+              venue_name = excluded.venue_name,
+              city = excluded.city,
+              country = excluded.country,
+              url = excluded.url,
+              image_url = excluded.image_url,
+              genre_hint = excluded.genre_hint,
+              fetched_at = excluded.fetched_at,
+              updated_at = excluded.updated_at
+          `)
+          .bind(
+            event.source,
+            event.source_id,
+            event.title,
+            event.artists_main,
+            JSON.stringify(event.artists_all || []),
+            event.raw_title,
+            event.date_local,
+            event.time_local,
+            event.venue_name,
+            event.city,
+            event.country,
+            event.url,
+            event.image_url,
+            event.genre_hint,
+            event.fetched_at,
+            event.created_at,
+            event.updated_at
+          )
+      )
+    );
+  }
 
   for (const id of incomingIds) {
     if (existingIds.has(id)) {
@@ -200,37 +202,51 @@ export async function refreshAllSources(db, sources = SUPPORTED_REFRESH_SOURCES)
   };
 }
 async function ensureConcertsTable(db) {
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS concerts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      source TEXT NOT NULL,
-      source_id TEXT NOT NULL UNIQUE,
-      title TEXT,
-      artists_main TEXT,
-      artists_all TEXT,
-      raw_title TEXT,
-      date_local TEXT,
-      time_local TEXT,
-      venue_name TEXT,
-      city TEXT,
-      country TEXT,
-      url TEXT,
-      image_url TEXT,
-      genre_hint TEXT,
-      fetched_at INTEGER,
-      created_at INTEGER,
-      updated_at INTEGER
-    );
+  await db
+    .prepare(`
+      CREATE TABLE IF NOT EXISTS concerts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source TEXT NOT NULL,
+        source_id TEXT NOT NULL UNIQUE,
+        title TEXT,
+        artists_main TEXT,
+        artists_all TEXT,
+        raw_title TEXT,
+        date_local TEXT,
+        time_local TEXT,
+        venue_name TEXT,
+        city TEXT,
+        country TEXT,
+        url TEXT,
+        image_url TEXT,
+        genre_hint TEXT,
+        fetched_at INTEGER,
+        created_at INTEGER,
+        updated_at INTEGER
+      )
+    `)
+    .run();
 
-    CREATE INDEX IF NOT EXISTS idx_concerts_source
-      ON concerts(source);
+  await db
+    .prepare(`
+      CREATE INDEX IF NOT EXISTS idx_concerts_source
+      ON concerts(source)
+    `)
+    .run();
 
-    CREATE INDEX IF NOT EXISTS idx_concerts_date_local
-      ON concerts(date_local);
+  await db
+    .prepare(`
+      CREATE INDEX IF NOT EXISTS idx_concerts_date_local
+      ON concerts(date_local)
+    `)
+    .run();
 
-    CREATE INDEX IF NOT EXISTS idx_concerts_source_date
-      ON concerts(source, date_local);
-  `);
+  await db
+    .prepare(`
+      CREATE INDEX IF NOT EXISTS idx_concerts_source_date
+      ON concerts(source, date_local)
+    `)
+    .run();
 }
 
 async function deleteConcertsBySourceIds(db, sourceIds) {
@@ -263,7 +279,11 @@ function normalizeConcertForDb(event, fallbackSource) {
   }
 
   const now = Date.now();
-  const artistsAll = normalizeArtistsAll(event?.artists_all, event?.artists_main, title);
+  const artistsAll = normalizeArtistsAll(
+    event?.artists_all,
+    event?.artists_main,
+    title
+  );
 
   const venueName = cleanText(event?.venue_name);
   const city = cleanText(event?.city);
@@ -321,7 +341,6 @@ function dedupeIncomingEvents(events) {
 
   return Array.from(bestByKey.values()).sort(compareConcertRows);
 }
-
 function preferIncomingEvent(nextEvent, prevEvent) {
   const nextHasImage = Boolean(cleanText(nextEvent?.image_url));
   const prevHasImage = Boolean(cleanText(prevEvent?.image_url));
@@ -331,8 +350,12 @@ function preferIncomingEvent(nextEvent, prevEvent) {
   const prevHasUrl = Boolean(cleanText(prevEvent?.url));
   if (nextHasUrl !== prevHasUrl) return nextHasUrl;
 
-  const nextArtists = Array.isArray(nextEvent?.artists_all) ? nextEvent.artists_all.length : 0;
-  const prevArtists = Array.isArray(prevEvent?.artists_all) ? prevEvent.artists_all.length : 0;
+  const nextArtists = Array.isArray(nextEvent?.artists_all)
+    ? nextEvent.artists_all.length
+    : 0;
+  const prevArtists = Array.isArray(prevEvent?.artists_all)
+    ? prevEvent.artists_all.length
+    : 0;
   if (nextArtists !== prevArtists) return nextArtists > prevArtists;
 
   return Number(nextEvent?.fetched_at || 0) > Number(prevEvent?.fetched_at || 0);
@@ -440,4 +463,4 @@ function slugify(value) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .replace(/-+/g, "-");
-}
+    }

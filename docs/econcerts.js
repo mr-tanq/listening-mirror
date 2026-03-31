@@ -7,18 +7,19 @@
    - Dismissed stays local
    - Planned concerts are loaded from archive worker
    - Add to Plan / Remove now write to archive worker
-   - NEW: in-app pending concert check-in popup
+   - In-app pending concert check-in popup
+   - No "Later"
+   - Pending queue handled one-by-one
+   - Better pending polish in Plan tab
 */
 
 (() => {
   "use strict";
 
-  const $ = (sel, root = document) => root.querySelector(sel);
-
   const listEl = document.querySelector("#econcertsList");
   if (!listEl) return;
 
-  const STORE_KEY = "lm_econcerts_ui_v62_recommended_worker_archive_planned_checkin";
+  const STORE_KEY = "lm_econcerts_ui_v63_recommended_worker_archive_planned_checkin_polish";
   const ECONCERTS_BASE = "https://econcerts.errtanq9.workers.dev";
   const ARCHIVE_BASE = "https://listening-mirror-archive.errtanq9.workers.dev";
   const RECOMMENDED_LIMIT = 5000;
@@ -43,7 +44,7 @@
     const timePart = safeStr(timeLocal) || "20:00";
     const normalizedTime = /^\d{2}:\d{2}$/.test(timePart) ? timePart : "20:00";
 
-    const dt = new Date(`${datePart}T${normalizedTime}:00+02:00`);
+    const dt = new Date(`${datePart}T${normalizedTime}:00`);
     return isValidDate(dt) ? dt : null;
   }
 
@@ -134,6 +135,18 @@
     return Math.floor((d.getTime() - Date.now()) / 86400000);
   }
 
+  function slugify(value) {
+    return String(value || "")
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[’']/g, "")
+      .replace(/&/g, " and ")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .replace(/-+/g, "-");
+  }
+
   function normalizeArtistForLookup(raw) {
     let s = safeStr(raw);
     if (!s) return "";
@@ -171,18 +184,6 @@
       .trim();
   }
 
-  function slugify(value) {
-    return String(value || "")
-      .toLowerCase()
-      .normalize("NFKD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[’']/g, "")
-      .replace(/&/g, " and ")
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .replace(/-+/g, "-");
-  }
-
   function buildPlannedEventKey({ source, sourceId, title, dateLocal, venueName, city }) {
     const cleanSource = safeStr(source).toLowerCase();
     const cleanSourceId = safeStr(sourceId);
@@ -208,8 +209,7 @@
         return {
           activeTab: "announced",
           dismissedIds: [],
-          lastRefreshAt: 0,
-          snoozedPendingEventKey: ""
+          lastRefreshAt: 0
         };
       }
 
@@ -219,15 +219,13 @@
           ? String(obj.activeTab)
           : "announced",
         dismissedIds: Array.isArray(obj.dismissedIds) ? obj.dismissedIds : [],
-        lastRefreshAt: Number(obj.lastRefreshAt || 0),
-        snoozedPendingEventKey: safeStr(obj.snoozedPendingEventKey)
+        lastRefreshAt: Number(obj.lastRefreshAt || 0)
       };
     } catch {
       return {
         activeTab: "announced",
         dismissedIds: [],
-        lastRefreshAt: 0,
-        snoozedPendingEventKey: ""
+        lastRefreshAt: 0
       };
     }
   }
@@ -241,7 +239,9 @@
   let lastMeta = null;
   let plannedItems = [];
   let plannedMap = new Map();
-  let pendingPromptItem = null;
+
+  let pendingPromptQueue = [];
+  let pendingPromptIndex = 0;
   let pendingPromptBusy = false;
 
   const artistImageCache = new Map();
@@ -319,9 +319,8 @@
 
     valid.sort((a, b) => scoreImageUrl(b) - scoreImageUrl(a));
     return valid[0] || "";
-  }
-
-  function findImageFromAppState(artistRaw) {
+ }
+   function findImageFromAppState(artistRaw) {
     const appState = getAppState();
     if (!appState) return "";
 
@@ -330,7 +329,6 @@
 
     const top = Array.isArray(appState.lastTop) ? appState.lastTop : [];
     const recent = Array.isArray(appState.lastRecent) ? appState.lastRecent : [];
-
     const found = [];
 
     for (const it of top) {
@@ -356,8 +354,9 @@
     }
 
     return pickBestImage(found);
-}
-   async function resolveLastfmArtistImage(artistRaw) {
+  }
+
+  async function resolveLastfmArtistImage(artistRaw) {
     const apiKey = getLastfmApiKey();
     const artist = normalizeArtistForLookup(artistRaw);
     if (!apiKey || !artist) return "";
@@ -501,7 +500,8 @@
       matchedArtist: safeStr(ev?.matchedArtist),
       matchedTier: safeStr(ev?.matchedTier),
       reasons: Array.isArray(ev?.reasons) ? ev.reasons.slice() : [],
-      reason: reasonFromEvent(ev)
+      reason: reasonFromEvent(ev),
+      plannedStatus: ""
     };
   }
 
@@ -511,8 +511,9 @@
 
     const artist = safeStr(ev?.main_artist || ev?.title);
     const eventKey = safeStr(ev?.event_key);
-
     if (!artist || !eventKey) return null;
+
+    const status = safeStr(ev?.status || "planned");
 
     return {
       id: eventKey,
@@ -539,8 +540,8 @@
       matchedArtist: "",
       matchedTier: "",
       reasons: [],
-      reason: "Planned concert",
-      plannedStatus: safeStr(ev?.status || "planned"),
+      reason: status === "pending" ? "Waiting for check-in" : "Planned concert",
+      plannedStatus: status,
       plannedNotes: safeStr(ev?.notes || ""),
       fromPlannedDb: true
     };
@@ -549,9 +550,7 @@
   function extractWorkerEvents(payload) {
     const all = [];
 
-    if (Array.isArray(payload?.events)) {
-      all.push(...payload.events);
-    }
+    if (Array.isArray(payload?.events)) all.push(...payload.events);
 
     const buckets = payload?.buckets || {};
     for (const name of ["top", "strong", "recommended"]) {
@@ -587,9 +586,7 @@
   async function loadPlannedConcerts() {
     const payload = await fetchJson(getPlannedConcertsUrl());
     const items = Array.isArray(payload?.items) ? payload.items : [];
-    const normalized = items
-      .map(normalizePlannedEvent)
-      .filter(Boolean);
+    const normalized = items.map(normalizePlannedEvent).filter(Boolean);
 
     plannedItems = normalized.slice();
     plannedMap = new Map(normalized.map((ev) => [ev.eventKey, ev]));
@@ -611,9 +608,8 @@
       url: safeStr(event?.url),
       image_url: safeStr(event?.imageUrl)
     };
-  }
-
-  async function addToPlan(event) {
+         }
+   async function addToPlan(event) {
     const payload = buildPlannedPayload(event);
 
     await fetchJson(`${ARCHIVE_BASE}/planned-concerts/add`, {
@@ -629,9 +625,7 @@
     await fetchJson(`${ARCHIVE_BASE}/planned-concerts/remove`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        event_key: safeStr(eventKey)
-      })
+      body: JSON.stringify({ event_key: safeStr(eventKey) })
     });
 
     await loadPlannedConcerts();
@@ -641,9 +635,7 @@
     await fetchJson(`${ARCHIVE_BASE}/planned-concerts/attended`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        event_key: safeStr(eventKey)
-      })
+      body: JSON.stringify({ event_key: safeStr(eventKey) })
     });
 
     await loadPlannedConcerts();
@@ -653,9 +645,7 @@
     await fetchJson(`${ARCHIVE_BASE}/planned-concerts/missed`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        event_key: safeStr(eventKey)
-      })
+      body: JSON.stringify({ event_key: safeStr(eventKey) })
     });
 
     await loadPlannedConcerts();
@@ -747,7 +737,8 @@
           ...existing,
           plannedStatus: plannedEv.plannedStatus,
           plannedNotes: plannedEv.plannedNotes,
-          fromPlannedDb: true
+          fromPlannedDb: true,
+          reason: plannedEv.plannedStatus === "pending" ? "Waiting for check-in" : existing.reason
         });
       } else {
         map.set(plannedEv.id, plannedEv);
@@ -755,42 +746,43 @@
     }
 
     return Array.from(map.values()).sort((a, b) => a.startTs - b.startTs);
-}
-   function getPendingPromptCandidate() {
+  }
+
+  function buildPendingQueue() {
     const pending = plannedItems
       .filter((ev) => safeStr(ev.plannedStatus) === "pending")
       .sort((a, b) => a.startTs - b.startTs);
 
-    if (!pending.length) return null;
-
-    const snoozedKey = safeStr(store.snoozedPendingEventKey);
-    const firstNonSnoozed = pending.find((ev) => ev.eventKey !== snoozedKey);
-    return firstNonSnoozed || pending[0] || null;
+    pendingPromptQueue = pending;
+    pendingPromptIndex = 0;
+    pendingPromptBusy = false;
   }
 
-  function updatePendingPromptState() {
-    pendingPromptItem = getPendingPromptCandidate();
-    renderPendingPrompt();
+  function getCurrentPendingPromptItem() {
+    if (!pendingPromptQueue.length) return null;
+    if (pendingPromptIndex < 0 || pendingPromptIndex >= pendingPromptQueue.length) return null;
+    return pendingPromptQueue[pendingPromptIndex] || null;
   }
 
-  function clearPendingPrompt() {
-    pendingPromptItem = null;
-    renderPendingPrompt();
+  function removeExistingPromptEl() {
+    const existing = document.getElementById("lmConcertCheckinOverlay");
+    if (existing) existing.remove();
+  }
+
+  async function advancePendingQueueAndRefresh() {
+    await refresh();
   }
 
   async function handlePendingYes() {
-    if (!pendingPromptItem || pendingPromptBusy) return;
+    const item = getCurrentPendingPromptItem();
+    if (!item || pendingPromptBusy) return;
 
     pendingPromptBusy = true;
     renderPendingPrompt();
 
     try {
-      await markPendingAttended(pendingPromptItem.eventKey);
-      if (safeStr(store.snoozedPendingEventKey) === safeStr(pendingPromptItem.eventKey)) {
-        store.snoozedPendingEventKey = "";
-        saveStore(store);
-      }
-      await refresh();
+      await markPendingAttended(item.eventKey);
+      await advancePendingQueueAndRefresh();
     } catch (e) {
       pendingPromptBusy = false;
       renderPendingPrompt();
@@ -799,18 +791,15 @@
   }
 
   async function handlePendingNo() {
-    if (!pendingPromptItem || pendingPromptBusy) return;
+    const item = getCurrentPendingPromptItem();
+    if (!item || pendingPromptBusy) return;
 
     pendingPromptBusy = true;
     renderPendingPrompt();
 
     try {
-      await markPendingMissed(pendingPromptItem.eventKey);
-      if (safeStr(store.snoozedPendingEventKey) === safeStr(pendingPromptItem.eventKey)) {
-        store.snoozedPendingEventKey = "";
-        saveStore(store);
-      }
-      await refresh();
+      await markPendingMissed(item.eventKey);
+      await advancePendingQueueAndRefresh();
     } catch (e) {
       pendingPromptBusy = false;
       renderPendingPrompt();
@@ -818,25 +807,12 @@
     }
   }
 
-  function handlePendingLater() {
-    if (!pendingPromptItem || pendingPromptBusy) return;
-
-    store.snoozedPendingEventKey = safeStr(pendingPromptItem.eventKey);
-    saveStore(store);
-    clearPendingPrompt();
-  }
-
-  function removeExistingPromptEl() {
-    const existing = document.getElementById("lmConcertCheckinOverlay");
-    if (existing) existing.remove();
-  }
-
   function renderPendingPrompt() {
     removeExistingPromptEl();
 
-    if (!pendingPromptItem) return;
+    const ev = getCurrentPendingPromptItem();
+    if (!ev) return;
 
-    const ev = pendingPromptItem;
     const overlay = document.createElement("div");
     overlay.id = "lmConcertCheckinOverlay";
     overlay.className = "lmcc-overlay";
@@ -850,7 +826,7 @@
 
     const badge = document.createElement("div");
     badge.className = "lmcc-badge";
-    badge.textContent = "Concert check-in";
+    badge.textContent = `Concert check-in ${pendingPromptQueue.length > 1 ? `${pendingPromptIndex + 1}/${pendingPromptQueue.length}` : ""}`.trim();
 
     const title = document.createElement("h3");
     title.className = "lmcc-title";
@@ -867,7 +843,7 @@
 
     const hint = document.createElement("p");
     hint.className = "lmcc-hint";
-    hint.textContent = "If yes, it will move to Archive. If no, it will disappear from your planned concerts.";
+    hint.textContent = "Yes will move it to Archive. No will remove it from your planned concerts.";
 
     const actions = document.createElement("div");
     actions.className = "lmcc-actions";
@@ -886,16 +862,8 @@
     noBtn.disabled = pendingPromptBusy;
     noBtn.addEventListener("click", handlePendingNo);
 
-    const laterBtn = document.createElement("button");
-    laterBtn.type = "button";
-    laterBtn.className = "lmcc-btn lmcc-btn--ghost";
-    laterBtn.textContent = "Later";
-    laterBtn.disabled = pendingPromptBusy;
-    laterBtn.addEventListener("click", handlePendingLater);
-
     actions.appendChild(yesBtn);
     actions.appendChild(noBtn);
-    actions.appendChild(laterBtn);
 
     panel.appendChild(image);
     panel.appendChild(badge);
@@ -906,217 +874,6 @@
     overlay.appendChild(panel);
 
     document.body.appendChild(overlay);
-  }
-
-  function injectStylesOnce() {
-    if (document.getElementById("lmConcertsMockupStyles")) return;
-
-    const style = document.createElement("style");
-    style.id = "lmConcertsMockupStyles";
-    style.textContent = `
-      #econcertsList{display:block}
-      .lmc-wrap{display:flex;flex-direction:column;gap:16px}
-      .lmc-topbar{display:flex;flex-direction:column;gap:10px;margin-bottom:2px}
-      .lmc-heading{margin:0;font-size:1.12rem;font-weight:900;letter-spacing:.01em;color:rgba(255,255,255,.98)}
-      .lmc-pills{display:flex;flex-wrap:wrap;gap:8px}
-      .lmc-pill-btn{
-        appearance:none;border:none;outline:none;border-radius:999px;padding:9px 13px;
-        background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);
-        color:inherit;font:inherit;font-weight:800;cursor:pointer
-      }
-      .lmc-pill-btn.is-on{
-        background:linear-gradient(180deg, rgba(187,225,255,.16), rgba(125,175,255,.10));
-        border-color:rgba(150,205,255,.22)
-      }
-      .lmc-signal{
-        border-radius:22px;padding:14px 16px;border:1px solid rgba(255,255,255,.08);
-        background:
-          radial-gradient(circle at 18% 18%, rgba(106,181,255,.22), transparent 18%),
-          linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03));
-        box-shadow:0 18px 38px rgba(0,0,0,.24)
-      }
-      .lmc-signal-badge{
-        display:inline-flex;align-items:center;gap:8px;border-radius:999px;padding:7px 11px;
-        font-size:.82rem;font-weight:900;letter-spacing:.03em;
-        background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);margin-bottom:8px
-      }
-      .lmc-signal-text{font-size:.98rem;line-height:1.35;color:rgba(255,255,255,.92)}
-      .lmc-section{display:flex;flex-direction:column;gap:10px}
-      .lmc-section-title{margin:0;font-size:1.02rem;font-weight:900}
-      .lmc-hero,.lmc-strong{
-        position:relative;overflow:hidden;border-radius:24px;min-height:218px;
-        border:1px solid rgba(255,255,255,.09);box-shadow:0 18px 42px rgba(0,0,0,.28)
-      }
-      .lmc-hero{min-height:250px}
-      .lmc-cover{
-        position:absolute;inset:0;background-size:cover;background-position:center center;transform:scale(1.02)
-      }
-      .lmc-cover::after{
-        content:"";position:absolute;inset:0;
-        background:linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.18) 34%, rgba(0,0,0,.72) 100%)
-      }
-      .lmc-body{
-        position:relative;z-index:1;min-height:inherit;display:flex;flex-direction:column;
-        justify-content:flex-end;gap:9px;padding:14px
-      }
-      .lmc-badge{
-        align-self:flex-start;display:inline-flex;align-items:center;gap:7px;padding:7px 12px;
-        border-radius:999px;font-size:.79rem;font-weight:900;letter-spacing:.03em;
-        background:linear-gradient(180deg, rgba(195,72,35,.92), rgba(147,27,18,.82));
-        border:1px solid rgba(255,255,255,.10);box-shadow:0 8px 20px rgba(110,20,12,.20)
-      }
-      .lmc-title{margin:0;font-size:1.82rem;line-height:1.02;font-weight:900;text-transform:uppercase}
-      .lmc-meta{margin:0;font-size:1rem;font-weight:700}
-      .lmc-submeta{margin:0;font-size:.96rem;opacity:.96}
-      .lmc-reason{margin:0;font-size:.92rem;opacity:.88}
-      .lmc-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:2px}
-      .lmc-btn{
-        appearance:none;border:none;outline:none;border-radius:12px;padding:10px 13px;
-        font:inherit;font-weight:800;color:inherit;cursor:pointer;
-        background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.08)
-      }
-      .lmc-btn--primary{background:linear-gradient(180deg, rgba(191,57,39,.96), rgba(149,24,14,.88))}
-      .lmc-upcoming-shell{
-        border-radius:22px;border:1px solid rgba(255,255,255,.08);
-        background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.03));
-        box-shadow:0 16px 34px rgba(0,0,0,.22);overflow:hidden
-      }
-      .lmc-upcoming-head{
-        display:flex;align-items:center;justify-content:space-between;gap:10px;
-        padding:14px 14px 10px;border-bottom:1px solid rgba(255,255,255,.05)
-      }
-      .lmc-upcoming-title{margin:0;font-size:1rem;font-weight:900}
-      .lmc-chevron{opacity:.7;font-weight:900}
-      .lmc-mini-list{display:flex;flex-direction:column;gap:10px;padding:12px}
-      .lmc-mini-card{
-        position:relative;overflow:hidden;min-height:96px;border-radius:16px;
-        border:1px solid rgba(255,255,255,.08);box-shadow:0 12px 26px rgba(0,0,0,.20)
-      }
-      .lmc-mini-body{
-        position:relative;z-index:1;min-height:96px;display:flex;align-items:flex-end;
-        justify-content:space-between;gap:12px;padding:12px
-      }
-      .lmc-mini-info{min-width:0;display:flex;flex-direction:column;gap:4px}
-      .lmc-mini-title{margin:0;font-size:1.38rem;line-height:1.04;font-weight:900;text-transform:uppercase}
-      .lmc-mini-meta{margin:0;font-size:.95rem;opacity:.96}
-      .lmc-mini-right{display:flex;align-items:center;gap:8px}
-      .lmc-alert{
-        border-radius:22px;border:1px solid rgba(255,255,255,.08);
-        background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.03));
-        box-shadow:0 16px 34px rgba(0,0,0,.22);overflow:hidden
-      }
-      .lmc-alert-top{
-        display:flex;align-items:center;gap:9px;padding:12px 14px 8px;
-        font-size:.88rem;font-weight:900;letter-spacing:.03em
-      }
-      .lmc-alert-body{padding:0 14px 14px}
-      .lmc-alert-band{font-size:1.18rem;font-weight:900;margin:0 0 6px}
-      .lmc-alert-text{margin:0 0 10px;color:rgba(255,255,255,.90)}
-      .lmc-alert-dates{margin:0 0 12px;color:rgba(255,255,255,.85);line-height:1.55}
-      .lmc-empty{
-        padding:16px 14px;border-radius:18px;background:rgba(255,255,255,.04);
-        border:1px solid rgba(255,255,255,.06);color:rgba(255,255,255,.74)
-      }
-
-      .lmcc-overlay{
-        position:fixed;inset:0;z-index:9999;
-        background:rgba(0,0,0,.46);
-        backdrop-filter:blur(10px);
-        display:flex;
-        align-items:flex-end;
-        justify-content:center;
-        padding:18px;
-      }
-      .lmcc-panel{
-        width:min(100%, 430px);
-        border-radius:24px;
-        overflow:hidden;
-        border:1px solid rgba(255,255,255,.10);
-        background:
-          linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)),
-          linear-gradient(180deg, #0b0f15, #080b10);
-        box-shadow:0 24px 60px rgba(0,0,0,.40);
-        padding:0 0 16px;
-      }
-      .lmcc-image{
-        height:180px;
-        background-size:cover;
-        background-position:center center;
-      }
-      .lmcc-badge{
-        display:inline-flex;
-        margin:14px 16px 0;
-        padding:7px 11px;
-        border-radius:999px;
-        font-size:.77rem;
-        font-weight:900;
-        letter-spacing:.04em;
-        background:rgba(255,255,255,.08);
-        border:1px solid rgba(255,255,255,.10);
-      }
-      .lmcc-title{
-        margin:12px 16px 0;
-        font-size:1.24rem;
-        line-height:1.2;
-        font-weight:900;
-        color:#fff;
-      }
-      .lmcc-sub{
-        margin:10px 16px 0;
-        font-size:.95rem;
-        line-height:1.45;
-        color:rgba(255,255,255,.84);
-      }
-      .lmcc-hint{
-        margin:10px 16px 0;
-        font-size:.88rem;
-        line-height:1.45;
-        color:rgba(255,255,255,.60);
-      }
-      .lmcc-actions{
-        display:flex;
-        flex-direction:column;
-        gap:8px;
-        padding:14px 16px 0;
-      }
-      .lmcc-btn{
-        appearance:none;
-        border:none;
-        outline:none;
-        border-radius:14px;
-        padding:13px 14px;
-        font:inherit;
-        font-weight:800;
-        color:#fff;
-        cursor:pointer;
-        background:rgba(255,255,255,.08);
-        border:1px solid rgba(255,255,255,.10);
-      }
-      .lmcc-btn--primary{
-        background:linear-gradient(180deg, rgba(191,57,39,.96), rgba(149,24,14,.88));
-      }
-      .lmcc-btn--ghost{
-        background:rgba(255,255,255,.04);
-        color:rgba(255,255,255,.84);
-      }
-      .lmcc-btn:disabled{
-        opacity:.65;
-        cursor:default;
-      }
-    `;
-    document.head.appendChild(style);
-  }
-   function makeTopPill(label, tabKey) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = `lmc-pill-btn${store.activeTab === tabKey ? " is-on" : ""}`;
-    btn.textContent = label;
-    btn.addEventListener("click", () => {
-      store.activeTab = tabKey;
-      saveStore(store);
-      render(lastEvents, lastMeta);
-    });
-    return btn;
   }
 
   function buildActionButtons(event, view) {
@@ -1211,8 +968,7 @@
 
     return actions;
   }
-
-  function buildHeroCard(event, view) {
+   function buildHeroCard(event, view) {
     const card = document.createElement("div");
     card.className = "lmc-hero";
 
@@ -1332,23 +1088,49 @@
     info.appendChild(title);
     info.appendChild(meta);
 
+    if (view === "plan" && safeStr(event.plannedStatus) === "pending") {
+      const pendingBadge = document.createElement("div");
+      pendingBadge.className = "lmc-plan-status lmc-plan-status--pending";
+      pendingBadge.textContent = "Awaiting check-in";
+      info.appendChild(pendingBadge);
+    } else if (view === "plan") {
+      const plannedBadge = document.createElement("div");
+      plannedBadge.className = "lmc-plan-status";
+      plannedBadge.textContent = "Planned";
+      info.appendChild(plannedBadge);
+    }
+
     const right = document.createElement("div");
     right.className = "lmc-mini-right";
 
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "lmc-btn";
-    btn.textContent = view === "dismissed"
-      ? "Undo"
-      : isPlanned(event.eventKey || event.id)
-        ? "Planned"
-        : "Add to Plan";
+
+    if (view === "dismissed") {
+      btn.textContent = "Undo";
+    } else if (isPlanned(event.eventKey || event.id)) {
+      btn.textContent = safeStr(event.plannedStatus) === "pending" ? "Open" : "Planned";
+    } else {
+      btn.textContent = "Add to Plan";
+    }
 
     btn.addEventListener("click", async () => {
       if (view === "dismissed") {
         await undismiss(event.id);
         render(lastEvents, lastMeta);
-      } else if (isPlanned(event.eventKey || event.id)) {
+        return;
+      }
+
+      if (safeStr(event.plannedStatus) === "pending") {
+        pendingPromptQueue = [event];
+        pendingPromptIndex = 0;
+        pendingPromptBusy = false;
+        renderPendingPrompt();
+        return;
+      }
+
+      if (isPlanned(event.eventKey || event.id)) {
         await removeFromPlan(event.eventKey || event.id);
         await refresh();
       } else {
@@ -1412,15 +1194,26 @@
     return shell;
   }
 
+  function makeTopPill(label, tabKey) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `lmc-pill-btn${store.activeTab === tabKey ? " is-on" : ""}`;
+    btn.textContent = label;
+    btn.addEventListener("click", () => {
+      store.activeTab = tabKey;
+      saveStore(store);
+      render(lastEvents, lastMeta);
+    });
+    return btn;
+  }
+
   function renderAnnounced(events) {
     const strong = getStrong(events);
     const suggested = getSuggested(events);
     const hero = getHeroEvent([...strong, ...suggested]);
     const heroId = hero?.id || "";
     const thisWeek = strong.filter((ev) => ev.id !== heroId).slice(0, 2);
-    const upcoming = [...strong, ...suggested]
-      .filter((ev) => ev.id !== heroId)
-      .slice(0, 10);
+    const upcoming = [...strong, ...suggested].filter((ev) => ev.id !== heroId).slice(0, 10);
     const alertEvent = getAlertEvent(events);
 
     const wrap = document.createElement("div");
@@ -1575,6 +1368,73 @@
     renderAnnounced(split.announced);
   }
 
+  function injectStylesOnce() {
+    if (document.getElementById("lmConcertsMockupStyles")) return;
+
+    const style = document.createElement("style");
+    style.id = "lmConcertsMockupStyles";
+    style.textContent = `
+      #econcertsList{display:block}
+      .lmc-wrap{display:flex;flex-direction:column;gap:16px}
+      .lmc-topbar{display:flex;flex-direction:column;gap:10px;margin-bottom:2px}
+      .lmc-heading{margin:0;font-size:1.12rem;font-weight:900;letter-spacing:.01em;color:rgba(255,255,255,.98)}
+      .lmc-pills{display:flex;flex-wrap:wrap;gap:8px}
+      .lmc-pill-btn{appearance:none;border:none;outline:none;border-radius:999px;padding:9px 13px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:inherit;font:inherit;font-weight:800;cursor:pointer}
+      .lmc-pill-btn.is-on{background:linear-gradient(180deg, rgba(187,225,255,.16), rgba(125,175,255,.10));border-color:rgba(150,205,255,.22)}
+      .lmc-signal{border-radius:22px;padding:14px 16px;border:1px solid rgba(255,255,255,.08);background:radial-gradient(circle at 18% 18%, rgba(106,181,255,.22), transparent 18%),linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03));box-shadow:0 18px 38px rgba(0,0,0,.24)}
+      .lmc-signal-badge{display:inline-flex;align-items:center;gap:8px;border-radius:999px;padding:7px 11px;font-size:.82rem;font-weight:900;letter-spacing:.03em;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);margin-bottom:8px}
+      .lmc-signal-text{font-size:.98rem;line-height:1.35;color:rgba(255,255,255,.92)}
+      .lmc-section{display:flex;flex-direction:column;gap:10px}
+      .lmc-section-title{margin:0;font-size:1.02rem;font-weight:900}
+      .lmc-hero,.lmc-strong{position:relative;overflow:hidden;border-radius:24px;min-height:218px;border:1px solid rgba(255,255,255,.09);box-shadow:0 18px 42px rgba(0,0,0,.28)}
+      .lmc-hero{min-height:250px}
+      .lmc-cover{position:absolute;inset:0;background-size:cover;background-position:center center;transform:scale(1.02)}
+      .lmc-cover::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.18) 34%, rgba(0,0,0,.72) 100%)}
+      .lmc-body{position:relative;z-index:1;min-height:inherit;display:flex;flex-direction:column;justify-content:flex-end;gap:9px;padding:14px}
+      .lmc-badge{align-self:flex-start;display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border-radius:999px;font-size:.79rem;font-weight:900;letter-spacing:.03em;background:linear-gradient(180deg, rgba(195,72,35,.92), rgba(147,27,18,.82));border:1px solid rgba(255,255,255,.10);box-shadow:0 8px 20px rgba(110,20,12,.20)}
+      .lmc-title{margin:0;font-size:1.82rem;line-height:1.02;font-weight:900;text-transform:uppercase}
+      .lmc-meta{margin:0;font-size:1rem;font-weight:700}
+      .lmc-submeta{margin:0;font-size:.96rem;opacity:.96}
+      .lmc-reason{margin:0;font-size:.92rem;opacity:.88}
+      .lmc-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:2px}
+      .lmc-btn{appearance:none;border:none;outline:none;border-radius:12px;padding:10px 13px;font:inherit;font-weight:800;color:inherit;cursor:pointer;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.08)}
+      .lmc-btn--primary{background:linear-gradient(180deg, rgba(191,57,39,.96), rgba(149,24,14,.88))}
+      .lmc-upcoming-shell{border-radius:22px;border:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.03));box-shadow:0 16px 34px rgba(0,0,0,.22);overflow:hidden}
+      .lmc-upcoming-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 14px 10px;border-bottom:1px solid rgba(255,255,255,.05)}
+      .lmc-upcoming-title{margin:0;font-size:1rem;font-weight:900}
+      .lmc-chevron{opacity:.7;font-weight:900}
+      .lmc-mini-list{display:flex;flex-direction:column;gap:10px;padding:12px}
+      .lmc-mini-card{position:relative;overflow:hidden;min-height:96px;border-radius:16px;border:1px solid rgba(255,255,255,.08);box-shadow:0 12px 26px rgba(0,0,0,.20)}
+      .lmc-mini-body{position:relative;z-index:1;min-height:96px;display:flex;align-items:flex-end;justify-content:space-between;gap:12px;padding:12px}
+      .lmc-mini-info{min-width:0;display:flex;flex-direction:column;gap:4px}
+      .lmc-mini-title{margin:0;font-size:1.38rem;line-height:1.04;font-weight:900;text-transform:uppercase}
+      .lmc-mini-meta{margin:0;font-size:.95rem;opacity:.96}
+      .lmc-mini-right{display:flex;align-items:center;gap:8px}
+      .lmc-plan-status{display:inline-flex;align-self:flex-start;padding:5px 9px;border-radius:999px;font-size:.72rem;font-weight:800;letter-spacing:.03em;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.09)}
+      .lmc-plan-status--pending{background:linear-gradient(180deg, rgba(255,186,90,.18), rgba(255,129,46,.12));border-color:rgba(255,190,105,.24)}
+      .lmc-alert{border-radius:22px;border:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.03));box-shadow:0 16px 34px rgba(0,0,0,.22);overflow:hidden}
+      .lmc-alert-top{display:flex;align-items:center;gap:9px;padding:12px 14px 8px;font-size:.88rem;font-weight:900;letter-spacing:.03em}
+      .lmc-alert-body{padding:0 14px 14px}
+      .lmc-alert-band{font-size:1.18rem;font-weight:900;margin:0 0 6px}
+      .lmc-alert-text{margin:0 0 10px;color:rgba(255,255,255,.90)}
+      .lmc-alert-dates{margin:0 0 12px;color:rgba(255,255,255,.85);line-height:1.55}
+      .lmc-empty{padding:16px 14px;border-radius:18px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);color:rgba(255,255,255,.74)}
+
+      .lmcc-overlay{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.46);backdrop-filter:blur(10px);display:flex;align-items:flex-end;justify-content:center;padding:18px}
+      .lmcc-panel{width:min(100%, 430px);border-radius:24px;overflow:hidden;border:1px solid rgba(255,255,255,.10);background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)),linear-gradient(180deg, #0b0f15, #080b10);box-shadow:0 24px 60px rgba(0,0,0,.40);padding:0 0 16px}
+      .lmcc-image{height:180px;background-size:cover;background-position:center center}
+      .lmcc-badge{display:inline-flex;margin:14px 16px 0;padding:7px 11px;border-radius:999px;font-size:.77rem;font-weight:900;letter-spacing:.04em;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.10)}
+      .lmcc-title{margin:12px 16px 0;font-size:1.24rem;line-height:1.2;font-weight:900;color:#fff}
+      .lmcc-sub{margin:10px 16px 0;font-size:.95rem;line-height:1.45;color:rgba(255,255,255,.84)}
+      .lmcc-hint{margin:10px 16px 0;font-size:.88rem;line-height:1.45;color:rgba(255,255,255,.60)}
+      .lmcc-actions{display:flex;flex-direction:column;gap:8px;padding:14px 16px 0}
+      .lmcc-btn{appearance:none;border:none;outline:none;border-radius:14px;padding:13px 14px;font:inherit;font-weight:800;color:#fff;cursor:pointer;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.10)}
+      .lmcc-btn--primary{background:linear-gradient(180deg, rgba(191,57,39,.96), rgba(149,24,14,.88))}
+      .lmcc-btn:disabled{opacity:.65;cursor:default}
+    `;
+    document.head.appendChild(style);
+  }
+
   async function refresh() {
     store.lastRefreshAt = Date.now();
     saveStore(store);
@@ -1590,9 +1450,9 @@
     const merged = mergeRecommendedWithPlanned(mapped, plannedDbEvents);
     const enriched = await enrichEventsWithImages(merged);
 
-    pendingPromptBusy = false;
     render(enriched, recommendedPayload?.meta || null);
-    updatePendingPromptState();
+    buildPendingQueue();
+    renderPendingPrompt();
   }
 
   function wireConcertsTabRefresh() {
@@ -1622,8 +1482,11 @@
     get plannedItems() {
       return plannedItems;
     },
+    get pendingPromptQueue() {
+      return pendingPromptQueue.slice();
+    },
     get pendingPromptItem() {
-      return pendingPromptItem;
+      return getCurrentPendingPromptItem();
     },
     forceRefresh() {
       refresh().catch(() => {});

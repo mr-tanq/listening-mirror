@@ -1,6 +1,13 @@
 /* econcerts.js (FULL FILE REPLACE)
    Listening Mirror — Concerts tab
    Uses ONLY the new econcerts worker recommended endpoint
+
+   Updated:
+   - Plan tab now uses archive DB planned_concerts
+   - Announced / Dismissed stay the same visually
+   - Dismissed stays local
+   - Planned concerts are loaded from archive worker
+   - Add to Plan / Remove now write to archive worker
 */
 
 (() => {
@@ -11,9 +18,11 @@
   const listEl = document.querySelector("#econcertsList");
   if (!listEl) return;
 
-  const STORE_KEY = "lm_econcerts_ui_v60_recommended_worker_only";
+  const STORE_KEY = "lm_econcerts_ui_v61_recommended_worker_archive_planned";
   const ECONCERTS_BASE = "https://econcerts.errtanq9.workers.dev";
+  const ARCHIVE_BASE = "https://listening-mirror-archive.errtanq9.workers.dev";
   const RECOMMENDED_LIMIT = 5000;
+  const PLANNED_LIMIT = 2000;
 
   function safeStr(v) {
     return String(v || "").trim();
@@ -157,7 +166,6 @@
       if (!raw) {
         return {
           activeTab: "announced",
-          planIds: [],
           dismissedIds: [],
           lastRefreshAt: 0
         };
@@ -168,14 +176,12 @@
         activeTab: ["announced", "plan", "dismissed"].includes(String(obj.activeTab))
           ? String(obj.activeTab)
           : "announced",
-        planIds: Array.isArray(obj.planIds) ? obj.planIds : [],
         dismissedIds: Array.isArray(obj.dismissedIds) ? obj.dismissedIds : [],
         lastRefreshAt: Number(obj.lastRefreshAt || 0)
       };
     } catch {
       return {
         activeTab: "announced",
-        planIds: [],
         dismissedIds: [],
         lastRefreshAt: 0
       };
@@ -189,6 +195,8 @@
   let store = loadStore();
   let lastEvents = [];
   let lastMeta = null;
+  let plannedItems = [];
+  let plannedMap = new Map();
 
   const artistImageCache = new Map();
 
@@ -205,6 +213,15 @@
     u.searchParams.set("maxSeeds", "8");
     u.searchParams.set("similarPerSeed", "12");
     u.searchParams.set("minRelatedScore", "10");
+    return u.toString();
+  }
+
+  function getPlannedConcertsUrl() {
+    const u = new URL(`${ARCHIVE_BASE}/planned-concerts`);
+    u.searchParams.set("limit", String(PLANNED_LIMIT));
+    u.searchParams.set("includeArchived", "0");
+    u.searchParams.set("includeMissed", "0");
+    u.searchParams.set("includeDismissed", "0");
     return u.toString();
   }
 
@@ -338,8 +355,9 @@
     if (fromApp) return fromApp;
 
     return await resolveLastfmArtistImage(ev.artist);
-       }
-   async function enrichEventsWithImages(events) {
+  }
+
+  async function enrichEventsWithImages(events) {
     const out = await Promise.all(
       events.map(async (ev) => {
         const imageUrl = await resolveImageForEvent(ev);
@@ -395,25 +413,65 @@
     return "none";
   }
 
-  function normalizeRecommendedEvent(ev) {
+  function slugify(value) {
+    return String(value || "")
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[’']/g, "")
+      .replace(/&/g, " and ")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .replace(/-+/g, "-");
+  }
+
+  function buildPlannedEventKey({ source, sourceId, title, dateLocal, venueName, city }) {
+    const cleanSource = safeStr(source).toLowerCase();
+    const cleanSourceId = safeStr(sourceId);
+
+    if (cleanSource && cleanSourceId) {
+      return `planned::${cleanSource}::${cleanSourceId}`;
+    }
+
+    return [
+      "planned",
+      slugify(cleanSource || "unknown"),
+      slugify(title || ""),
+      slugify(venueName || ""),
+      slugify(city || ""),
+      safeStr(dateLocal)
+    ].filter(Boolean).join("::");
+  }
+   function normalizeRecommendedEvent(ev) {
     const start = parseAmsterdamDate(ev?.date_local, ev?.time_local);
     if (!isValidDate(start)) return null;
 
     const artist = safeStr(ev?.title || ev?.artists_main || ev?.matchedArtist);
     if (!artist) return null;
 
-    const source = safeStr(ev?.source || "econcerts");
+    const source = safeStr(ev?.source || "econcerts").toLowerCase();
     const sourceId = safeStr(ev?.source_id || `${source}-${artist}-${safeStr(ev?.date_local)}`);
-    const id = `econcerts:${source}:${sourceId}`;
+    const eventKey = buildPlannedEventKey({
+      source,
+      sourceId,
+      title: artist,
+      dateLocal: safeStr(ev?.date_local),
+      venueName: safeStr(ev?.venue_name),
+      city: safeStr(ev?.city)
+    });
 
     return {
-      id,
+      id: eventKey,
+      eventKey,
       source,
       sourceId,
       artist,
       title: artist,
       city: safeStr(ev?.city),
+      country: safeStr(ev?.country || "NL"),
       venue: safeStr(ev?.venue_name),
+      dateLocal: safeStr(ev?.date_local),
+      timeLocal: safeStr(ev?.time_local),
       start,
       startTs: start.getTime(),
       url: safeStr(ev?.url),
@@ -428,6 +486,47 @@
       matchedTier: safeStr(ev?.matchedTier),
       reasons: Array.isArray(ev?.reasons) ? ev.reasons.slice() : [],
       reason: reasonFromEvent(ev)
+    };
+  }
+
+  function normalizePlannedEvent(ev) {
+    const start = parseAmsterdamDate(ev?.date_local, ev?.time_local);
+    if (!isValidDate(start)) return null;
+
+    const artist = safeStr(ev?.main_artist || ev?.title);
+    const eventKey = safeStr(ev?.event_key);
+
+    if (!artist || !eventKey) return null;
+
+    return {
+      id: eventKey,
+      eventKey,
+      source: safeStr(ev?.source).toLowerCase(),
+      sourceId: safeStr(ev?.source_id),
+      artist,
+      title: safeStr(ev?.title || ev?.main_artist),
+      city: safeStr(ev?.city),
+      country: safeStr(ev?.country || "NL"),
+      venue: safeStr(ev?.venue_name),
+      dateLocal: safeStr(ev?.date_local),
+      timeLocal: safeStr(ev?.time_local),
+      start,
+      startTs: start.getTime(),
+      url: safeStr(ev?.url),
+      imageUrl: safeStr(ev?.image_url),
+      visibility: "planned",
+      tier: "planned",
+      score: 0,
+      directScore: 0,
+      relatedScore: 0,
+      matchedBy: "",
+      matchedArtist: "",
+      matchedTier: "",
+      reasons: [],
+      reason: "Planned concert",
+      plannedStatus: safeStr(ev?.status || "planned"),
+      plannedNotes: safeStr(ev?.notes || ""),
+      fromPlannedDb: true
     };
   }
 
@@ -469,23 +568,68 @@
     });
   }
 
-  const isPlanned = (id) => store.planIds.includes(id);
-  const isDismissed = (id) => store.dismissedIds.includes(id);
+  async function loadPlannedConcerts() {
+    const payload = await fetchJson(getPlannedConcertsUrl());
+    const items = Array.isArray(payload?.items) ? payload.items : [];
+    const normalized = items
+      .map(normalizePlannedEvent)
+      .filter(Boolean);
 
-  async function addToPlan(id) {
-    if (!store.planIds.includes(id)) store.planIds.push(id);
-    store.dismissedIds = store.dismissedIds.filter((x) => x !== id);
-    saveStore(store);
+    plannedItems = normalized.slice();
+    plannedMap = new Map(normalized.map((ev) => [ev.eventKey, ev]));
+    return normalized;
   }
+
+  function buildPlannedPayload(event) {
+    return {
+      event_key: safeStr(event?.eventKey || event?.id),
+      source: safeStr(event?.source).toLowerCase(),
+      source_id: safeStr(event?.sourceId),
+      title: safeStr(event?.title || event?.artist),
+      main_artist: safeStr(event?.artist || event?.title),
+      date_local: safeStr(event?.dateLocal),
+      time_local: safeStr(event?.timeLocal),
+      venue_name: safeStr(event?.venue),
+      city: safeStr(event?.city),
+      country: safeStr(event?.country || "NL"),
+      url: safeStr(event?.url),
+      image_url: safeStr(event?.imageUrl)
+    };
+  }
+
+  async function addToPlan(event) {
+    const payload = buildPlannedPayload(event);
+
+    await fetchJson(`${ARCHIVE_BASE}/planned-concerts/add`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+
+    await loadPlannedConcerts();
+  }
+
+  async function removeFromPlan(eventKey) {
+    await fetchJson(`${ARCHIVE_BASE}/planned-concerts/remove`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        event_key: safeStr(eventKey)
+      })
+    });
+
+    await loadPlannedConcerts();
+  }
+
+  const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
+  const isDismissed = (id) => store.dismissedIds.includes(id);
 
   async function dismiss(id) {
     if (!store.dismissedIds.includes(id)) store.dismissedIds.push(id);
-    store.planIds = store.planIds.filter((x) => x !== id);
-    saveStore(store);
-  }
-
-  async function removeFromPlan(id) {
-    store.planIds = store.planIds.filter((x) => x !== id);
     saveStore(store);
   }
 
@@ -495,7 +639,6 @@
   }
 
   function splitVisibleEventsByState(events) {
-    const plannedIds = new Set(store.planIds);
     const dismissedIds = new Set(store.dismissedIds);
 
     const announced = [];
@@ -503,9 +646,13 @@
     const dismissed = [];
 
     for (const ev of events) {
-      if (dismissedIds.has(ev.id)) dismissed.push(ev);
-      else if (plannedIds.has(ev.id)) planned.push(ev);
-      else announced.push(ev);
+      if (dismissedIds.has(ev.id)) {
+        dismissed.push(ev);
+      } else if (isPlanned(ev.eventKey || ev.id)) {
+        planned.push(ev);
+      } else {
+        announced.push(ev);
+      }
     }
 
     announced.sort((a, b) => a.startTs - b.startTs);
@@ -548,6 +695,30 @@
         if (ad !== bd) return ad - bd;
         return Number(b.score || 0) - Number(a.score || 0);
       })[0] || null;
+  }
+
+  function mergeRecommendedWithPlanned(recommendedEvents, plannedDbEvents) {
+    const map = new Map();
+
+    for (const ev of recommendedEvents) {
+      map.set(ev.id, ev);
+    }
+
+    for (const plannedEv of plannedDbEvents) {
+      const existing = map.get(plannedEv.id);
+      if (existing) {
+        map.set(plannedEv.id, {
+          ...existing,
+          plannedStatus: plannedEv.plannedStatus,
+          plannedNotes: plannedEv.plannedNotes,
+          fromPlannedDb: true
+        });
+      } else {
+        map.set(plannedEv.id, plannedEv);
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) => a.startTs - b.startTs);
   }
 
   function injectStylesOnce() {
@@ -661,7 +832,7 @@
       }
     `;
     document.head.appendChild(style);
-  }
+                        }
    function makeTopPill(label, tabKey) {
     const btn = document.createElement("button");
     btn.type = "button";
@@ -704,10 +875,13 @@
       const btnPlan = document.createElement("button");
       btnPlan.type = "button";
       btnPlan.className = "lmc-btn";
-      btnPlan.textContent = isPlanned(event.id) ? "Remove from Plan" : "Add to Plan";
+      btnPlan.textContent = isPlanned(event.eventKey || event.id) ? "Remove from Plan" : "Add to Plan";
       btnPlan.addEventListener("click", async () => {
-        if (isPlanned(event.id)) await removeFromPlan(event.id);
-        else await addToPlan(event.id);
+        if (isPlanned(event.eventKey || event.id)) {
+          await removeFromPlan(event.eventKey || event.id);
+        } else {
+          await addToPlan(event);
+        }
         render(lastEvents, lastMeta);
       });
       actions.appendChild(btnPlan);
@@ -719,7 +893,7 @@
       btnRemove.className = "lmc-btn";
       btnRemove.textContent = "Remove";
       btnRemove.addEventListener("click", async () => {
-        await removeFromPlan(event.id);
+        await removeFromPlan(event.eventKey || event.id);
         render(lastEvents, lastMeta);
       });
       actions.appendChild(btnRemove);
@@ -730,6 +904,7 @@
       btnDismiss.textContent = "Dismiss";
       btnDismiss.addEventListener("click", async () => {
         await dismiss(event.id);
+        await removeFromPlan(event.eventKey || event.id);
         render(lastEvents, lastMeta);
       });
       actions.appendChild(btnDismiss);
@@ -739,10 +914,13 @@
       const btnPlan = document.createElement("button");
       btnPlan.type = "button";
       btnPlan.className = "lmc-btn";
-      btnPlan.textContent = isPlanned(event.id) ? "Remove from Plan" : "Add to Plan";
+      btnPlan.textContent = isPlanned(event.eventKey || event.id) ? "Remove from Plan" : "Add to Plan";
       btnPlan.addEventListener("click", async () => {
-        if (isPlanned(event.id)) await removeFromPlan(event.id);
-        else await addToPlan(event.id);
+        if (isPlanned(event.eventKey || event.id)) {
+          await removeFromPlan(event.eventKey || event.id);
+        } else {
+          await addToPlan(event);
+        }
         render(lastEvents, lastMeta);
       });
       actions.appendChild(btnPlan);
@@ -889,17 +1067,17 @@
     btn.className = "lmc-btn";
     btn.textContent = view === "dismissed"
       ? "Undo"
-      : isPlanned(event.id)
+      : isPlanned(event.eventKey || event.id)
         ? "Planned"
         : "Add to Plan";
 
     btn.addEventListener("click", async () => {
       if (view === "dismissed") {
         await undismiss(event.id);
-      } else if (isPlanned(event.id)) {
-        await removeFromPlan(event.id);
+      } else if (isPlanned(event.eventKey || event.id)) {
+        await removeFromPlan(event.eventKey || event.id);
       } else {
-        await addToPlan(event.id);
+        await addToPlan(event);
       }
       render(lastEvents, lastMeta);
     });
@@ -1132,11 +1310,16 @@
 
     setEmpty("Refreshing concert signals…");
 
-    const payload = await fetchJson(getRecommendedUrl());
-    const mapped = extractWorkerEvents(payload);
-    const enriched = await enrichEventsWithImages(mapped);
+    const [recommendedPayload, plannedDbEvents] = await Promise.all([
+      fetchJson(getRecommendedUrl()),
+      loadPlannedConcerts()
+    ]);
 
-    render(enriched, payload?.meta || null);
+    const mapped = extractWorkerEvents(recommendedPayload);
+    const merged = mergeRecommendedWithPlanned(mapped, plannedDbEvents);
+    const enriched = await enrichEventsWithImages(merged);
+
+    render(enriched, recommendedPayload?.meta || null);
   }
 
   function wireConcertsTabRefresh() {
@@ -1162,6 +1345,9 @@
     },
     get lastEvents() {
       return lastEvents;
+    },
+    get plannedItems() {
+      return plannedItems;
     },
     forceRefresh() {
       refresh().catch(() => {});

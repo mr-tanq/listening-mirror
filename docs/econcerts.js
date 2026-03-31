@@ -3,11 +3,11 @@
    Uses ONLY the new econcerts worker recommended endpoint
 
    Updated:
-   - Plan tab now uses archive DB planned_concerts
-   - Announced / Dismissed stay the same visually
+   - Plan tab uses archive DB planned_concerts
    - Dismissed stays local
    - Planned concerts are loaded from archive worker
    - Add to Plan / Remove now write to archive worker
+   - NEW: in-app pending concert check-in popup
 */
 
 (() => {
@@ -18,7 +18,7 @@
   const listEl = document.querySelector("#econcertsList");
   if (!listEl) return;
 
-  const STORE_KEY = "lm_econcerts_ui_v61_recommended_worker_archive_planned";
+  const STORE_KEY = "lm_econcerts_ui_v62_recommended_worker_archive_planned_checkin";
   const ECONCERTS_BASE = "https://econcerts.errtanq9.workers.dev";
   const ARCHIVE_BASE = "https://listening-mirror-archive.errtanq9.workers.dev";
   const RECOMMENDED_LIMIT = 5000;
@@ -118,6 +118,17 @@
     }).format(d);
   }
 
+  function formatLongDate(d) {
+    if (!isValidDate(d)) return "";
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/Amsterdam",
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric"
+    }).format(d);
+  }
+
   function daysUntil(d) {
     if (!isValidDate(d)) return null;
     return Math.floor((d.getTime() - Date.now()) / 86400000);
@@ -160,6 +171,36 @@
       .trim();
   }
 
+  function slugify(value) {
+    return String(value || "")
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[’']/g, "")
+      .replace(/&/g, " and ")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .replace(/-+/g, "-");
+  }
+
+  function buildPlannedEventKey({ source, sourceId, title, dateLocal, venueName, city }) {
+    const cleanSource = safeStr(source).toLowerCase();
+    const cleanSourceId = safeStr(sourceId);
+
+    if (cleanSource && cleanSourceId) {
+      return `planned::${cleanSource}::${cleanSourceId}`;
+    }
+
+    return [
+      "planned",
+      slugify(cleanSource || "unknown"),
+      slugify(title || ""),
+      slugify(venueName || ""),
+      slugify(city || ""),
+      safeStr(dateLocal)
+    ].filter(Boolean).join("::");
+  }
+
   function loadStore() {
     try {
       const raw = localStorage.getItem(STORE_KEY);
@@ -167,7 +208,8 @@
         return {
           activeTab: "announced",
           dismissedIds: [],
-          lastRefreshAt: 0
+          lastRefreshAt: 0,
+          snoozedPendingEventKey: ""
         };
       }
 
@@ -177,13 +219,15 @@
           ? String(obj.activeTab)
           : "announced",
         dismissedIds: Array.isArray(obj.dismissedIds) ? obj.dismissedIds : [],
-        lastRefreshAt: Number(obj.lastRefreshAt || 0)
+        lastRefreshAt: Number(obj.lastRefreshAt || 0),
+        snoozedPendingEventKey: safeStr(obj.snoozedPendingEventKey)
       };
     } catch {
       return {
         activeTab: "announced",
         dismissedIds: [],
-        lastRefreshAt: 0
+        lastRefreshAt: 0,
+        snoozedPendingEventKey: ""
       };
     }
   }
@@ -197,6 +241,8 @@
   let lastMeta = null;
   let plannedItems = [];
   let plannedMap = new Map();
+  let pendingPromptItem = null;
+  let pendingPromptBusy = false;
 
   const artistImageCache = new Map();
 
@@ -310,9 +356,8 @@
     }
 
     return pickBestImage(found);
-  }
-
-  async function resolveLastfmArtistImage(artistRaw) {
+}
+   async function resolveLastfmArtistImage(artistRaw) {
     const apiKey = getLastfmApiKey();
     const artist = normalizeArtistForLookup(artistRaw);
     if (!apiKey || !artist) return "";
@@ -413,36 +458,7 @@
     return "none";
   }
 
-  function slugify(value) {
-    return String(value || "")
-      .toLowerCase()
-      .normalize("NFKD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[’']/g, "")
-      .replace(/&/g, " and ")
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .replace(/-+/g, "-");
-  }
-
-  function buildPlannedEventKey({ source, sourceId, title, dateLocal, venueName, city }) {
-    const cleanSource = safeStr(source).toLowerCase();
-    const cleanSourceId = safeStr(sourceId);
-
-    if (cleanSource && cleanSourceId) {
-      return `planned::${cleanSource}::${cleanSourceId}`;
-    }
-
-    return [
-      "planned",
-      slugify(cleanSource || "unknown"),
-      slugify(title || ""),
-      slugify(venueName || ""),
-      slugify(city || ""),
-      safeStr(dateLocal)
-    ].filter(Boolean).join("::");
-  }
-   function normalizeRecommendedEvent(ev) {
+  function normalizeRecommendedEvent(ev) {
     const start = parseAmsterdamDate(ev?.date_local, ev?.time_local);
     if (!isValidDate(start)) return null;
 
@@ -602,9 +618,7 @@
 
     await fetchJson(`${ARCHIVE_BASE}/planned-concerts/add`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
 
@@ -614,9 +628,31 @@
   async function removeFromPlan(eventKey) {
     await fetchJson(`${ARCHIVE_BASE}/planned-concerts/remove`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event_key: safeStr(eventKey)
+      })
+    });
+
+    await loadPlannedConcerts();
+  }
+
+  async function markPendingAttended(eventKey) {
+    await fetchJson(`${ARCHIVE_BASE}/planned-concerts/attended`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event_key: safeStr(eventKey)
+      })
+    });
+
+    await loadPlannedConcerts();
+  }
+
+  async function markPendingMissed(eventKey) {
+    await fetchJson(`${ARCHIVE_BASE}/planned-concerts/missed`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         event_key: safeStr(eventKey)
       })
@@ -719,6 +755,157 @@
     }
 
     return Array.from(map.values()).sort((a, b) => a.startTs - b.startTs);
+}
+   function getPendingPromptCandidate() {
+    const pending = plannedItems
+      .filter((ev) => safeStr(ev.plannedStatus) === "pending")
+      .sort((a, b) => a.startTs - b.startTs);
+
+    if (!pending.length) return null;
+
+    const snoozedKey = safeStr(store.snoozedPendingEventKey);
+    const firstNonSnoozed = pending.find((ev) => ev.eventKey !== snoozedKey);
+    return firstNonSnoozed || pending[0] || null;
+  }
+
+  function updatePendingPromptState() {
+    pendingPromptItem = getPendingPromptCandidate();
+    renderPendingPrompt();
+  }
+
+  function clearPendingPrompt() {
+    pendingPromptItem = null;
+    renderPendingPrompt();
+  }
+
+  async function handlePendingYes() {
+    if (!pendingPromptItem || pendingPromptBusy) return;
+
+    pendingPromptBusy = true;
+    renderPendingPrompt();
+
+    try {
+      await markPendingAttended(pendingPromptItem.eventKey);
+      if (safeStr(store.snoozedPendingEventKey) === safeStr(pendingPromptItem.eventKey)) {
+        store.snoozedPendingEventKey = "";
+        saveStore(store);
+      }
+      await refresh();
+    } catch (e) {
+      pendingPromptBusy = false;
+      renderPendingPrompt();
+      alert(`Could not move concert to archive.\n\n${safeStr(e?.message || "")}`);
+    }
+  }
+
+  async function handlePendingNo() {
+    if (!pendingPromptItem || pendingPromptBusy) return;
+
+    pendingPromptBusy = true;
+    renderPendingPrompt();
+
+    try {
+      await markPendingMissed(pendingPromptItem.eventKey);
+      if (safeStr(store.snoozedPendingEventKey) === safeStr(pendingPromptItem.eventKey)) {
+        store.snoozedPendingEventKey = "";
+        saveStore(store);
+      }
+      await refresh();
+    } catch (e) {
+      pendingPromptBusy = false;
+      renderPendingPrompt();
+      alert(`Could not mark concert as missed.\n\n${safeStr(e?.message || "")}`);
+    }
+  }
+
+  function handlePendingLater() {
+    if (!pendingPromptItem || pendingPromptBusy) return;
+
+    store.snoozedPendingEventKey = safeStr(pendingPromptItem.eventKey);
+    saveStore(store);
+    clearPendingPrompt();
+  }
+
+  function removeExistingPromptEl() {
+    const existing = document.getElementById("lmConcertCheckinOverlay");
+    if (existing) existing.remove();
+  }
+
+  function renderPendingPrompt() {
+    removeExistingPromptEl();
+
+    if (!pendingPromptItem) return;
+
+    const ev = pendingPromptItem;
+    const overlay = document.createElement("div");
+    overlay.id = "lmConcertCheckinOverlay";
+    overlay.className = "lmcc-overlay";
+
+    const panel = document.createElement("div");
+    panel.className = "lmcc-panel";
+
+    const image = document.createElement("div");
+    image.className = "lmcc-image";
+    image.style.backgroundImage = buildCoverStyle(ev);
+
+    const badge = document.createElement("div");
+    badge.className = "lmcc-badge";
+    badge.textContent = "Concert check-in";
+
+    const title = document.createElement("h3");
+    title.className = "lmcc-title";
+    title.textContent = `Did you go to ${titleCaseArtist(normalizeArtistForLookup(ev.artist))}?`;
+
+    const sub = document.createElement("p");
+    sub.className = "lmcc-sub";
+    sub.textContent = [
+      formatLongDate(ev.start),
+      formatTimeHM(ev.start),
+      safeStr(ev.venue),
+      safeStr(ev.city)
+    ].filter(Boolean).join(" • ");
+
+    const hint = document.createElement("p");
+    hint.className = "lmcc-hint";
+    hint.textContent = "If yes, it will move to Archive. If no, it will disappear from your planned concerts.";
+
+    const actions = document.createElement("div");
+    actions.className = "lmcc-actions";
+
+    const yesBtn = document.createElement("button");
+    yesBtn.type = "button";
+    yesBtn.className = "lmcc-btn lmcc-btn--primary";
+    yesBtn.textContent = pendingPromptBusy ? "Working..." : "Yes, I went";
+    yesBtn.disabled = pendingPromptBusy;
+    yesBtn.addEventListener("click", handlePendingYes);
+
+    const noBtn = document.createElement("button");
+    noBtn.type = "button";
+    noBtn.className = "lmcc-btn";
+    noBtn.textContent = pendingPromptBusy ? "Working..." : "No, I missed it";
+    noBtn.disabled = pendingPromptBusy;
+    noBtn.addEventListener("click", handlePendingNo);
+
+    const laterBtn = document.createElement("button");
+    laterBtn.type = "button";
+    laterBtn.className = "lmcc-btn lmcc-btn--ghost";
+    laterBtn.textContent = "Later";
+    laterBtn.disabled = pendingPromptBusy;
+    laterBtn.addEventListener("click", handlePendingLater);
+
+    actions.appendChild(yesBtn);
+    actions.appendChild(noBtn);
+    actions.appendChild(laterBtn);
+
+    panel.appendChild(image);
+    panel.appendChild(badge);
+    panel.appendChild(title);
+    panel.appendChild(sub);
+    panel.appendChild(hint);
+    panel.appendChild(actions);
+    overlay.appendChild(panel);
+
+    document.body.appendChild(overlay);
   }
 
   function injectStylesOnce() {
@@ -830,9 +1017,95 @@
         padding:16px 14px;border-radius:18px;background:rgba(255,255,255,.04);
         border:1px solid rgba(255,255,255,.06);color:rgba(255,255,255,.74)
       }
+
+      .lmcc-overlay{
+        position:fixed;inset:0;z-index:9999;
+        background:rgba(0,0,0,.46);
+        backdrop-filter:blur(10px);
+        display:flex;
+        align-items:flex-end;
+        justify-content:center;
+        padding:18px;
+      }
+      .lmcc-panel{
+        width:min(100%, 430px);
+        border-radius:24px;
+        overflow:hidden;
+        border:1px solid rgba(255,255,255,.10);
+        background:
+          linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)),
+          linear-gradient(180deg, #0b0f15, #080b10);
+        box-shadow:0 24px 60px rgba(0,0,0,.40);
+        padding:0 0 16px;
+      }
+      .lmcc-image{
+        height:180px;
+        background-size:cover;
+        background-position:center center;
+      }
+      .lmcc-badge{
+        display:inline-flex;
+        margin:14px 16px 0;
+        padding:7px 11px;
+        border-radius:999px;
+        font-size:.77rem;
+        font-weight:900;
+        letter-spacing:.04em;
+        background:rgba(255,255,255,.08);
+        border:1px solid rgba(255,255,255,.10);
+      }
+      .lmcc-title{
+        margin:12px 16px 0;
+        font-size:1.24rem;
+        line-height:1.2;
+        font-weight:900;
+        color:#fff;
+      }
+      .lmcc-sub{
+        margin:10px 16px 0;
+        font-size:.95rem;
+        line-height:1.45;
+        color:rgba(255,255,255,.84);
+      }
+      .lmcc-hint{
+        margin:10px 16px 0;
+        font-size:.88rem;
+        line-height:1.45;
+        color:rgba(255,255,255,.60);
+      }
+      .lmcc-actions{
+        display:flex;
+        flex-direction:column;
+        gap:8px;
+        padding:14px 16px 0;
+      }
+      .lmcc-btn{
+        appearance:none;
+        border:none;
+        outline:none;
+        border-radius:14px;
+        padding:13px 14px;
+        font:inherit;
+        font-weight:800;
+        color:#fff;
+        cursor:pointer;
+        background:rgba(255,255,255,.08);
+        border:1px solid rgba(255,255,255,.10);
+      }
+      .lmcc-btn--primary{
+        background:linear-gradient(180deg, rgba(191,57,39,.96), rgba(149,24,14,.88));
+      }
+      .lmcc-btn--ghost{
+        background:rgba(255,255,255,.04);
+        color:rgba(255,255,255,.84);
+      }
+      .lmcc-btn:disabled{
+        opacity:.65;
+        cursor:default;
+      }
     `;
     document.head.appendChild(style);
-                        }
+  }
    function makeTopPill(label, tabKey) {
     const btn = document.createElement("button");
     btn.type = "button";
@@ -882,7 +1155,7 @@
         } else {
           await addToPlan(event);
         }
-        render(lastEvents, lastMeta);
+        await refresh();
       });
       actions.appendChild(btnPlan);
     }
@@ -894,7 +1167,7 @@
       btnRemove.textContent = "Remove";
       btnRemove.addEventListener("click", async () => {
         await removeFromPlan(event.eventKey || event.id);
-        render(lastEvents, lastMeta);
+        await refresh();
       });
       actions.appendChild(btnRemove);
 
@@ -905,7 +1178,7 @@
       btnDismiss.addEventListener("click", async () => {
         await dismiss(event.id);
         await removeFromPlan(event.eventKey || event.id);
-        render(lastEvents, lastMeta);
+        await refresh();
       });
       actions.appendChild(btnDismiss);
     }
@@ -921,7 +1194,7 @@
         } else {
           await addToPlan(event);
         }
-        render(lastEvents, lastMeta);
+        await refresh();
       });
       actions.appendChild(btnPlan);
 
@@ -1074,12 +1347,14 @@
     btn.addEventListener("click", async () => {
       if (view === "dismissed") {
         await undismiss(event.id);
+        render(lastEvents, lastMeta);
       } else if (isPlanned(event.eventKey || event.id)) {
         await removeFromPlan(event.eventKey || event.id);
+        await refresh();
       } else {
         await addToPlan(event);
+        await refresh();
       }
-      render(lastEvents, lastMeta);
     });
 
     right.appendChild(btn);
@@ -1183,9 +1458,7 @@
     signal.appendChild(text);
     wrap.appendChild(signal);
 
-    if (hero) {
-      wrap.appendChild(buildHeroCard(hero, "announced"));
-    }
+    if (hero) wrap.appendChild(buildHeroCard(hero, "announced"));
 
     if (thisWeek.length) {
       const sec = document.createElement("section");
@@ -1227,9 +1500,7 @@
       wrap.appendChild(shell);
     }
 
-    if (alertEvent) {
-      wrap.appendChild(buildAlertCard(alertEvent));
-    }
+    if (alertEvent) wrap.appendChild(buildAlertCard(alertEvent));
 
     if (!events.length) {
       const empty = document.createElement("div");
@@ -1319,7 +1590,9 @@
     const merged = mergeRecommendedWithPlanned(mapped, plannedDbEvents);
     const enriched = await enrichEventsWithImages(merged);
 
+    pendingPromptBusy = false;
     render(enriched, recommendedPayload?.meta || null);
+    updatePendingPromptState();
   }
 
   function wireConcertsTabRefresh() {
@@ -1348,6 +1621,9 @@
     },
     get plannedItems() {
       return plannedItems;
+    },
+    get pendingPromptItem() {
+      return pendingPromptItem;
     },
     forceRefresh() {
       refresh().catch(() => {});

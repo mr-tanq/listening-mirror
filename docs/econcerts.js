@@ -6,6 +6,11 @@
    - itinerary-style going view
    - immersive details sheet
    - fixed details sheet close behavior
+   - pending concert check-in popup
+   - polish pass:
+     * removed Later/Snooze from check-in popup
+     * group cards open details instead of auto-planning first date
+     * Going counter includes pending
 */
 
 (() => {
@@ -14,7 +19,7 @@
   const listEl = document.querySelector("#econcertsList");
   if (!listEl) return;
 
-  const STORE_KEY = "lm_econcerts_ui_v71_swipe_radar_fix";
+  const STORE_KEY = "lm_econcerts_ui_v72_swipe_radar_polish";
   const ECONCERTS_BASE = "https://econcerts.errtanq9.workers.dev";
   const ARCHIVE_BASE = "https://listening-mirror-archive.errtanq9.workers.dev";
   const RECOMMENDED_LIMIT = 5000;
@@ -35,8 +40,10 @@
   function parseAmsterdamDate(dateLocal, timeLocal) {
     const datePart = safeStr(dateLocal);
     if (!datePart) return null;
+
     const timePart = safeStr(timeLocal) || "20:00";
     const normalizedTime = /^\d{2}:\d{2}$/.test(timePart) ? timePart : "20:00";
+
     const dt = new Date(`${datePart}T${normalizedTime}:00+02:00`);
     return isValidDate(dt) ? dt : null;
   }
@@ -58,24 +65,40 @@
     const s0 = safeStr(input);
     if (!s0) return "";
 
-    const KEEP_AS_IS = new Set(["dEUS", "MØ", "A$AP", "V.I.C.", "DJ", "MC", "II", "III", "IV", "UK", "USA", "EU"]);
+    const KEEP_AS_IS = new Set([
+      "dEUS",
+      "MØ",
+      "A$AP",
+      "V.I.C.",
+      "DJ",
+      "MC",
+      "II",
+      "III",
+      "IV",
+      "UK",
+      "USA",
+      "EU"
+    ]);
+
     const parts = s0.split(/(\s+|[-–—/&+])/);
 
-    return parts.map((tok) => {
-      if (!tok) return tok;
-      if (/^\s+$/.test(tok)) return tok;
-      if (/^[-–—/&+]$/.test(tok)) return tok;
-      if (KEEP_AS_IS.has(tok)) return tok;
-      if (/^[A-Z0-9.$&'’+-]+$/.test(tok) && tok.length <= 4) return tok;
+    return parts
+      .map((tok) => {
+        if (!tok) return tok;
+        if (/^\s+$/.test(tok)) return tok;
+        if (/^[-–—/&+]$/.test(tok)) return tok;
+        if (KEEP_AS_IS.has(tok)) return tok;
+        if (/^[A-Z0-9.$&'’+-]+$/.test(tok) && tok.length <= 4) return tok;
 
-      const m = tok.match(/^([("'[\{]*)([A-Za-zÀ-ÖØ-öø-ÿ])([\s\S]*)$/u);
-      if (!m) return tok;
+        const m = tok.match(/^([("'[\{]*)([A-Za-zÀ-ÖØ-öø-ÿ])([\s\S]*)$/u);
+        if (!m) return tok;
 
-      const lead = m[1] || "";
-      const first = m[2] || "";
-      const rest = (m[3] || "").toLowerCase();
-      return lead + first.toUpperCase() + rest;
-    }).join("");
+        const lead = m[1] || "";
+        const first = m[2] || "";
+        const rest = (m[3] || "").toLowerCase();
+        return lead + first.toUpperCase() + rest;
+      })
+      .join("");
   }
 
   function formatShortDayDate(d) {
@@ -187,7 +210,9 @@
       slugify(venueName || ""),
       slugify(city || ""),
       safeStr(dateLocal)
-    ].filter(Boolean).join("::");
+    ]
+      .filter(Boolean)
+      .join("::");
   }
 
   function loadStore() {
@@ -198,10 +223,10 @@
           activeMode: "discover",
           dismissedIds: [],
           lastRefreshAt: 0,
-          snoozedPendingEventKey: "",
           deckIndex: 0
         };
       }
+
       const obj = JSON.parse(raw);
       return {
         activeMode: ["discover", "radar", "going", "hidden"].includes(String(obj.activeMode))
@@ -209,7 +234,6 @@
           : "discover",
         dismissedIds: Array.isArray(obj.dismissedIds) ? obj.dismissedIds : [],
         lastRefreshAt: Number(obj.lastRefreshAt || 0),
-        snoozedPendingEventKey: safeStr(obj.snoozedPendingEventKey),
         deckIndex: Math.max(0, Number(obj.deckIndex || 0))
       };
     } catch {
@@ -217,7 +241,6 @@
         activeMode: "discover",
         dismissedIds: [],
         lastRefreshAt: 0,
-        snoozedPendingEventKey: "",
         deckIndex: 0
       };
     }
@@ -446,8 +469,7 @@
     if (v === "recommended" || v === "older-taste" || v === "borderline") return "suggested";
     return "none";
   }
-
-  function normalizeRecommendedEvent(ev) {
+   function normalizeRecommendedEvent(ev) {
     const start = parseAmsterdamDate(ev?.date_local, ev?.time_local);
     if (!isValidDate(start)) return null;
 
@@ -639,7 +661,8 @@
 
     await loadPlannedConcerts();
   }
-const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
+
+  const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
 
   async function dismiss(id) {
     if (!store.dismissedIds.includes(id)) store.dismissedIds.push(id);
@@ -709,11 +732,7 @@ const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
       .filter((ev) => safeStr(ev.plannedStatus) === "pending")
       .sort((a, b) => a.startTs - b.startTs);
 
-    if (!pending.length) return null;
-
-    const snoozedKey = safeStr(store.snoozedPendingEventKey);
-    const firstNonSnoozed = pending.find((ev) => ev.eventKey !== snoozedKey);
-    return firstNonSnoozed || pending[0] || null;
+    return pending[0] || null;
   }
 
   function updatePendingPromptState() {
@@ -728,10 +747,6 @@ const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
 
     try {
       await markPendingAttended(pendingPromptItem.eventKey);
-      if (safeStr(store.snoozedPendingEventKey) === safeStr(pendingPromptItem.eventKey)) {
-        store.snoozedPendingEventKey = "";
-        saveStore(store);
-      }
       await refresh();
     } catch (e) {
       pendingPromptBusy = false;
@@ -747,10 +762,6 @@ const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
 
     try {
       await markPendingMissed(pendingPromptItem.eventKey);
-      if (safeStr(store.snoozedPendingEventKey) === safeStr(pendingPromptItem.eventKey)) {
-        store.snoozedPendingEventKey = "";
-        saveStore(store);
-      }
       await refresh();
     } catch (e) {
       pendingPromptBusy = false;
@@ -809,21 +820,8 @@ const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
     noBtn.disabled = pendingPromptBusy;
     noBtn.addEventListener("click", handlePendingNo);
 
-    const laterBtn = document.createElement("button");
-    laterBtn.type = "button";
-    laterBtn.className = "lmx-checkin-btn";
-    laterBtn.textContent = "Remind me later";
-    laterBtn.disabled = pendingPromptBusy;
-    laterBtn.addEventListener("click", () => {
-      store.snoozedPendingEventKey = safeStr(ev.eventKey);
-      saveStore(store);
-      pendingPromptItem = null;
-      renderPendingPrompt();
-    });
-
     actions.appendChild(yesBtn);
     actions.appendChild(noBtn);
-    actions.appendChild(laterBtn);
 
     panel.appendChild(image);
     panel.appendChild(badge);
@@ -918,8 +916,7 @@ const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
   function removeExistingDetailsSheet() {
     document.querySelectorAll(".lmx-sheet").forEach((el) => el.remove());
   }
-
-  function injectStylesOnce() {
+   function injectStylesOnce() {
     if (document.getElementById("lmConcertsSwipeStyles")) return;
 
     const style = document.createElement("style");
@@ -1101,7 +1098,8 @@ const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
       .lmx-date-title { margin:0; font-size:.94rem; font-weight:900; color:#fff; }
       .lmx-date-sub { margin:0; font-size:.84rem; color:rgba(255,255,255,.72); }
       .lmx-date-actions { display:flex; gap:8px; flex-shrink:0; }
-.lmx-going-list, .lmx-hidden-list { display:flex; flex-direction:column; gap:12px; }
+
+      .lmx-going-list, .lmx-hidden-list { display:flex; flex-direction:column; gap:12px; }
       .lmx-itinerary {
         display:grid; grid-template-columns:72px 1fr; gap:12px;
         border-radius:22px; overflow:hidden; padding:14px;
@@ -1252,9 +1250,14 @@ const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
 
     const modebar = document.createElement("div");
     modebar.className = "lmx-modebar";
+
+    const activePlannedCount = plannedItems.filter((x) =>
+      x.plannedStatus === "planned" || x.plannedStatus === "pending"
+    ).length;
+
     modebar.appendChild(createModeButton("Discover", "discover"));
     modebar.appendChild(createModeButton("Radar", "radar"));
-    modebar.appendChild(createModeButton(`Going ${plannedItems.filter((x) => x.plannedStatus === "planned").length}`, "going"));
+    modebar.appendChild(createModeButton(`Going ${activePlannedCount}`, "going"));
     modebar.appendChild(createModeButton("Hidden", "hidden"));
 
     shell.appendChild(modebar);
@@ -1317,7 +1320,9 @@ const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
 
     const artist = document.createElement("h3");
     artist.className = "lmx-artist";
-    artist.textContent = titleCaseArtist(normalizeArtistForLookup(item.type === "group" ? item.group.artist : item.event.artist));
+    artist.textContent = titleCaseArtist(
+      normalizeArtistForLookup(item.type === "group" ? item.group.artist : item.event.artist)
+    );
 
     const meta = document.createElement("p");
     meta.className = "lmx-meta";
@@ -1363,8 +1368,8 @@ const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
     const planBtn = document.createElement("button");
     planBtn.type = "button";
     planBtn.className = "lmx-action lmx-action--plan";
-    planBtn.textContent = "✓";
-    planBtn.title = "Plan";
+    planBtn.textContent = item.type === "group" ? "→" : "✓";
+    planBtn.title = item.type === "group" ? "View dates" : "Plan";
 
     actions.appendChild(hideBtn);
     actions.appendChild(infoBtn);
@@ -1396,11 +1401,14 @@ const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
 
     const triggerPlan = async () => {
       if (item.type === "group") {
-        const first = item.group.nextEvent || item.group.events[0];
-        if (first && !isPlanned(first.eventKey || first.id)) await addToPlan(first);
+        openDetailsSheetForEvent(item.group.nextEvent || item.group.events[0]);
+        return;
       } else {
-        if (!isPlanned(item.event.eventKey || item.event.id)) await addToPlan(item.event);
+        if (!isPlanned(item.event.eventKey || item.event.id)) {
+          await addToPlan(item.event);
+        }
       }
+
       store.deckIndex += 1;
       saveStore(store);
       await refresh();
@@ -1494,7 +1502,7 @@ const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
     card.addEventListener("pointerup", onPointerUp);
     card.addEventListener("pointercancel", onPointerUp);
   }
-function buildDiscover(events) {
+   function buildDiscover(events) {
     const deck = getDeck(events);
     const wrap = document.createElement("div");
     wrap.className = "lmx-deck-wrap";
@@ -1723,11 +1731,17 @@ function buildDiscover(events) {
 
       const d = document.createElement("div");
       d.className = "lmx-date-badge-day";
-      d.textContent = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Amsterdam", day: "numeric" }).format(ev.start);
+      d.textContent = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Europe/Amsterdam",
+        day: "numeric"
+      }).format(ev.start);
 
       const m = document.createElement("div");
       m.className = "lmx-date-badge-month";
-      m.textContent = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Amsterdam", month: "short" }).format(ev.start);
+      m.textContent = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Europe/Amsterdam",
+        month: "short"
+      }).format(ev.start);
 
       dateBadge.appendChild(d);
       dateBadge.appendChild(m);
@@ -2001,6 +2015,7 @@ function buildDiscover(events) {
     const enriched = await enrichEventsWithImages(merged);
 
     pendingPromptBusy = false;
+
     if (store.deckIndex >= getDeck(splitVisibleEventsByState(enriched).announced).length) {
       store.deckIndex = 0;
       saveStore(store);
@@ -2017,22 +2032,36 @@ function buildDiscover(events) {
 
     if (!btn) return;
 
-    btn.addEventListener("click", () => {
-      refresh().catch((e) => {
-        setEmpty(`Failed to refresh. ${safeStr(e?.message || "")}`.trim());
-      });
-    }, { passive: true });
+    btn.addEventListener(
+      "click",
+      () => {
+        refresh().catch((e) => {
+          setEmpty(`Failed to refresh. ${safeStr(e?.message || "")}`.trim());
+        });
+      },
+      { passive: true }
+    );
   }
 
   injectStylesOnce();
   wireConcertsTabRefresh();
 
   window.__LM_ECONCERTS__ = {
-    get store() { return store; },
-    get lastEvents() { return lastEvents; },
-    get plannedItems() { return plannedItems; },
-    get pendingPromptItem() { return pendingPromptItem; },
-    forceRefresh() { refresh().catch(() => {}); }
+    get store() {
+      return store;
+    },
+    get lastEvents() {
+      return lastEvents;
+    },
+    get plannedItems() {
+      return plannedItems;
+    },
+    get pendingPromptItem() {
+      return pendingPromptItem;
+    },
+    forceRefresh() {
+      refresh().catch(() => {});
+    }
   };
 
   refresh().catch((e) => {

@@ -1,11 +1,11 @@
-/* econcerts.js (FULL FILE REPLACE)
+/* econcerts.js — FULL FILE REPLACE
    Listening Mirror — Concerts tab
-   Premium grouped UX polish
-   - planned concerts from archive worker
-   - dismissed local
-   - pending check-in popup
-   - grouped repeated artists in lower sections
-   - slimmer rows / cleaner CTA hierarchy
+   New UX: Discover / Radar / Going / Hidden
+   - Tinder-like swipe deck
+   - grouped artist radar
+   - itinerary-style going view
+   - immersive details sheet
+   - keeps existing backend/data logic
 */
 
 (() => {
@@ -14,7 +14,7 @@
   const listEl = document.querySelector("#econcertsList");
   if (!listEl) return;
 
-  const STORE_KEY = "lm_econcerts_ui_v63_grouped_polish";
+  const STORE_KEY = "lm_econcerts_ui_v70_swipe_radar";
   const ECONCERTS_BASE = "https://econcerts.errtanq9.workers.dev";
   const ARCHIVE_BASE = "https://listening-mirror-archive.errtanq9.workers.dev";
   const RECOMMENDED_LIMIT = 5000;
@@ -35,10 +35,8 @@
   function parseAmsterdamDate(dateLocal, timeLocal) {
     const datePart = safeStr(dateLocal);
     if (!datePart) return null;
-
     const timePart = safeStr(timeLocal) || "20:00";
     const normalizedTime = /^\d{2}:\d{2}$/.test(timePart) ? timePart : "20:00";
-
     const dt = new Date(`${datePart}T${normalizedTime}:00+02:00`);
     return isValidDate(dt) ? dt : null;
   }
@@ -50,11 +48,9 @@
     if (!res.ok) {
       throw new Error(safeStr(data?.error || data?.message || `HTTP ${res.status}`));
     }
-
     if (data && data.ok === false) {
       throw new Error(safeStr(data?.error || data?.message || "Unknown error"));
     }
-
     return data;
   }
 
@@ -62,10 +58,7 @@
     const s0 = safeStr(input);
     if (!s0) return "";
 
-    const KEEP_AS_IS = new Set([
-      "dEUS", "MØ", "A$AP", "V.I.C.", "DJ", "MC", "II", "III", "IV", "UK", "USA", "EU"
-    ]);
-
+    const KEEP_AS_IS = new Set(["dEUS", "MØ", "A$AP", "V.I.C.", "DJ", "MC", "II", "III", "IV", "UK", "USA", "EU"]);
     const parts = s0.split(/(\s+|[-–—/&+])/);
 
     return parts.map((tok) => {
@@ -202,28 +195,30 @@
       const raw = localStorage.getItem(STORE_KEY);
       if (!raw) {
         return {
-          activeTab: "announced",
+          activeMode: "discover",
           dismissedIds: [],
           lastRefreshAt: 0,
-          snoozedPendingEventKey: ""
+          snoozedPendingEventKey: "",
+          deckIndex: 0
         };
       }
-
       const obj = JSON.parse(raw);
       return {
-        activeTab: ["announced", "plan", "dismissed"].includes(String(obj.activeTab))
-          ? String(obj.activeTab)
-          : "announced",
+        activeMode: ["discover", "radar", "going", "hidden"].includes(String(obj.activeMode))
+          ? String(obj.activeMode)
+          : "discover",
         dismissedIds: Array.isArray(obj.dismissedIds) ? obj.dismissedIds : [],
         lastRefreshAt: Number(obj.lastRefreshAt || 0),
-        snoozedPendingEventKey: safeStr(obj.snoozedPendingEventKey)
+        snoozedPendingEventKey: safeStr(obj.snoozedPendingEventKey),
+        deckIndex: Math.max(0, Number(obj.deckIndex || 0))
       };
     } catch {
       return {
-        activeTab: "announced",
+        activeMode: "discover",
         dismissedIds: [],
         lastRefreshAt: 0,
-        snoozedPendingEventKey: ""
+        snoozedPendingEventKey: "",
+        deckIndex: 0
       };
     }
   }
@@ -239,11 +234,13 @@
   let plannedMap = new Map();
   let pendingPromptItem = null;
   let pendingPromptBusy = false;
+  let detailsSheetEvent = null;
+  let radarExpandedGroupKey = "";
 
   const artistImageCache = new Map();
 
   function setEmpty(msg) {
-    listEl.innerHTML = `<div class="lmc-empty">${msg}</div>`;
+    listEl.innerHTML = `<div class="lmx-empty">${msg}</div>`;
   }
 
   function getRecommendedUrl() {
@@ -274,7 +271,6 @@
   function isBadLastfmImage(url) {
     const u = lowerKey(url);
     if (!u) return true;
-
     return (
       u.includes("2a96cbd8b46e442fc41c2b86b821562f") ||
       u.includes("4128a6eb29f94943c9d206c08e625904") ||
@@ -298,21 +294,18 @@
 
     let score = 1;
     const low = lowerKey(u);
-
     if (low.includes("i.errtanq9.workers.dev")) score += 4;
     if (low.includes("spotify")) score += 3;
     if (low.includes("scdn")) score += 3;
     if (low.includes("lastfm")) score += 1;
     if (/\.(jpg|jpeg|png|webp)(\?|$)/i.test(low)) score += 2;
     if (!isBadLastfmImage(low)) score += 1;
-
     return score;
   }
 
   function pickBestImage(candidates) {
     const valid = candidates.map((x) => safeStr(x)).filter(Boolean);
     if (!valid.length) return "";
-
     valid.sort((a, b) => scoreImageUrl(b) - scoreImageUrl(a));
     return valid[0] || "";
   }
@@ -358,9 +351,7 @@
     if (!apiKey || !artist) return "";
 
     const cacheKey = `lastfm:${lowerKey(artist)}`;
-    if (artistImageCache.has(cacheKey)) {
-      return artistImageCache.get(cacheKey) || "";
-    }
+    if (artistImageCache.has(cacheKey)) return artistImageCache.get(cacheKey) || "";
 
     try {
       const u = new URL("https://ws.audioscrobbler.com/2.0/");
@@ -372,7 +363,6 @@
 
       const data = await fetchJson(u.toString());
       const imgs = Array.isArray(data?.artist?.image) ? data.artist.image : [];
-
       const chosen =
         imgs.find((x) => safeStr(x?.size) === "extralarge")?.["#text"] ||
         imgs.find((x) => safeStr(x?.size) === "large")?.["#text"] ||
@@ -390,39 +380,32 @@
 
   async function resolveImageForEvent(ev) {
     if (safeStr(ev.imageUrl)) return safeStr(ev.imageUrl);
-
     const fromApp = findImageFromAppState(ev.artist);
     if (fromApp) return fromApp;
-
     return await resolveLastfmArtistImage(ev.artist);
   }
 
   async function enrichEventsWithImages(events) {
-    const out = await Promise.all(
-      events.map(async (ev) => {
-        const imageUrl = await resolveImageForEvent(ev);
-        return { ...ev, imageUrl: imageUrl || "" };
-      })
-    );
-    return out;
+    return await Promise.all(events.map(async (ev) => {
+      const imageUrl = await resolveImageForEvent(ev);
+      return { ...ev, imageUrl: imageUrl || "" };
+    }));
   }
 
   function getFallbackVisual(seed) {
     const s = lowerKey(seed);
     let hue = 18;
-
     if (s) {
       let sum = 0;
       for (let i = 0; i < s.length; i += 1) sum += s.charCodeAt(i);
       hue = sum % 360;
     }
-
     return `
-      radial-gradient(circle at 50% 22%, rgba(255,220,170,.22), transparent 22%),
-      linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.68)),
+      radial-gradient(circle at 50% 20%, rgba(255,220,170,.20), transparent 22%),
+      linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.70)),
       linear-gradient(135deg,
-        hsla(${hue}, 64%, 18%, .98),
-        hsla(${(hue + 18) % 360}, 60%, 12%, .98) 44%,
+        hsla(${hue}, 70%, 18%, .98),
+        hsla(${(hue + 18) % 360}, 62%, 12%, .98) 44%,
         hsla(${(hue + 220) % 360}, 58%, 10%, .98)
       )
     `;
@@ -541,9 +524,9 @@
       fromPlannedDb: true
     };
   }
-   function extractWorkerEvents(payload) {
-    const all = [];
 
+  function extractWorkerEvents(payload) {
+    const all = [];
     if (Array.isArray(payload?.events)) all.push(...payload.events);
 
     const buckets = payload?.buckets || {};
@@ -572,7 +555,6 @@
 
       const scoreDiff = Number(b.score || 0) - Number(a.score || 0);
       if (scoreDiff !== 0) return scoreDiff;
-
       return a.startTs - b.startTs;
     });
   }
@@ -606,13 +588,11 @@
 
   async function addToPlan(event) {
     const payload = buildPlannedPayload(event);
-
     await fetchJson(`${ARCHIVE_BASE}/planned-concerts/add`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
-
     await loadPlannedConcerts();
   }
 
@@ -622,7 +602,6 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ event_key: safeStr(eventKey) })
     });
-
     await loadPlannedConcerts();
   }
 
@@ -632,7 +611,6 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ event_key: safeStr(eventKey) })
     });
-
     await loadPlannedConcerts();
   }
 
@@ -642,11 +620,9 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ event_key: safeStr(eventKey) })
     });
-
     await loadPlannedConcerts();
   }
-
-  const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
+const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
   const isDismissed = (id) => store.dismissedIds.includes(id);
 
   async function dismiss(id) {
@@ -663,11 +639,11 @@
     const dismissedIds = new Set(store.dismissedIds);
     const announced = [];
     const planned = [];
-    const dismissed = [];
+    const hidden = [];
 
     for (const ev of events) {
       if (dismissedIds.has(ev.id)) {
-        dismissed.push(ev);
+        hidden.push(ev);
       } else if (isPlanned(ev.eventKey || ev.id)) {
         planned.push(ev);
       } else {
@@ -677,9 +653,9 @@
 
     announced.sort((a, b) => a.startTs - b.startTs);
     planned.sort((a, b) => a.startTs - b.startTs);
-    dismissed.sort((a, b) => a.startTs - b.startTs);
+    hidden.sort((a, b) => a.startTs - b.startTs);
 
-    return { announced, planned, dismissed };
+    return { announced, planned, hidden };
   }
 
   function getStrong(events) {
@@ -690,39 +666,10 @@
     return events.filter((ev) => ev.tier === "suggested");
   }
 
-  function getHeroEvent(events) {
-    return [...events].sort((a, b) => {
-      const aStrong = a.tier === "strong" ? 1 : 0;
-      const bStrong = b.tier === "strong" ? 1 : 0;
-      if (aStrong !== bStrong) return bStrong - aStrong;
-
-      const scoreDiff = Number(b.score || 0) - Number(a.score || 0);
-      if (scoreDiff !== 0) return scoreDiff;
-
-      return a.startTs - b.startTs;
-    })[0] || null;
-  }
-
-  function getAlertEvent(events) {
-    return [...events]
-      .filter((ev) => {
-        const d = daysUntil(ev.start);
-        return d !== null && d >= 0 && d <= 45;
-      })
-      .sort((a, b) => {
-        const ad = daysUntil(a.start) ?? 9999;
-        const bd = daysUntil(b.start) ?? 9999;
-        if (ad !== bd) return ad - bd;
-        return Number(b.score || 0) - Number(a.score || 0);
-      })[0] || null;
-  }
-
   function mergeRecommendedWithPlanned(recommendedEvents, plannedDbEvents) {
     const map = new Map();
 
-    for (const ev of recommendedEvents) {
-      map.set(ev.id, ev);
-    }
+    for (const ev of recommendedEvents) map.set(ev.id, ev);
 
     for (const plannedEv of plannedDbEvents) {
       const existing = map.get(plannedEv.id);
@@ -758,14 +705,8 @@
     renderPendingPrompt();
   }
 
-  function clearPendingPrompt() {
-    pendingPromptItem = null;
-    renderPendingPrompt();
-  }
-
   async function handlePendingYes() {
     if (!pendingPromptItem || pendingPromptBusy) return;
-
     pendingPromptBusy = true;
     renderPendingPrompt();
 
@@ -785,7 +726,6 @@
 
   async function handlePendingNo() {
     if (!pendingPromptItem || pendingPromptBusy) return;
-
     pendingPromptBusy = true;
     renderPendingPrompt();
 
@@ -815,64 +755,66 @@
     const ev = pendingPromptItem;
     const overlay = document.createElement("div");
     overlay.id = "lmConcertCheckinOverlay";
-    overlay.className = "lmcc-overlay";
+    overlay.className = "lmx-checkin-overlay";
 
     const panel = document.createElement("div");
-    panel.className = "lmcc-panel";
+    panel.className = "lmx-checkin-panel";
 
     const image = document.createElement("div");
-    image.className = "lmcc-image";
+    image.className = "lmx-checkin-image";
     image.style.backgroundImage = buildCoverStyle(ev);
 
     const badge = document.createElement("div");
-    badge.className = "lmcc-badge";
-    badge.textContent = "Concert check-in";
+    badge.className = "lmx-checkin-badge";
+    badge.textContent = "Post-show check-in";
 
     const title = document.createElement("h3");
-    title.className = "lmcc-title";
-    title.textContent = `Did you go to ${titleCaseArtist(normalizeArtistForLookup(ev.artist))}?`;
+    title.className = "lmx-checkin-title";
+    title.textContent = `Did this become part of your story?`;
 
     const sub = document.createElement("p");
-    sub.className = "lmcc-sub";
-    sub.textContent = [
-      formatLongDate(ev.start),
-      formatTimeHM(ev.start),
-      safeStr(ev.venue),
-      safeStr(ev.city)
-    ].filter(Boolean).join(" • ");
-
-    const hint = document.createElement("p");
-    hint.className = "lmcc-hint";
-    hint.textContent = "Yes moves it to Archive. No removes it from your planned concerts.";
+    sub.className = "lmx-checkin-sub";
+    sub.textContent = `${titleCaseArtist(normalizeArtistForLookup(ev.artist))} • ${formatLongDate(ev.start)} • ${safeStr(ev.venue)} • ${safeStr(ev.city)}`;
 
     const actions = document.createElement("div");
-    actions.className = "lmcc-actions";
+    actions.className = "lmx-checkin-actions";
 
     const yesBtn = document.createElement("button");
     yesBtn.type = "button";
-    yesBtn.className = "lmcc-btn lmcc-btn--primary";
+    yesBtn.className = "lmx-checkin-btn lmx-checkin-btn--primary";
     yesBtn.textContent = pendingPromptBusy ? "Working..." : "Yes, I went";
     yesBtn.disabled = pendingPromptBusy;
     yesBtn.addEventListener("click", handlePendingYes);
 
     const noBtn = document.createElement("button");
     noBtn.type = "button";
-    noBtn.className = "lmcc-btn";
-    noBtn.textContent = pendingPromptBusy ? "Working..." : "No, I missed it";
+    noBtn.className = "lmx-checkin-btn";
+    noBtn.textContent = pendingPromptBusy ? "Working..." : "No, remove it";
     noBtn.disabled = pendingPromptBusy;
     noBtn.addEventListener("click", handlePendingNo);
 
+    const laterBtn = document.createElement("button");
+    laterBtn.type = "button";
+    laterBtn.className = "lmx-checkin-btn";
+    laterBtn.textContent = "Remind me later";
+    laterBtn.disabled = pendingPromptBusy;
+    laterBtn.addEventListener("click", () => {
+      store.snoozedPendingEventKey = safeStr(ev.eventKey);
+      saveStore(store);
+      pendingPromptItem = null;
+      renderPendingPrompt();
+    });
+
     actions.appendChild(yesBtn);
     actions.appendChild(noBtn);
+    actions.appendChild(laterBtn);
 
     panel.appendChild(image);
     panel.appendChild(badge);
     panel.appendChild(title);
     panel.appendChild(sub);
-    panel.appendChild(hint);
     panel.appendChild(actions);
     overlay.appendChild(panel);
-
     document.body.appendChild(overlay);
   }
 
@@ -897,7 +839,6 @@
       } else {
         const g = map.get(key);
         g.events.push(ev);
-
         if (!g.imageUrl && ev.imageUrl) g.imageUrl = ev.imageUrl;
         if (Number(ev.score || 0) > Number(g.bestScore || 0)) g.bestScore = Number(ev.score || 0);
         if (g.tier !== "strong" && ev.tier === "strong") g.tier = "strong";
@@ -924,719 +865,1068 @@
     return groups;
   }
 
-  function describeGroupDates(group) {
-    const first = group?.events?.[0];
-    const last = group?.events?.[group.events.length - 1];
-    if (!first) return "";
+  function getDeck(events) {
+    const strong = getStrong(events);
+    const suggested = getSuggested(events);
 
-    if (group.count <= 1) {
-      return [
-        safeStr(first.city),
-        safeStr(first.venue),
-        formatMonthDay(first.start),
-        formatTimeHM(first.start)
-      ].filter(Boolean).join(" • ");
-    }
+    const groupedSuggested = groupEventsByArtist(suggested)
+      .filter((g) => g.count > 1)
+      .slice(0, 8);
 
-    return [
-      `${group.count} dates`,
-      formatMonthDay(first.start),
-      last ? `→ ${formatMonthDay(last.start)}` : "",
-      safeStr(first.city)
-    ].filter(Boolean).join(" • ");
-                   }
-   function injectStylesOnce() {
-    if (document.getElementById("lmConcertsMockupStyles")) return;
+    const singlesSuggested = suggested.filter((ev) => {
+      const key = normalizeArtistForDedupe(ev.artist);
+      return !groupedSuggested.some((g) => g.key === key);
+    });
+
+    const deck = [];
+    strong.forEach((ev) => deck.push({ type: "event", event: ev }));
+    singlesSuggested.forEach((ev) => deck.push({ type: "event", event: ev }));
+    groupedSuggested.forEach((group) => deck.push({ type: "group", group }));
+
+    return deck;
+  }
+
+  function getMatchLabel(item) {
+    if (item?.type === "group") return item.group.tier === "strong" ? "Core Taste" : "Artist Cluster";
+    const ev = item?.event;
+    if (!ev) return "Live Match";
+    if (ev.visibility === "top") return "Core Taste";
+    if (ev.tier === "strong") return "Strong Match";
+    return "Suggested";
+  }
+
+  function cityCount(events) {
+    return new Set(events.map((x) => lowerKey(x.city)).filter(Boolean)).size;
+  }
+
+  function injectStylesOnce() {
+    if (document.getElementById("lmConcertsSwipeStyles")) return;
 
     const style = document.createElement("style");
-    style.id = "lmConcertsMockupStyles";
+    style.id = "lmConcertsSwipeStyles";
     style.textContent = `
-      #econcertsList{display:block}
-      .lmc-wrap{display:flex;flex-direction:column;gap:16px}
-      .lmc-topbar{display:flex;flex-direction:column;gap:10px;margin-bottom:2px}
-      .lmc-heading{margin:0;font-size:1.12rem;font-weight:900;letter-spacing:.01em;color:rgba(255,255,255,.98)}
-      .lmc-pills{display:flex;flex-wrap:wrap;gap:8px}
-      .lmc-pill-btn{
-        appearance:none;border:none;outline:none;border-radius:999px;padding:9px 13px;
-        background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);
-        color:inherit;font:inherit;font-weight:800;cursor:pointer
+      #econcertsList { display:block; }
+      .lmx-shell { display:flex; flex-direction:column; gap:14px; }
+      .lmx-top {
+        display:flex; justify-content:space-between; align-items:flex-start; gap:12px;
       }
-      .lmc-pill-btn.is-on{
-        background:linear-gradient(180deg, rgba(187,225,255,.16), rgba(125,175,255,.10));
-        border-color:rgba(150,205,255,.22)
+      .lmx-title-wrap { display:flex; flex-direction:column; gap:6px; min-width:0; }
+      .lmx-kicker {
+        display:inline-flex; align-items:center; gap:8px; font-size:.82rem; font-weight:900;
+        color:rgba(255,255,255,.72); letter-spacing:.04em; text-transform:uppercase;
       }
-      .lmc-signal{
-        border-radius:22px;padding:14px 16px;border:1px solid rgba(255,255,255,.08);
+      .lmx-kicker-dot {
+        width:8px; height:8px; border-radius:999px; background:#8db7ff;
+        box-shadow:0 0 14px rgba(141,183,255,.9);
+        animation:lmxPulse 1.6s infinite ease-in-out;
+      }
+      @keyframes lmxPulse {
+        0%,100% { transform:scale(1); opacity:.9; }
+        50% { transform:scale(1.35); opacity:1; }
+      }
+      .lmx-title { margin:0; font-size:1.18rem; font-weight:900; color:#fff; }
+      .lmx-sub { margin:0; font-size:.92rem; color:rgba(255,255,255,.72); }
+
+      .lmx-modebar {
+        display:flex; gap:8px; flex-wrap:wrap;
+        position:sticky; top:8px; z-index:8;
+      }
+      .lmx-mode {
+        appearance:none; border:none; cursor:pointer;
+        border-radius:999px; padding:10px 14px;
+        font:inherit; font-weight:900; color:#fff;
+        background:rgba(255,255,255,.06);
+        border:1px solid rgba(255,255,255,.08);
+        backdrop-filter:blur(12px);
+      }
+      .lmx-mode.is-on {
+        background:linear-gradient(180deg, rgba(136,171,255,.24), rgba(83,110,255,.12));
+        border-color:rgba(162,188,255,.30);
+        box-shadow:0 10px 30px rgba(34,58,120,.22);
+      }
+
+      .lmx-deck-wrap { display:flex; flex-direction:column; gap:14px; }
+      .lmx-deck-stage {
+        position:relative; height:72vh; min-height:540px;
+      }
+      .lmx-card {
+        position:absolute; inset:0; border-radius:28px; overflow:hidden;
+        border:1px solid rgba(255,255,255,.10);
+        box-shadow:0 28px 60px rgba(0,0,0,.32);
+        background:#0b1017;
+        touch-action:none;
+        user-select:none;
+        transform-origin:center center;
+        transition:transform .22s ease, opacity .22s ease, filter .22s ease;
+      }
+      .lmx-card.is-back-1 { transform:translateY(14px) scale(.975); opacity:.62; filter:blur(.4px); }
+      .lmx-card.is-back-2 { transform:translateY(28px) scale(.95); opacity:.34; filter:blur(.8px); }
+      .lmx-card-cover {
+        position:absolute; inset:0; background-size:cover; background-position:center center;
+        transform:scale(1.03);
+      }
+      .lmx-card-cover::after {
+        content:""; position:absolute; inset:0;
         background:
-          radial-gradient(circle at 18% 18%, rgba(106,181,255,.22), transparent 18%),
+          linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.18) 24%, rgba(0,0,0,.84) 100%),
+          radial-gradient(circle at 50% 24%, rgba(124,171,255,.18), transparent 22%);
+      }
+      .lmx-card-body {
+        position:relative; z-index:1; height:100%;
+        display:flex; flex-direction:column; justify-content:space-between;
+        padding:16px;
+      }
+      .lmx-chip-row { display:flex; gap:8px; flex-wrap:wrap; align-self:flex-start; }
+      .lmx-chip {
+        display:inline-flex; align-items:center; gap:6px;
+        border-radius:999px; padding:8px 11px;
+        font-size:.79rem; font-weight:900; color:#fff;
+        background:rgba(255,255,255,.09);
+        border:1px solid rgba(255,255,255,.10);
+        backdrop-filter:blur(12px);
+      }
+      .lmx-card-bottom { display:flex; flex-direction:column; gap:12px; }
+      .lmx-artist {
+        margin:0; font-size:2rem; line-height:1.01; font-weight:950; text-transform:uppercase;
+        color:#fff;
+      }
+      .lmx-meta { margin:0; font-size:1rem; font-weight:800; color:rgba(255,255,255,.96); }
+      .lmx-reason { margin:0; font-size:.93rem; color:rgba(255,255,255,.80); line-height:1.4; }
+      .lmx-swipe-label {
+        position:absolute; top:18px; padding:10px 14px; border-radius:14px;
+        font-size:1rem; font-weight:950; letter-spacing:.06em; text-transform:uppercase;
+        border:2px solid rgba(255,255,255,.26); opacity:0; pointer-events:none;
+        backdrop-filter:blur(12px);
+      }
+      .lmx-swipe-label.pass { left:18px; color:#ff9d94; }
+      .lmx-swipe-label.plan { right:18px; color:#9ef4c2; }
+      .lmx-swipe-label.show { opacity:1; }
+
+      .lmx-actions {
+        display:flex; align-items:center; justify-content:center; gap:12px;
+      }
+      .lmx-action {
+        appearance:none; border:none; cursor:pointer;
+        width:56px; height:56px; border-radius:999px;
+        background:rgba(255,255,255,.10);
+        border:1px solid rgba(255,255,255,.12);
+        color:#fff; font:inherit; font-weight:900;
+        backdrop-filter:blur(12px);
+        box-shadow:0 10px 24px rgba(0,0,0,.22);
+      }
+      .lmx-action.lmx-action--big { width:auto; min-width:110px; padding:0 18px; border-radius:999px; }
+      .lmx-action--plan {
+        background:linear-gradient(180deg, rgba(58,211,140,.24), rgba(27,135,88,.16));
+      }
+      .lmx-action--hide {
+        background:linear-gradient(180deg, rgba(255,114,114,.18), rgba(158,45,45,.10));
+      }
+      .lmx-action--info {
+        background:linear-gradient(180deg, rgba(136,171,255,.24), rgba(83,110,255,.12));
+      }
+
+      .lmx-deck-progress {
+        display:flex; justify-content:space-between; align-items:center; gap:12px;
+        padding:12px 14px; border-radius:18px;
+        background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06);
+      }
+      .lmx-progress-text { font-size:.9rem; color:rgba(255,255,255,.78); }
+
+      .lmx-radar-grid { display:grid; gap:12px; }
+      .lmx-radar-citybar {
+        display:grid; grid-template-columns:repeat(auto-fit, minmax(120px,1fr)); gap:10px;
+      }
+      .lmx-city-node {
+        border-radius:20px; padding:14px; min-height:92px;
+        border:1px solid rgba(255,255,255,.08);
+        background:
+          radial-gradient(circle at 50% 22%, rgba(124,171,255,.18), transparent 26%),
           linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03));
-        box-shadow:0 18px 38px rgba(0,0,0,.24)
       }
-      .lmc-signal-badge{
-        display:inline-flex;align-items:center;gap:8px;border-radius:999px;padding:7px 11px;
-        font-size:.82rem;font-weight:900;letter-spacing:.03em;
-        background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);margin-bottom:8px
-      }
-      .lmc-signal-text{font-size:.98rem;line-height:1.35;color:rgba(255,255,255,.92)}
-      .lmc-section{display:flex;flex-direction:column;gap:10px}
-      .lmc-section-title{margin:0;font-size:1.02rem;font-weight:900}
-      .lmc-hero,.lmc-strong{
-        position:relative;overflow:hidden;border-radius:24px;min-height:218px;
-        border:1px solid rgba(255,255,255,.09);box-shadow:0 18px 42px rgba(0,0,0,.28)
-      }
-      .lmc-hero{min-height:250px}
-      .lmc-cover{
-        position:absolute;inset:0;background-size:cover;background-position:center center;transform:scale(1.02)
-      }
-      .lmc-cover::after{
-        content:"";position:absolute;inset:0;
-        background:linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.18) 34%, rgba(0,0,0,.72) 100%)
-      }
-      .lmc-body{
-        position:relative;z-index:1;min-height:inherit;display:flex;flex-direction:column;
-        justify-content:flex-end;gap:9px;padding:14px
-      }
-      .lmc-badge{
-        align-self:flex-start;display:inline-flex;align-items:center;gap:7px;padding:7px 12px;
-        border-radius:999px;font-size:.79rem;font-weight:900;letter-spacing:.03em;
-        background:linear-gradient(180deg, rgba(195,72,35,.92), rgba(147,27,18,.82));
-        border:1px solid rgba(255,255,255,.10);box-shadow:0 8px 20px rgba(110,20,12,.20)
-      }
-      .lmc-title{margin:0;font-size:1.82rem;line-height:1.02;font-weight:900;text-transform:uppercase}
-      .lmc-meta{margin:0;font-size:1rem;font-weight:700}
-      .lmc-submeta{margin:0;font-size:.96rem;opacity:.96}
-      .lmc-reason{margin:0;font-size:.92rem;opacity:.88}
-      .lmc-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:2px}
-      .lmc-btn{
-        appearance:none;border:none;outline:none;border-radius:12px;padding:10px 13px;
-        font:inherit;font-weight:800;color:inherit;cursor:pointer;
-        background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.08)
-      }
-      .lmc-btn--primary{background:linear-gradient(180deg, rgba(191,57,39,.96), rgba(149,24,14,.88))}
-
-      .lmc-rail{
-        border-radius:22px;border:1px solid rgba(255,255,255,.08);
+      .lmx-city-name { margin:0 0 6px; font-size:1rem; font-weight:900; color:#fff; }
+      .lmx-city-count { margin:0; font-size:.88rem; color:rgba(255,255,255,.72); }
+.lmx-group {
+        border-radius:22px; overflow:hidden;
+        border:1px solid rgba(255,255,255,.08);
         background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.03));
-        box-shadow:0 16px 34px rgba(0,0,0,.22);overflow:hidden
+        box-shadow:0 16px 34px rgba(0,0,0,.20);
       }
-      .lmc-rail-head{
-        display:flex;align-items:center;justify-content:space-between;gap:10px;
-        padding:14px 14px 10px;border-bottom:1px solid rgba(255,255,255,.05)
+      .lmx-group-head {
+        display:flex; gap:12px; align-items:center; padding:14px; cursor:pointer;
       }
-      .lmc-rail-title{margin:0;font-size:1rem;font-weight:900}
-      .lmc-rail-sub{font-size:.8rem;color:rgba(255,255,255,.54);font-weight:700}
-      .lmc-rail-list{display:flex;flex-direction:column;gap:10px;padding:12px}
+      .lmx-group-thumb {
+        width:72px; height:72px; border-radius:18px; background-size:cover; background-position:center center;
+        flex-shrink:0; border:1px solid rgba(255,255,255,.10);
+      }
+      .lmx-group-main { min-width:0; display:flex; flex-direction:column; gap:6px; flex:1; }
+      .lmx-group-title { margin:0; font-size:1.08rem; font-weight:900; color:#fff; }
+      .lmx-group-sub { margin:0; font-size:.9rem; color:rgba(255,255,255,.76); }
+      .lmx-group-cta {
+        appearance:none; border:none; cursor:pointer; border-radius:999px;
+        padding:10px 12px; font:inherit; font-weight:900; color:#fff;
+        background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.10);
+      }
+      .lmx-group-dates {
+        display:none; padding:0 14px 14px; gap:10px; flex-direction:column;
+      }
+      .lmx-group.is-open .lmx-group-dates { display:flex; }
+      .lmx-date-row {
+        display:flex; align-items:center; justify-content:space-between; gap:10px;
+        border-radius:16px; padding:12px;
+        background:rgba(255,255,255,.045);
+        border:1px solid rgba(255,255,255,.06);
+      }
+      .lmx-date-left { display:flex; flex-direction:column; gap:4px; min-width:0; }
+      .lmx-date-title { margin:0; font-size:.94rem; font-weight:900; color:#fff; }
+      .lmx-date-sub { margin:0; font-size:.84rem; color:rgba(255,255,255,.72); }
+      .lmx-date-actions { display:flex; gap:8px; flex-shrink:0; }
 
-      .lmc-slim{
-        position:relative;overflow:hidden;min-height:88px;border-radius:16px;
-        border:1px solid rgba(255,255,255,.08);box-shadow:0 12px 26px rgba(0,0,0,.20)
-      }
-      .lmc-slim-body{
-        position:relative;z-index:1;min-height:88px;display:flex;align-items:flex-end;
-        justify-content:space-between;gap:12px;padding:12px
-      }
-      .lmc-slim-info{min-width:0;display:flex;flex-direction:column;gap:4px}
-      .lmc-slim-title{
-        margin:0;font-size:1.15rem;line-height:1.02;font-weight:900;text-transform:uppercase;
-        white-space:nowrap;overflow:hidden;text-overflow:ellipsis
-      }
-      .lmc-slim-meta{
-        margin:0;font-size:.9rem;opacity:.96;white-space:nowrap;overflow:hidden;text-overflow:ellipsis
-      }
-      .lmc-slim-note{
-        margin:0;font-size:.78rem;opacity:.74;white-space:nowrap;overflow:hidden;text-overflow:ellipsis
-      }
-      .lmc-slim-right{display:flex;align-items:center;gap:8px;flex-shrink:0}
-      .lmc-mini-cta{
-        appearance:none;border:none;outline:none;border-radius:12px;padding:9px 11px;
-        font:inherit;font-size:.84rem;font-weight:900;color:#fff;cursor:pointer;
-        background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.10)
-      }
-      .lmc-mini-cta.is-active{
-        background:rgba(255,255,255,.18)
-      }
-
-      .lmc-alert{
-        border-radius:22px;border:1px solid rgba(255,255,255,.08);
+      .lmx-going-list, .lmx-hidden-list { display:flex; flex-direction:column; gap:12px; }
+      .lmx-itinerary {
+        display:grid; grid-template-columns:72px 1fr; gap:12px;
+        border-radius:22px; overflow:hidden; padding:14px;
+        border:1px solid rgba(255,255,255,.08);
         background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.03));
-        box-shadow:0 16px 34px rgba(0,0,0,.22);overflow:hidden
       }
-      .lmc-alert-top{
-        display:flex;align-items:center;gap:9px;padding:12px 14px 8px;
-        font-size:.88rem;font-weight:900;letter-spacing:.03em
+      .lmx-date-badge {
+        border-radius:18px; display:flex; flex-direction:column; align-items:center; justify-content:center;
+        background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08);
+        min-height:92px;
       }
-      .lmc-alert-body{padding:0 14px 14px}
-      .lmc-alert-band{font-size:1.18rem;font-weight:900;margin:0 0 6px}
-      .lmc-alert-text{margin:0 0 10px;color:rgba(255,255,255,.90)}
-      .lmc-alert-dates{margin:0 0 12px;color:rgba(255,255,255,.85);line-height:1.55}
+      .lmx-date-badge-day { font-size:1.35rem; font-weight:950; color:#fff; line-height:1; }
+      .lmx-date-badge-month { font-size:.82rem; font-weight:900; color:rgba(255,255,255,.72); text-transform:uppercase; letter-spacing:.05em; }
+      .lmx-itinerary-main { display:flex; flex-direction:column; gap:8px; min-width:0; }
+      .lmx-itinerary-title { margin:0; font-size:1.12rem; font-weight:900; color:#fff; }
+      .lmx-itinerary-sub { margin:0; font-size:.92rem; color:rgba(255,255,255,.74); }
+      .lmx-itinerary-actions { display:flex; flex-wrap:wrap; gap:8px; }
 
-      .lmc-empty{
-        padding:16px 14px;border-radius:18px;background:rgba(255,255,255,.04);
-        border:1px solid rgba(255,255,255,.06);color:rgba(255,255,255,.74)
+      .lmx-btn {
+        appearance:none; border:none; cursor:pointer; border-radius:12px; padding:10px 12px;
+        font:inherit; font-weight:900; color:#fff;
+        background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.09);
+      }
+      .lmx-btn--primary {
+        background:linear-gradient(180deg, rgba(136,171,255,.24), rgba(83,110,255,.12));
+      }
+      .lmx-btn--danger {
+        background:linear-gradient(180deg, rgba(255,114,114,.18), rgba(158,45,45,.10));
+      }
+      .lmx-btn--plan {
+        background:linear-gradient(180deg, rgba(58,211,140,.24), rgba(27,135,88,.16));
       }
 
-      .lmcc-overlay{
-        position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.46);
-        backdrop-filter:blur(10px);display:flex;align-items:flex-end;justify-content:center;padding:18px;
+      .lmx-sheet {
+        position:fixed; inset:0; z-index:9998; background:rgba(0,0,0,.48);
+        backdrop-filter:blur(10px); display:flex; align-items:flex-end; justify-content:center; padding:16px;
       }
-      .lmcc-panel{
-        width:min(100%, 430px);border-radius:24px;overflow:hidden;border:1px solid rgba(255,255,255,.10);
+      .lmx-sheet-panel {
+        width:min(100%, 520px); max-height:86vh; overflow:auto;
+        border-radius:28px; overflow:hidden;
+        border:1px solid rgba(255,255,255,.10);
+        background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)), linear-gradient(180deg, #0c1016, #080b10);
+        box-shadow:0 28px 60px rgba(0,0,0,.38);
+      }
+      .lmx-sheet-cover { height:220px; background-size:cover; background-position:center center; }
+      .lmx-sheet-body { padding:16px; display:flex; flex-direction:column; gap:14px; }
+      .lmx-sheet-title { margin:0; font-size:1.5rem; line-height:1.08; font-weight:950; color:#fff; }
+      .lmx-sheet-text { margin:0; font-size:.94rem; color:rgba(255,255,255,.78); line-height:1.5; }
+      .lmx-sheet-row { display:flex; flex-wrap:wrap; gap:8px; }
+      .lmx-sheet-close {
+        position:sticky; top:0; margin-left:auto; display:block;
+      }
+
+      .lmx-empty {
+        padding:16px 14px; border-radius:18px;
+        background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06);
+        color:rgba(255,255,255,.74);
+      }
+
+      .lmx-checkin-overlay {
+        position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,.46);
+        backdrop-filter:blur(10px); display:flex; align-items:flex-end; justify-content:center; padding:18px;
+      }
+      .lmx-checkin-panel {
+        width:min(100%, 430px); border-radius:24px; overflow:hidden;
+        border:1px solid rgba(255,255,255,.10);
         background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)),linear-gradient(180deg, #0b0f15, #080b10);
-        box-shadow:0 24px 60px rgba(0,0,0,.40);padding:0 0 16px;
+        box-shadow:0 24px 60px rgba(0,0,0,.40); padding:0 0 16px;
       }
-      .lmcc-image{height:180px;background-size:cover;background-position:center center}
-      .lmcc-badge{
-        display:inline-flex;margin:14px 16px 0;padding:7px 11px;border-radius:999px;font-size:.77rem;
-        font-weight:900;letter-spacing:.04em;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.10);
+      .lmx-checkin-image { height:180px; background-size:cover; background-position:center center; }
+      .lmx-checkin-badge {
+        display:inline-flex; margin:14px 16px 0; padding:7px 11px; border-radius:999px;
+        font-size:.77rem; font-weight:900; letter-spacing:.04em;
+        background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.10);
       }
-      .lmcc-title{margin:12px 16px 0;font-size:1.24rem;line-height:1.2;font-weight:900;color:#fff}
-      .lmcc-sub{margin:10px 16px 0;font-size:.95rem;line-height:1.45;color:rgba(255,255,255,.84)}
-      .lmcc-hint{margin:10px 16px 0;font-size:.88rem;line-height:1.45;color:rgba(255,255,255,.60)}
-      .lmcc-actions{display:flex;flex-direction:column;gap:8px;padding:14px 16px 0}
-      .lmcc-btn{
-        appearance:none;border:none;outline:none;border-radius:14px;padding:13px 14px;font:inherit;font-weight:800;
-        color:#fff;cursor:pointer;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.10)
+      .lmx-checkin-title { margin:12px 16px 0; font-size:1.24rem; line-height:1.2; font-weight:900; color:#fff; }
+      .lmx-checkin-sub { margin:10px 16px 0; font-size:.95rem; line-height:1.45; color:rgba(255,255,255,.84); }
+      .lmx-checkin-actions { display:flex; flex-direction:column; gap:8px; padding:14px 16px 0; }
+      .lmx-checkin-btn {
+        appearance:none; border:none; outline:none; border-radius:14px; padding:13px 14px; font:inherit; font-weight:800;
+        color:#fff; cursor:pointer; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.10);
       }
-      .lmcc-btn--primary{background:linear-gradient(180deg, rgba(191,57,39,.96), rgba(149,24,14,.88))}
-      .lmcc-btn:disabled{opacity:.65;cursor:default}
+      .lmx-checkin-btn--primary {
+        background:linear-gradient(180deg, rgba(136,171,255,.24), rgba(83,110,255,.12));
+      }
+
+      @media (max-width: 640px) {
+        .lmx-deck-stage { min-height:500px; height:68vh; }
+        .lmx-artist { font-size:1.68rem; }
+      }
     `;
     document.head.appendChild(style);
   }
 
-  function makeTopPill(label, tabKey) {
+  function openDetailsSheetForEvent(ev) {
+    detailsSheetEvent = ev;
+    render(lastEvents, lastMeta);
+  }
+
+  function closeDetailsSheet() {
+    detailsSheetEvent = null;
+    render(lastEvents, lastMeta);
+  }
+
+  function createModeButton(label, mode) {
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = `lmc-pill-btn${store.activeTab === tabKey ? " is-on" : ""}`;
+    btn.className = `lmx-mode${store.activeMode === mode ? " is-on" : ""}`;
     btn.textContent = label;
     btn.addEventListener("click", () => {
-      store.activeTab = tabKey;
+      store.activeMode = mode;
       saveStore(store);
       render(lastEvents, lastMeta);
     });
     return btn;
   }
 
-  function buildActionButtons(event, view) {
-    const actions = document.createElement("div");
-    actions.className = "lmc-actions";
-
-    if (event.url) {
-      const btnLink = document.createElement("button");
-      btnLink.type = "button";
-      btnLink.className = "lmc-btn lmc-btn--primary";
-      btnLink.textContent = "Tickets";
-      btnLink.addEventListener("click", () => {
-        window.open(event.url, "_blank", "noopener,noreferrer");
-      });
-      actions.appendChild(btnLink);
-    }
-
-    if (view === "announced") {
-      const btnDismiss = document.createElement("button");
-      btnDismiss.type = "button";
-      btnDismiss.className = "lmc-btn";
-      btnDismiss.textContent = "Dismiss";
-      btnDismiss.addEventListener("click", async () => {
-        await dismiss(event.id);
-        render(lastEvents, lastMeta);
-      });
-      actions.appendChild(btnDismiss);
-
-      const btnPlan = document.createElement("button");
-      btnPlan.type = "button";
-      btnPlan.className = "lmc-btn";
-      btnPlan.textContent = isPlanned(event.eventKey || event.id) ? "Planned" : "Add to Plan";
-      btnPlan.addEventListener("click", async () => {
-        if (isPlanned(event.eventKey || event.id)) return;
-        await addToPlan(event);
-        await refresh();
-      });
-      actions.appendChild(btnPlan);
-    }
-
-    if (view === "plan") {
-      const btnRemove = document.createElement("button");
-      btnRemove.type = "button";
-      btnRemove.className = "lmc-btn";
-      btnRemove.textContent = "Remove";
-      btnRemove.addEventListener("click", async () => {
-        await removeFromPlan(event.eventKey || event.id);
-        await refresh();
-      });
-      actions.appendChild(btnRemove);
-
-      const btnDismiss = document.createElement("button");
-      btnDismiss.type = "button";
-      btnDismiss.className = "lmc-btn";
-      btnDismiss.textContent = "Dismiss";
-      btnDismiss.addEventListener("click", async () => {
-        await dismiss(event.id);
-        await removeFromPlan(event.eventKey || event.id);
-        await refresh();
-      });
-      actions.appendChild(btnDismiss);
-    }
-
-    if (view === "dismissed") {
-      const btnPlan = document.createElement("button");
-      btnPlan.type = "button";
-      btnPlan.className = "lmc-btn";
-      btnPlan.textContent = isPlanned(event.eventKey || event.id) ? "Planned" : "Add to Plan";
-      btnPlan.addEventListener("click", async () => {
-        if (!isPlanned(event.eventKey || event.id)) {
-          await addToPlan(event);
-          await refresh();
-        }
-      });
-      actions.appendChild(btnPlan);
-
-      const btnUndo = document.createElement("button");
-      btnUndo.type = "button";
-      btnUndo.className = "lmc-btn";
-      btnUndo.textContent = "Undo";
-      btnUndo.addEventListener("click", async () => {
-        await undismiss(event.id);
-        render(lastEvents, lastMeta);
-      });
-      actions.appendChild(btnUndo);
-    }
-
-    return actions;
-  }
-
-  function buildHeroCard(event, view) {
-    const card = document.createElement("div");
-    card.className = "lmc-hero";
-
-    const cover = document.createElement("div");
-    cover.className = "lmc-cover";
-    cover.style.backgroundImage = buildCoverStyle(event);
-
-    const body = document.createElement("div");
-    body.className = "lmc-body";
-
-    const badge = document.createElement("div");
-    badge.className = "lmc-badge";
-    badge.textContent = event.visibility === "top" ? "Core Taste" : "Strong Match";
-
-    const title = document.createElement("h3");
-    title.className = "lmc-title";
-    title.textContent = titleCaseArtist(normalizeArtistForLookup(event.artist));
-
-    const meta = document.createElement("p");
-    meta.className = "lmc-meta";
-    meta.textContent = [safeStr(event.city), safeStr(event.venue)].filter(Boolean).join(" • ");
-
-    const subMeta = document.createElement("p");
-    subMeta.className = "lmc-submeta";
-    subMeta.textContent = [formatShortDayDate(event.start), formatTimeHM(event.start)].filter(Boolean).join(" • ");
-
-    const reason = document.createElement("p");
-    reason.className = "lmc-reason";
-    reason.textContent = safeStr(event.reason);
-
-    body.appendChild(badge);
-    body.appendChild(title);
-    body.appendChild(meta);
-    body.appendChild(subMeta);
-    body.appendChild(reason);
-    body.appendChild(buildActionButtons(event, view));
-
-    card.appendChild(cover);
-    card.appendChild(body);
-    return card;
-  }
-
-  function buildStrongCard(event, view) {
-    const card = document.createElement("div");
-    card.className = "lmc-strong";
-
-    const cover = document.createElement("div");
-    cover.className = "lmc-cover";
-    cover.style.backgroundImage = buildCoverStyle(event);
-
-    const body = document.createElement("div");
-    body.className = "lmc-body";
-
-    const badge = document.createElement("div");
-    badge.className = "lmc-badge";
-    badge.textContent = "Strong Match";
-
-    const title = document.createElement("h3");
-    title.className = "lmc-title";
-    title.style.fontSize = "1.42rem";
-    title.textContent = titleCaseArtist(normalizeArtistForLookup(event.artist));
-
-    const meta = document.createElement("p");
-    meta.className = "lmc-meta";
-    meta.textContent = [safeStr(event.city), safeStr(event.venue)].filter(Boolean).join(" • ");
-
-    const subMeta = document.createElement("p");
-    subMeta.className = "lmc-submeta";
-    subMeta.textContent = [formatShortDayDate(event.start), formatTimeHM(event.start)].filter(Boolean).join(" • ");
-
-    const reason = document.createElement("p");
-    reason.className = "lmc-reason";
-    reason.textContent = safeStr(event.reason);
-
-    body.appendChild(badge);
-    body.appendChild(title);
-    body.appendChild(meta);
-    body.appendChild(subMeta);
-    body.appendChild(reason);
-    body.appendChild(buildActionButtons(event, view));
-
-    card.appendChild(cover);
-    card.appendChild(body);
-    return card;
-  }
-
-  function buildSlimCardFromEvent(event, view) {
-    const card = document.createElement("div");
-    card.className = "lmc-slim";
-
-    const cover = document.createElement("div");
-    cover.className = "lmc-cover";
-    cover.style.backgroundImage = buildCoverStyle(event);
-
-    const body = document.createElement("div");
-    body.className = "lmc-slim-body";
-
-    const info = document.createElement("div");
-    info.className = "lmc-slim-info";
-
-    const title = document.createElement("h4");
-    title.className = "lmc-slim-title";
-    title.textContent = titleCaseArtist(normalizeArtistForLookup(event.artist));
-
-    const meta = document.createElement("p");
-    meta.className = "lmc-slim-meta";
-    meta.textContent = [
-      safeStr(event.city),
-      safeStr(event.venue),
-      formatMonthDay(event.start),
-      formatTimeHM(event.start)
-    ].filter(Boolean).join(" • ");
-
-    const note = document.createElement("p");
-    note.className = "lmc-slim-note";
-    note.textContent = safeStr(event.reason || "Listening-linked match");
-
-    info.appendChild(title);
-    info.appendChild(meta);
-    info.appendChild(note);
-
-    const right = document.createElement("div");
-    right.className = "lmc-slim-right";
-
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = `lmc-mini-cta${isPlanned(event.eventKey || event.id) ? " is-active" : ""}`;
-    btn.textContent = isPlanned(event.eventKey || event.id) ? "Planned" : "Plan";
-    btn.addEventListener("click", async () => {
-      if (view === "dismissed") {
-        await undismiss(event.id);
-        render(lastEvents, lastMeta);
-        return;
-      }
-
-      if (isPlanned(event.eventKey || event.id)) {
-        await removeFromPlan(event.eventKey || event.id);
-      } else {
-        await addToPlan(event);
-      }
-      await refresh();
-    });
-
-    right.appendChild(btn);
-    body.appendChild(info);
-    body.appendChild(right);
-    card.appendChild(cover);
-    card.appendChild(body);
-
-    return card;
-  }
-
-  function buildSlimGroupCard(group) {
-    const first = group.nextEvent;
-    const card = document.createElement("div");
-    card.className = "lmc-slim";
-
-    const cover = document.createElement("div");
-    cover.className = "lmc-cover";
-    cover.style.backgroundImage = buildCoverStyle({
-      imageUrl: group.imageUrl,
-      artist: group.artist,
-      id: group.key
-    });
-
-    const body = document.createElement("div");
-    body.className = "lmc-slim-body";
-
-    const info = document.createElement("div");
-    info.className = "lmc-slim-info";
-
-    const title = document.createElement("h4");
-    title.className = "lmc-slim-title";
-    title.textContent = titleCaseArtist(normalizeArtistForLookup(group.artist));
-
-    const meta = document.createElement("p");
-    meta.className = "lmc-slim-meta";
-    meta.textContent = describeGroupDates(group);
-
-    const note = document.createElement("p");
-    note.className = "lmc-slim-note";
-    note.textContent = group.count > 1
-      ? `Multiple relevant dates available`
-      : safeStr(first?.reason || "Listening-linked recommendation");
-
-    info.appendChild(title);
-    info.appendChild(meta);
-    info.appendChild(note);
-
-    const right = document.createElement("div");
-    right.className = "lmc-slim-right";
-
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "lmc-mini-cta";
-    btn.textContent = group.count > 1 ? "View dates" : "Plan";
-    btn.addEventListener("click", async () => {
-      if (group.count > 1) {
-        store.activeTab = "announced";
-        saveStore(store);
-        alert(
-          `${titleCaseArtist(normalizeArtistForLookup(group.artist))}\n\n` +
-          group.events.map((ev) =>
-            `${formatShortDayDate(ev.start)} • ${safeStr(ev.city)} • ${safeStr(ev.venue)}`
-          ).join("\n")
-        );
-        return;
-      }
-
-      if (first) {
-        if (isPlanned(first.eventKey || first.id)) {
-          await removeFromPlan(first.eventKey || first.id);
-        } else {
-          await addToPlan(first);
-        }
-        await refresh();
-      }
-    });
-
-    right.appendChild(btn);
-    body.appendChild(info);
-    body.appendChild(right);
-    card.appendChild(cover);
-    card.appendChild(body);
-    return card;
-  }
-
-  function buildAlertCard(event) {
-    const shell = document.createElement("section");
-    shell.className = "lmc-alert";
+  function buildTopShell(events) {
+    const shell = document.createElement("div");
+    shell.className = "lmx-shell";
 
     const top = document.createElement("div");
-    top.className = "lmc-alert-top";
-    top.textContent = "Concert Alert";
+    top.className = "lmx-top";
+
+    const titleWrap = document.createElement("div");
+    titleWrap.className = "lmx-title-wrap";
+
+    const kicker = document.createElement("div");
+    kicker.className = "lmx-kicker";
+    kicker.innerHTML = `<span class="lmx-kicker-dot"></span><span>Live radar active</span>`;
+
+    const title = document.createElement("h2");
+    title.className = "lmx-title";
+    title.textContent = "Concerts shaped by your listening";
+
+    const sub = document.createElement("p");
+    sub.className = "lmx-sub";
+    sub.textContent = `${events.length} relevant concerts across ${cityCount(events)} cities`;
+
+    titleWrap.appendChild(kicker);
+    titleWrap.appendChild(title);
+    titleWrap.appendChild(sub);
+
+    top.appendChild(titleWrap);
+    shell.appendChild(top);
+
+    const modebar = document.createElement("div");
+    modebar.className = "lmx-modebar";
+    modebar.appendChild(createModeButton("Discover", "discover"));
+    modebar.appendChild(createModeButton("Radar", "radar"));
+    modebar.appendChild(createModeButton(`Going ${plannedItems.filter((x) => x.plannedStatus === "planned").length}`, "going"));
+    modebar.appendChild(createModeButton("Hidden", "hidden"));
+
+    shell.appendChild(modebar);
+    return shell;
+  }
+
+  function buildDeckCard(item, positionIndex) {
+    const card = document.createElement("div");
+    card.className = `lmx-card${positionIndex === 1 ? " is-back-1" : positionIndex === 2 ? " is-back-2" : ""}`;
+
+    const cover = document.createElement("div");
+    cover.className = "lmx-card-cover";
+    cover.style.backgroundImage = item.type === "group"
+      ? buildCoverStyle({ imageUrl: item.group.imageUrl, artist: item.group.artist, id: item.group.key })
+      : buildCoverStyle(item.event);
+
+    const passLabel = document.createElement("div");
+    passLabel.className = "lmx-swipe-label pass";
+    passLabel.textContent = "Pass";
+
+    const planLabel = document.createElement("div");
+    planLabel.className = "lmx-swipe-label plan";
+    planLabel.textContent = "Plan";
 
     const body = document.createElement("div");
-    body.className = "lmc-alert-body";
+    body.className = "lmx-card-body";
 
-    const band = document.createElement("p");
-    band.className = "lmc-alert-band";
-    band.textContent = titleCaseArtist(normalizeArtistForLookup(event.artist));
+    const top = document.createElement("div");
+    top.className = "lmx-chip-row";
 
-    const txt = document.createElement("p");
-    txt.className = "lmc-alert-text";
-    txt.textContent = safeStr(event.reason || "New relevant concert detected");
+    const chipMain = document.createElement("div");
+    chipMain.className = "lmx-chip";
+    chipMain.textContent = getMatchLabel(item);
+    top.appendChild(chipMain);
 
-    const dates = document.createElement("p");
-    dates.className = "lmc-alert-dates";
-    dates.textContent = [
-      safeStr(event.city),
-      safeStr(event.venue),
-      formatMonthDay(event.start),
-      formatTimeHM(event.start)
-    ].filter(Boolean).join(" • ");
+    if (item.type === "event") {
+      const ev = item.event;
+      const d = daysUntil(ev.start);
+      if (d !== null && d >= 0 && d <= 7) {
+        const chip = document.createElement("div");
+        chip.className = "lmx-chip";
+        chip.textContent = "This Week";
+        top.appendChild(chip);
+      }
+      if (safeStr(ev.city)) {
+        const chip = document.createElement("div");
+        chip.className = "lmx-chip";
+        chip.textContent = safeStr(ev.city);
+        top.appendChild(chip);
+      }
+    } else {
+      const chip = document.createElement("div");
+      chip.className = "lmx-chip";
+      chip.textContent = `${item.group.count} dates`;
+      top.appendChild(chip);
+    }
 
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "lmc-btn lmc-btn--primary";
-    btn.textContent = "View Date";
-    btn.addEventListener("click", () => {
-      if (event.url) window.open(event.url, "_blank", "noopener,noreferrer");
+    const bottom = document.createElement("div");
+    bottom.className = "lmx-card-bottom";
+
+    const artist = document.createElement("h3");
+    artist.className = "lmx-artist";
+    artist.textContent = titleCaseArtist(normalizeArtistForLookup(item.type === "group" ? item.group.artist : item.event.artist));
+
+    const meta = document.createElement("p");
+    meta.className = "lmx-meta";
+
+    const reason = document.createElement("p");
+    reason.className = "lmx-reason";
+
+    if (item.type === "group") {
+      const first = item.group.events[0];
+      const last = item.group.events[item.group.events.length - 1];
+      meta.textContent = [
+        `${item.group.count} dates`,
+        safeStr(first?.city),
+        formatMonthDay(first?.start),
+        last ? `→ ${formatMonthDay(last.start)}` : ""
+      ].filter(Boolean).join(" • ");
+      reason.textContent = "Multiple dates for an artist that fits your listening.";
+    } else {
+      const ev = item.event;
+      meta.textContent = [
+        safeStr(ev.venue),
+        safeStr(ev.city),
+        formatShortDayDate(ev.start),
+        formatTimeHM(ev.start)
+      ].filter(Boolean).join(" • ");
+      reason.textContent = safeStr(ev.reason || "Listening-linked recommendation");
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "lmx-actions";
+
+    const hideBtn = document.createElement("button");
+    hideBtn.type = "button";
+    hideBtn.className = "lmx-action lmx-action--hide";
+    hideBtn.textContent = "×";
+    hideBtn.title = "Hide";
+
+    const infoBtn = document.createElement("button");
+    infoBtn.type = "button";
+    infoBtn.className = "lmx-action lmx-action--info lmx-action--big";
+    infoBtn.textContent = "Why";
+
+    const planBtn = document.createElement("button");
+    planBtn.type = "button";
+    planBtn.className = "lmx-action lmx-action--plan";
+    planBtn.textContent = "✓";
+    planBtn.title = "Plan";
+
+    actions.appendChild(hideBtn);
+    actions.appendChild(infoBtn);
+    actions.appendChild(planBtn);
+
+    bottom.appendChild(artist);
+    bottom.appendChild(meta);
+    bottom.appendChild(reason);
+    bottom.appendChild(actions);
+
+    body.appendChild(top);
+    body.appendChild(bottom);
+
+    card.appendChild(cover);
+    card.appendChild(passLabel);
+    card.appendChild(planLabel);
+    card.appendChild(body);
+
+    const triggerPass = async () => {
+      if (item.type === "group") {
+        for (const ev of item.group.events) await dismiss(ev.id);
+      } else {
+        await dismiss(item.event.id);
+      }
+      store.deckIndex += 1;
+      saveStore(store);
+      render(lastEvents, lastMeta);
+    };
+
+    const triggerPlan = async () => {
+      if (item.type === "group") {
+        const first = item.group.nextEvent || item.group.events[0];
+        if (first && !isPlanned(first.eventKey || first.id)) await addToPlan(first);
+      } else {
+        if (!isPlanned(item.event.eventKey || item.event.id)) await addToPlan(item.event);
+      }
+      store.deckIndex += 1;
+      saveStore(store);
+      await refresh();
+    };
+
+    hideBtn.addEventListener("click", triggerPass);
+    planBtn.addEventListener("click", triggerPlan);
+    infoBtn.addEventListener("click", () => {
+      openDetailsSheetForEvent(item.type === "group" ? item.group.nextEvent || item.group.events[0] : item.event);
     });
 
-    body.appendChild(band);
-    body.appendChild(txt);
-    body.appendChild(dates);
-    body.appendChild(btn);
+    attachSwipe(card, {
+      onLeft: triggerPass,
+      onRight: triggerPlan,
+      onUp: () => openDetailsSheetForEvent(item.type === "group" ? item.group.nextEvent || item.group.events[0] : item.event),
+      passLabel,
+      planLabel
+    });
 
-    shell.appendChild(top);
-    shell.appendChild(body);
-    return shell;
+    return card;
   }
 
-  function buildRail(titleText, subText, nodes) {
-    const shell = document.createElement("section");
-    shell.className = "lmc-rail";
+  function attachSwipe(card, { onLeft, onRight, onUp, passLabel, planLabel }) {
+    let startX = 0;
+    let startY = 0;
+    let dx = 0;
+    let dy = 0;
+    let active = false;
 
-    const head = document.createElement("div");
-    head.className = "lmc-rail-head";
+    const onPointerDown = (e) => {
+      active = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      dx = 0;
+      dy = 0;
+      card.setPointerCapture?.(e.pointerId);
+      card.style.transition = "none";
+    };
 
-    const title = document.createElement("h3");
-    title.className = "lmc-rail-title";
-    title.textContent = titleText;
+    const onPointerMove = (e) => {
+      if (!active) return;
+      dx = e.clientX - startX;
+      dy = e.clientY - startY;
 
-    const sub = document.createElement("div");
-    sub.className = "lmc-rail-sub";
-    sub.textContent = subText || "";
+      const rotate = dx * 0.04;
+      card.style.transform = `translate(${dx}px, ${dy}px) rotate(${rotate}deg)`;
 
-    head.appendChild(title);
-    head.appendChild(sub);
-    shell.appendChild(head);
+      if (dx < -40) passLabel.classList.add("show");
+      else passLabel.classList.remove("show");
 
-    const list = document.createElement("div");
-    list.className = "lmc-rail-list";
+      if (dx > 40) planLabel.classList.add("show");
+      else planLabel.classList.remove("show");
+    };
 
-    if (!nodes.length) {
+    const onPointerUp = async () => {
+      if (!active) return;
+      active = false;
+      card.style.transition = "transform .22s ease, opacity .22s ease";
+      passLabel.classList.remove("show");
+      planLabel.classList.remove("show");
+
+      const absX = Math.abs(dx);
+      const absY = Math.abs(dy);
+
+      if (dx <= -110 && absX > absY) {
+        card.style.transform = `translate(-140%, ${dy}px) rotate(-18deg)`;
+        setTimeout(() => { onLeft(); }, 140);
+        return;
+      }
+
+      if (dx >= 110 && absX > absY) {
+        card.style.transform = `translate(140%, ${dy}px) rotate(18deg)`;
+        setTimeout(() => { onRight(); }, 140);
+        return;
+      }
+
+      if (dy <= -90 && absY > absX) {
+        card.style.transform = `translate(0px, -22px) scale(.99)`;
+        setTimeout(() => {
+          card.style.transform = "";
+          onUp();
+        }, 120);
+        return;
+      }
+
+      card.style.transform = "";
+    };
+
+    card.addEventListener("pointerdown", onPointerDown);
+    card.addEventListener("pointermove", onPointerMove);
+    card.addEventListener("pointerup", onPointerUp);
+    card.addEventListener("pointercancel", onPointerUp);
+  }
+function buildDiscover(events) {
+    const deck = getDeck(events);
+    const wrap = document.createElement("div");
+    wrap.className = "lmx-deck-wrap";
+
+    const topIndex = Math.min(store.deckIndex, Math.max(deck.length - 1, 0));
+    const visible = deck.slice(topIndex, topIndex + 3);
+
+    const progress = document.createElement("div");
+    progress.className = "lmx-deck-progress";
+
+    const left = document.createElement("div");
+    left.className = "lmx-progress-text";
+    left.textContent = deck.length
+      ? `${Math.min(topIndex + 1, deck.length)} / ${deck.length} live matches`
+      : "0 live matches";
+
+    const resetBtn = document.createElement("button");
+    resetBtn.type = "button";
+    resetBtn.className = "lmx-btn";
+    resetBtn.textContent = "Restart deck";
+    resetBtn.addEventListener("click", () => {
+      store.deckIndex = 0;
+      saveStore(store);
+      render(lastEvents, lastMeta);
+    });
+
+    progress.appendChild(left);
+    progress.appendChild(resetBtn);
+    wrap.appendChild(progress);
+
+    const stage = document.createElement("div");
+    stage.className = "lmx-deck-stage";
+
+    if (!visible.length) {
       const empty = document.createElement("div");
-      empty.className = "lmc-empty";
-      empty.textContent = "Empty";
-      list.appendChild(empty);
-    } else {
-      nodes.forEach((node) => list.appendChild(node));
+      empty.className = "lmx-empty";
+      empty.textContent = "You’ve cleared the deck. Jump to Radar or restart the stack.";
+      wrap.appendChild(empty);
+      return wrap;
     }
 
-    shell.appendChild(list);
-    return shell;
+    visible
+      .slice()
+      .reverse()
+      .forEach((item, idxFromBack) => {
+        const position = visible.length - 1 - idxFromBack;
+        stage.appendChild(buildDeckCard(item, position));
+      });
+
+    wrap.appendChild(stage);
+    return wrap;
   }
 
-  function renderAnnounced(events) {
-    const strong = getStrong(events);
-    const suggested = getSuggested(events);
-
-    const hero = getHeroEvent([...strong, ...suggested]);
-    const heroId = hero?.id || "";
-
-    const thisWeek = strong.filter((ev) => ev.id !== heroId).slice(0, 2);
-
-    const planningAheadGroups = groupEventsByArtist(
-      [...strong, ...suggested].filter((ev) => ev.id !== heroId && !thisWeek.some((x) => x.id === ev.id))
-    ).slice(0, 8);
-
-    const maybeGroups = groupEventsByArtist(
-      suggested.filter((ev) => ev.id !== heroId)
-    ).slice(0, 4);
-
-    const alertEvent = getAlertEvent(events);
-
+  function buildRadar(events) {
     const wrap = document.createElement("div");
-    wrap.className = "lmc-wrap";
+    wrap.className = "lmx-radar-grid";
 
-    const topbar = document.createElement("div");
-    topbar.className = "lmc-topbar";
+    const cityMap = new Map();
+    events.forEach((ev) => {
+      const key = safeStr(ev.city) || "Unknown";
+      cityMap.set(key, (cityMap.get(key) || 0) + 1);
+    });
 
-    const heading = document.createElement("h2");
-    heading.className = "lmc-heading";
-    heading.textContent = "Concerts shaped by your listening";
+    const cityBar = document.createElement("div");
+    cityBar.className = "lmx-radar-citybar";
 
-    const pills = document.createElement("div");
-    pills.className = "lmc-pills";
-    pills.appendChild(makeTopPill("Announced", "announced"));
-    pills.appendChild(makeTopPill(`Planned ${plannedItems.filter((x) => x.plannedStatus === "planned").length}`, "plan"));
-    pills.appendChild(makeTopPill("Dismissed", "dismissed"));
+    Array.from(cityMap.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .forEach(([city, count]) => {
+        const node = document.createElement("div");
+        node.className = "lmx-city-node";
+        node.innerHTML = `
+          <p class="lmx-city-name">${city}</p>
+          <p class="lmx-city-count">${count} matches</p>
+        `;
+        cityBar.appendChild(node);
+      });
 
-    topbar.appendChild(heading);
-    topbar.appendChild(pills);
-    wrap.appendChild(topbar);
+    wrap.appendChild(cityBar);
 
-    const signal = document.createElement("section");
-    signal.className = "lmc-signal";
+    const groups = groupEventsByArtist(events);
 
-    const badge = document.createElement("div");
-    badge.className = "lmc-signal-badge";
-    badge.textContent = "Live Radar";
+    if (!groups.length) {
+      const empty = document.createElement("div");
+      empty.className = "lmx-empty";
+      empty.textContent = "No artist groups available right now.";
+      wrap.appendChild(empty);
+      return wrap;
+    }
 
-    const text = document.createElement("div");
-    text.className = "lmc-signal-text";
-    text.textContent = `${events.length} relevant concerts detected right now`;
+    groups.forEach((group) => {
+      const shell = document.createElement("div");
+      shell.className = `lmx-group${radarExpandedGroupKey === group.key ? " is-open" : ""}`;
 
-    signal.appendChild(badge);
-    signal.appendChild(text);
-    wrap.appendChild(signal);
+      const head = document.createElement("div");
+      head.className = "lmx-group-head";
 
-    if (hero) wrap.appendChild(buildHeroCard(hero, "announced"));
+      const thumb = document.createElement("div");
+      thumb.className = "lmx-group-thumb";
+      thumb.style.backgroundImage = buildCoverStyle({
+        imageUrl: group.imageUrl,
+        artist: group.artist,
+        id: group.key
+      });
 
-    if (thisWeek.length) {
-      const sec = document.createElement("section");
-      sec.className = "lmc-section";
+      const main = document.createElement("div");
+      main.className = "lmx-group-main";
 
       const title = document.createElement("h3");
-      title.className = "lmc-section-title";
-      title.textContent = "This Week";
-      sec.appendChild(title);
+      title.className = "lmx-group-title";
+      title.textContent = titleCaseArtist(normalizeArtistForLookup(group.artist));
 
-      thisWeek.forEach((ev) => sec.appendChild(buildStrongCard(ev, "announced")));
-      wrap.appendChild(sec);
-    }
+      const sub = document.createElement("p");
+      sub.className = "lmx-group-sub";
+      sub.textContent = group.count > 1
+        ? `${group.count} dates • ${formatMonthDay(group.events[0].start)} → ${formatMonthDay(group.events[group.events.length - 1].start)}`
+        : `${safeStr(group.nextEvent?.city)} • ${safeStr(group.nextEvent?.venue)} • ${formatShortDayDate(group.nextEvent?.start)}`;
 
-    wrap.appendChild(
-      buildRail(
-        "Worth Planning Ahead",
-        `${planningAheadGroups.length} artist groups`,
-        planningAheadGroups.map((group) => buildSlimGroupCard(group))
-      )
-    );
+      main.appendChild(title);
+      main.appendChild(sub);
 
-    wrap.appendChild(
-      buildRail(
-        "Maybe For You",
-        `${maybeGroups.length} curated`,
-        maybeGroups.map((group) => buildSlimGroupCard(group))
-      )
-    );
+      const cta = document.createElement("button");
+      cta.type = "button";
+      cta.className = "lmx-group-cta";
+      cta.textContent = radarExpandedGroupKey === group.key ? "Hide dates" : "View dates";
 
-    if (alertEvent) wrap.appendChild(buildAlertCard(alertEvent));
+      head.appendChild(thumb);
+      head.appendChild(main);
+      head.appendChild(cta);
+
+      const dates = document.createElement("div");
+      dates.className = "lmx-group-dates";
+
+      group.events.forEach((ev) => {
+        const row = document.createElement("div");
+        row.className = "lmx-date-row";
+
+        const left = document.createElement("div");
+        left.className = "lmx-date-left";
+
+        const t1 = document.createElement("p");
+        t1.className = "lmx-date-title";
+        t1.textContent = `${formatShortDayDate(ev.start)} • ${formatTimeHM(ev.start)}`;
+
+        const t2 = document.createElement("p");
+        t2.className = "lmx-date-sub";
+        t2.textContent = [safeStr(ev.venue), safeStr(ev.city), safeStr(ev.reason)].filter(Boolean).join(" • ");
+
+        left.appendChild(t1);
+        left.appendChild(t2);
+
+        const actions = document.createElement("div");
+        actions.className = "lmx-date-actions";
+
+        const planBtn = document.createElement("button");
+        planBtn.type = "button";
+        planBtn.className = `lmx-btn${isPlanned(ev.eventKey || ev.id) ? "" : " lmx-btn--plan"}`;
+        planBtn.textContent = isPlanned(ev.eventKey || ev.id) ? "Planned" : "Plan";
+        planBtn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          if (!isPlanned(ev.eventKey || ev.id)) {
+            await addToPlan(ev);
+            await refresh();
+          }
+        });
+
+        const whyBtn = document.createElement("button");
+        whyBtn.type = "button";
+        whyBtn.className = "lmx-btn lmx-btn--primary";
+        whyBtn.textContent = "Why";
+        whyBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          openDetailsSheetForEvent(ev);
+        });
+
+        const ticketBtn = document.createElement("button");
+        ticketBtn.type = "button";
+        ticketBtn.className = "lmx-btn";
+        ticketBtn.textContent = "Tickets";
+        ticketBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (ev.url) window.open(ev.url, "_blank", "noopener,noreferrer");
+        });
+
+        actions.appendChild(planBtn);
+        actions.appendChild(whyBtn);
+        actions.appendChild(ticketBtn);
+
+        row.appendChild(left);
+        row.appendChild(actions);
+        dates.appendChild(row);
+      });
+
+      head.addEventListener("click", () => {
+        radarExpandedGroupKey = radarExpandedGroupKey === group.key ? "" : group.key;
+        render(lastEvents, lastMeta);
+      });
+
+      shell.appendChild(head);
+      shell.appendChild(dates);
+      wrap.appendChild(shell);
+    });
+
+    return wrap;
+  }
+
+  function buildGoing(events) {
+    const wrap = document.createElement("div");
+    wrap.className = "lmx-going-list";
 
     if (!events.length) {
       const empty = document.createElement("div");
-      empty.className = "lmc-empty";
-      empty.textContent = "No listening-linked concerts found right now.";
+      empty.className = "lmx-empty";
+      empty.textContent = "Nothing planned yet. Swipe right on Discover to build your live calendar.";
       wrap.appendChild(empty);
+      return wrap;
     }
 
-    listEl.innerHTML = "";
-    listEl.appendChild(wrap);
+    events.forEach((ev) => {
+      const card = document.createElement("div");
+      card.className = "lmx-itinerary";
+
+      const dateBadge = document.createElement("div");
+      dateBadge.className = "lmx-date-badge";
+
+      const d = document.createElement("div");
+      d.className = "lmx-date-badge-day";
+      d.textContent = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Amsterdam", day: "numeric" }).format(ev.start);
+
+      const m = document.createElement("div");
+      m.className = "lmx-date-badge-month";
+      m.textContent = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Amsterdam", month: "short" }).format(ev.start);
+
+      dateBadge.appendChild(d);
+      dateBadge.appendChild(m);
+
+      const main = document.createElement("div");
+      main.className = "lmx-itinerary-main";
+
+      const title = document.createElement("h3");
+      title.className = "lmx-itinerary-title";
+      title.textContent = titleCaseArtist(normalizeArtistForLookup(ev.artist));
+
+      const sub1 = document.createElement("p");
+      sub1.className = "lmx-itinerary-sub";
+      sub1.textContent = [safeStr(ev.venue), safeStr(ev.city)].filter(Boolean).join(" • ");
+
+      const sub2 = document.createElement("p");
+      sub2.className = "lmx-itinerary-sub";
+      sub2.textContent = [formatLongDate(ev.start), formatTimeHM(ev.start)].filter(Boolean).join(" • ");
+
+      const actions = document.createElement("div");
+      actions.className = "lmx-itinerary-actions";
+
+      const whyBtn = document.createElement("button");
+      whyBtn.type = "button";
+      whyBtn.className = "lmx-btn lmx-btn--primary";
+      whyBtn.textContent = "Why";
+      whyBtn.addEventListener("click", () => openDetailsSheetForEvent(ev));
+
+      const ticketBtn = document.createElement("button");
+      ticketBtn.type = "button";
+      ticketBtn.className = "lmx-btn";
+      ticketBtn.textContent = "Tickets";
+      ticketBtn.addEventListener("click", () => {
+        if (ev.url) window.open(ev.url, "_blank", "noopener,noreferrer");
+      });
+
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "lmx-btn lmx-btn--danger";
+      removeBtn.textContent = "Remove";
+      removeBtn.addEventListener("click", async () => {
+        await removeFromPlan(ev.eventKey || ev.id);
+        await refresh();
+      });
+
+      actions.appendChild(whyBtn);
+      actions.appendChild(ticketBtn);
+      actions.appendChild(removeBtn);
+
+      main.appendChild(title);
+      main.appendChild(sub1);
+      main.appendChild(sub2);
+      main.appendChild(actions);
+
+      card.appendChild(dateBadge);
+      card.appendChild(main);
+      wrap.appendChild(card);
+    });
+
+    return wrap;
   }
 
-  function renderState(events, titleText, view) {
+  function buildHidden(events) {
     const wrap = document.createElement("div");
-    wrap.className = "lmc-wrap";
+    wrap.className = "lmx-hidden-list";
 
-    const topbar = document.createElement("div");
-    topbar.className = "lmc-topbar";
+    if (!events.length) {
+      const empty = document.createElement("div");
+      empty.className = "lmx-empty";
+      empty.textContent = "You haven't hidden anything yet.";
+      wrap.appendChild(empty);
+      return wrap;
+    }
 
-    const heading = document.createElement("h2");
-    heading.className = "lmc-heading";
-    heading.textContent = titleText;
+    events.forEach((ev) => {
+      const card = document.createElement("div");
+      card.className = "lmx-itinerary";
 
-    const pills = document.createElement("div");
-    pills.className = "lmc-pills";
-    pills.appendChild(makeTopPill("Announced", "announced"));
-    pills.appendChild(makeTopPill(`Planned ${plannedItems.filter((x) => x.plannedStatus === "planned").length}`, "plan"));
-    pills.appendChild(makeTopPill("Dismissed", "dismissed"));
+      const dateBadge = document.createElement("div");
+      dateBadge.className = "lmx-date-badge";
+      dateBadge.innerHTML = `
+        <div class="lmx-date-badge-day">×</div>
+        <div class="lmx-date-badge-month">HIDDEN</div>
+      `;
 
-    topbar.appendChild(heading);
-    topbar.appendChild(pills);
-    wrap.appendChild(topbar);
+      const main = document.createElement("div");
+      main.className = "lmx-itinerary-main";
 
-    const nodes = events.map((ev) => buildSlimCardFromEvent(ev, view));
-    wrap.appendChild(buildRail(titleText, `${events.length} items`, nodes));
+      const title = document.createElement("h3");
+      title.className = "lmx-itinerary-title";
+      title.textContent = titleCaseArtist(normalizeArtistForLookup(ev.artist));
 
-    listEl.innerHTML = "";
-    listEl.appendChild(wrap);
+      const sub1 = document.createElement("p");
+      sub1.className = "lmx-itinerary-sub";
+      sub1.textContent = [safeStr(ev.venue), safeStr(ev.city), formatShortDayDate(ev.start)].filter(Boolean).join(" • ");
+
+      const actions = document.createElement("div");
+      actions.className = "lmx-itinerary-actions";
+
+      const restoreBtn = document.createElement("button");
+      restoreBtn.type = "button";
+      restoreBtn.className = "lmx-btn lmx-btn--primary";
+      restoreBtn.textContent = "Restore";
+      restoreBtn.addEventListener("click", async () => {
+        await undismiss(ev.id);
+        render(lastEvents, lastMeta);
+      });
+
+      const whyBtn = document.createElement("button");
+      whyBtn.type = "button";
+      whyBtn.className = "lmx-btn";
+      whyBtn.textContent = "Why";
+      whyBtn.addEventListener("click", () => openDetailsSheetForEvent(ev));
+
+      actions.appendChild(restoreBtn);
+      actions.appendChild(whyBtn);
+
+      main.appendChild(title);
+      main.appendChild(sub1);
+      main.appendChild(actions);
+
+      card.appendChild(dateBadge);
+      card.appendChild(main);
+      wrap.appendChild(card);
+    });
+
+    return wrap;
+  }
+
+  function buildDetailsSheet(ev) {
+    if (!ev) return null;
+
+    const overlay = document.createElement("div");
+    overlay.className = "lmx-sheet";
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) closeDetailsSheet();
+    });
+
+    const panel = document.createElement("div");
+    panel.className = "lmx-sheet-panel";
+
+    const cover = document.createElement("div");
+    cover.className = "lmx-sheet-cover";
+    cover.style.backgroundImage = buildCoverStyle(ev);
+
+    const body = document.createElement("div");
+    body.className = "lmx-sheet-body";
+
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "lmx-btn lmx-sheet-close";
+    closeBtn.textContent = "Close";
+    closeBtn.addEventListener("click", closeDetailsSheet);
+
+    const title = document.createElement("h3");
+    title.className = "lmx-sheet-title";
+    title.textContent = titleCaseArtist(normalizeArtistForLookup(ev.artist));
+
+    const meta = document.createElement("p");
+    meta.className = "lmx-sheet-text";
+    meta.textContent = [safeStr(ev.venue), safeStr(ev.city), formatLongDate(ev.start), formatTimeHM(ev.start)].filter(Boolean).join(" • ");
+
+    const why = document.createElement("p");
+    why.className = "lmx-sheet-text";
+    why.textContent = `Why this: ${safeStr(ev.reason || "Listening-linked recommendation")}`;
+
+    const score = document.createElement("p");
+    score.className = "lmx-sheet-text";
+    score.textContent = [
+      ev.tier === "strong" ? "Strong match" : "Suggested match",
+      ev.score ? `Score ${Math.round(ev.score)}` : "",
+      ev.matchedBy ? `Matched by ${ev.matchedBy}` : ""
+    ].filter(Boolean).join(" • ");
+
+    const row = document.createElement("div");
+    row.className = "lmx-sheet-row";
+
+    const planBtn = document.createElement("button");
+    planBtn.type = "button";
+    planBtn.className = `lmx-btn${isPlanned(ev.eventKey || ev.id) ? "" : " lmx-btn--plan"}`;
+    planBtn.textContent = isPlanned(ev.eventKey || ev.id) ? "Planned" : "Plan";
+    planBtn.addEventListener("click", async () => {
+      if (!isPlanned(ev.eventKey || ev.id)) {
+        await addToPlan(ev);
+        await refresh();
+      }
+    });
+
+    const hideBtn = document.createElement("button");
+    hideBtn.type = "button";
+    hideBtn.className = "lmx-btn lmx-btn--danger";
+    hideBtn.textContent = "Hide";
+    hideBtn.addEventListener("click", async () => {
+      await dismiss(ev.id);
+      closeDetailsSheet();
+      render(lastEvents, lastMeta);
+    });
+
+    const ticketBtn = document.createElement("button");
+    ticketBtn.type = "button";
+    ticketBtn.className = "lmx-btn lmx-btn--primary";
+    ticketBtn.textContent = "Tickets";
+    ticketBtn.addEventListener("click", () => {
+      if (ev.url) window.open(ev.url, "_blank", "noopener,noreferrer");
+    });
+
+    row.appendChild(planBtn);
+    row.appendChild(hideBtn);
+    row.appendChild(ticketBtn);
+
+    body.appendChild(closeBtn);
+    body.appendChild(title);
+    body.appendChild(meta);
+    body.appendChild(why);
+    body.appendChild(score);
+    body.appendChild(row);
+
+    panel.appendChild(cover);
+    panel.appendChild(body);
+    overlay.appendChild(panel);
+    return overlay;
   }
 
   function render(events, meta) {
@@ -1644,25 +1934,33 @@
     lastMeta = meta || null;
 
     const split = splitVisibleEventsByState(lastEvents);
+    const top = buildTopShell(lastEvents);
 
-    if (store.activeTab === "plan") {
-      renderState(split.planned, "Planned Shows", "plan");
-      return;
+    listEl.innerHTML = "";
+    listEl.appendChild(top);
+
+    if (store.activeMode === "discover") {
+      listEl.appendChild(buildDiscover(split.announced));
+    } else if (store.activeMode === "radar") {
+      listEl.appendChild(buildRadar(split.announced));
+    } else if (store.activeMode === "going") {
+      listEl.appendChild(buildGoing(split.planned));
+    } else {
+      listEl.appendChild(buildHidden(split.hidden));
     }
 
-    if (store.activeTab === "dismissed") {
-      renderState(split.dismissed, "Dismissed Shows", "dismissed");
-      return;
-    }
-
-    renderAnnounced(split.announced);
+    const sheet = buildDetailsSheet(detailsSheetEvent);
+    if (sheet) document.body.appendChild(sheet);
   }
 
   async function refresh() {
     store.lastRefreshAt = Date.now();
     saveStore(store);
 
-    setEmpty("Refreshing concert signals…");
+    const existingSheet = document.querySelector(".lmx-sheet");
+    if (existingSheet) existingSheet.remove();
+
+    setEmpty("Refreshing concert radar…");
 
     const [recommendedPayload, plannedDbEvents] = await Promise.all([
       fetchJson(getRecommendedUrl()),
@@ -1674,6 +1972,11 @@
     const enriched = await enrichEventsWithImages(merged);
 
     pendingPromptBusy = false;
+    if (store.deckIndex >= getDeck(splitVisibleEventsByState(enriched).announced).length) {
+      store.deckIndex = 0;
+      saveStore(store);
+    }
+
     render(enriched, recommendedPayload?.meta || null);
     updatePendingPromptState();
   }

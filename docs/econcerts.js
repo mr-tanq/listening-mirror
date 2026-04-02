@@ -5,7 +5,7 @@
    - grouped artist radar
    - itinerary-style going view
    - immersive details sheet
-   - keeps existing backend/data logic
+   - fixed details sheet close behavior
 */
 
 (() => {
@@ -14,7 +14,7 @@
   const listEl = document.querySelector("#econcertsList");
   if (!listEl) return;
 
-  const STORE_KEY = "lm_econcerts_ui_v70_swipe_radar";
+  const STORE_KEY = "lm_econcerts_ui_v71_swipe_radar_fix";
   const ECONCERTS_BASE = "https://econcerts.errtanq9.workers.dev";
   const ARCHIVE_BASE = "https://listening-mirror-archive.errtanq9.workers.dev";
   const RECOMMENDED_LIMIT = 5000;
@@ -271,6 +271,7 @@
   function isBadLastfmImage(url) {
     const u = lowerKey(url);
     if (!u) return true;
+
     return (
       u.includes("2a96cbd8b46e442fc41c2b86b821562f") ||
       u.includes("4128a6eb29f94943c9d206c08e625904") ||
@@ -294,18 +295,21 @@
 
     let score = 1;
     const low = lowerKey(u);
+
     if (low.includes("i.errtanq9.workers.dev")) score += 4;
     if (low.includes("spotify")) score += 3;
     if (low.includes("scdn")) score += 3;
     if (low.includes("lastfm")) score += 1;
     if (/\.(jpg|jpeg|png|webp)(\?|$)/i.test(low)) score += 2;
     if (!isBadLastfmImage(low)) score += 1;
+
     return score;
   }
 
   function pickBestImage(candidates) {
     const valid = candidates.map((x) => safeStr(x)).filter(Boolean);
     if (!valid.length) return "";
+
     valid.sort((a, b) => scoreImageUrl(b) - scoreImageUrl(a));
     return valid[0] || "";
   }
@@ -363,6 +367,7 @@
 
       const data = await fetchJson(u.toString());
       const imgs = Array.isArray(data?.artist?.image) ? data.artist.image : [];
+
       const chosen =
         imgs.find((x) => safeStr(x?.size) === "extralarge")?.["#text"] ||
         imgs.find((x) => safeStr(x?.size) === "large")?.["#text"] ||
@@ -380,26 +385,32 @@
 
   async function resolveImageForEvent(ev) {
     if (safeStr(ev.imageUrl)) return safeStr(ev.imageUrl);
+
     const fromApp = findImageFromAppState(ev.artist);
     if (fromApp) return fromApp;
+
     return await resolveLastfmArtistImage(ev.artist);
   }
 
   async function enrichEventsWithImages(events) {
-    return await Promise.all(events.map(async (ev) => {
-      const imageUrl = await resolveImageForEvent(ev);
-      return { ...ev, imageUrl: imageUrl || "" };
-    }));
+    return await Promise.all(
+      events.map(async (ev) => {
+        const imageUrl = await resolveImageForEvent(ev);
+        return { ...ev, imageUrl: imageUrl || "" };
+      })
+    );
   }
 
   function getFallbackVisual(seed) {
     const s = lowerKey(seed);
     let hue = 18;
+
     if (s) {
       let sum = 0;
       for (let i = 0; i < s.length; i += 1) sum += s.charCodeAt(i);
       hue = sum % 360;
     }
+
     return `
       radial-gradient(circle at 50% 20%, rgba(255,220,170,.20), transparent 22%),
       linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.70)),
@@ -527,6 +538,7 @@
 
   function extractWorkerEvents(payload) {
     const all = [];
+
     if (Array.isArray(payload?.events)) all.push(...payload.events);
 
     const buckets = payload?.buckets || {};
@@ -588,11 +600,13 @@
 
   async function addToPlan(event) {
     const payload = buildPlannedPayload(event);
+
     await fetchJson(`${ARCHIVE_BASE}/planned-concerts/add`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
+
     await loadPlannedConcerts();
   }
 
@@ -602,6 +616,7 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ event_key: safeStr(eventKey) })
     });
+
     await loadPlannedConcerts();
   }
 
@@ -611,6 +626,7 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ event_key: safeStr(eventKey) })
     });
+
     await loadPlannedConcerts();
   }
 
@@ -620,10 +636,10 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ event_key: safeStr(eventKey) })
     });
+
     await loadPlannedConcerts();
   }
 const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
-  const isDismissed = (id) => store.dismissedIds.includes(id);
 
   async function dismiss(id) {
     if (!store.dismissedIds.includes(id)) store.dismissedIds.push(id);
@@ -770,7 +786,7 @@ const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
 
     const title = document.createElement("h3");
     title.className = "lmx-checkin-title";
-    title.textContent = `Did this become part of your story?`;
+    title.textContent = "Did this become part of your story?";
 
     const sub = document.createElement("p");
     sub.className = "lmx-checkin-sub";
@@ -897,6 +913,10 @@ const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
 
   function cityCount(events) {
     return new Set(events.map((x) => lowerKey(x.city)).filter(Boolean)).size;
+  }
+
+  function removeExistingDetailsSheet() {
+    document.querySelectorAll(".lmx-sheet").forEach((el) => el.remove());
   }
 
   function injectStylesOnce() {
@@ -1045,7 +1065,8 @@ const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
       }
       .lmx-city-name { margin:0 0 6px; font-size:1rem; font-weight:900; color:#fff; }
       .lmx-city-count { margin:0; font-size:.88rem; color:rgba(255,255,255,.72); }
-.lmx-group {
+
+      .lmx-group {
         border-radius:22px; overflow:hidden;
         border:1px solid rgba(255,255,255,.08);
         background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.03));
@@ -1080,8 +1101,7 @@ const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
       .lmx-date-title { margin:0; font-size:.94rem; font-weight:900; color:#fff; }
       .lmx-date-sub { margin:0; font-size:.84rem; color:rgba(255,255,255,.72); }
       .lmx-date-actions { display:flex; gap:8px; flex-shrink:0; }
-
-      .lmx-going-list, .lmx-hidden-list { display:flex; flex-direction:column; gap:12px; }
+.lmx-going-list, .lmx-hidden-list { display:flex; flex-direction:column; gap:12px; }
       .lmx-itinerary {
         display:grid; grid-template-columns:72px 1fr; gap:12px;
         border-radius:22px; overflow:hidden; padding:14px;
@@ -1178,11 +1198,13 @@ const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
 
   function openDetailsSheetForEvent(ev) {
     detailsSheetEvent = ev;
+    removeExistingDetailsSheet();
     render(lastEvents, lastMeta);
   }
 
   function closeDetailsSheet() {
     detailsSheetEvent = null;
+    removeExistingDetailsSheet();
     render(lastEvents, lastMeta);
   }
 
@@ -1840,12 +1862,15 @@ function buildDiscover(events) {
 
     const overlay = document.createElement("div");
     overlay.className = "lmx-sheet";
-    overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) closeDetailsSheet();
-    });
 
     const panel = document.createElement("div");
     panel.className = "lmx-sheet-panel";
+
+    overlay.addEventListener("click", (e) => {
+      if (!panel.contains(e.target)) {
+        closeDetailsSheet();
+      }
+    });
 
     const cover = document.createElement("div");
     cover.className = "lmx-sheet-cover";
@@ -1858,7 +1883,11 @@ function buildDiscover(events) {
     closeBtn.type = "button";
     closeBtn.className = "lmx-btn lmx-sheet-close";
     closeBtn.textContent = "Close";
-    closeBtn.addEventListener("click", closeDetailsSheet);
+    closeBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      closeDetailsSheet();
+    });
 
     const title = document.createElement("h3");
     title.className = "lmx-sheet-title";
@@ -1930,6 +1959,8 @@ function buildDiscover(events) {
   }
 
   function render(events, meta) {
+    removeExistingDetailsSheet();
+
     lastEvents = Array.isArray(events) ? events : [];
     lastMeta = meta || null;
 
@@ -1957,9 +1988,7 @@ function buildDiscover(events) {
     store.lastRefreshAt = Date.now();
     saveStore(store);
 
-    const existingSheet = document.querySelector(".lmx-sheet");
-    if (existingSheet) existingSheet.remove();
-
+    removeExistingDetailsSheet();
     setEmpty("Refreshing concert radar…");
 
     const [recommendedPayload, plannedDbEvents] = await Promise.all([

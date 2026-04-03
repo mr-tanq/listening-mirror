@@ -1,13 +1,12 @@
 /* econcerts.js — FULL FILE REPLACE
    Listening Mirror — Concerts tab
-   UX: Discover / Radar / Going / Hidden
-   Polished:
-   - optimistic local updates
-   - no hard refresh on every action
-   - background persistence for plan/unplan
-   - faster deck interactions
-   - details sheet fixed
-   - pending check-in popup without "later"
+   New UX: Discover / Radar / Going / Hidden
+   - Tinder-like swipe deck
+   - grouped artist radar
+   - itinerary-style going view
+   - immersive details sheet
+   - fixed details sheet close behavior
+   - Radar city filter chips
 */
 
 (() => {
@@ -16,7 +15,7 @@
   const listEl = document.querySelector("#econcertsList");
   if (!listEl) return;
 
-  const STORE_KEY = "lm_econcerts_ui_v72_swipe_radar_optimistic";
+  const STORE_KEY = "lm_econcerts_ui_v72_swipe_radar_city_filter";
   const ECONCERTS_BASE = "https://econcerts.errtanq9.workers.dev";
   const ARCHIVE_BASE = "https://listening-mirror-archive.errtanq9.workers.dev";
   const RECOMMENDED_LIMIT = 5000;
@@ -37,7 +36,6 @@
   function parseAmsterdamDate(dateLocal, timeLocal) {
     const datePart = safeStr(dateLocal);
     if (!datePart) return null;
-
     const timePart = safeStr(timeLocal) || "20:00";
     const normalizedTime = /^\d{2}:\d{2}$/.test(timePart) ? timePart : "20:00";
     const dt = new Date(`${datePart}T${normalizedTime}:00+02:00`);
@@ -61,10 +59,7 @@
     const s0 = safeStr(input);
     if (!s0) return "";
 
-    const KEEP_AS_IS = new Set([
-      "dEUS", "MØ", "A$AP", "V.I.C.", "DJ", "MC", "II", "III", "IV", "UK", "USA", "EU"
-    ]);
-
+    const KEEP_AS_IS = new Set(["dEUS", "MØ", "A$AP", "V.I.C.", "DJ", "MC", "II", "III", "IV", "UK", "USA", "EU"]);
     const parts = s0.split(/(\s+|[-–—/&+])/);
 
     return parts.map((tok) => {
@@ -205,10 +200,10 @@
           dismissedIds: [],
           lastRefreshAt: 0,
           snoozedPendingEventKey: "",
-          deckIndex: 0
+          deckIndex: 0,
+          radarCityFilter: "all"
         };
       }
-
       const obj = JSON.parse(raw);
       return {
         activeMode: ["discover", "radar", "going", "hidden"].includes(String(obj.activeMode))
@@ -217,7 +212,8 @@
         dismissedIds: Array.isArray(obj.dismissedIds) ? obj.dismissedIds : [],
         lastRefreshAt: Number(obj.lastRefreshAt || 0),
         snoozedPendingEventKey: safeStr(obj.snoozedPendingEventKey),
-        deckIndex: Math.max(0, Number(obj.deckIndex || 0))
+        deckIndex: Math.max(0, Number(obj.deckIndex || 0)),
+        radarCityFilter: safeStr(obj.radarCityFilter) || "all"
       };
     } catch {
       return {
@@ -225,7 +221,8 @@
         dismissedIds: [],
         lastRefreshAt: 0,
         snoozedPendingEventKey: "",
-        deckIndex: 0
+        deckIndex: 0,
+        radarCityFilter: "all"
       };
     }
   }
@@ -243,7 +240,6 @@
   let pendingPromptBusy = false;
   let detailsSheetEvent = null;
   let radarExpandedGroupKey = "";
-  let isBootLoaded = false;
 
   const artistImageCache = new Map();
 
@@ -389,8 +385,9 @@
       artistImageCache.set(cacheKey, "");
       return "";
     }
-}
-   async function resolveImageForEvent(ev) {
+  }
+
+  async function resolveImageForEvent(ev) {
     if (safeStr(ev.imageUrl)) return safeStr(ev.imageUrl);
 
     const fromApp = findImageFromAppState(ev.artist);
@@ -402,14 +399,12 @@
   async function enrichEventsWithImages(events) {
     return await Promise.all(
       events.map(async (ev) => {
-        if (safeStr(ev.imageUrl)) return ev;
         const imageUrl = await resolveImageForEvent(ev);
         return { ...ev, imageUrl: imageUrl || "" };
       })
     );
-  }
-
-  function getFallbackVisual(seed) {
+     }
+   function getFallbackVisual(seed) {
     const s = lowerKey(seed);
     let hue = 18;
 
@@ -585,24 +580,8 @@
     const normalized = items.map(normalizePlannedEvent).filter(Boolean);
 
     plannedItems = normalized.slice();
-    rebuildPlannedMap();
+    plannedMap = new Map(normalized.map((ev) => [ev.eventKey, ev]));
     return normalized;
-  }
-
-  function rebuildPlannedMap() {
-    plannedMap = new Map(plannedItems.map((ev) => [ev.eventKey, ev]));
-  }
-
-  function clonePlannedState() {
-    return {
-      plannedItems: plannedItems.slice(),
-      plannedMap: new Map(plannedMap)
-    };
-  }
-
-  function restorePlannedState(snapshot) {
-    plannedItems = snapshot.plannedItems.slice();
-    plannedMap = new Map(snapshot.plannedMap);
   }
 
   function buildPlannedPayload(event) {
@@ -622,87 +601,26 @@
     };
   }
 
-  function toPlannedLocalEvent(event) {
-    return normalizePlannedEvent({
-      event_key: safeStr(event?.eventKey || event?.id),
-      source: safeStr(event?.source).toLowerCase(),
-      source_id: safeStr(event?.sourceId),
-      title: safeStr(event?.title || event?.artist),
-      main_artist: safeStr(event?.artist || event?.title),
-      date_local: safeStr(event?.dateLocal),
-      time_local: safeStr(event?.timeLocal),
-      venue_name: safeStr(event?.venue),
-      city: safeStr(event?.city),
-      country: safeStr(event?.country || "NL"),
-      url: safeStr(event?.url),
-      image_url: safeStr(event?.imageUrl),
-      status: "planned",
-      notes: ""
+  async function addToPlan(event) {
+    const payload = buildPlannedPayload(event);
+
+    await fetchJson(`${ARCHIVE_BASE}/planned-concerts/add`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
     });
+
+    await loadPlannedConcerts();
   }
 
-  const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
+  async function removeFromPlan(eventKey) {
+    await fetchJson(`${ARCHIVE_BASE}/planned-concerts/remove`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event_key: safeStr(eventKey) })
+    });
 
-  function applyLocalPlan(event) {
-    const local = toPlannedLocalEvent(event);
-    if (!local) return null;
-
-    plannedItems = plannedItems.filter((x) => x.eventKey !== local.eventKey);
-    plannedItems.push(local);
-    plannedItems.sort((a, b) => a.startTs - b.startTs);
-    rebuildPlannedMap();
-
-    store.dismissedIds = store.dismissedIds.filter((x) => x !== local.id);
-    saveStore(store);
-    return local;
-  }
-
-  function applyLocalUnplan(eventKey) {
-    const key = safeStr(eventKey);
-    plannedItems = plannedItems.filter((x) => x.eventKey !== key);
-    rebuildPlannedMap();
-  }
-
-  function applyLocalDismiss(eventId) {
-    const id = safeStr(eventId);
-    if (!store.dismissedIds.includes(id)) {
-      store.dismissedIds.push(id);
-      saveStore(store);
-    }
-  }
-
-  function applyLocalUndismiss(eventId) {
-    const id = safeStr(eventId);
-    store.dismissedIds = store.dismissedIds.filter((x) => x !== id);
-    saveStore(store);
-  }
-
-  async function persistPlanInBackground(event, snapshot) {
-    try {
-      await fetchJson(`${ARCHIVE_BASE}/planned-concerts/add`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildPlannedPayload(event))
-      });
-    } catch (err) {
-      restorePlannedState(snapshot);
-      render(lastEvents, lastMeta);
-      alert(`Could not save planned concert.\n\n${safeStr(err?.message || "")}`);
-    }
-  }
-
-  async function persistUnplanInBackground(eventKey, snapshot) {
-    try {
-      await fetchJson(`${ARCHIVE_BASE}/planned-concerts/remove`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ event_key: safeStr(eventKey) })
-      });
-    } catch (err) {
-      restorePlannedState(snapshot);
-      render(lastEvents, lastMeta);
-      alert(`Could not remove planned concert.\n\n${safeStr(err?.message || "")}`);
-    }
+    await loadPlannedConcerts();
   }
 
   async function markPendingAttended(eventKey) {
@@ -725,12 +643,67 @@
     await loadPlannedConcerts();
   }
 
+  function clonePlannedState() {
+    return {
+      plannedItems: plannedItems.slice(),
+      plannedMap: new Map(plannedMap)
+    };
+  }
+
+  function restorePlannedState(snapshot) {
+    plannedItems = snapshot.plannedItems.slice();
+    plannedMap = new Map(snapshot.plannedMap);
+  }
+
+  function applyLocalPlan(event) {
+    const normalized = normalizePlannedEvent({
+      event_key: safeStr(event?.eventKey || event?.id),
+      source: safeStr(event?.source).toLowerCase(),
+      source_id: safeStr(event?.sourceId),
+      title: safeStr(event?.title || event?.artist),
+      main_artist: safeStr(event?.artist || event?.title),
+      date_local: safeStr(event?.dateLocal),
+      time_local: safeStr(event?.timeLocal),
+      venue_name: safeStr(event?.venue),
+      city: safeStr(event?.city),
+      country: safeStr(event?.country || "NL"),
+      url: safeStr(event?.url),
+      image_url: safeStr(event?.imageUrl),
+      status: "planned",
+      notes: ""
+    });
+
+    if (!normalized) return;
+
+    plannedMap.set(normalized.eventKey, normalized);
+
+    const next = plannedItems.filter((x) => x.eventKey !== normalized.eventKey);
+    next.push(normalized);
+    next.sort((a, b) => a.startTs - b.startTs);
+    plannedItems = next;
+  }
+
+  async function persistPlanInBackground(event, snapshot) {
+    try {
+      await addToPlan(event);
+      render(lastEvents, lastMeta);
+    } catch (e) {
+      restorePlannedState(snapshot);
+      render(lastEvents, lastMeta);
+      alert(`Could not save planned concert.\n\n${safeStr(e?.message || "")}`);
+    }
+  }
+
+  const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
+
   async function dismiss(id) {
-    applyLocalDismiss(id);
+    if (!store.dismissedIds.includes(id)) store.dismissedIds.push(id);
+    saveStore(store);
   }
 
   async function undismiss(id) {
-    applyLocalUndismiss(id);
+    store.dismissedIds = store.dismissedIds.filter((x) => x !== id);
+    saveStore(store);
   }
 
   function splitVisibleEventsByState(events) {
@@ -743,8 +716,7 @@
       if (dismissedIds.has(ev.id)) {
         hidden.push(ev);
       } else if (isPlanned(ev.eventKey || ev.id)) {
-        const plannedLocal = plannedMap.get(safeStr(ev.eventKey || ev.id));
-        planned.push(plannedLocal ? { ...ev, plannedStatus: plannedLocal.plannedStatus, fromPlannedDb: true } : ev);
+        planned.push(ev);
       } else {
         announced.push(ev);
       }
@@ -797,13 +769,13 @@
     const snoozedKey = safeStr(store.snoozedPendingEventKey);
     const firstNonSnoozed = pending.find((ev) => ev.eventKey !== snoozedKey);
     return firstNonSnoozed || pending[0] || null;
-         }
-   function updatePendingPromptState() {
+  }
+
+  function updatePendingPromptState() {
     pendingPromptItem = getPendingPromptCandidate();
     renderPendingPrompt();
   }
-
-  async function handlePendingYes() {
+   async function handlePendingYes() {
     if (!pendingPromptItem || pendingPromptBusy) return;
     pendingPromptBusy = true;
     renderPendingPrompt();
@@ -814,7 +786,7 @@
         store.snoozedPendingEventKey = "";
         saveStore(store);
       }
-      await hardRefresh(false);
+      await refresh();
     } catch (e) {
       pendingPromptBusy = false;
       renderPendingPrompt();
@@ -833,7 +805,7 @@
         store.snoozedPendingEventKey = "";
         saveStore(store);
       }
-      await hardRefresh(false);
+      await refresh();
     } catch (e) {
       pendingPromptBusy = false;
       renderPendingPrompt();
@@ -891,8 +863,21 @@
     noBtn.disabled = pendingPromptBusy;
     noBtn.addEventListener("click", handlePendingNo);
 
+    const laterBtn = document.createElement("button");
+    laterBtn.type = "button";
+    laterBtn.className = "lmx-checkin-btn";
+    laterBtn.textContent = "Remind me later";
+    laterBtn.disabled = pendingPromptBusy;
+    laterBtn.addEventListener("click", () => {
+      store.snoozedPendingEventKey = safeStr(ev.eventKey);
+      saveStore(store);
+      pendingPromptItem = null;
+      renderPendingPrompt();
+    });
+
     actions.appendChild(yesBtn);
     actions.appendChild(noBtn);
+    actions.appendChild(laterBtn);
 
     panel.appendChild(image);
     panel.appendChild(badge);
@@ -984,6 +969,38 @@
     return new Set(events.map((x) => lowerKey(x.city)).filter(Boolean)).size;
   }
 
+  function normalizeCityKey(city) {
+    return lowerKey(city);
+  }
+
+  function getRadarCities(events) {
+    const counts = new Map();
+
+    for (const ev of events) {
+      const city = safeStr(ev.city);
+      const key = normalizeCityKey(city);
+      if (!key) continue;
+
+      const existing = counts.get(key);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        counts.set(key, { key, city, count: 1 });
+      }
+    }
+
+    return Array.from(counts.values()).sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count;
+      return a.city.localeCompare(b.city);
+    });
+  }
+
+  function filterEventsByRadarCity(events) {
+    const current = safeStr(store.radarCityFilter || "all");
+    if (!current || current === "all") return events.slice();
+    return events.filter((ev) => normalizeCityKey(ev.city) === current);
+  }
+
   function removeExistingDetailsSheet() {
     document.querySelectorAll(".lmx-sheet").forEach((el) => el.remove());
   }
@@ -1038,94 +1055,22 @@
     titleWrap.appendChild(kicker);
     titleWrap.appendChild(title);
     titleWrap.appendChild(sub);
+
     top.appendChild(titleWrap);
     shell.appendChild(top);
-
-    const plannedCount = plannedItems.filter((x) => x.plannedStatus === "planned").length;
 
     const modebar = document.createElement("div");
     modebar.className = "lmx-modebar";
     modebar.appendChild(createModeButton("Discover", "discover"));
     modebar.appendChild(createModeButton("Radar", "radar"));
-    modebar.appendChild(createModeButton(`Going ${plannedCount}`, "going"));
+    modebar.appendChild(createModeButton(`Going ${plannedItems.filter((x) => x.plannedStatus === "planned").length}`, "going"));
     modebar.appendChild(createModeButton("Hidden", "hidden"));
 
     shell.appendChild(modebar);
     return shell;
   }
 
-  function attachSwipe(card, { onLeft, onRight, onUp, passLabel, planLabel }) {
-    let startX = 0;
-    let startY = 0;
-    let dx = 0;
-    let dy = 0;
-    let active = false;
-
-    const onPointerDown = (e) => {
-      active = true;
-      startX = e.clientX;
-      startY = e.clientY;
-      dx = 0;
-      dy = 0;
-      card.setPointerCapture?.(e.pointerId);
-      card.style.transition = "none";
-    };
-
-    const onPointerMove = (e) => {
-      if (!active) return;
-      dx = e.clientX - startX;
-      dy = e.clientY - startY;
-
-      const rotate = dx * 0.04;
-      card.style.transform = `translate(${dx}px, ${dy}px) rotate(${rotate}deg)`;
-
-      if (dx < -40) passLabel.classList.add("show");
-      else passLabel.classList.remove("show");
-
-      if (dx > 40) planLabel.classList.add("show");
-      else planLabel.classList.remove("show");
-    };
-
-    const onPointerUp = () => {
-      if (!active) return;
-      active = false;
-      card.style.transition = "transform .22s ease, opacity .22s ease";
-      passLabel.classList.remove("show");
-      planLabel.classList.remove("show");
-
-      const absX = Math.abs(dx);
-      const absY = Math.abs(dy);
-
-      if (dx <= -110 && absX > absY) {
-        card.style.transform = `translate(-140%, ${dy}px) rotate(-18deg)`;
-        setTimeout(() => { onLeft(); }, 140);
-        return;
-      }
-
-      if (dx >= 110 && absX > absY) {
-        card.style.transform = `translate(140%, ${dy}px) rotate(18deg)`;
-        setTimeout(() => { onRight(); }, 140);
-        return;
-      }
-
-      if (dy <= -90 && absY > absX) {
-        card.style.transform = `translate(0px, -22px) scale(.99)`;
-        setTimeout(() => {
-          card.style.transform = "";
-          onUp();
-        }, 120);
-        return;
-      }
-
-      card.style.transform = "";
-    };
-
-    card.addEventListener("pointerdown", onPointerDown);
-    card.addEventListener("pointermove", onPointerMove);
-    card.addEventListener("pointerup", onPointerUp);
-    card.addEventListener("pointercancel", onPointerUp);
-  }
-   function buildDeckCard(item, positionIndex) {
+  function buildDeckCard(item, positionIndex) {
     const card = document.createElement("div");
     card.className = `lmx-card${positionIndex === 1 ? " is-back-1" : positionIndex === 2 ? " is-back-2" : ""}`;
 
@@ -1217,6 +1162,7 @@
     hideBtn.type = "button";
     hideBtn.className = "lmx-action lmx-action--hide";
     hideBtn.textContent = "×";
+    hideBtn.title = "Hide";
 
     const infoBtn = document.createElement("button");
     infoBtn.type = "button";
@@ -1227,6 +1173,7 @@
     planBtn.type = "button";
     planBtn.className = "lmx-action lmx-action--plan";
     planBtn.textContent = "✓";
+    planBtn.title = "Plan";
 
     actions.appendChild(hideBtn);
     actions.appendChild(infoBtn);
@@ -1247,9 +1194,9 @@
 
     const triggerPass = async () => {
       if (item.type === "group") {
-        for (const ev of item.group.events) applyLocalDismiss(ev.id);
+        for (const ev of item.group.events) await dismiss(ev.id);
       } else {
-        applyLocalDismiss(item.event.id);
+        await dismiss(item.event.id);
       }
       store.deckIndex += 1;
       saveStore(store);
@@ -1279,7 +1226,6 @@
           return;
         }
       }
-
       store.deckIndex += 1;
       saveStore(store);
       render(lastEvents, lastMeta);
@@ -1302,7 +1248,78 @@
     return card;
   }
 
-  function buildDiscover(events) {
+  function attachSwipe(card, { onLeft, onRight, onUp, passLabel, planLabel }) {
+    let startX = 0;
+    let startY = 0;
+    let dx = 0;
+    let dy = 0;
+    let active = false;
+
+    const onPointerDown = (e) => {
+      active = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      dx = 0;
+      dy = 0;
+      card.setPointerCapture?.(e.pointerId);
+      card.style.transition = "none";
+    };
+
+    const onPointerMove = (e) => {
+      if (!active) return;
+      dx = e.clientX - startX;
+      dy = e.clientY - startY;
+
+      const rotate = dx * 0.04;
+      card.style.transform = `translate(${dx}px, ${dy}px) rotate(${rotate}deg)`;
+
+      if (dx < -40) passLabel.classList.add("show");
+      else passLabel.classList.remove("show");
+
+      if (dx > 40) planLabel.classList.add("show");
+      else planLabel.classList.remove("show");
+    };
+
+    const onPointerUp = async () => {
+      if (!active) return;
+      active = false;
+      card.style.transition = "transform .22s ease, opacity .22s ease";
+      passLabel.classList.remove("show");
+      planLabel.classList.remove("show");
+
+      const absX = Math.abs(dx);
+      const absY = Math.abs(dy);
+
+      if (dx <= -110 && absX > absY) {
+        card.style.transform = `translate(-140%, ${dy}px) rotate(-18deg)`;
+        setTimeout(() => { onLeft(); }, 140);
+        return;
+      }
+
+      if (dx >= 110 && absX > absY) {
+        card.style.transform = `translate(140%, ${dy}px) rotate(18deg)`;
+        setTimeout(() => { onRight(); }, 140);
+        return;
+      }
+
+      if (dy <= -90 && absY > absX) {
+        card.style.transform = `translate(0px, -22px) scale(.99)`;
+        setTimeout(() => {
+          card.style.transform = "";
+          onUp();
+        }, 120);
+        return;
+      }
+
+      card.style.transform = "";
+    };
+
+    card.addEventListener("pointerdown", onPointerDown);
+    card.addEventListener("pointermove", onPointerMove);
+    card.addEventListener("pointerup", onPointerUp);
+    card.addEventListener("pointercancel", onPointerUp);
+}
+   function buildDiscover(events) {
     const deck = getDeck(events);
     const wrap = document.createElement("div");
     wrap.className = "lmx-deck-wrap";
@@ -1344,10 +1361,13 @@
       return wrap;
     }
 
-    visible.slice().reverse().forEach((item, idxFromBack) => {
-      const position = visible.length - 1 - idxFromBack;
-      stage.appendChild(buildDeckCard(item, position));
-    });
+    visible
+      .slice()
+      .reverse()
+      .forEach((item, idxFromBack) => {
+        const position = visible.length - 1 - idxFromBack;
+        stage.appendChild(buildDeckCard(item, position));
+      });
 
     wrap.appendChild(stage);
     return wrap;
@@ -1357,29 +1377,52 @@
     const wrap = document.createElement("div");
     wrap.className = "lmx-radar-grid";
 
-    const cityMap = new Map();
-    events.forEach((ev) => {
-      const key = safeStr(ev.city) || "Unknown";
-      cityMap.set(key, (cityMap.get(key) || 0) + 1);
-    });
+    const allCities = getRadarCities(events);
+    const filteredEvents = filterEventsByRadarCity(events);
 
     const cityBar = document.createElement("div");
     cityBar.className = "lmx-radar-citybar";
 
-    Array.from(cityMap.entries()).sort((a, b) => b[1] - a[1]).slice(0, 6).forEach(([city, count]) => {
-      const node = document.createElement("div");
-      node.className = "lmx-city-node";
-      node.innerHTML = `<p class="lmx-city-name">${city}</p><p class="lmx-city-count">${count} matches</p>`;
+    const allNode = document.createElement("button");
+    allNode.type = "button";
+    allNode.className = `lmx-city-node lmx-city-node--button${safeStr(store.radarCityFilter) === "all" ? " is-active" : ""}`;
+    allNode.innerHTML = `
+      <p class="lmx-city-name">All cities</p>
+      <p class="lmx-city-count">${events.length} matches</p>
+    `;
+    allNode.addEventListener("click", () => {
+      store.radarCityFilter = "all";
+      saveStore(store);
+      render(lastEvents, lastMeta);
+    });
+    cityBar.appendChild(allNode);
+
+    allCities.slice(0, 12).forEach(({ city, key, count }) => {
+      const node = document.createElement("button");
+      node.type = "button";
+      node.className = `lmx-city-node lmx-city-node--button${safeStr(store.radarCityFilter) === key ? " is-active" : ""}`;
+      node.innerHTML = `
+        <p class="lmx-city-name">${city}</p>
+        <p class="lmx-city-count">${count} matches</p>
+      `;
+      node.addEventListener("click", () => {
+        store.radarCityFilter = safeStr(store.radarCityFilter) === key ? "all" : key;
+        saveStore(store);
+        render(lastEvents, lastMeta);
+      });
       cityBar.appendChild(node);
     });
 
     wrap.appendChild(cityBar);
 
-    const groups = groupEventsByArtist(events);
+    const groups = groupEventsByArtist(filteredEvents);
+
     if (!groups.length) {
       const empty = document.createElement("div");
       empty.className = "lmx-empty";
-      empty.textContent = "No artist groups available right now.";
+      empty.textContent = safeStr(store.radarCityFilter) === "all"
+        ? "No artist groups available right now."
+        : "No matches for this city right now.";
       wrap.appendChild(empty);
       return wrap;
     }
@@ -1393,7 +1436,11 @@
 
       const thumb = document.createElement("div");
       thumb.className = "lmx-group-thumb";
-      thumb.style.backgroundImage = buildCoverStyle({ imageUrl: group.imageUrl, artist: group.artist, id: group.key });
+      thumb.style.backgroundImage = buildCoverStyle({
+        imageUrl: group.imageUrl,
+        artist: group.artist,
+        id: group.key
+      });
 
       const main = document.createElement("div");
       main.className = "lmx-group-main";
@@ -1402,11 +1449,14 @@
       title.className = "lmx-group-title";
       title.textContent = titleCaseArtist(normalizeArtistForLookup(group.artist));
 
+      const firstVisible = group.events[0];
+      const lastVisible = group.events[group.events.length - 1];
+
       const sub = document.createElement("p");
       sub.className = "lmx-group-sub";
-      sub.textContent = group.count > 1
-        ? `${group.count} dates • ${formatMonthDay(group.events[0].start)} → ${formatMonthDay(group.events[group.events.length - 1].start)}`
-        : `${safeStr(group.nextEvent?.city)} • ${safeStr(group.nextEvent?.venue)} • ${formatShortDayDate(group.nextEvent?.start)}`;
+      sub.textContent = group.events.length > 1
+        ? `${group.events.length} dates • ${safeStr(firstVisible.city)} • ${formatMonthDay(firstVisible.start)} → ${formatMonthDay(lastVisible.start)}`
+        : `${safeStr(firstVisible.city)} • ${safeStr(firstVisible.venue)} • ${formatShortDayDate(firstVisible.start)}`;
 
       main.appendChild(title);
       main.appendChild(sub);
@@ -1516,10 +1566,17 @@
 
       const dateBadge = document.createElement("div");
       dateBadge.className = "lmx-date-badge";
-      dateBadge.innerHTML = `
-        <div class="lmx-date-badge-day">${new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Amsterdam", day: "numeric" }).format(ev.start)}</div>
-        <div class="lmx-date-badge-month">${new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Amsterdam", month: "short" }).format(ev.start)}</div>
-      `;
+
+      const d = document.createElement("div");
+      d.className = "lmx-date-badge-day";
+      d.textContent = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Amsterdam", day: "numeric" }).format(ev.start);
+
+      const m = document.createElement("div");
+      m.className = "lmx-date-badge-month";
+      m.textContent = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Amsterdam", month: "short" }).format(ev.start);
+
+      dateBadge.appendChild(d);
+      dateBadge.appendChild(m);
 
       const main = document.createElement("div");
       main.className = "lmx-itinerary-main";
@@ -1558,10 +1615,8 @@
       removeBtn.className = "lmx-btn lmx-btn--danger";
       removeBtn.textContent = "Remove";
       removeBtn.addEventListener("click", async () => {
-        const snapshot = clonePlannedState();
-        applyLocalUnplan(ev.eventKey || ev.id);
-        render(lastEvents, lastMeta);
-        persistUnplanInBackground(ev.eventKey || ev.id, snapshot);
+        await removeFromPlan(ev.eventKey || ev.id);
+        await refresh();
       });
 
       actions.appendChild(whyBtn);
@@ -1599,7 +1654,10 @@
 
       const dateBadge = document.createElement("div");
       dateBadge.className = "lmx-date-badge";
-      dateBadge.innerHTML = `<div class="lmx-date-badge-day">×</div><div class="lmx-date-badge-month">HIDDEN</div>`;
+      dateBadge.innerHTML = `
+        <div class="lmx-date-badge-day">×</div>
+        <div class="lmx-date-badge-month">HIDDEN</div>
+      `;
 
       const main = document.createElement("div");
       main.className = "lmx-itinerary-main";
@@ -1620,7 +1678,7 @@
       restoreBtn.className = "lmx-btn lmx-btn--primary";
       restoreBtn.textContent = "Restore";
       restoreBtn.addEventListener("click", async () => {
-        applyLocalUndismiss(ev.id);
+        await undismiss(ev.id);
         render(lastEvents, lastMeta);
       });
 
@@ -1655,7 +1713,9 @@
     panel.className = "lmx-sheet-panel";
 
     overlay.addEventListener("click", (e) => {
-      if (!panel.contains(e.target)) closeDetailsSheet();
+      if (!panel.contains(e.target)) {
+        closeDetailsSheet();
+      }
     });
 
     const cover = document.createElement("div");
@@ -1706,6 +1766,7 @@
       if (!isPlanned(ev.eventKey || ev.id)) {
         const snapshot = clonePlannedState();
         applyLocalPlan(ev);
+        closeDetailsSheet();
         render(lastEvents, lastMeta);
         persistPlanInBackground(ev, snapshot);
       }
@@ -1716,7 +1777,7 @@
     hideBtn.className = "lmx-btn lmx-btn--danger";
     hideBtn.textContent = "Hide";
     hideBtn.addEventListener("click", async () => {
-      applyLocalDismiss(ev.id);
+      await dismiss(ev.id);
       closeDetailsSheet();
       render(lastEvents, lastMeta);
     });
@@ -1748,90 +1809,104 @@
 
   function injectStylesOnce() {
     if (document.getElementById("lmConcertsSwipeStyles")) return;
+
     const style = document.createElement("style");
     style.id = "lmConcertsSwipeStyles";
     style.textContent = `
-      #econcertsList{display:block}
-      .lmx-shell,.lmx-deck-wrap,.lmx-radar-grid,.lmx-going-list,.lmx-hidden-list{display:flex;flex-direction:column;gap:14px}
-      .lmx-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
-      .lmx-title-wrap{display:flex;flex-direction:column;gap:6px;min-width:0}
-      .lmx-kicker{display:inline-flex;align-items:center;gap:8px;font-size:.82rem;font-weight:900;color:rgba(255,255,255,.72);letter-spacing:.04em;text-transform:uppercase}
-      .lmx-kicker-dot{width:8px;height:8px;border-radius:999px;background:#8db7ff;box-shadow:0 0 14px rgba(141,183,255,.9);animation:lmxPulse 1.6s infinite ease-in-out}
-      @keyframes lmxPulse{0%,100%{transform:scale(1);opacity:.9}50%{transform:scale(1.35);opacity:1}}
-      .lmx-title{margin:0;font-size:1.18rem;font-weight:900;color:#fff}
-      .lmx-sub{margin:0;font-size:.92rem;color:rgba(255,255,255,.72)}
-      .lmx-modebar{display:flex;gap:8px;flex-wrap:wrap;position:sticky;top:8px;z-index:8}
-      .lmx-mode{appearance:none;border:none;cursor:pointer;border-radius:999px;padding:10px 14px;font:inherit;font-weight:900;color:#fff;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(12px)}
-      .lmx-mode.is-on{background:linear-gradient(180deg, rgba(136,171,255,.24), rgba(83,110,255,.12));border-color:rgba(162,188,255,.30);box-shadow:0 10px 30px rgba(34,58,120,.22)}
-      .lmx-deck-stage{position:relative;height:72vh;min-height:540px}
-      .lmx-card{position:absolute;inset:0;border-radius:28px;overflow:hidden;border:1px solid rgba(255,255,255,.10);box-shadow:0 28px 60px rgba(0,0,0,.32);background:#0b1017;touch-action:none;user-select:none;transform-origin:center center;transition:transform .22s ease,opacity .22s ease,filter .22s ease}
-      .lmx-card.is-back-1{transform:translateY(14px) scale(.975);opacity:.62;filter:blur(.4px)}
-      .lmx-card.is-back-2{transform:translateY(28px) scale(.95);opacity:.34;filter:blur(.8px)}
-      .lmx-card-cover,.lmx-sheet-cover,.lmx-checkin-image,.lmx-group-thumb{background-size:cover;background-position:center center}
-      .lmx-card-cover{position:absolute;inset:0;transform:scale(1.03)}
-      .lmx-card-cover::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.18) 24%, rgba(0,0,0,.84) 100%),radial-gradient(circle at 50% 24%, rgba(124,171,255,.18), transparent 22%)}
-      .lmx-card-body{position:relative;z-index:1;height:100%;display:flex;flex-direction:column;justify-content:space-between;padding:16px}
-      .lmx-chip-row,.lmx-sheet-row,.lmx-actions,.lmx-modebar,.lmx-itinerary-actions{display:flex;gap:8px;flex-wrap:wrap}
-      .lmx-chip{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:8px 11px;font-size:.79rem;font-weight:900;color:#fff;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.10);backdrop-filter:blur(12px)}
-      .lmx-card-bottom{display:flex;flex-direction:column;gap:12px}
-      .lmx-artist{margin:0;font-size:2rem;line-height:1.01;font-weight:950;text-transform:uppercase;color:#fff}
-      .lmx-meta{margin:0;font-size:1rem;font-weight:800;color:rgba(255,255,255,.96)}
-      .lmx-reason,.lmx-sheet-text,.lmx-checkin-sub,.lmx-date-sub,.lmx-itinerary-sub{margin:0;font-size:.93rem;color:rgba(255,255,255,.78);line-height:1.4}
-      .lmx-swipe-label{position:absolute;top:18px;padding:10px 14px;border-radius:14px;font-size:1rem;font-weight:950;letter-spacing:.06em;text-transform:uppercase;border:2px solid rgba(255,255,255,.26);opacity:0;pointer-events:none;backdrop-filter:blur(12px)}
-      .lmx-swipe-label.pass{left:18px;color:#ff9d94}
-      .lmx-swipe-label.plan{right:18px;color:#9ef4c2}
-      .lmx-swipe-label.show{opacity:1}
-      .lmx-actions{display:flex;align-items:center;justify-content:center;gap:12px}
-      .lmx-action{appearance:none;border:none;cursor:pointer;width:56px;height:56px;border-radius:999px;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.12);color:#fff;font:inherit;font-weight:900;backdrop-filter:blur(12px);box-shadow:0 10px 24px rgba(0,0,0,.22)}
-      .lmx-action.lmx-action--big{width:auto;min-width:110px;padding:0 18px;border-radius:999px}
-      .lmx-action--plan{background:linear-gradient(180deg, rgba(58,211,140,.24), rgba(27,135,88,.16))}
-      .lmx-action--hide{background:linear-gradient(180deg, rgba(255,114,114,.18), rgba(158,45,45,.10))}
-      .lmx-action--info,.lmx-btn--primary,.lmx-checkin-btn--primary{background:linear-gradient(180deg, rgba(136,171,255,.24), rgba(83,110,255,.12))}
-      .lmx-deck-progress,.lmx-group,.lmx-itinerary,.lmx-empty{border-radius:18px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06)}
-      .lmx-deck-progress{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px}
-      .lmx-progress-text{font-size:.9rem;color:rgba(255,255,255,.78)}
-      .lmx-radar-citybar{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px}
-      .lmx-city-node{border-radius:20px;padding:14px;min-height:92px;border:1px solid rgba(255,255,255,.08);background:radial-gradient(circle at 50% 22%, rgba(124,171,255,.18), transparent 26%),linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03))}
-      .lmx-city-name,.lmx-group-title,.lmx-date-title,.lmx-itinerary-title,.lmx-sheet-title,.lmx-checkin-title{margin:0;color:#fff;font-weight:900}
-      .lmx-city-name{font-size:1rem}
-      .lmx-city-count{margin:0;font-size:.88rem;color:rgba(255,255,255,.72)}
-      .lmx-group{overflow:hidden;box-shadow:0 16px 34px rgba(0,0,0,.20)}
-      .lmx-group-head{display:flex;gap:12px;align-items:center;padding:14px;cursor:pointer}
-      .lmx-group-thumb{width:72px;height:72px;border-radius:18px;flex-shrink:0;border:1px solid rgba(255,255,255,.10)}
-      .lmx-group-main{min-width:0;display:flex;flex-direction:column;gap:6px;flex:1}
-      .lmx-group-title{font-size:1.08rem}
-      .lmx-group-sub{margin:0;font-size:.9rem;color:rgba(255,255,255,.76)}
-      .lmx-group-cta,.lmx-btn,.lmx-checkin-btn{appearance:none;border:none;cursor:pointer;border-radius:12px;padding:10px 12px;font:inherit;font-weight:900;color:#fff;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.09)}
-      .lmx-group-dates{display:none;padding:0 14px 14px;gap:10px;flex-direction:column}
-      .lmx-group.is-open .lmx-group-dates{display:flex}
-      .lmx-date-row{display:flex;align-items:center;justify-content:space-between;gap:10px;border-radius:16px;padding:12px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.06)}
-      .lmx-date-left{display:flex;flex-direction:column;gap:4px;min-width:0}
-      .lmx-going-list,.lmx-hidden-list{display:flex;flex-direction:column;gap:12px}
-      .lmx-itinerary{display:grid;grid-template-columns:72px 1fr;gap:12px;overflow:hidden;padding:14px}
-      .lmx-date-badge{border-radius:18px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);min-height:92px}
-      .lmx-date-badge-day{font-size:1.35rem;font-weight:950;color:#fff;line-height:1}
-      .lmx-date-badge-month{font-size:.82rem;font-weight:900;color:rgba(255,255,255,.72);text-transform:uppercase;letter-spacing:.05em}
-      .lmx-itinerary-main{display:flex;flex-direction:column;gap:8px;min-width:0}
-      .lmx-itinerary-title{font-size:1.12rem}
-      .lmx-btn--danger{background:linear-gradient(180deg, rgba(255,114,114,.18), rgba(158,45,45,.10))}
-      .lmx-btn--plan{background:linear-gradient(180deg, rgba(58,211,140,.24), rgba(27,135,88,.16))}
-      .lmx-sheet,.lmx-checkin-overlay{position:fixed;inset:0;background:rgba(0,0,0,.48);backdrop-filter:blur(10px);display:flex;align-items:flex-end;justify-content:center;padding:16px}
-      .lmx-sheet{z-index:9998}
-      .lmx-checkin-overlay{z-index:9999}
-      .lmx-sheet-panel,.lmx-checkin-panel{width:min(100%,520px);border-radius:28px;overflow:hidden;border:1px solid rgba(255,255,255,.10);background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)),linear-gradient(180deg, #0c1016, #080b10);box-shadow:0 28px 60px rgba(0,0,0,.38)}
-      .lmx-sheet-panel{max-height:86vh;overflow:auto}
-      .lmx-sheet-cover{height:220px}
-      .lmx-sheet-body{padding:16px;display:flex;flex-direction:column;gap:14px}
-      .lmx-sheet-title{font-size:1.5rem;line-height:1.08;font-weight:950}
-      .lmx-sheet-close{position:sticky;top:0;margin-left:auto;display:block}
-      .lmx-checkin-panel{max-width:430px;padding:0 0 16px}
-      .lmx-checkin-image{height:180px}
-      .lmx-checkin-badge{display:inline-flex;margin:14px 16px 0;padding:7px 11px;border-radius:999px;font-size:.77rem;font-weight:900;letter-spacing:.04em;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.10)}
-      .lmx-checkin-title{margin:12px 16px 0;font-size:1.24rem;line-height:1.2}
-      .lmx-checkin-sub{margin:10px 16px 0;font-size:.95rem;color:rgba(255,255,255,.84)}
-      .lmx-checkin-actions{display:flex;flex-direction:column;gap:8px;padding:14px 16px 0}
-      .lmx-checkin-btn:disabled{opacity:.65;cursor:default}
-      @media (max-width:640px){.lmx-deck-stage{min-height:500px;height:68vh}.lmx-artist{font-size:1.68rem}}
+      #econcertsList { display:block; }
+      .lmx-shell { display:flex; flex-direction:column; gap:14px; }
+      .lmx-top { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+      .lmx-title-wrap { display:flex; flex-direction:column; gap:6px; min-width:0; }
+      .lmx-kicker { display:inline-flex; align-items:center; gap:8px; font-size:.82rem; font-weight:900; color:rgba(255,255,255,.72); letter-spacing:.04em; text-transform:uppercase; }
+      .lmx-kicker-dot { width:8px; height:8px; border-radius:999px; background:#8db7ff; box-shadow:0 0 14px rgba(141,183,255,.9); animation:lmxPulse 1.6s infinite ease-in-out; }
+      @keyframes lmxPulse { 0%,100% { transform:scale(1); opacity:.9; } 50% { transform:scale(1.35); opacity:1; } }
+      .lmx-title { margin:0; font-size:1.18rem; font-weight:900; color:#fff; }
+      .lmx-sub { margin:0; font-size:.92rem; color:rgba(255,255,255,.72); }
+      .lmx-modebar { display:flex; gap:8px; flex-wrap:wrap; position:sticky; top:8px; z-index:8; }
+      .lmx-mode { appearance:none; border:none; cursor:pointer; border-radius:999px; padding:10px 14px; font:inherit; font-weight:900; color:#fff; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08); backdrop-filter:blur(12px); }
+      .lmx-mode.is-on { background:linear-gradient(180deg, rgba(136,171,255,.24), rgba(83,110,255,.12)); border-color:rgba(162,188,255,.30); box-shadow:0 10px 30px rgba(34,58,120,.22); }
+      .lmx-deck-wrap { display:flex; flex-direction:column; gap:14px; }
+      .lmx-deck-stage { position:relative; height:72vh; min-height:540px; }
+      .lmx-card { position:absolute; inset:0; border-radius:28px; overflow:hidden; border:1px solid rgba(255,255,255,.10); box-shadow:0 28px 60px rgba(0,0,0,.32); background:#0b1017; touch-action:none; user-select:none; transform-origin:center center; transition:transform .22s ease, opacity .22s ease, filter .22s ease; }
+      .lmx-card.is-back-1 { transform:translateY(14px) scale(.975); opacity:.62; filter:blur(.4px); }
+      .lmx-card.is-back-2 { transform:translateY(28px) scale(.95); opacity:.34; filter:blur(.8px); }
+      .lmx-card-cover { position:absolute; inset:0; background-size:cover; background-position:center center; transform:scale(1.03); }
+      .lmx-card-cover::after { content:""; position:absolute; inset:0; background:linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.18) 24%, rgba(0,0,0,.84) 100%), radial-gradient(circle at 50% 24%, rgba(124,171,255,.18), transparent 22%); }
+      .lmx-card-body { position:relative; z-index:1; height:100%; display:flex; flex-direction:column; justify-content:space-between; padding:16px; }
+      .lmx-chip-row { display:flex; gap:8px; flex-wrap:wrap; align-self:flex-start; }
+      .lmx-chip { display:inline-flex; align-items:center; gap:6px; border-radius:999px; padding:8px 11px; font-size:.79rem; font-weight:900; color:#fff; background:rgba(255,255,255,.09); border:1px solid rgba(255,255,255,.10); backdrop-filter:blur(12px); }
+      .lmx-card-bottom { display:flex; flex-direction:column; gap:12px; }
+      .lmx-artist { margin:0; font-size:2rem; line-height:1.01; font-weight:950; text-transform:uppercase; color:#fff; }
+      .lmx-meta { margin:0; font-size:1rem; font-weight:800; color:rgba(255,255,255,.96); }
+      .lmx-reason { margin:0; font-size:.93rem; color:rgba(255,255,255,.80); line-height:1.4; }
+      .lmx-swipe-label { position:absolute; top:18px; padding:10px 14px; border-radius:14px; font-size:1rem; font-weight:950; letter-spacing:.06em; text-transform:uppercase; border:2px solid rgba(255,255,255,.26); opacity:0; pointer-events:none; backdrop-filter:blur(12px); }
+      .lmx-swipe-label.pass { left:18px; color:#ff9d94; }
+      .lmx-swipe-label.plan { right:18px; color:#9ef4c2; }
+      .lmx-swipe-label.show { opacity:1; }
+      .lmx-actions { display:flex; align-items:center; justify-content:center; gap:12px; }
+      .lmx-action { appearance:none; border:none; cursor:pointer; width:56px; height:56px; border-radius:999px; background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.12); color:#fff; font:inherit; font-weight:900; backdrop-filter:blur(12px); box-shadow:0 10px 24px rgba(0,0,0,.22); }
+      .lmx-action.lmx-action--big { width:auto; min-width:110px; padding:0 18px; border-radius:999px; }
+      .lmx-action--plan { background:linear-gradient(180deg, rgba(58,211,140,.24), rgba(27,135,88,.16)); }
+      .lmx-action--hide { background:linear-gradient(180deg, rgba(255,114,114,.18), rgba(158,45,45,.10)); }
+      .lmx-action--info { background:linear-gradient(180deg, rgba(136,171,255,.24), rgba(83,110,255,.12)); }
+      .lmx-deck-progress { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px 14px; border-radius:18px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06); }
+      .lmx-progress-text { font-size:.9rem; color:rgba(255,255,255,.78); }
+      .lmx-radar-grid { display:grid; gap:12px; }
+      .lmx-radar-citybar { display:grid; grid-template-columns:repeat(auto-fit, minmax(120px,1fr)); gap:10px; }
+      .lmx-city-node { border-radius:20px; padding:14px; min-height:92px; border:1px solid rgba(255,255,255,.08); background:radial-gradient(circle at 50% 22%, rgba(124,171,255,.18), transparent 26%), linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03)); }
+      .lmx-city-node--button { appearance:none; cursor:pointer; text-align:left; width:100%; }
+      .lmx-city-node.is-active { background:radial-gradient(circle at 50% 22%, rgba(124,171,255,.28), transparent 26%), linear-gradient(180deg, rgba(136,171,255,.16), rgba(83,110,255,.08)); border-color:rgba(162,188,255,.30); box-shadow:0 12px 28px rgba(34,58,120,.18); }
+      .lmx-city-name { margin:0 0 6px; font-size:1rem; font-weight:900; color:#fff; }
+      .lmx-city-count { margin:0; font-size:.88rem; color:rgba(255,255,255,.72); }
+      .lmx-group { border-radius:22px; overflow:hidden; border:1px solid rgba(255,255,255,.08); background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.03)); box-shadow:0 16px 34px rgba(0,0,0,.20); }
+      .lmx-group-head { display:flex; gap:12px; align-items:center; padding:14px; cursor:pointer; }
+      .lmx-group-thumb { width:72px; height:72px; border-radius:18px; background-size:cover; background-position:center center; flex-shrink:0; border:1px solid rgba(255,255,255,.10); }
+      .lmx-group-main { min-width:0; display:flex; flex-direction:column; gap:6px; flex:1; }
+      .lmx-group-title { margin:0; font-size:1.08rem; font-weight:900; color:#fff; }
+      .lmx-group-sub { margin:0; font-size:.9rem; color:rgba(255,255,255,.76); }
+      .lmx-group-cta { appearance:none; border:none; cursor:pointer; border-radius:999px; padding:10px 12px; font:inherit; font-weight:900; color:#fff; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.10); }
+      .lmx-group-dates { display:none; padding:0 14px 14px; gap:10px; flex-direction:column; }
+      .lmx-group.is-open .lmx-group-dates { display:flex; }
+      .lmx-date-row { display:flex; align-items:center; justify-content:space-between; gap:10px; border-radius:16px; padding:12px; background:rgba(255,255,255,.045); border:1px solid rgba(255,255,255,.06); }
+      .lmx-date-left { display:flex; flex-direction:column; gap:4px; min-width:0; }
+      .lmx-date-title { margin:0; font-size:.94rem; font-weight:900; color:#fff; }
+      .lmx-date-sub { margin:0; font-size:.84rem; color:rgba(255,255,255,.72); }
+      .lmx-date-actions { display:flex; gap:8px; flex-shrink:0; }
+      .lmx-going-list, .lmx-hidden-list { display:flex; flex-direction:column; gap:12px; }
+      .lmx-itinerary { display:grid; grid-template-columns:72px 1fr; gap:12px; border-radius:22px; overflow:hidden; padding:14px; border:1px solid rgba(255,255,255,.08); background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.03)); }
+      .lmx-date-badge { border-radius:18px; display:flex; flex-direction:column; align-items:center; justify-content:center; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08); min-height:92px; }
+      .lmx-date-badge-day { font-size:1.35rem; font-weight:950; color:#fff; line-height:1; }
+      .lmx-date-badge-month { font-size:.82rem; font-weight:900; color:rgba(255,255,255,.72); text-transform:uppercase; letter-spacing:.05em; }
+      .lmx-itinerary-main { display:flex; flex-direction:column; gap:8px; min-width:0; }
+      .lmx-itinerary-title { margin:0; font-size:1.12rem; font-weight:900; color:#fff; }
+      .lmx-itinerary-sub { margin:0; font-size:.92rem; color:rgba(255,255,255,.74); }
+      .lmx-itinerary-actions { display:flex; flex-wrap:wrap; gap:8px; }
+      .lmx-btn { appearance:none; border:none; cursor:pointer; border-radius:12px; padding:10px 12px; font:inherit; font-weight:900; color:#fff; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.09); }
+      .lmx-btn--primary { background:linear-gradient(180deg, rgba(136,171,255,.24), rgba(83,110,255,.12)); }
+      .lmx-btn--danger { background:linear-gradient(180deg, rgba(255,114,114,.18), rgba(158,45,45,.10)); }
+      .lmx-btn--plan { background:linear-gradient(180deg, rgba(58,211,140,.24), rgba(27,135,88,.16)); }
+      .lmx-sheet { position:fixed; inset:0; z-index:9998; background:rgba(0,0,0,.48); backdrop-filter:blur(10px); display:flex; align-items:flex-end; justify-content:center; padding:16px; }
+      .lmx-sheet-panel { width:min(100%, 520px); max-height:86vh; overflow:auto; border-radius:28px; overflow:hidden; border:1px solid rgba(255,255,255,.10); background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)), linear-gradient(180deg, #0c1016, #080b10); box-shadow:0 28px 60px rgba(0,0,0,.38); }
+      .lmx-sheet-cover { height:220px; background-size:cover; background-position:center center; }
+      .lmx-sheet-body { padding:16px; display:flex; flex-direction:column; gap:14px; }
+      .lmx-sheet-title { margin:0; font-size:1.5rem; line-height:1.08; font-weight:950; color:#fff; }
+      .lmx-sheet-text { margin:0; font-size:.94rem; color:rgba(255,255,255,.78); line-height:1.5; }
+      .lmx-sheet-row { display:flex; flex-wrap:wrap; gap:8px; }
+      .lmx-sheet-close { position:sticky; top:0; margin-left:auto; display:block; }
+      .lmx-empty { padding:16px 14px; border-radius:18px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06); color:rgba(255,255,255,.74); }
+      .lmx-checkin-overlay { position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,.46); backdrop-filter:blur(10px); display:flex; align-items:flex-end; justify-content:center; padding:18px; }
+      .lmx-checkin-panel { width:min(100%, 430px); border-radius:24px; overflow:hidden; border:1px solid rgba(255,255,255,.10); background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)),linear-gradient(180deg, #0b0f15, #080b10); box-shadow:0 24px 60px rgba(0,0,0,.40); padding:0 0 16px; }
+      .lmx-checkin-image { height:180px; background-size:cover; background-position:center center; }
+      .lmx-checkin-badge { display:inline-flex; margin:14px 16px 0; padding:7px 11px; border-radius:999px; font-size:.77rem; font-weight:900; letter-spacing:.04em; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.10); }
+      .lmx-checkin-title { margin:12px 16px 0; font-size:1.24rem; line-height:1.2; font-weight:900; color:#fff; }
+      .lmx-checkin-sub { margin:10px 16px 0; font-size:.95rem; line-height:1.45; color:rgba(255,255,255,.84); }
+      .lmx-checkin-actions { display:flex; flex-direction:column; gap:8px; padding:14px 16px 0; }
+      .lmx-checkin-btn { appearance:none; border:none; outline:none; border-radius:14px; padding:13px 14px; font:inherit; font-weight:800; color:#fff; cursor:pointer; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.10); }
+      .lmx-checkin-btn--primary { background:linear-gradient(180deg, rgba(136,171,255,.24), rgba(83,110,255,.12)); }
+      @media (max-width: 640px) {
+        .lmx-deck-stage { min-height:500px; height:68vh; }
+        .lmx-artist { font-size:1.68rem; }
+      }
     `;
     document.head.appendChild(style);
   }
@@ -1862,12 +1937,12 @@
     if (sheet) document.body.appendChild(sheet);
   }
 
-  async function hardRefresh(showLoading = true) {
+  async function refresh() {
     store.lastRefreshAt = Date.now();
     saveStore(store);
 
     removeExistingDetailsSheet();
-    if (showLoading) setEmpty("Refreshing concert radar…");
+    setEmpty("Refreshing concert radar…");
 
     const [recommendedPayload, plannedDbEvents] = await Promise.all([
       fetchJson(getRecommendedUrl()),
@@ -1879,16 +1954,13 @@
     const enriched = await enrichEventsWithImages(merged);
 
     pendingPromptBusy = false;
-
-    const visibleDeckLength = getDeck(splitVisibleEventsByState(enriched).announced).length;
-    if (store.deckIndex >= visibleDeckLength) {
+    if (store.deckIndex >= getDeck(splitVisibleEventsByState(enriched).announced).length) {
       store.deckIndex = 0;
       saveStore(store);
     }
 
     render(enriched, recommendedPayload?.meta || null);
     updatePendingPromptState();
-    isBootLoaded = true;
   }
 
   function wireConcertsTabRefresh() {
@@ -1899,7 +1971,7 @@
     if (!btn) return;
 
     btn.addEventListener("click", () => {
-      hardRefresh(false).catch((e) => {
+      refresh().catch((e) => {
         setEmpty(`Failed to refresh. ${safeStr(e?.message || "")}`.trim());
       });
     }, { passive: true });
@@ -1913,10 +1985,10 @@
     get lastEvents() { return lastEvents; },
     get plannedItems() { return plannedItems; },
     get pendingPromptItem() { return pendingPromptItem; },
-    forceRefresh() { hardRefresh(false).catch(() => {}); }
+    forceRefresh() { refresh().catch(() => {}); }
   };
 
-  hardRefresh(true).catch((e) => {
+  refresh().catch((e) => {
     setEmpty(`Failed to refresh. ${safeStr(e?.message || "")}`.trim());
   });
 })();

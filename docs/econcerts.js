@@ -1,12 +1,17 @@
 /* econcerts.js — FULL FILE REPLACE
    Listening Mirror — Concerts tab
-   New UX: Discover / Radar / Going / Hidden
-   - Tinder-like swipe deck
-   - grouped artist radar
-   - itinerary-style going view
-   - immersive details sheet
-   - fixed details sheet close behavior
-   - Radar city filter chips
+   UX: Discover / Radar / Going / Hidden
+   Includes:
+   - swipe deck
+   - artist radar
+   - city chip filtering
+   - going itinerary
+   - hidden list
+   - details sheet
+   - post-show check-in popup
+   - toasts
+   - skeleton loading
+   - softer transitions
 */
 
 (() => {
@@ -15,7 +20,7 @@
   const listEl = document.querySelector("#econcertsList");
   if (!listEl) return;
 
-  const STORE_KEY = "lm_econcerts_ui_v72_swipe_radar_city_filter";
+  const STORE_KEY = "lm_econcerts_ui_v72_polish_pack";
   const ECONCERTS_BASE = "https://econcerts.errtanq9.workers.dev";
   const ARCHIVE_BASE = "https://listening-mirror-archive.errtanq9.workers.dev";
   const RECOMMENDED_LIMIT = 5000;
@@ -36,6 +41,7 @@
   function parseAmsterdamDate(dateLocal, timeLocal) {
     const datePart = safeStr(dateLocal);
     if (!datePart) return null;
+
     const timePart = safeStr(timeLocal) || "20:00";
     const normalizedTime = /^\d{2}:\d{2}$/.test(timePart) ? timePart : "20:00";
     const dt = new Date(`${datePart}T${normalizedTime}:00+02:00`);
@@ -52,6 +58,7 @@
     if (data && data.ok === false) {
       throw new Error(safeStr(data?.error || data?.message || "Unknown error"));
     }
+
     return data;
   }
 
@@ -59,7 +66,10 @@
     const s0 = safeStr(input);
     if (!s0) return "";
 
-    const KEEP_AS_IS = new Set(["dEUS", "MØ", "A$AP", "V.I.C.", "DJ", "MC", "II", "III", "IV", "UK", "USA", "EU"]);
+    const KEEP_AS_IS = new Set([
+      "dEUS", "MØ", "A$AP", "V.I.C.", "DJ", "MC", "II", "III", "IV", "UK", "USA", "EU"
+    ]);
+
     const parts = s0.split(/(\s+|[-–—/&+])/);
 
     return parts.map((tok) => {
@@ -116,6 +126,22 @@
       day: "numeric",
       month: "long",
       year: "numeric"
+    }).format(d);
+  }
+
+  function dayNum(d) {
+    if (!isValidDate(d)) return "";
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/Amsterdam",
+      day: "numeric"
+    }).format(d);
+  }
+
+  function monthShort(d) {
+    if (!isValidDate(d)) return "";
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/Amsterdam",
+      month: "short"
     }).format(d);
   }
 
@@ -201,9 +227,10 @@
           lastRefreshAt: 0,
           snoozedPendingEventKey: "",
           deckIndex: 0,
-          radarCityFilter: "all"
+          selectedRadarCity: ""
         };
       }
+
       const obj = JSON.parse(raw);
       return {
         activeMode: ["discover", "radar", "going", "hidden"].includes(String(obj.activeMode))
@@ -213,7 +240,7 @@
         lastRefreshAt: Number(obj.lastRefreshAt || 0),
         snoozedPendingEventKey: safeStr(obj.snoozedPendingEventKey),
         deckIndex: Math.max(0, Number(obj.deckIndex || 0)),
-        radarCityFilter: safeStr(obj.radarCityFilter) || "all"
+        selectedRadarCity: safeStr(obj.selectedRadarCity)
       };
     } catch {
       return {
@@ -222,7 +249,7 @@
         lastRefreshAt: 0,
         snoozedPendingEventKey: "",
         deckIndex: 0,
-        radarCityFilter: "all"
+        selectedRadarCity: ""
       };
     }
   }
@@ -240,6 +267,9 @@
   let pendingPromptBusy = false;
   let detailsSheetEvent = null;
   let radarExpandedGroupKey = "";
+  let isRefreshing = false;
+  let currentLoadingMode = "";
+  let optimisticPlannedKeys = new Set();
 
   const artistImageCache = new Map();
 
@@ -313,7 +343,6 @@
   function pickBestImage(candidates) {
     const valid = candidates.map((x) => safeStr(x)).filter(Boolean);
     if (!valid.length) return "";
-
     valid.sort((a, b) => scoreImageUrl(b) - scoreImageUrl(a));
     return valid[0] || "";
   }
@@ -403,8 +432,9 @@
         return { ...ev, imageUrl: imageUrl || "" };
       })
     );
-     }
-   function getFallbackVisual(seed) {
+  }
+
+  function getFallbackVisual(seed) {
     const s = lowerKey(seed);
     let hue = 18;
 
@@ -599,9 +629,8 @@
       url: safeStr(event?.url),
       image_url: safeStr(event?.imageUrl)
     };
-  }
-
-  async function addToPlan(event) {
+         }
+   async function apiAddToPlan(event) {
     const payload = buildPlannedPayload(event);
 
     await fetchJson(`${ARCHIVE_BASE}/planned-concerts/add`, {
@@ -609,18 +638,14 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
-
-    await loadPlannedConcerts();
   }
 
-  async function removeFromPlan(eventKey) {
+  async function apiRemoveFromPlan(eventKey) {
     await fetchJson(`${ARCHIVE_BASE}/planned-concerts/remove`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ event_key: safeStr(eventKey) })
     });
-
-    await loadPlannedConcerts();
   }
 
   async function markPendingAttended(eventKey) {
@@ -643,19 +668,7 @@
     await loadPlannedConcerts();
   }
 
-  function clonePlannedState() {
-    return {
-      plannedItems: plannedItems.slice(),
-      plannedMap: new Map(plannedMap)
-    };
-  }
-
-  function restorePlannedState(snapshot) {
-    plannedItems = snapshot.plannedItems.slice();
-    plannedMap = new Map(snapshot.plannedMap);
-  }
-
-  function applyLocalPlan(event) {
+  function addOptimisticPlannedEvent(event) {
     const normalized = normalizePlannedEvent({
       event_key: safeStr(event?.eventKey || event?.id),
       source: safeStr(event?.source).toLowerCase(),
@@ -677,28 +690,79 @@
 
     plannedMap.set(normalized.eventKey, normalized);
 
-    const next = plannedItems.filter((x) => x.eventKey !== normalized.eventKey);
-    next.push(normalized);
-    next.sort((a, b) => a.startTs - b.startTs);
-    plannedItems = next;
+    const idx = plannedItems.findIndex((x) => x.eventKey === normalized.eventKey);
+    if (idx >= 0) plannedItems[idx] = normalized;
+    else plannedItems.push(normalized);
+
+    plannedItems.sort((a, b) => a.startTs - b.startTs);
+    optimisticPlannedKeys.add(normalized.eventKey);
   }
 
-  async function persistPlanInBackground(event, snapshot) {
+  function removeOptimisticPlannedEvent(eventKey) {
+    const key = safeStr(eventKey);
+    if (!key) return;
+
+    plannedMap.delete(key);
+    plannedItems = plannedItems.filter((x) => x.eventKey !== key);
+    optimisticPlannedKeys.delete(key);
+  }
+
+  async function handlePlanEvent(event, opts = {}) {
+    const key = safeStr(event?.eventKey || event?.id);
+    if (!key) return;
+    if (isPlanned(key)) return;
+
+    addOptimisticPlannedEvent(event);
+    showToast("Added to Plan");
+    render(lastEvents, lastMeta);
+
+    if (opts.advanceDeck) {
+      store.deckIndex += 1;
+      saveStore(store);
+      render(lastEvents, lastMeta);
+    }
+
     try {
-      await addToPlan(event);
-      render(lastEvents, lastMeta);
+      await apiAddToPlan(event);
+      await refresh({ silent: true, keepSheet: true });
     } catch (e) {
-      restorePlannedState(snapshot);
+      removeOptimisticPlannedEvent(key);
       render(lastEvents, lastMeta);
-      alert(`Could not save planned concert.\n\n${safeStr(e?.message || "")}`);
+      showToast(`Could not add to Plan${safeStr(e?.message) ? ` · ${safeStr(e.message)}` : ""}`, true);
+    }
+  }
+
+  async function handleRemovePlan(eventKey, opts = {}) {
+    const key = safeStr(eventKey);
+    if (!key) return;
+
+    const backup = plannedMap.get(key) || null;
+    removeOptimisticPlannedEvent(key);
+    render(lastEvents, lastMeta);
+    showToast("Removed from Plan");
+
+    try {
+      await apiRemoveFromPlan(key);
+      await refresh({ silent: true, keepSheet: true });
+    } catch (e) {
+      if (backup) {
+        plannedMap.set(backup.eventKey, backup);
+        plannedItems.push(backup);
+        plannedItems.sort((a, b) => a.startTs - b.startTs);
+      }
+      render(lastEvents, lastMeta);
+      showToast(`Could not remove${safeStr(e?.message) ? ` · ${safeStr(e.message)}` : ""}`, true);
     }
   }
 
   const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
+  const isDismissed = (id) => store.dismissedIds.includes(id);
 
   async function dismiss(id) {
-    if (!store.dismissedIds.includes(id)) store.dismissedIds.push(id);
-    saveStore(store);
+    if (!store.dismissedIds.includes(id)) {
+      store.dismissedIds.push(id);
+      saveStore(store);
+    }
   }
 
   async function undismiss(id) {
@@ -713,13 +777,9 @@
     const hidden = [];
 
     for (const ev of events) {
-      if (dismissedIds.has(ev.id)) {
-        hidden.push(ev);
-      } else if (isPlanned(ev.eventKey || ev.id)) {
-        planned.push(ev);
-      } else {
-        announced.push(ev);
-      }
+      if (dismissedIds.has(ev.id)) hidden.push(ev);
+      else if (isPlanned(ev.eventKey || ev.id)) planned.push(ev);
+      else announced.push(ev);
     }
 
     announced.sort((a, b) => a.startTs - b.startTs);
@@ -775,7 +835,8 @@
     pendingPromptItem = getPendingPromptCandidate();
     renderPendingPrompt();
   }
-   async function handlePendingYes() {
+
+  async function handlePendingYes() {
     if (!pendingPromptItem || pendingPromptBusy) return;
     pendingPromptBusy = true;
     renderPendingPrompt();
@@ -786,11 +847,12 @@
         store.snoozedPendingEventKey = "";
         saveStore(store);
       }
-      await refresh();
+      showToast("Moved to Archive");
+      await refresh({ silent: true });
     } catch (e) {
       pendingPromptBusy = false;
       renderPendingPrompt();
-      alert(`Could not move concert to archive.\n\n${safeStr(e?.message || "")}`);
+      showToast(`Could not move to Archive${safeStr(e?.message) ? ` · ${safeStr(e.message)}` : ""}`, true);
     }
   }
 
@@ -805,11 +867,12 @@
         store.snoozedPendingEventKey = "";
         saveStore(store);
       }
-      await refresh();
+      showToast("Removed from planned concerts");
+      await refresh({ silent: true });
     } catch (e) {
       pendingPromptBusy = false;
       renderPendingPrompt();
-      alert(`Could not mark concert as missed.\n\n${safeStr(e?.message || "")}`);
+      showToast(`Could not mark as missed${safeStr(e?.message) ? ` · ${safeStr(e.message)}` : ""}`, true);
     }
   }
 
@@ -840,11 +903,16 @@
 
     const title = document.createElement("h3");
     title.className = "lmx-checkin-title";
-    title.textContent = "Did this become part of your story?";
+    title.textContent = `Did you go to ${titleCaseArtist(normalizeArtistForLookup(ev.artist))}?`;
 
     const sub = document.createElement("p");
     sub.className = "lmx-checkin-sub";
-    sub.textContent = `${titleCaseArtist(normalizeArtistForLookup(ev.artist))} • ${formatLongDate(ev.start)} • ${safeStr(ev.venue)} • ${safeStr(ev.city)}`;
+    sub.textContent = [
+      formatLongDate(ev.start),
+      formatTimeHM(ev.start),
+      safeStr(ev.venue),
+      safeStr(ev.city)
+    ].filter(Boolean).join(" • ");
 
     const actions = document.createElement("div");
     actions.className = "lmx-checkin-actions";
@@ -863,21 +931,8 @@
     noBtn.disabled = pendingPromptBusy;
     noBtn.addEventListener("click", handlePendingNo);
 
-    const laterBtn = document.createElement("button");
-    laterBtn.type = "button";
-    laterBtn.className = "lmx-checkin-btn";
-    laterBtn.textContent = "Remind me later";
-    laterBtn.disabled = pendingPromptBusy;
-    laterBtn.addEventListener("click", () => {
-      store.snoozedPendingEventKey = safeStr(ev.eventKey);
-      saveStore(store);
-      pendingPromptItem = null;
-      renderPendingPrompt();
-    });
-
     actions.appendChild(yesBtn);
     actions.appendChild(noBtn);
-    actions.appendChild(laterBtn);
 
     panel.appendChild(image);
     panel.appendChild(badge);
@@ -969,40 +1024,521 @@
     return new Set(events.map((x) => lowerKey(x.city)).filter(Boolean)).size;
   }
 
-  function normalizeCityKey(city) {
-    return lowerKey(city);
-  }
-
-  function getRadarCities(events) {
-    const counts = new Map();
-
-    for (const ev of events) {
-      const city = safeStr(ev.city);
-      const key = normalizeCityKey(city);
-      if (!key) continue;
-
-      const existing = counts.get(key);
-      if (existing) {
-        existing.count += 1;
-      } else {
-        counts.set(key, { key, city, count: 1 });
-      }
-    }
-
-    return Array.from(counts.values()).sort((a, b) => {
-      if (b.count !== a.count) return b.count - a.count;
-      return a.city.localeCompare(b.city);
-    });
-  }
-
-  function filterEventsByRadarCity(events) {
-    const current = safeStr(store.radarCityFilter || "all");
-    if (!current || current === "all") return events.slice();
-    return events.filter((ev) => normalizeCityKey(ev.city) === current);
+  function scoreClass(score, tier) {
+    if (tier === "strong" || Number(score || 0) >= 80) return "high";
+    if (Number(score || 0) >= 45) return "mid";
+    return "low";
   }
 
   function removeExistingDetailsSheet() {
     document.querySelectorAll(".lmx-sheet").forEach((el) => el.remove());
+  }
+
+  function removeExistingToast() {
+    document.querySelectorAll(".lmx-toast").forEach((el) => el.remove());
+  }
+
+  function showToast(message, isError = false) {
+    removeExistingToast();
+
+    const el = document.createElement("div");
+    el.className = `lmx-toast${isError ? " is-error" : ""}`;
+    el.textContent = safeStr(message) || (isError ? "Something went wrong" : "Done");
+
+    document.body.appendChild(el);
+
+    window.setTimeout(() => {
+      el.classList.add("is-out");
+      window.setTimeout(() => el.remove(), 240);
+    }, 2200);
+       }
+   function renderLoadingSkeleton(mode = "discover") {
+    const shell = document.createElement("div");
+    shell.className = "lmx-shell lmx-fade-in";
+
+    const top = document.createElement("div");
+    top.className = "lmx-top";
+    top.innerHTML = `
+      <div class="lmx-title-wrap">
+        <div class="lmx-kicker"><span class="lmx-kicker-dot"></span><span>Refreshing radar</span></div>
+        <h2 class="lmx-title">Concerts shaped by your listening</h2>
+        <p class="lmx-sub">Loading live matches…</p>
+      </div>
+    `;
+    shell.appendChild(top);
+
+    const modebar = document.createElement("div");
+    modebar.className = "lmx-modebar";
+    ["Discover", "Radar", "Going", "Hidden"].forEach((label, idx) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = `lmx-mode${idx === 0 ? " is-on" : ""}`;
+      btn.textContent = label;
+      modebar.appendChild(btn);
+    });
+    shell.appendChild(modebar);
+
+    if (mode === "discover") {
+      const wrap = document.createElement("div");
+      wrap.className = "lmx-deck-wrap";
+
+      const progress = document.createElement("div");
+      progress.className = "lmx-deck-progress";
+      progress.innerHTML = `
+        <div class="lmx-progress-text">Loading live matches…</div>
+        <button type="button" class="lmx-btn" disabled>Loading</button>
+      `;
+      wrap.appendChild(progress);
+
+      const stage = document.createElement("div");
+      stage.className = "lmx-deck-stage";
+
+      for (let i = 2; i >= 0; i -= 1) {
+        const card = document.createElement("div");
+        card.className = `lmx-card lmx-skeleton-card${i === 1 ? " is-back-1" : i === 2 ? " is-back-2" : ""}`;
+        card.innerHTML = `
+          <div class="lmx-skeleton-surface"></div>
+          <div class="lmx-card-body">
+            <div class="lmx-chip-row">
+              <div class="lmx-skeleton-pill skeleton-shimmer"></div>
+              <div class="lmx-skeleton-pill skeleton-shimmer short"></div>
+            </div>
+            <div class="lmx-card-bottom">
+              <div class="lmx-skeleton-line skeleton-shimmer big"></div>
+              <div class="lmx-skeleton-line skeleton-shimmer mid"></div>
+              <div class="lmx-skeleton-line skeleton-shimmer small"></div>
+              <div class="lmx-actions">
+                <div class="lmx-skeleton-circle skeleton-shimmer"></div>
+                <div class="lmx-skeleton-pill skeleton-shimmer midwide"></div>
+                <div class="lmx-skeleton-circle skeleton-shimmer"></div>
+              </div>
+            </div>
+          </div>
+        `;
+        stage.appendChild(card);
+      }
+
+      wrap.appendChild(stage);
+      shell.appendChild(wrap);
+    } else {
+      const list = document.createElement("div");
+      list.className = "lmx-skeleton-list";
+
+      const count = mode === "radar" ? 5 : 4;
+      for (let i = 0; i < count; i += 1) {
+        const row = document.createElement("div");
+        row.className = "lmx-skeleton-row";
+        row.innerHTML = `
+          <div class="lmx-skeleton-thumb skeleton-shimmer"></div>
+          <div class="lmx-skeleton-col">
+            <div class="lmx-skeleton-line skeleton-shimmer mid"></div>
+            <div class="lmx-skeleton-line skeleton-shimmer small"></div>
+            <div class="lmx-skeleton-line skeleton-shimmer xs"></div>
+          </div>
+        `;
+        list.appendChild(row);
+      }
+
+      shell.appendChild(list);
+    }
+
+    listEl.innerHTML = "";
+    listEl.appendChild(shell);
+  }
+
+  function injectStylesOnce() {
+    if (document.getElementById("lmConcertsSwipeStyles")) return;
+
+    const style = document.createElement("style");
+    style.id = "lmConcertsSwipeStyles";
+    style.textContent = `
+      #econcertsList { display:block; }
+
+      .lmx-shell { display:flex; flex-direction:column; gap:14px; }
+      .lmx-fade-in { animation:lmxFadeIn .18s ease; }
+
+      @keyframes lmxFadeIn {
+        from { opacity:0; transform:translateY(4px); }
+        to { opacity:1; transform:translateY(0); }
+      }
+
+      .lmx-top { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+      .lmx-title-wrap { display:flex; flex-direction:column; gap:6px; min-width:0; }
+      .lmx-kicker {
+        display:inline-flex; align-items:center; gap:8px; font-size:.82rem; font-weight:900;
+        color:rgba(255,255,255,.72); letter-spacing:.04em; text-transform:uppercase;
+      }
+      .lmx-kicker-dot {
+        width:8px; height:8px; border-radius:999px; background:#8db7ff;
+        box-shadow:0 0 14px rgba(141,183,255,.9);
+        animation:lmxPulse 1.6s infinite ease-in-out;
+      }
+      @keyframes lmxPulse {
+        0%,100% { transform:scale(1); opacity:.9; }
+        50% { transform:scale(1.35); opacity:1; }
+      }
+
+      .lmx-title { margin:0; font-size:1.18rem; font-weight:900; color:#fff; }
+      .lmx-sub { margin:0; font-size:.92rem; color:rgba(255,255,255,.72); }
+
+      .lmx-modebar {
+        display:flex; gap:8px; flex-wrap:wrap;
+        position:sticky; top:8px; z-index:8;
+      }
+      .lmx-mode {
+        appearance:none; border:none; cursor:pointer;
+        border-radius:999px; padding:10px 14px;
+        font:inherit; font-weight:900; color:#fff;
+        background:rgba(255,255,255,.06);
+        border:1px solid rgba(255,255,255,.08);
+        backdrop-filter:blur(12px);
+        transition:transform .14s ease, background .16s ease, border-color .16s ease, box-shadow .16s ease;
+      }
+      .lmx-mode:active { transform:scale(.985); }
+      .lmx-mode.is-on {
+        background:linear-gradient(180deg, rgba(136,171,255,.24), rgba(83,110,255,.12));
+        border-color:rgba(162,188,255,.30);
+        box-shadow:0 10px 30px rgba(34,58,120,.22);
+      }
+
+      .skeleton-shimmer {
+        background: linear-gradient(
+          90deg,
+          rgba(255,255,255,0.04) 25%,
+          rgba(255,255,255,0.10) 50%,
+          rgba(255,255,255,0.04) 75%
+        );
+        background-size: 200% 100%;
+        animation: lmxShimmer 1.6s infinite linear;
+      }
+      @keyframes lmxShimmer {
+        0% { background-position: -200% 0; }
+        100% { background-position: 200% 0; }
+      }
+
+      .lmx-skeleton-list { display:flex; flex-direction:column; gap:12px; }
+      .lmx-skeleton-row {
+        display:flex; gap:12px; padding:14px; border-radius:20px;
+        background:rgba(255,255,255,.03);
+        border:1px solid rgba(255,255,255,.05);
+      }
+      .lmx-skeleton-thumb { width:72px; height:72px; border-radius:18px; flex-shrink:0; }
+      .lmx-skeleton-col { display:flex; flex-direction:column; gap:10px; flex:1; }
+      .lmx-skeleton-line { border-radius:999px; height:12px; }
+      .lmx-skeleton-line.big { width:78%; height:18px; }
+      .lmx-skeleton-line.mid { width:56%; }
+      .lmx-skeleton-line.small { width:42%; }
+      .lmx-skeleton-line.xs { width:28%; }
+      .lmx-skeleton-pill { width:110px; height:34px; border-radius:999px; }
+      .lmx-skeleton-pill.short { width:82px; }
+      .lmx-skeleton-pill.midwide { width:120px; }
+      .lmx-skeleton-circle { width:56px; height:56px; border-radius:999px; }
+
+      .lmx-deck-wrap { display:flex; flex-direction:column; gap:14px; }
+      .lmx-deck-stage { position:relative; height:72vh; min-height:540px; }
+      .lmx-card {
+        position:absolute; inset:0; border-radius:28px; overflow:hidden;
+        border:1px solid rgba(255,255,255,.10);
+        box-shadow:0 28px 60px rgba(0,0,0,.32);
+        background:#0b1017;
+        touch-action:none; user-select:none;
+        transform-origin:center center;
+        transition:transform .22s ease, opacity .22s ease, filter .22s ease;
+      }
+      .lmx-card.is-back-1 { transform:translateY(14px) scale(.975); opacity:.62; filter:blur(.4px); }
+      .lmx-card.is-back-2 { transform:translateY(28px) scale(.95); opacity:.34; filter:blur(.8px); }
+      .lmx-skeleton-card { background:rgba(255,255,255,.02); }
+      .lmx-skeleton-surface {
+        position:absolute; inset:0;
+        background:
+          linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.01)),
+          linear-gradient(135deg, rgba(59,76,119,.16), rgba(25,32,49,.22));
+      }
+
+      .lmx-card-cover {
+        position:absolute; inset:0; background-size:cover; background-position:center center;
+        transform:scale(1.03);
+      }
+      .lmx-card-cover::after {
+        content:""; position:absolute; inset:0;
+        background:
+          linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.18) 24%, rgba(0,0,0,.84) 100%),
+          radial-gradient(circle at 50% 24%, rgba(124,171,255,.18), transparent 22%);
+      }
+      .lmx-card-body {
+        position:relative; z-index:1; height:100%;
+        display:flex; flex-direction:column; justify-content:space-between;
+        padding:16px;
+      }
+      .lmx-chip-row { display:flex; gap:8px; flex-wrap:wrap; align-self:flex-start; }
+      .lmx-chip {
+        display:inline-flex; align-items:center; gap:6px;
+        border-radius:999px; padding:8px 11px;
+        font-size:.79rem; font-weight:900; color:#fff;
+        background:rgba(255,255,255,.09);
+        border:1px solid rgba(255,255,255,.10);
+        backdrop-filter:blur(12px);
+      }
+      .lmx-score-pill {
+        display:inline-flex; align-items:center; justify-content:center;
+        min-width:44px; padding:8px 10px;
+        border-radius:999px; font-size:.78rem; font-weight:950;
+      }
+      .lmx-score-pill.high {
+        background:linear-gradient(135deg, #ffb347, #ff7a18);
+        color:#111;
+        box-shadow:0 0 16px rgba(255,140,50,0.25);
+      }
+      .lmx-score-pill.mid {
+        background:rgba(255,255,255,.10);
+        color:#fff;
+      }
+      .lmx-score-pill.low {
+        background:rgba(255,255,255,.06);
+        color:rgba(255,255,255,.72);
+      }
+
+      .lmx-card-bottom { display:flex; flex-direction:column; gap:12px; }
+      .lmx-artist {
+        margin:0; font-size:2rem; line-height:1.01; font-weight:950; text-transform:uppercase;
+        color:#fff;
+      }
+      .lmx-meta { margin:0; font-size:1rem; font-weight:800; color:rgba(255,255,255,.96); }
+      .lmx-reason { margin:0; font-size:.93rem; color:rgba(255,255,255,.80); line-height:1.4; }
+
+      .lmx-swipe-label {
+        position:absolute; top:18px; padding:10px 14px; border-radius:14px;
+        font-size:1rem; font-weight:950; letter-spacing:.06em; text-transform:uppercase;
+        border:2px solid rgba(255,255,255,.26); opacity:0; pointer-events:none;
+        backdrop-filter:blur(12px);
+      }
+      .lmx-swipe-label.pass { left:18px; color:#ff9d94; }
+      .lmx-swipe-label.plan { right:18px; color:#9ef4c2; }
+      .lmx-swipe-label.show { opacity:1; }
+
+      .lmx-actions {
+        display:flex; align-items:center; justify-content:center; gap:12px;
+      }
+      .lmx-action {
+        appearance:none; border:none; cursor:pointer;
+        width:56px; height:56px; border-radius:999px;
+        background:rgba(255,255,255,.10);
+        border:1px solid rgba(255,255,255,.12);
+        color:#fff; font:inherit; font-weight:900;
+        backdrop-filter:blur(12px);
+        box-shadow:0 10px 24px rgba(0,0,0,.22);
+        transition:transform .14s ease, filter .14s ease, background .18s ease;
+      }
+      .lmx-action:active { transform:scale(.97); }
+      .lmx-action.lmx-action--big { width:auto; min-width:110px; padding:0 18px; border-radius:999px; }
+      .lmx-action--plan { background:linear-gradient(180deg, rgba(58,211,140,.24), rgba(27,135,88,.16)); }
+      .lmx-action--hide { background:linear-gradient(180deg, rgba(255,114,114,.18), rgba(158,45,45,.10)); }
+      .lmx-action--info { background:linear-gradient(180deg, rgba(136,171,255,.24), rgba(83,110,255,.12)); }
+
+      .lmx-deck-progress {
+        display:flex; justify-content:space-between; align-items:center; gap:12px;
+        padding:12px 14px; border-radius:18px;
+        background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06);
+      }
+      .lmx-progress-text { font-size:.9rem; color:rgba(255,255,255,.78); }
+
+      .lmx-radar-grid { display:grid; gap:12px; }
+      .lmx-radar-citybar {
+        display:grid; grid-template-columns:repeat(auto-fit, minmax(110px,1fr)); gap:10px;
+      }
+      .lmx-city-node {
+        appearance:none; border:none; cursor:pointer; text-align:left;
+        border-radius:20px; padding:14px; min-height:92px;
+        border:1px solid rgba(255,255,255,.08);
+        background:
+          radial-gradient(circle at 50% 22%, rgba(124,171,255,.18), transparent 26%),
+          linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03));
+        transition:transform .14s ease, border-color .16s ease, box-shadow .16s ease;
+      }
+      .lmx-city-node:active { transform:scale(.985); }
+      .lmx-city-node.is-on {
+        border-color:rgba(162,188,255,.32);
+        box-shadow:0 12px 28px rgba(54,78,146,.20);
+      }
+      .lmx-city-name { margin:0 0 6px; font-size:1rem; font-weight:900; color:#fff; }
+      .lmx-city-count { margin:0; font-size:.88rem; color:rgba(255,255,255,.72); }
+
+      .lmx-group {
+        border-radius:22px; overflow:hidden;
+        border:1px solid rgba(255,255,255,.08);
+        background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.03));
+        box-shadow:0 16px 34px rgba(0,0,0,.20);
+      }
+      .lmx-group-head {
+        display:flex; gap:12px; align-items:center; padding:14px; cursor:pointer;
+      }
+      .lmx-group-thumb {
+        width:72px; height:72px; border-radius:18px; background-size:cover; background-position:center center;
+        flex-shrink:0; border:1px solid rgba(255,255,255,.10);
+      }
+      .lmx-group-main { min-width:0; display:flex; flex-direction:column; gap:6px; flex:1; }
+      .lmx-group-title { margin:0; font-size:1.08rem; font-weight:900; color:#fff; }
+      .lmx-group-sub { margin:0; font-size:.9rem; color:rgba(255,255,255,.76); }
+      .lmx-group-cta {
+        appearance:none; border:none; cursor:pointer; border-radius:999px;
+        padding:10px 12px; font:inherit; font-weight:900; color:#fff;
+        background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.10);
+      }
+
+      .lmx-group-dates {
+        overflow:hidden;
+        max-height:0;
+        opacity:0;
+        transform:translateY(-4px);
+        transition:max-height 220ms ease, opacity 180ms ease, transform 180ms ease;
+        padding:0 14px;
+        display:flex;
+        flex-direction:column;
+        gap:10px;
+      }
+      .lmx-group.is-open .lmx-group-dates {
+        max-height:1400px;
+        opacity:1;
+        transform:translateY(0);
+        padding:0 14px 14px;
+      }
+      .lmx-date-row {
+        display:flex; align-items:center; justify-content:space-between; gap:10px;
+        border-radius:16px; padding:12px;
+        background:rgba(255,255,255,.045);
+        border:1px solid rgba(255,255,255,.06);
+      }
+      .lmx-date-left { display:flex; flex-direction:column; gap:4px; min-width:0; }
+      .lmx-date-title { margin:0; font-size:.94rem; font-weight:900; color:#fff; }
+      .lmx-date-sub { margin:0; font-size:.84rem; color:rgba(255,255,255,.72); }
+      .lmx-date-actions { display:flex; gap:8px; flex-shrink:0; }
+
+      .lmx-going-list, .lmx-hidden-list { display:flex; flex-direction:column; gap:12px; }
+      .lmx-itinerary {
+        display:grid; grid-template-columns:72px 1fr; gap:12px;
+        border-radius:22px; overflow:hidden; padding:14px;
+        border:1px solid rgba(255,255,255,.08);
+        background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.03));
+        animation:lmxFadeIn .18s ease;
+      }
+      .lmx-date-badge {
+        border-radius:18px; display:flex; flex-direction:column; align-items:center; justify-content:center;
+        background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08);
+        min-height:92px;
+      }
+      .lmx-date-badge-day { font-size:1.35rem; font-weight:950; color:#fff; line-height:1; }
+      .lmx-date-badge-month { font-size:.82rem; font-weight:900; color:rgba(255,255,255,.72); text-transform:uppercase; letter-spacing:.05em; }
+      .lmx-itinerary-main { display:flex; flex-direction:column; gap:8px; min-width:0; }
+      .lmx-itinerary-title { margin:0; font-size:1.12rem; font-weight:900; color:#fff; }
+      .lmx-itinerary-sub { margin:0; font-size:.92rem; color:rgba(255,255,255,.74); }
+      .lmx-itinerary-actions { display:flex; flex-wrap:wrap; gap:8px; }
+
+      .lmx-btn {
+        appearance:none; border:none; cursor:pointer; border-radius:12px; padding:10px 12px;
+        font:inherit; font-weight:900; color:#fff;
+        background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.09);
+        transition:transform .14s ease, background .16s ease, border-color .16s ease;
+      }
+      .lmx-btn:active { transform:scale(.985); }
+      .lmx-btn--primary { background:linear-gradient(180deg, rgba(136,171,255,.24), rgba(83,110,255,.12)); }
+      .lmx-btn--danger { background:linear-gradient(180deg, rgba(255,114,114,.18), rgba(158,45,45,.10)); }
+      .lmx-btn--plan { background:linear-gradient(180deg, rgba(58,211,140,.24), rgba(27,135,88,.16)); }
+
+      .lmx-sheet {
+        position:fixed; inset:0; z-index:9998; background:rgba(0,0,0,.48);
+        backdrop-filter:blur(10px); display:flex; align-items:flex-end; justify-content:center; padding:16px;
+      }
+      .lmx-sheet-panel {
+        width:min(100%, 520px); max-height:86vh; overflow:auto;
+        border-radius:28px; overflow:hidden;
+        border:1px solid rgba(255,255,255,.10);
+        background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)), linear-gradient(180deg, #0c1016, #080b10);
+        box-shadow:0 28px 60px rgba(0,0,0,.38);
+        animation:lmxSheetIn .22s ease;
+      }
+      @keyframes lmxSheetIn {
+        from { opacity:0; transform:translateY(18px); }
+        to { opacity:1; transform:translateY(0); }
+      }
+      .lmx-sheet-cover { height:220px; background-size:cover; background-position:center center; }
+      .lmx-sheet-body { padding:16px; display:flex; flex-direction:column; gap:14px; }
+      .lmx-sheet-title { margin:0; font-size:1.5rem; line-height:1.08; font-weight:950; color:#fff; }
+      .lmx-sheet-text { margin:0; font-size:.94rem; color:rgba(255,255,255,.78); line-height:1.5; }
+      .lmx-sheet-row { display:flex; flex-wrap:wrap; gap:8px; }
+      .lmx-sheet-close { position:sticky; top:0; margin-left:auto; display:block; z-index:1; }
+
+      .lmx-empty {
+        padding:16px 14px; border-radius:18px;
+        background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06);
+        color:rgba(255,255,255,.74);
+      }
+
+      .lmx-checkin-overlay {
+        position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,.46);
+        backdrop-filter:blur(10px); display:flex; align-items:flex-end; justify-content:center; padding:18px;
+      }
+      .lmx-checkin-panel {
+        width:min(100%, 430px); border-radius:24px; overflow:hidden;
+        border:1px solid rgba(255,255,255,.10);
+        background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)), linear-gradient(180deg, #0b0f15, #080b10);
+        box-shadow:0 24px 60px rgba(0,0,0,.40); padding:0 0 16px;
+        animation:lmxSheetIn .22s ease;
+      }
+      .lmx-checkin-image { height:180px; background-size:cover; background-position:center center; }
+      .lmx-checkin-badge {
+        display:inline-flex; margin:14px 16px 0; padding:7px 11px; border-radius:999px;
+        font-size:.77rem; font-weight:900; letter-spacing:.04em;
+        background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.10);
+      }
+      .lmx-checkin-title { margin:12px 16px 0; font-size:1.24rem; line-height:1.2; font-weight:900; color:#fff; }
+      .lmx-checkin-sub { margin:10px 16px 0; font-size:.95rem; line-height:1.45; color:rgba(255,255,255,.84); }
+      .lmx-checkin-actions { display:flex; flex-direction:column; gap:8px; padding:14px 16px 0; }
+      .lmx-checkin-btn {
+        appearance:none; border:none; outline:none; border-radius:14px; padding:13px 14px; font:inherit; font-weight:800;
+        color:#fff; cursor:pointer; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.10);
+      }
+      .lmx-checkin-btn--primary {
+        background:linear-gradient(180deg, rgba(136,171,255,.24), rgba(83,110,255,.12));
+      }
+
+      .lmx-toast {
+        position:fixed;
+        left:50%;
+        bottom:88px;
+        transform:translateX(-50%);
+        padding:12px 16px;
+        border-radius:999px;
+        background:rgba(20,20,20,.92);
+        border:1px solid rgba(255,255,255,.08);
+        color:#fff;
+        font-size:13px;
+        font-weight:700;
+        z-index:10001;
+        backdrop-filter:blur(18px);
+        animation:lmxToastIn .22s ease;
+        box-shadow:0 12px 28px rgba(0,0,0,.26);
+      }
+      .lmx-toast.is-error {
+        background:rgba(74,18,18,.94);
+        border-color:rgba(255,150,150,.14);
+      }
+      .lmx-toast.is-out {
+        animation:lmxToastOut .22s ease forwards;
+      }
+      @keyframes lmxToastIn {
+        from { opacity:0; transform:translateX(-50%) translateY(10px); }
+        to { opacity:1; transform:translateX(-50%) translateY(0); }
+      }
+      @keyframes lmxToastOut {
+        to { opacity:0; transform:translateX(-50%) translateY(10px); }
+      }
+
+      @media (max-width: 640px) {
+        .lmx-deck-stage { min-height:500px; height:68vh; }
+        .lmx-artist { font-size:1.68rem; }
+      }
+    `;
+    document.head.appendChild(style);
   }
 
   function openDetailsSheetForEvent(ev) {
@@ -1042,7 +1578,7 @@
 
     const kicker = document.createElement("div");
     kicker.className = "lmx-kicker";
-    kicker.innerHTML = `<span class="lmx-kicker-dot"></span><span>Live radar active</span>`;
+    kicker.innerHTML = `<span class="lmx-kicker-dot"></span><span>${isRefreshing ? "Refreshing radar" : "Live radar active"}</span>`;
 
     const title = document.createElement("h2");
     title.className = "lmx-title";
@@ -1055,7 +1591,6 @@
     titleWrap.appendChild(kicker);
     titleWrap.appendChild(title);
     titleWrap.appendChild(sub);
-
     top.appendChild(titleWrap);
     shell.appendChild(top);
 
@@ -1071,8 +1606,9 @@
   }
 
   function buildDeckCard(item, positionIndex) {
+    const ev = item.type === "group" ? (item.group.nextEvent || item.group.events[0]) : item.event;
     const card = document.createElement("div");
-    card.className = `lmx-card${positionIndex === 1 ? " is-back-1" : positionIndex === 2 ? " is-back-2" : ""}`;
+    card.className = `lmx-card lmx-fade-in${positionIndex === 1 ? " is-back-1" : positionIndex === 2 ? " is-back-2" : ""}`;
 
     const cover = document.createElement("div");
     cover.className = "lmx-card-cover";
@@ -1099,8 +1635,12 @@
     chipMain.textContent = getMatchLabel(item);
     top.appendChild(chipMain);
 
+    const score = document.createElement("div");
+    score.className = `lmx-score-pill ${scoreClass(ev?.score, ev?.tier)}`;
+    score.textContent = ev?.score ? Math.round(ev.score) : "•";
+    top.appendChild(score);
+
     if (item.type === "event") {
-      const ev = item.event;
       const d = daysUntil(ev.start);
       if (d !== null && d >= 0 && d <= 7) {
         const chip = document.createElement("div");
@@ -1145,7 +1685,6 @@
       ].filter(Boolean).join(" • ");
       reason.textContent = "Multiple dates for an artist that fits your listening.";
     } else {
-      const ev = item.event;
       meta.textContent = [
         safeStr(ev.venue),
         safeStr(ev.city),
@@ -1194,10 +1733,11 @@
 
     const triggerPass = async () => {
       if (item.type === "group") {
-        for (const ev of item.group.events) await dismiss(ev.id);
+        for (const x of item.group.events) await dismiss(x.id);
       } else {
         await dismiss(item.event.id);
       }
+      showToast("Hidden from Discover");
       store.deckIndex += 1;
       saveStore(store);
       render(lastEvents, lastMeta);
@@ -1207,22 +1747,12 @@
       if (item.type === "group") {
         const first = item.group.nextEvent || item.group.events[0];
         if (first && !isPlanned(first.eventKey || first.id)) {
-          const snapshot = clonePlannedState();
-          applyLocalPlan(first);
-          store.deckIndex += 1;
-          saveStore(store);
-          render(lastEvents, lastMeta);
-          persistPlanInBackground(first, snapshot);
+          await handlePlanEvent(first, { advanceDeck: true });
           return;
         }
       } else {
         if (!isPlanned(item.event.eventKey || item.event.id)) {
-          const snapshot = clonePlannedState();
-          applyLocalPlan(item.event);
-          store.deckIndex += 1;
-          saveStore(store);
-          render(lastEvents, lastMeta);
-          persistPlanInBackground(item.event, snapshot);
+          await handlePlanEvent(item.event, { advanceDeck: true });
           return;
         }
       }
@@ -1234,13 +1764,13 @@
     hideBtn.addEventListener("click", triggerPass);
     planBtn.addEventListener("click", triggerPlan);
     infoBtn.addEventListener("click", () => {
-      openDetailsSheetForEvent(item.type === "group" ? item.group.nextEvent || item.group.events[0] : item.event);
+      openDetailsSheetForEvent(ev);
     });
 
     attachSwipe(card, {
       onLeft: triggerPass,
       onRight: triggerPlan,
-      onUp: () => openDetailsSheetForEvent(item.type === "group" ? item.group.nextEvent || item.group.events[0] : item.event),
+      onUp: () => openDetailsSheetForEvent(ev),
       passLabel,
       planLabel
     });
@@ -1318,14 +1848,20 @@
     card.addEventListener("pointermove", onPointerMove);
     card.addEventListener("pointerup", onPointerUp);
     card.addEventListener("pointercancel", onPointerUp);
-}
-   function buildDiscover(events) {
+  }
+
+  function buildDiscover(events) {
     const deck = getDeck(events);
     const wrap = document.createElement("div");
     wrap.className = "lmx-deck-wrap";
 
-    const topIndex = Math.min(store.deckIndex, Math.max(deck.length - 1, 0));
-    const visible = deck.slice(topIndex, topIndex + 3);
+    const safeIndex = Math.min(store.deckIndex, Math.max(deck.length - 1, 0));
+    if (safeIndex !== store.deckIndex) {
+      store.deckIndex = safeIndex;
+      saveStore(store);
+    }
+
+    const visible = deck.slice(store.deckIndex, store.deckIndex + 3);
 
     const progress = document.createElement("div");
     progress.className = "lmx-deck-progress";
@@ -1333,7 +1869,7 @@
     const left = document.createElement("div");
     left.className = "lmx-progress-text";
     left.textContent = deck.length
-      ? `${Math.min(topIndex + 1, deck.length)} / ${deck.length} live matches`
+      ? `${Math.min(store.deckIndex + 1, deck.length)} / ${deck.length} live matches`
       : "0 live matches";
 
     const resetBtn = document.createElement("button");
@@ -1350,9 +1886,6 @@
     progress.appendChild(resetBtn);
     wrap.appendChild(progress);
 
-    const stage = document.createElement("div");
-    stage.className = "lmx-deck-stage";
-
     if (!visible.length) {
       const empty = document.createElement("div");
       empty.className = "lmx-empty";
@@ -1361,13 +1894,13 @@
       return wrap;
     }
 
-    visible
-      .slice()
-      .reverse()
-      .forEach((item, idxFromBack) => {
-        const position = visible.length - 1 - idxFromBack;
-        stage.appendChild(buildDeckCard(item, position));
-      });
+    const stage = document.createElement("div");
+    stage.className = "lmx-deck-stage";
+
+    visible.slice().reverse().forEach((item, idxFromBack) => {
+      const position = visible.length - 1 - idxFromBack;
+      stage.appendChild(buildDeckCard(item, position));
+    });
 
     wrap.appendChild(stage);
     return wrap;
@@ -1377,36 +1910,42 @@
     const wrap = document.createElement("div");
     wrap.className = "lmx-radar-grid";
 
-    const allCities = getRadarCities(events);
-    const filteredEvents = filterEventsByRadarCity(events);
+    const cityMap = new Map();
+    events.forEach((ev) => {
+      const key = safeStr(ev.city) || "Unknown";
+      cityMap.set(key, (cityMap.get(key) || 0) + 1);
+    });
 
+    const cityEntries = Array.from(cityMap.entries()).sort((a, b) => b[1] - a[1]);
     const cityBar = document.createElement("div");
     cityBar.className = "lmx-radar-citybar";
 
-    const allNode = document.createElement("button");
-    allNode.type = "button";
-    allNode.className = `lmx-city-node lmx-city-node--button${safeStr(store.radarCityFilter) === "all" ? " is-active" : ""}`;
-    allNode.innerHTML = `
-      <p class="lmx-city-name">All cities</p>
-      <p class="lmx-city-count">${events.length} matches</p>
-    `;
-    allNode.addEventListener("click", () => {
-      store.radarCityFilter = "all";
-      saveStore(store);
-      render(lastEvents, lastMeta);
-    });
-    cityBar.appendChild(allNode);
+    if (cityEntries.length) {
+      const allBtn = document.createElement("button");
+      allBtn.type = "button";
+      allBtn.className = `lmx-city-node${!store.selectedRadarCity ? " is-on" : ""}`;
+      allBtn.innerHTML = `
+        <p class="lmx-city-name">All cities</p>
+        <p class="lmx-city-count">${events.length} matches</p>
+      `;
+      allBtn.addEventListener("click", () => {
+        store.selectedRadarCity = "";
+        saveStore(store);
+        render(lastEvents, lastMeta);
+      });
+      cityBar.appendChild(allBtn);
+    }
 
-    allCities.slice(0, 12).forEach(({ city, key, count }) => {
+    cityEntries.slice(0, 8).forEach(([city, count]) => {
       const node = document.createElement("button");
       node.type = "button";
-      node.className = `lmx-city-node lmx-city-node--button${safeStr(store.radarCityFilter) === key ? " is-active" : ""}`;
+      node.className = `lmx-city-node${store.selectedRadarCity === city ? " is-on" : ""}`;
       node.innerHTML = `
         <p class="lmx-city-name">${city}</p>
         <p class="lmx-city-count">${count} matches</p>
       `;
       node.addEventListener("click", () => {
-        store.radarCityFilter = safeStr(store.radarCityFilter) === key ? "all" : key;
+        store.selectedRadarCity = store.selectedRadarCity === city ? "" : city;
         saveStore(store);
         render(lastEvents, lastMeta);
       });
@@ -1415,14 +1954,18 @@
 
     wrap.appendChild(cityBar);
 
+    const filteredEvents = store.selectedRadarCity
+      ? events.filter((ev) => safeStr(ev.city) === store.selectedRadarCity)
+      : events;
+
     const groups = groupEventsByArtist(filteredEvents);
 
     if (!groups.length) {
       const empty = document.createElement("div");
       empty.className = "lmx-empty";
-      empty.textContent = safeStr(store.radarCityFilter) === "all"
-        ? "No artist groups available right now."
-        : "No matches for this city right now.";
+      empty.textContent = store.selectedRadarCity
+        ? `No matches in ${store.selectedRadarCity} right now.`
+        : "No artist groups available right now.";
       wrap.appendChild(empty);
       return wrap;
     }
@@ -1449,14 +1992,11 @@
       title.className = "lmx-group-title";
       title.textContent = titleCaseArtist(normalizeArtistForLookup(group.artist));
 
-      const firstVisible = group.events[0];
-      const lastVisible = group.events[group.events.length - 1];
-
       const sub = document.createElement("p");
       sub.className = "lmx-group-sub";
-      sub.textContent = group.events.length > 1
-        ? `${group.events.length} dates • ${safeStr(firstVisible.city)} • ${formatMonthDay(firstVisible.start)} → ${formatMonthDay(lastVisible.start)}`
-        : `${safeStr(firstVisible.city)} • ${safeStr(firstVisible.venue)} • ${formatShortDayDate(firstVisible.start)}`;
+      sub.textContent = group.count > 1
+        ? `${group.count} dates • ${formatMonthDay(group.events[0].start)} → ${formatMonthDay(group.events[group.events.length - 1].start)}`
+        : `${safeStr(group.nextEvent?.city)} • ${safeStr(group.nextEvent?.venue)} • ${formatShortDayDate(group.nextEvent?.start)}`;
 
       main.appendChild(title);
       main.appendChild(sub);
@@ -1501,10 +2041,7 @@
         planBtn.addEventListener("click", async (e) => {
           e.stopPropagation();
           if (!isPlanned(ev.eventKey || ev.id)) {
-            const snapshot = clonePlannedState();
-            applyLocalPlan(ev);
-            render(lastEvents, lastMeta);
-            persistPlanInBackground(ev, snapshot);
+            await handlePlanEvent(ev);
           }
         });
 
@@ -1569,11 +2106,11 @@
 
       const d = document.createElement("div");
       d.className = "lmx-date-badge-day";
-      d.textContent = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Amsterdam", day: "numeric" }).format(ev.start);
+      d.textContent = dayNum(ev.start);
 
       const m = document.createElement("div");
       m.className = "lmx-date-badge-month";
-      m.textContent = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Amsterdam", month: "short" }).format(ev.start);
+      m.textContent = monthShort(ev.start);
 
       dateBadge.appendChild(d);
       dateBadge.appendChild(m);
@@ -1615,8 +2152,7 @@
       removeBtn.className = "lmx-btn lmx-btn--danger";
       removeBtn.textContent = "Remove";
       removeBtn.addEventListener("click", async () => {
-        await removeFromPlan(ev.eventKey || ev.id);
-        await refresh();
+        await handleRemovePlan(ev.eventKey || ev.id);
       });
 
       actions.appendChild(whyBtn);
@@ -1679,6 +2215,7 @@
       restoreBtn.textContent = "Restore";
       restoreBtn.addEventListener("click", async () => {
         await undismiss(ev.id);
+        showToast("Restored to Discover");
         render(lastEvents, lastMeta);
       });
 
@@ -1713,9 +2250,7 @@
     panel.className = "lmx-sheet-panel";
 
     overlay.addEventListener("click", (e) => {
-      if (!panel.contains(e.target)) {
-        closeDetailsSheet();
-      }
+      if (!panel.contains(e.target)) closeDetailsSheet();
     });
 
     const cover = document.createElement("div");
@@ -1750,7 +2285,7 @@
     const score = document.createElement("p");
     score.className = "lmx-sheet-text";
     score.textContent = [
-      ev.tier === "strong" ? "Strong match" : "Suggested match",
+      ev.tier === "strong" ? "Strong match" : ev.tier === "planned" ? "Planned" : "Suggested match",
       ev.score ? `Score ${Math.round(ev.score)}` : "",
       ev.matchedBy ? `Matched by ${ev.matchedBy}` : ""
     ].filter(Boolean).join(" • ");
@@ -1764,11 +2299,7 @@
     planBtn.textContent = isPlanned(ev.eventKey || ev.id) ? "Planned" : "Plan";
     planBtn.addEventListener("click", async () => {
       if (!isPlanned(ev.eventKey || ev.id)) {
-        const snapshot = clonePlannedState();
-        applyLocalPlan(ev);
-        closeDetailsSheet();
-        render(lastEvents, lastMeta);
-        persistPlanInBackground(ev, snapshot);
+        await handlePlanEvent(ev);
       }
     });
 
@@ -1778,6 +2309,7 @@
     hideBtn.textContent = "Hide";
     hideBtn.addEventListener("click", async () => {
       await dismiss(ev.id);
+      showToast("Hidden from Discover");
       closeDetailsSheet();
       render(lastEvents, lastMeta);
     });
@@ -1807,110 +2339,6 @@
     return overlay;
   }
 
-  function injectStylesOnce() {
-    if (document.getElementById("lmConcertsSwipeStyles")) return;
-
-    const style = document.createElement("style");
-    style.id = "lmConcertsSwipeStyles";
-    style.textContent = `
-      #econcertsList { display:block; }
-      .lmx-shell { display:flex; flex-direction:column; gap:14px; }
-      .lmx-top { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
-      .lmx-title-wrap { display:flex; flex-direction:column; gap:6px; min-width:0; }
-      .lmx-kicker { display:inline-flex; align-items:center; gap:8px; font-size:.82rem; font-weight:900; color:rgba(255,255,255,.72); letter-spacing:.04em; text-transform:uppercase; }
-      .lmx-kicker-dot { width:8px; height:8px; border-radius:999px; background:#8db7ff; box-shadow:0 0 14px rgba(141,183,255,.9); animation:lmxPulse 1.6s infinite ease-in-out; }
-      @keyframes lmxPulse { 0%,100% { transform:scale(1); opacity:.9; } 50% { transform:scale(1.35); opacity:1; } }
-      .lmx-title { margin:0; font-size:1.18rem; font-weight:900; color:#fff; }
-      .lmx-sub { margin:0; font-size:.92rem; color:rgba(255,255,255,.72); }
-      .lmx-modebar { display:flex; gap:8px; flex-wrap:wrap; position:sticky; top:8px; z-index:8; }
-      .lmx-mode { appearance:none; border:none; cursor:pointer; border-radius:999px; padding:10px 14px; font:inherit; font-weight:900; color:#fff; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08); backdrop-filter:blur(12px); }
-      .lmx-mode.is-on { background:linear-gradient(180deg, rgba(136,171,255,.24), rgba(83,110,255,.12)); border-color:rgba(162,188,255,.30); box-shadow:0 10px 30px rgba(34,58,120,.22); }
-      .lmx-deck-wrap { display:flex; flex-direction:column; gap:14px; }
-      .lmx-deck-stage { position:relative; height:72vh; min-height:540px; }
-      .lmx-card { position:absolute; inset:0; border-radius:28px; overflow:hidden; border:1px solid rgba(255,255,255,.10); box-shadow:0 28px 60px rgba(0,0,0,.32); background:#0b1017; touch-action:none; user-select:none; transform-origin:center center; transition:transform .22s ease, opacity .22s ease, filter .22s ease; }
-      .lmx-card.is-back-1 { transform:translateY(14px) scale(.975); opacity:.62; filter:blur(.4px); }
-      .lmx-card.is-back-2 { transform:translateY(28px) scale(.95); opacity:.34; filter:blur(.8px); }
-      .lmx-card-cover { position:absolute; inset:0; background-size:cover; background-position:center center; transform:scale(1.03); }
-      .lmx-card-cover::after { content:""; position:absolute; inset:0; background:linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.18) 24%, rgba(0,0,0,.84) 100%), radial-gradient(circle at 50% 24%, rgba(124,171,255,.18), transparent 22%); }
-      .lmx-card-body { position:relative; z-index:1; height:100%; display:flex; flex-direction:column; justify-content:space-between; padding:16px; }
-      .lmx-chip-row { display:flex; gap:8px; flex-wrap:wrap; align-self:flex-start; }
-      .lmx-chip { display:inline-flex; align-items:center; gap:6px; border-radius:999px; padding:8px 11px; font-size:.79rem; font-weight:900; color:#fff; background:rgba(255,255,255,.09); border:1px solid rgba(255,255,255,.10); backdrop-filter:blur(12px); }
-      .lmx-card-bottom { display:flex; flex-direction:column; gap:12px; }
-      .lmx-artist { margin:0; font-size:2rem; line-height:1.01; font-weight:950; text-transform:uppercase; color:#fff; }
-      .lmx-meta { margin:0; font-size:1rem; font-weight:800; color:rgba(255,255,255,.96); }
-      .lmx-reason { margin:0; font-size:.93rem; color:rgba(255,255,255,.80); line-height:1.4; }
-      .lmx-swipe-label { position:absolute; top:18px; padding:10px 14px; border-radius:14px; font-size:1rem; font-weight:950; letter-spacing:.06em; text-transform:uppercase; border:2px solid rgba(255,255,255,.26); opacity:0; pointer-events:none; backdrop-filter:blur(12px); }
-      .lmx-swipe-label.pass { left:18px; color:#ff9d94; }
-      .lmx-swipe-label.plan { right:18px; color:#9ef4c2; }
-      .lmx-swipe-label.show { opacity:1; }
-      .lmx-actions { display:flex; align-items:center; justify-content:center; gap:12px; }
-      .lmx-action { appearance:none; border:none; cursor:pointer; width:56px; height:56px; border-radius:999px; background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.12); color:#fff; font:inherit; font-weight:900; backdrop-filter:blur(12px); box-shadow:0 10px 24px rgba(0,0,0,.22); }
-      .lmx-action.lmx-action--big { width:auto; min-width:110px; padding:0 18px; border-radius:999px; }
-      .lmx-action--plan { background:linear-gradient(180deg, rgba(58,211,140,.24), rgba(27,135,88,.16)); }
-      .lmx-action--hide { background:linear-gradient(180deg, rgba(255,114,114,.18), rgba(158,45,45,.10)); }
-      .lmx-action--info { background:linear-gradient(180deg, rgba(136,171,255,.24), rgba(83,110,255,.12)); }
-      .lmx-deck-progress { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px 14px; border-radius:18px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06); }
-      .lmx-progress-text { font-size:.9rem; color:rgba(255,255,255,.78); }
-      .lmx-radar-grid { display:grid; gap:12px; }
-      .lmx-radar-citybar { display:grid; grid-template-columns:repeat(auto-fit, minmax(120px,1fr)); gap:10px; }
-      .lmx-city-node { border-radius:20px; padding:14px; min-height:92px; border:1px solid rgba(255,255,255,.08); background:radial-gradient(circle at 50% 22%, rgba(124,171,255,.18), transparent 26%), linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03)); }
-      .lmx-city-node--button { appearance:none; cursor:pointer; text-align:left; width:100%; }
-      .lmx-city-node.is-active { background:radial-gradient(circle at 50% 22%, rgba(124,171,255,.28), transparent 26%), linear-gradient(180deg, rgba(136,171,255,.16), rgba(83,110,255,.08)); border-color:rgba(162,188,255,.30); box-shadow:0 12px 28px rgba(34,58,120,.18); }
-      .lmx-city-name { margin:0 0 6px; font-size:1rem; font-weight:900; color:#fff; }
-      .lmx-city-count { margin:0; font-size:.88rem; color:rgba(255,255,255,.72); }
-      .lmx-group { border-radius:22px; overflow:hidden; border:1px solid rgba(255,255,255,.08); background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.03)); box-shadow:0 16px 34px rgba(0,0,0,.20); }
-      .lmx-group-head { display:flex; gap:12px; align-items:center; padding:14px; cursor:pointer; }
-      .lmx-group-thumb { width:72px; height:72px; border-radius:18px; background-size:cover; background-position:center center; flex-shrink:0; border:1px solid rgba(255,255,255,.10); }
-      .lmx-group-main { min-width:0; display:flex; flex-direction:column; gap:6px; flex:1; }
-      .lmx-group-title { margin:0; font-size:1.08rem; font-weight:900; color:#fff; }
-      .lmx-group-sub { margin:0; font-size:.9rem; color:rgba(255,255,255,.76); }
-      .lmx-group-cta { appearance:none; border:none; cursor:pointer; border-radius:999px; padding:10px 12px; font:inherit; font-weight:900; color:#fff; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.10); }
-      .lmx-group-dates { display:none; padding:0 14px 14px; gap:10px; flex-direction:column; }
-      .lmx-group.is-open .lmx-group-dates { display:flex; }
-      .lmx-date-row { display:flex; align-items:center; justify-content:space-between; gap:10px; border-radius:16px; padding:12px; background:rgba(255,255,255,.045); border:1px solid rgba(255,255,255,.06); }
-      .lmx-date-left { display:flex; flex-direction:column; gap:4px; min-width:0; }
-      .lmx-date-title { margin:0; font-size:.94rem; font-weight:900; color:#fff; }
-      .lmx-date-sub { margin:0; font-size:.84rem; color:rgba(255,255,255,.72); }
-      .lmx-date-actions { display:flex; gap:8px; flex-shrink:0; }
-      .lmx-going-list, .lmx-hidden-list { display:flex; flex-direction:column; gap:12px; }
-      .lmx-itinerary { display:grid; grid-template-columns:72px 1fr; gap:12px; border-radius:22px; overflow:hidden; padding:14px; border:1px solid rgba(255,255,255,.08); background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.03)); }
-      .lmx-date-badge { border-radius:18px; display:flex; flex-direction:column; align-items:center; justify-content:center; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08); min-height:92px; }
-      .lmx-date-badge-day { font-size:1.35rem; font-weight:950; color:#fff; line-height:1; }
-      .lmx-date-badge-month { font-size:.82rem; font-weight:900; color:rgba(255,255,255,.72); text-transform:uppercase; letter-spacing:.05em; }
-      .lmx-itinerary-main { display:flex; flex-direction:column; gap:8px; min-width:0; }
-      .lmx-itinerary-title { margin:0; font-size:1.12rem; font-weight:900; color:#fff; }
-      .lmx-itinerary-sub { margin:0; font-size:.92rem; color:rgba(255,255,255,.74); }
-      .lmx-itinerary-actions { display:flex; flex-wrap:wrap; gap:8px; }
-      .lmx-btn { appearance:none; border:none; cursor:pointer; border-radius:12px; padding:10px 12px; font:inherit; font-weight:900; color:#fff; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.09); }
-      .lmx-btn--primary { background:linear-gradient(180deg, rgba(136,171,255,.24), rgba(83,110,255,.12)); }
-      .lmx-btn--danger { background:linear-gradient(180deg, rgba(255,114,114,.18), rgba(158,45,45,.10)); }
-      .lmx-btn--plan { background:linear-gradient(180deg, rgba(58,211,140,.24), rgba(27,135,88,.16)); }
-      .lmx-sheet { position:fixed; inset:0; z-index:9998; background:rgba(0,0,0,.48); backdrop-filter:blur(10px); display:flex; align-items:flex-end; justify-content:center; padding:16px; }
-      .lmx-sheet-panel { width:min(100%, 520px); max-height:86vh; overflow:auto; border-radius:28px; overflow:hidden; border:1px solid rgba(255,255,255,.10); background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)), linear-gradient(180deg, #0c1016, #080b10); box-shadow:0 28px 60px rgba(0,0,0,.38); }
-      .lmx-sheet-cover { height:220px; background-size:cover; background-position:center center; }
-      .lmx-sheet-body { padding:16px; display:flex; flex-direction:column; gap:14px; }
-      .lmx-sheet-title { margin:0; font-size:1.5rem; line-height:1.08; font-weight:950; color:#fff; }
-      .lmx-sheet-text { margin:0; font-size:.94rem; color:rgba(255,255,255,.78); line-height:1.5; }
-      .lmx-sheet-row { display:flex; flex-wrap:wrap; gap:8px; }
-      .lmx-sheet-close { position:sticky; top:0; margin-left:auto; display:block; }
-      .lmx-empty { padding:16px 14px; border-radius:18px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06); color:rgba(255,255,255,.74); }
-      .lmx-checkin-overlay { position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,.46); backdrop-filter:blur(10px); display:flex; align-items:flex-end; justify-content:center; padding:18px; }
-      .lmx-checkin-panel { width:min(100%, 430px); border-radius:24px; overflow:hidden; border:1px solid rgba(255,255,255,.10); background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)),linear-gradient(180deg, #0b0f15, #080b10); box-shadow:0 24px 60px rgba(0,0,0,.40); padding:0 0 16px; }
-      .lmx-checkin-image { height:180px; background-size:cover; background-position:center center; }
-      .lmx-checkin-badge { display:inline-flex; margin:14px 16px 0; padding:7px 11px; border-radius:999px; font-size:.77rem; font-weight:900; letter-spacing:.04em; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.10); }
-      .lmx-checkin-title { margin:12px 16px 0; font-size:1.24rem; line-height:1.2; font-weight:900; color:#fff; }
-      .lmx-checkin-sub { margin:10px 16px 0; font-size:.95rem; line-height:1.45; color:rgba(255,255,255,.84); }
-      .lmx-checkin-actions { display:flex; flex-direction:column; gap:8px; padding:14px 16px 0; }
-      .lmx-checkin-btn { appearance:none; border:none; outline:none; border-radius:14px; padding:13px 14px; font:inherit; font-weight:800; color:#fff; cursor:pointer; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.10); }
-      .lmx-checkin-btn--primary { background:linear-gradient(180deg, rgba(136,171,255,.24), rgba(83,110,255,.12)); }
-      @media (max-width: 640px) {
-        .lmx-deck-stage { min-height:500px; height:68vh; }
-        .lmx-artist { font-size:1.68rem; }
-      }
-    `;
-    document.head.appendChild(style);
-  }
-
   function render(events, meta) {
     removeExistingDetailsSheet();
 
@@ -1937,30 +2365,52 @@
     if (sheet) document.body.appendChild(sheet);
   }
 
-  async function refresh() {
+  async function refresh(options = {}) {
+    const { silent = false, keepSheet = false } = options;
+
     store.lastRefreshAt = Date.now();
     saveStore(store);
 
-    removeExistingDetailsSheet();
-    setEmpty("Refreshing concert radar…");
+    isRefreshing = true;
 
-    const [recommendedPayload, plannedDbEvents] = await Promise.all([
-      fetchJson(getRecommendedUrl()),
-      loadPlannedConcerts()
-    ]);
-
-    const mapped = extractWorkerEvents(recommendedPayload);
-    const merged = mergeRecommendedWithPlanned(mapped, plannedDbEvents);
-    const enriched = await enrichEventsWithImages(merged);
-
-    pendingPromptBusy = false;
-    if (store.deckIndex >= getDeck(splitVisibleEventsByState(enriched).announced).length) {
-      store.deckIndex = 0;
-      saveStore(store);
+    if (!silent) {
+      currentLoadingMode = store.activeMode || "discover";
+      renderLoadingSkeleton(currentLoadingMode);
     }
 
-    render(enriched, recommendedPayload?.meta || null);
-    updatePendingPromptState();
+    if (!keepSheet) removeExistingDetailsSheet();
+
+    try {
+      const [recommendedPayload, plannedDbEvents] = await Promise.all([
+        fetchJson(getRecommendedUrl()),
+        loadPlannedConcerts()
+      ]);
+
+      const mapped = extractWorkerEvents(recommendedPayload);
+      const merged = mergeRecommendedWithPlanned(mapped, plannedDbEvents);
+      const enriched = await enrichEventsWithImages(merged);
+
+      pendingPromptBusy = false;
+
+      const deckLen = getDeck(splitVisibleEventsByState(enriched).announced).length;
+      if (store.deckIndex >= deckLen && deckLen > 0) {
+        store.deckIndex = 0;
+        saveStore(store);
+      }
+      if (deckLen === 0) {
+        store.deckIndex = 0;
+        saveStore(store);
+      }
+
+      isRefreshing = false;
+      render(enriched, recommendedPayload?.meta || null);
+      updatePendingPromptState();
+    } catch (e) {
+      isRefreshing = false;
+      setEmpty(`Failed to refresh. ${safeStr(e?.message || "")}`.trim());
+      showToast(`Refresh failed${safeStr(e?.message) ? ` · ${safeStr(e.message)}` : ""}`, true);
+      throw e;
+    }
   }
 
   function wireConcertsTabRefresh() {
@@ -1971,9 +2421,7 @@
     if (!btn) return;
 
     btn.addEventListener("click", () => {
-      refresh().catch((e) => {
-        setEmpty(`Failed to refresh. ${safeStr(e?.message || "")}`.trim());
-      });
+      refresh({ silent: false }).catch(() => {});
     }, { passive: true });
   }
 
@@ -1985,10 +2433,8 @@
     get lastEvents() { return lastEvents; },
     get plannedItems() { return plannedItems; },
     get pendingPromptItem() { return pendingPromptItem; },
-    forceRefresh() { refresh().catch(() => {}); }
+    forceRefresh() { refresh({ silent: false }).catch(() => {}); }
   };
 
-  refresh().catch((e) => {
-    setEmpty(`Failed to refresh. ${safeStr(e?.message || "")}`.trim());
-  });
+  refresh({ silent: false }).catch(() => {});
 })();

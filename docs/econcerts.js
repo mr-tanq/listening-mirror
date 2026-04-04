@@ -479,8 +479,7 @@
     if (v === "recommended" || v === "older-taste" || v === "borderline") return "suggested";
     return "none";
   }
-
-  function normalizeRecommendedEvent(ev) {
+   function normalizeRecommendedEvent(ev) {
     const start = parseAmsterdamDate(ev?.date_local, ev?.time_local);
     if (!isValidDate(start)) return null;
 
@@ -629,8 +628,9 @@
       url: safeStr(event?.url),
       image_url: safeStr(event?.imageUrl)
     };
-         }
-   async function apiAddToPlan(event) {
+  }
+
+  async function apiAddToPlan(event) {
     const payload = buildPlannedPayload(event);
 
     await fetchJson(`${ARCHIVE_BASE}/planned-concerts/add`, {
@@ -732,7 +732,7 @@
     }
   }
 
-  async function handleRemovePlan(eventKey, opts = {}) {
+  async function handleRemovePlan(eventKey) {
     const key = safeStr(eventKey);
     if (!key) return;
 
@@ -756,7 +756,6 @@
   }
 
   const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
-  const isDismissed = (id) => store.dismissedIds.includes(id);
 
   async function dismiss(id) {
     if (!store.dismissedIds.includes(id)) {
@@ -875,8 +874,7 @@
       showToast(`Could not mark as missed${safeStr(e?.message) ? ` · ${safeStr(e.message)}` : ""}`, true);
     }
   }
-
-  function removeExistingPromptEl() {
+   function removeExistingPromptEl() {
     const existing = document.getElementById("lmConcertCheckinOverlay");
     if (existing) existing.remove();
   }
@@ -1051,8 +1049,9 @@
       el.classList.add("is-out");
       window.setTimeout(() => el.remove(), 240);
     }, 2200);
-       }
-   function renderLoadingSkeleton(mode = "discover") {
+  }
+
+  function renderLoadingSkeleton(mode = "discover") {
     const shell = document.createElement("div");
     shell.className = "lmx-shell lmx-fade-in";
 
@@ -1144,401 +1143,6 @@
 
     listEl.innerHTML = "";
     listEl.appendChild(shell);
-  }
-
-  function injectStylesOnce() {
-    if (document.getElementById("lmConcertsSwipeStyles")) return;
-
-    const style = document.createElement("style");
-    style.id = "lmConcertsSwipeStyles";
-    style.textContent = `
-      #econcertsList { display:block; }
-
-      .lmx-shell { display:flex; flex-direction:column; gap:14px; }
-      .lmx-fade-in { animation:lmxFadeIn .18s ease; }
-
-      @keyframes lmxFadeIn {
-        from { opacity:0; transform:translateY(4px); }
-        to { opacity:1; transform:translateY(0); }
-      }
-
-      .lmx-top { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
-      .lmx-title-wrap { display:flex; flex-direction:column; gap:6px; min-width:0; }
-      .lmx-kicker {
-        display:inline-flex; align-items:center; gap:8px; font-size:.82rem; font-weight:900;
-        color:rgba(255,255,255,.72); letter-spacing:.04em; text-transform:uppercase;
-      }
-      .lmx-kicker-dot {
-        width:8px; height:8px; border-radius:999px; background:#8db7ff;
-        box-shadow:0 0 14px rgba(141,183,255,.9);
-        animation:lmxPulse 1.6s infinite ease-in-out;
-      }
-      @keyframes lmxPulse {
-        0%,100% { transform:scale(1); opacity:.9; }
-        50% { transform:scale(1.35); opacity:1; }
-      }
-
-      .lmx-title { margin:0; font-size:1.18rem; font-weight:900; color:#fff; }
-      .lmx-sub { margin:0; font-size:.92rem; color:rgba(255,255,255,.72); }
-
-      .lmx-modebar {
-        display:flex; gap:8px; flex-wrap:wrap;
-        position:sticky; top:8px; z-index:8;
-      }
-      .lmx-mode {
-        appearance:none; border:none; cursor:pointer;
-        border-radius:999px; padding:10px 14px;
-        font:inherit; font-weight:900; color:#fff;
-        background:rgba(255,255,255,.06);
-        border:1px solid rgba(255,255,255,.08);
-        backdrop-filter:blur(12px);
-        transition:transform .14s ease, background .16s ease, border-color .16s ease, box-shadow .16s ease;
-      }
-      .lmx-mode:active { transform:scale(.985); }
-      .lmx-mode.is-on {
-        background:linear-gradient(180deg, rgba(136,171,255,.24), rgba(83,110,255,.12));
-        border-color:rgba(162,188,255,.30);
-        box-shadow:0 10px 30px rgba(34,58,120,.22);
-      }
-
-      .skeleton-shimmer {
-        background: linear-gradient(
-          90deg,
-          rgba(255,255,255,0.04) 25%,
-          rgba(255,255,255,0.10) 50%,
-          rgba(255,255,255,0.04) 75%
-        );
-        background-size: 200% 100%;
-        animation: lmxShimmer 1.6s infinite linear;
-      }
-      @keyframes lmxShimmer {
-        0% { background-position: -200% 0; }
-        100% { background-position: 200% 0; }
-      }
-
-      .lmx-skeleton-list { display:flex; flex-direction:column; gap:12px; }
-      .lmx-skeleton-row {
-        display:flex; gap:12px; padding:14px; border-radius:20px;
-        background:rgba(255,255,255,.03);
-        border:1px solid rgba(255,255,255,.05);
-      }
-      .lmx-skeleton-thumb { width:72px; height:72px; border-radius:18px; flex-shrink:0; }
-      .lmx-skeleton-col { display:flex; flex-direction:column; gap:10px; flex:1; }
-      .lmx-skeleton-line { border-radius:999px; height:12px; }
-      .lmx-skeleton-line.big { width:78%; height:18px; }
-      .lmx-skeleton-line.mid { width:56%; }
-      .lmx-skeleton-line.small { width:42%; }
-      .lmx-skeleton-line.xs { width:28%; }
-      .lmx-skeleton-pill { width:110px; height:34px; border-radius:999px; }
-      .lmx-skeleton-pill.short { width:82px; }
-      .lmx-skeleton-pill.midwide { width:120px; }
-      .lmx-skeleton-circle { width:56px; height:56px; border-radius:999px; }
-
-      .lmx-deck-wrap { display:flex; flex-direction:column; gap:14px; }
-      .lmx-deck-stage { position:relative; height:72vh; min-height:540px; }
-      .lmx-card {
-        position:absolute; inset:0; border-radius:28px; overflow:hidden;
-        border:1px solid rgba(255,255,255,.10);
-        box-shadow:0 28px 60px rgba(0,0,0,.32);
-        background:#0b1017;
-        touch-action:none; user-select:none;
-        transform-origin:center center;
-        transition:transform .22s ease, opacity .22s ease, filter .22s ease;
-      }
-      .lmx-card.is-back-1 { transform:translateY(14px) scale(.975); opacity:.62; filter:blur(.4px); }
-      .lmx-card.is-back-2 { transform:translateY(28px) scale(.95); opacity:.34; filter:blur(.8px); }
-      .lmx-skeleton-card { background:rgba(255,255,255,.02); }
-      .lmx-skeleton-surface {
-        position:absolute; inset:0;
-        background:
-          linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.01)),
-          linear-gradient(135deg, rgba(59,76,119,.16), rgba(25,32,49,.22));
-      }
-
-      .lmx-card-cover {
-        position:absolute; inset:0; background-size:cover; background-position:center center;
-        transform:scale(1.03);
-      }
-      .lmx-card-cover::after {
-        content:""; position:absolute; inset:0;
-        background:
-          linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.18) 24%, rgba(0,0,0,.84) 100%),
-          radial-gradient(circle at 50% 24%, rgba(124,171,255,.18), transparent 22%);
-      }
-      .lmx-card-body {
-        position:relative; z-index:1; height:100%;
-        display:flex; flex-direction:column; justify-content:space-between;
-        padding:16px;
-      }
-      .lmx-chip-row { display:flex; gap:8px; flex-wrap:wrap; align-self:flex-start; }
-      .lmx-chip {
-        display:inline-flex; align-items:center; gap:6px;
-        border-radius:999px; padding:8px 11px;
-        font-size:.79rem; font-weight:900; color:#fff;
-        background:rgba(255,255,255,.09);
-        border:1px solid rgba(255,255,255,.10);
-        backdrop-filter:blur(12px);
-      }
-      .lmx-score-pill {
-        display:inline-flex; align-items:center; justify-content:center;
-        min-width:44px; padding:8px 10px;
-        border-radius:999px; font-size:.78rem; font-weight:950;
-      }
-      .lmx-score-pill.high {
-        background:linear-gradient(135deg, #ffb347, #ff7a18);
-        color:#111;
-        box-shadow:0 0 16px rgba(255,140,50,0.25);
-      }
-      .lmx-score-pill.mid {
-        background:rgba(255,255,255,.10);
-        color:#fff;
-      }
-      .lmx-score-pill.low {
-        background:rgba(255,255,255,.06);
-        color:rgba(255,255,255,.72);
-      }
-
-      .lmx-card-bottom { display:flex; flex-direction:column; gap:12px; }
-      .lmx-artist {
-        margin:0; font-size:2rem; line-height:1.01; font-weight:950; text-transform:uppercase;
-        color:#fff;
-      }
-      .lmx-meta { margin:0; font-size:1rem; font-weight:800; color:rgba(255,255,255,.96); }
-      .lmx-reason { margin:0; font-size:.93rem; color:rgba(255,255,255,.80); line-height:1.4; }
-
-      .lmx-swipe-label {
-        position:absolute; top:18px; padding:10px 14px; border-radius:14px;
-        font-size:1rem; font-weight:950; letter-spacing:.06em; text-transform:uppercase;
-        border:2px solid rgba(255,255,255,.26); opacity:0; pointer-events:none;
-        backdrop-filter:blur(12px);
-      }
-      .lmx-swipe-label.pass { left:18px; color:#ff9d94; }
-      .lmx-swipe-label.plan { right:18px; color:#9ef4c2; }
-      .lmx-swipe-label.show { opacity:1; }
-
-      .lmx-actions {
-        display:flex; align-items:center; justify-content:center; gap:12px;
-      }
-      .lmx-action {
-        appearance:none; border:none; cursor:pointer;
-        width:56px; height:56px; border-radius:999px;
-        background:rgba(255,255,255,.10);
-        border:1px solid rgba(255,255,255,.12);
-        color:#fff; font:inherit; font-weight:900;
-        backdrop-filter:blur(12px);
-        box-shadow:0 10px 24px rgba(0,0,0,.22);
-        transition:transform .14s ease, filter .14s ease, background .18s ease;
-      }
-      .lmx-action:active { transform:scale(.97); }
-      .lmx-action.lmx-action--big { width:auto; min-width:110px; padding:0 18px; border-radius:999px; }
-      .lmx-action--plan { background:linear-gradient(180deg, rgba(58,211,140,.24), rgba(27,135,88,.16)); }
-      .lmx-action--hide { background:linear-gradient(180deg, rgba(255,114,114,.18), rgba(158,45,45,.10)); }
-      .lmx-action--info { background:linear-gradient(180deg, rgba(136,171,255,.24), rgba(83,110,255,.12)); }
-
-      .lmx-deck-progress {
-        display:flex; justify-content:space-between; align-items:center; gap:12px;
-        padding:12px 14px; border-radius:18px;
-        background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06);
-      }
-      .lmx-progress-text { font-size:.9rem; color:rgba(255,255,255,.78); }
-
-      .lmx-radar-grid { display:grid; gap:12px; }
-      .lmx-radar-citybar {
-        display:grid; grid-template-columns:repeat(auto-fit, minmax(110px,1fr)); gap:10px;
-      }
-      .lmx-city-node {
-        appearance:none; border:none; cursor:pointer; text-align:left;
-        border-radius:20px; padding:14px; min-height:92px;
-        border:1px solid rgba(255,255,255,.08);
-        background:
-          radial-gradient(circle at 50% 22%, rgba(124,171,255,.18), transparent 26%),
-          linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03));
-        transition:transform .14s ease, border-color .16s ease, box-shadow .16s ease;
-      }
-      .lmx-city-node:active { transform:scale(.985); }
-      .lmx-city-node.is-on {
-        border-color:rgba(162,188,255,.32);
-        box-shadow:0 12px 28px rgba(54,78,146,.20);
-      }
-      .lmx-city-name { margin:0 0 6px; font-size:1rem; font-weight:900; color:#fff; }
-      .lmx-city-count { margin:0; font-size:.88rem; color:rgba(255,255,255,.72); }
-
-      .lmx-group {
-        border-radius:22px; overflow:hidden;
-        border:1px solid rgba(255,255,255,.08);
-        background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.03));
-        box-shadow:0 16px 34px rgba(0,0,0,.20);
-      }
-      .lmx-group-head {
-        display:flex; gap:12px; align-items:center; padding:14px; cursor:pointer;
-      }
-      .lmx-group-thumb {
-        width:72px; height:72px; border-radius:18px; background-size:cover; background-position:center center;
-        flex-shrink:0; border:1px solid rgba(255,255,255,.10);
-      }
-      .lmx-group-main { min-width:0; display:flex; flex-direction:column; gap:6px; flex:1; }
-      .lmx-group-title { margin:0; font-size:1.08rem; font-weight:900; color:#fff; }
-      .lmx-group-sub { margin:0; font-size:.9rem; color:rgba(255,255,255,.76); }
-      .lmx-group-cta {
-        appearance:none; border:none; cursor:pointer; border-radius:999px;
-        padding:10px 12px; font:inherit; font-weight:900; color:#fff;
-        background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.10);
-      }
-
-      .lmx-group-dates {
-        overflow:hidden;
-        max-height:0;
-        opacity:0;
-        transform:translateY(-4px);
-        transition:max-height 220ms ease, opacity 180ms ease, transform 180ms ease;
-        padding:0 14px;
-        display:flex;
-        flex-direction:column;
-        gap:10px;
-      }
-      .lmx-group.is-open .lmx-group-dates {
-        max-height:1400px;
-        opacity:1;
-        transform:translateY(0);
-        padding:0 14px 14px;
-      }
-      .lmx-date-row {
-        display:flex; align-items:center; justify-content:space-between; gap:10px;
-        border-radius:16px; padding:12px;
-        background:rgba(255,255,255,.045);
-        border:1px solid rgba(255,255,255,.06);
-      }
-      .lmx-date-left { display:flex; flex-direction:column; gap:4px; min-width:0; }
-      .lmx-date-title { margin:0; font-size:.94rem; font-weight:900; color:#fff; }
-      .lmx-date-sub { margin:0; font-size:.84rem; color:rgba(255,255,255,.72); }
-      .lmx-date-actions { display:flex; gap:8px; flex-shrink:0; }
-
-      .lmx-going-list, .lmx-hidden-list { display:flex; flex-direction:column; gap:12px; }
-      .lmx-itinerary {
-        display:grid; grid-template-columns:72px 1fr; gap:12px;
-        border-radius:22px; overflow:hidden; padding:14px;
-        border:1px solid rgba(255,255,255,.08);
-        background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.03));
-        animation:lmxFadeIn .18s ease;
-      }
-      .lmx-date-badge {
-        border-radius:18px; display:flex; flex-direction:column; align-items:center; justify-content:center;
-        background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08);
-        min-height:92px;
-      }
-      .lmx-date-badge-day { font-size:1.35rem; font-weight:950; color:#fff; line-height:1; }
-      .lmx-date-badge-month { font-size:.82rem; font-weight:900; color:rgba(255,255,255,.72); text-transform:uppercase; letter-spacing:.05em; }
-      .lmx-itinerary-main { display:flex; flex-direction:column; gap:8px; min-width:0; }
-      .lmx-itinerary-title { margin:0; font-size:1.12rem; font-weight:900; color:#fff; }
-      .lmx-itinerary-sub { margin:0; font-size:.92rem; color:rgba(255,255,255,.74); }
-      .lmx-itinerary-actions { display:flex; flex-wrap:wrap; gap:8px; }
-
-      .lmx-btn {
-        appearance:none; border:none; cursor:pointer; border-radius:12px; padding:10px 12px;
-        font:inherit; font-weight:900; color:#fff;
-        background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.09);
-        transition:transform .14s ease, background .16s ease, border-color .16s ease;
-      }
-      .lmx-btn:active { transform:scale(.985); }
-      .lmx-btn--primary { background:linear-gradient(180deg, rgba(136,171,255,.24), rgba(83,110,255,.12)); }
-      .lmx-btn--danger { background:linear-gradient(180deg, rgba(255,114,114,.18), rgba(158,45,45,.10)); }
-      .lmx-btn--plan { background:linear-gradient(180deg, rgba(58,211,140,.24), rgba(27,135,88,.16)); }
-
-      .lmx-sheet {
-        position:fixed; inset:0; z-index:9998; background:rgba(0,0,0,.48);
-        backdrop-filter:blur(10px); display:flex; align-items:flex-end; justify-content:center; padding:16px;
-      }
-      .lmx-sheet-panel {
-        width:min(100%, 520px); max-height:86vh; overflow:auto;
-        border-radius:28px; overflow:hidden;
-        border:1px solid rgba(255,255,255,.10);
-        background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)), linear-gradient(180deg, #0c1016, #080b10);
-        box-shadow:0 28px 60px rgba(0,0,0,.38);
-        animation:lmxSheetIn .22s ease;
-      }
-      @keyframes lmxSheetIn {
-        from { opacity:0; transform:translateY(18px); }
-        to { opacity:1; transform:translateY(0); }
-      }
-      .lmx-sheet-cover { height:220px; background-size:cover; background-position:center center; }
-      .lmx-sheet-body { padding:16px; display:flex; flex-direction:column; gap:14px; }
-      .lmx-sheet-title { margin:0; font-size:1.5rem; line-height:1.08; font-weight:950; color:#fff; }
-      .lmx-sheet-text { margin:0; font-size:.94rem; color:rgba(255,255,255,.78); line-height:1.5; }
-      .lmx-sheet-row { display:flex; flex-wrap:wrap; gap:8px; }
-      .lmx-sheet-close { position:sticky; top:0; margin-left:auto; display:block; z-index:1; }
-
-      .lmx-empty {
-        padding:16px 14px; border-radius:18px;
-        background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06);
-        color:rgba(255,255,255,.74);
-      }
-
-      .lmx-checkin-overlay {
-        position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,.46);
-        backdrop-filter:blur(10px); display:flex; align-items:flex-end; justify-content:center; padding:18px;
-      }
-      .lmx-checkin-panel {
-        width:min(100%, 430px); border-radius:24px; overflow:hidden;
-        border:1px solid rgba(255,255,255,.10);
-        background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)), linear-gradient(180deg, #0b0f15, #080b10);
-        box-shadow:0 24px 60px rgba(0,0,0,.40); padding:0 0 16px;
-        animation:lmxSheetIn .22s ease;
-      }
-      .lmx-checkin-image { height:180px; background-size:cover; background-position:center center; }
-      .lmx-checkin-badge {
-        display:inline-flex; margin:14px 16px 0; padding:7px 11px; border-radius:999px;
-        font-size:.77rem; font-weight:900; letter-spacing:.04em;
-        background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.10);
-      }
-      .lmx-checkin-title { margin:12px 16px 0; font-size:1.24rem; line-height:1.2; font-weight:900; color:#fff; }
-      .lmx-checkin-sub { margin:10px 16px 0; font-size:.95rem; line-height:1.45; color:rgba(255,255,255,.84); }
-      .lmx-checkin-actions { display:flex; flex-direction:column; gap:8px; padding:14px 16px 0; }
-      .lmx-checkin-btn {
-        appearance:none; border:none; outline:none; border-radius:14px; padding:13px 14px; font:inherit; font-weight:800;
-        color:#fff; cursor:pointer; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.10);
-      }
-      .lmx-checkin-btn--primary {
-        background:linear-gradient(180deg, rgba(136,171,255,.24), rgba(83,110,255,.12));
-      }
-
-      .lmx-toast {
-        position:fixed;
-        left:50%;
-        bottom:88px;
-        transform:translateX(-50%);
-        padding:12px 16px;
-        border-radius:999px;
-        background:rgba(20,20,20,.92);
-        border:1px solid rgba(255,255,255,.08);
-        color:#fff;
-        font-size:13px;
-        font-weight:700;
-        z-index:10001;
-        backdrop-filter:blur(18px);
-        animation:lmxToastIn .22s ease;
-        box-shadow:0 12px 28px rgba(0,0,0,.26);
-      }
-      .lmx-toast.is-error {
-        background:rgba(74,18,18,.94);
-        border-color:rgba(255,150,150,.14);
-      }
-      .lmx-toast.is-out {
-        animation:lmxToastOut .22s ease forwards;
-      }
-      @keyframes lmxToastIn {
-        from { opacity:0; transform:translateX(-50%) translateY(10px); }
-        to { opacity:1; transform:translateX(-50%) translateY(0); }
-      }
-      @keyframes lmxToastOut {
-        to { opacity:0; transform:translateX(-50%) translateY(10px); }
-      }
-
-      @media (max-width: 640px) {
-        .lmx-deck-stage { min-height:500px; height:68vh; }
-        .lmx-artist { font-size:1.68rem; }
-      }
-    `;
-    document.head.appendChild(style);
   }
 
   function openDetailsSheetForEvent(ev) {
@@ -1730,8 +1334,7 @@
     card.appendChild(passLabel);
     card.appendChild(planLabel);
     card.appendChild(body);
-
-    const triggerPass = async () => {
+     const triggerPass = async () => {
       if (item.type === "group") {
         for (const x of item.group.events) await dismiss(x.id);
       } else {
@@ -1810,7 +1413,7 @@
       else planLabel.classList.remove("show");
     };
 
-    const onPointerUp = async () => {
+    const onPointerUp = () => {
       if (!active) return;
       active = false;
       card.style.transition = "transform .22s ease, opacity .22s ease";
@@ -2361,55 +1964,88 @@
       listEl.appendChild(buildHidden(split.hidden));
     }
 
-    const sheet = buildDetailsSheet(detailsSheetEvent);
-    if (sheet) document.body.appendChild(sheet);
+    if (detailsSheetEvent) {
+      const latestDetailsEvent =
+        lastEvents.find((x) => x.id === detailsSheetEvent.id) || detailsSheetEvent;
+
+      const sheet = buildDetailsSheet(latestDetailsEvent);
+      if (sheet) document.body.appendChild(sheet);
+    }
+
+    updatePendingPromptState();
   }
 
   async function refresh(options = {}) {
     const { silent = false, keepSheet = false } = options;
 
-    store.lastRefreshAt = Date.now();
-    saveStore(store);
-
+    if (isRefreshing) return;
     isRefreshing = true;
 
-    if (!silent) {
-      currentLoadingMode = store.activeMode || "discover";
-      renderLoadingSkeleton(currentLoadingMode);
-    }
-
-    if (!keepSheet) removeExistingDetailsSheet();
-
     try {
+      if (!silent) {
+        currentLoadingMode = store.activeMode || "discover";
+        renderLoadingSkeleton(currentLoadingMode);
+      }
+
       const [recommendedPayload, plannedDbEvents] = await Promise.all([
         fetchJson(getRecommendedUrl()),
         loadPlannedConcerts()
       ]);
 
-      const mapped = extractWorkerEvents(recommendedPayload);
-      const merged = mergeRecommendedWithPlanned(mapped, plannedDbEvents);
-      const enriched = await enrichEventsWithImages(merged);
+      let recommended = extractWorkerEvents(recommendedPayload);
+      recommended = await enrichEventsWithImages(recommended);
 
-      pendingPromptBusy = false;
+      const merged = mergeRecommendedWithPlanned(recommended, plannedDbEvents);
 
-      const deckLen = getDeck(splitVisibleEventsByState(enriched).announced).length;
-      if (store.deckIndex >= deckLen && deckLen > 0) {
-        store.deckIndex = 0;
-        saveStore(store);
-      }
-      if (deckLen === 0) {
-        store.deckIndex = 0;
-        saveStore(store);
+      store.lastRefreshAt = Date.now();
+      saveStore(store);
+
+      if (!keepSheet) {
+        detailsSheetEvent = null;
       }
 
-      isRefreshing = false;
-      render(enriched, recommendedPayload?.meta || null);
-      updatePendingPromptState();
+      render(merged, {
+        total: merged.length,
+        refreshedAt: Date.now()
+      });
     } catch (e) {
-      isRefreshing = false;
-      setEmpty(`Failed to refresh. ${safeStr(e?.message || "")}`.trim());
+      console.error("[econcerts] refresh failed", e);
+
+      listEl.innerHTML = "";
+
+      const shell = document.createElement("div");
+      shell.className = "lmx-shell";
+
+      const empty = document.createElement("div");
+      empty.className = "lmx-empty";
+      empty.innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <div style="font-size:1rem;font-weight:900;color:#fff;">Couldn’t load concerts</div>
+          <div style="color:rgba(255,255,255,.72);font-size:.92rem;">
+            ${safeStr(e?.message) || "Something went wrong while loading the concert radar."}
+          </div>
+          <div>
+            <button type="button" class="lmx-btn lmx-btn--primary" id="lmxRetryBtn">
+              Try again
+            </button>
+          </div>
+        </div>
+      `;
+
+      shell.appendChild(empty);
+      listEl.appendChild(shell);
+
+      const retryBtn = document.getElementById("lmxRetryBtn");
+      if (retryBtn) {
+        retryBtn.addEventListener("click", () => {
+          refresh();
+        });
+      }
+
       showToast(`Refresh failed${safeStr(e?.message) ? ` · ${safeStr(e.message)}` : ""}`, true);
-      throw e;
+    } finally {
+      isRefreshing = false;
+      pendingPromptBusy = false;
     }
   }
 
@@ -2436,5 +2072,6 @@
     forceRefresh() { refresh({ silent: false }).catch(() => {}); }
   };
 
+  renderLoadingSkeleton(store.activeMode || "discover");
   refresh({ silent: false }).catch(() => {});
 })();

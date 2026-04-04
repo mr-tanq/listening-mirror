@@ -1,4 +1,4 @@
-/* app.js (FULL FILE REPLACE) — PART 1/3
+/* app.js (FULL FILE REPLACE)
    Listening Mirror — Identity tabs + Archive rich stats
    Archive includes:
    - automatic Last.fm visuals
@@ -8,6 +8,7 @@
    - auto setlist load/fetch
    - single-artist + multi-artist setlists
    - polished archive shell cleanup
+   - On This Day memory section
 
    Concerts tab:
    - only relevant concerts from eConcerts recommender
@@ -47,9 +48,11 @@
 
     lastArchive: [],
     archiveStats: null,
+    archiveOnThisDay: null,
     archiveHeroImages: {
       returningArtist: ""
     },
+    archiveOnThisDayImages: {},
     archiveFilterMode: "all",
     archiveFilterValue: "",
     archiveYearOlderOpen: false,
@@ -612,6 +615,52 @@
           text-transform:uppercase;color:rgba(255,255,255,.46);
         }
 
+        .archiveMemoryGrid{display:grid;gap:10px}
+        .archiveMemoryCard{
+          position:relative;overflow:hidden;border-radius:18px;
+          background:radial-gradient(circle at 16% 20%, rgba(255,255,255,.04), transparent 38%),linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.022));
+          outline:1px solid rgba(255,255,255,.08);padding:0;
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.03),0 12px 26px rgba(0,0,0,.12);
+        }
+        .archiveMemoryCardButton{
+          position:relative;width:100%;border:none;background:transparent;color:inherit;text-align:left;
+          padding:15px 14px;cursor:pointer;display:block;
+        }
+        .archiveMemoryCardButton:focus-visible{
+          outline:2px solid rgba(255,255,255,.28);
+          outline-offset:2px;
+        }
+        .archiveMemoryCardVisual{background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.015))}
+        .archiveMemoryBackdrop{
+          position:absolute;inset:0;background-size:cover;background-position:center center;
+          transform:scale(1.03);filter:blur(0px);opacity:.46;pointer-events:none;
+        }
+        .archiveMemoryBackdrop::after{
+          content:"";position:absolute;inset:0;
+          background:linear-gradient(180deg, rgba(6,7,10,.16) 0%, rgba(6,7,10,.40) 34%, rgba(6,7,10,.72) 100%),radial-gradient(circle at 18% 15%, rgba(255,255,255,.08), transparent 42%);
+        }
+        .archiveMemoryInner{position:relative;z-index:1}
+        .archiveMemoryTop{
+          display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;
+        }
+        .archiveMemoryBadge{
+          display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;
+          background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.12);
+          color:rgba(255,255,255,.86);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+        }
+        .archiveMemoryYears{
+          font-size:12px;line-height:1.2;color:rgba(255,255,255,.72);white-space:nowrap;
+        }
+        .archiveMemoryTitle{
+          font-size:15px;line-height:1.35;font-weight:600;color:rgba(255,255,255,.97);text-wrap:balance;
+        }
+        .archiveMemoryMeta{margin-top:8px;font-size:12px;line-height:1.45;color:rgba(255,255,255,.62)}
+        .archiveMemoryVenue{margin-top:3px;font-size:12px;line-height:1.45;color:rgba(255,255,255,.40)}
+        .archiveMemoryHint{
+          margin-top:10px;font-size:11px;line-height:1.2;color:rgba(255,255,255,.34);
+          letter-spacing:.06em;text-transform:uppercase;
+        }
+
         .archiveDnaGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
         .archiveDnaCard{
           position:relative;overflow:hidden;border-radius:18px;
@@ -637,9 +686,8 @@
         .archiveDnaLabel{
           margin-top:10px;font-size:10px;line-height:1.2;letter-spacing:.12em;
           text-transform:uppercase;color:rgba(255,255,255,.40);
-        }
-
-        .archiveMilestoneGrid{display:grid;gap:10px}
+    }
+    .archiveMilestoneGrid{display:grid;gap:10px}
         .archiveMilestoneCard{
           position:relative;overflow:hidden;border-radius:18px;
           background:radial-gradient(circle at 16% 20%, rgba(255,255,255,.04), transparent 38%),linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.022));
@@ -1099,8 +1147,7 @@
     const t = normalizeSpace(timeLocal || "");
     return [dateText, t].filter(Boolean).join(" • ");
   }
-
-  function concertScoreEmoji(score) {
+   function concertScoreEmoji(score) {
     const s = Number(score || 0);
     if (s >= 85) return "🔥";
     if (s >= 70) return "✨";
@@ -1173,7 +1220,8 @@
       </div>
     `;
   }
-   function renderConcertSection(el, title, statText, events) {
+
+  function renderConcertSection(el, title, statText, events) {
     if (!el) return;
 
     if (!events.length) {
@@ -1326,19 +1374,53 @@
     }
   }
 
+  async function loadArchiveOnThisDay() {
+    try {
+      const data = await archiveApiGet("/on-this-day");
+      state.archiveOnThisDay = data || null;
+
+      const items = Array.isArray(data?.items) ? data.items : [];
+      const nextImages = {};
+
+      await Promise.all(
+        items.map(async (item) => {
+          const lookup = chooseArchiveRowLookupName(item);
+          if (!lookup) return;
+          const imageUrl = await fetchLastfmArtworkImage(lookup);
+          if (imageUrl) {
+            nextImages[normalizeSpace(item?.event_key || "")] = imageUrl;
+          }
+        })
+      );
+
+      state.archiveOnThisDayImages = nextImages;
+      return true;
+    } catch {
+      state.archiveOnThisDay = null;
+      state.archiveOnThisDayImages = {};
+      return false;
+    }
+  }
+
   async function loadArchiveStats() {
     if (!archiveList) return false;
 
     try {
-      const j = await archiveApiGet("/stats");
-      state.archiveStats = j || null;
+      const [statsOk] = await Promise.all([
+        (async () => {
+          const j = await archiveApiGet("/stats");
+          state.archiveStats = j || null;
 
-      await Promise.all([
-        enrichArchiveHeroImages(state.archiveStats),
-        enrichArchiveMilestoneImages(state.archiveStats?.highlights || {})
+          await Promise.all([
+            enrichArchiveHeroImages(state.archiveStats),
+            enrichArchiveMilestoneImages(state.archiveStats?.highlights || {})
+          ]);
+          return true;
+        })(),
+        loadArchiveOnThisDay()
       ]);
 
-      return true;
+      return statsOk;
     } catch {
       state.archiveStats = null;
       state.archiveHeroImages.returningArtist = "";
@@ -1629,7 +1711,7 @@
       renderArchiveView();
       alert(`Could not save note.\n\n${String(err.message || err)}`);
     }
- }
+  }
    function renderArchiveExplore(items, stats) {
     const mode = state.archiveFilterMode || "all";
     const options = getArchiveFilterOptions(mode, items, stats);
@@ -1684,41 +1766,6 @@
       >
         ${escapeHtml(label)}
       </button>
-    `;
-  }
-
-  function renderArchiveStatsPanel(stats) {
-    const overview = stats?.overview || {};
-    const highlights = stats?.highlights || {};
-    const topVenues = Array.isArray(stats?.top_venues) ? stats.top_venues : [];
-    const topCities = Array.isArray(stats?.top_cities) ? stats.top_cities : [];
-    const mostSeenArtists = Array.isArray(stats?.most_seen_artists) ? stats.most_seen_artists : [];
-
-    return `
-      <section class="archiveIntro">
-        <div class="archiveIntroTitle">Archive</div>
-        <div class="archiveIntroSub">Your live memory vault — concerts, patterns, and milestones across the years.</div>
-      </section>
-
-      <section class="archiveSection">
-        <h3 class="archiveSectionTitle">Overview</h3>
-        ${renderArchiveOverviewCards(overview)}
-      </section>
-
-      <section class="archiveSection">
-        <h3 class="archiveSectionTitle">Signature</h3>
-        ${renderArchiveDnaCards(highlights)}
-      </section>
-
-      <section class="archiveSection">
-        <h3 class="archiveSectionTitle">Milestones</h3>
-        ${renderArchiveMilestones(highlights)}
-      </section>
-
-      <section class="archiveSection">
-        <h3 class="archiveSectionTitle">Patterns</h3>
-        ${renderArchiveRankings(mostSeenArtists, topVenues, topCities)}
-      </section>
     `;
   }
 
@@ -1843,6 +1890,23 @@
     `;
   }
 
+  function renderRankCard(title, items) {
+    return `
+      <div class="archiveRankCard">
+        <div class="archiveRankTitle">${escapeHtml(title)}</div>
+        <div class="archiveRankList">
+          ${(items || []).map((item, idx) => `
+            <div class="archiveRankRow">
+              <div class="archiveRankIndex">${idx + 1}.</div>
+              <div class="archiveRankName">${escapeHtml(item.name || "—")}</div>
+              <div class="archiveRankCount">${escapeHtml(String(item.count || 0))}</div>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    `;
+  }
+
   function renderArchiveRankings(mostSeenArtists, topVenues, topCities) {
     return `
       <div class="archiveRankGrid" role="group" aria-label="Archive patterns">
@@ -1862,29 +1926,98 @@
     `;
   }
 
-  function renderRankCard(title, items) {
-    return `
-      <div class="archiveRankCard">
-        <div class="archiveRankTitle">${escapeHtml(title)}</div>
-        <div class="archiveRankList">
-          ${(items || []).map((item, idx) => `
-            <div class="archiveRankRow">
-              <div class="archiveRankIndex">${idx + 1}.</div>
-              <div class="archiveRankName">${escapeHtml(item.name || "—")}</div>
-              <div class="archiveRankCount">${escapeHtml(String(item.count || 0))}</div>
-            </div>
-          `).join("")}
-        </div>
-      </div>
-    `;
-  }
-
   function chooseArchiveRowLookupName(it) {
     const mainArtist = normalizeSpace(it?.main_artist || "");
     const title = normalizeSpace(it?.title || "");
     if (mainArtist && !/festival/i.test(mainArtist)) return mainArtist;
     if (title) return title;
     return "";
+  }
+
+  function renderArchiveOnThisDayCard(item) {
+    const eventKey = normalizeSpace(item?.event_key || "");
+    const title = item?.title || item?.main_artist || "—";
+    const city = item?.city || "";
+    const venue = item?.venue || "";
+    const dateText = formatArchiveDate(item?.date || "");
+    const yearsAgo = Number(item?.years_ago || 0);
+    const imageUrl = normalizeSpace(state.archiveOnThisDayImages[eventKey] || "");
+    const hasImage = !!imageUrl;
+
+    return `
+      <div class="archiveMemoryCard${hasImage ? " archiveMemoryCardVisual" : ""}">
+        ${hasImage ? `<div class="archiveMemoryBackdrop" style="background-image:url('${escapeAttr(imageUrl)}');"></div>` : ""}
+        <button
+          type="button"
+          class="archiveMemoryCardButton"
+          data-archive-event-key="${escapeAttr(eventKey)}"
+          aria-label="${escapeAttr(title)}"
+        >
+          <div class="archiveMemoryInner">
+            <div class="archiveMemoryTop">
+              <div class="archiveMemoryBadge">On This Day</div>
+              <div class="archiveMemoryYears">${escapeHtml(`${yearsAgo}y ago`)}</div>
+            </div>
+            <div class="archiveMemoryTitle">${escapeHtml(title)}</div>
+            <div class="archiveMemoryMeta">${escapeHtml([dateText, city].filter(Boolean).join(" · "))}</div>
+            <div class="archiveMemoryVenue">${escapeHtml(venue)}</div>
+            <div class="archiveMemoryHint">Open concert</div>
+          </div>
+        </button>
+      </div>
+    `;
+  }
+
+  function renderArchiveOnThisDaySection() {
+    const data = state.archiveOnThisDay;
+    const items = Array.isArray(data?.items) ? data.items : [];
+    if (!items.length) return "";
+
+    return `
+      <section class="archiveSection">
+        <h3 class="archiveSectionTitle">On This Day</h3>
+        <div class="archiveMemoryGrid" role="group" aria-label="On this day memories">
+          ${items.map(renderArchiveOnThisDayCard).join("")}
+        </div>
+      </section>
+    `;
+  }
+
+  function renderArchiveStatsPanel(stats) {
+    const overview = stats?.overview || {};
+    const highlights = stats?.highlights || {};
+    const topVenues = Array.isArray(stats?.top_venues) ? stats.top_venues : [];
+    const topCities = Array.isArray(stats?.top_cities) ? stats.top_cities : [];
+    const mostSeenArtists = Array.isArray(stats?.most_seen_artists) ? stats.most_seen_artists : [];
+
+    return `
+      <section class="archiveIntro">
+        <div class="archiveIntroTitle">Archive</div>
+        <div class="archiveIntroSub">Your live memory vault — concerts, patterns, milestones, and days that come back around.</div>
+      </section>
+
+      ${renderArchiveOnThisDaySection()}
+
+      <section class="archiveSection">
+        <h3 class="archiveSectionTitle">Overview</h3>
+        ${renderArchiveOverviewCards(overview)}
+      </section>
+
+      <section class="archiveSection">
+        <h3 class="archiveSectionTitle">Signature</h3>
+        ${renderArchiveDnaCards(highlights)}
+      </section>
+
+      <section class="archiveSection">
+        <h3 class="archiveSectionTitle">Milestones</h3>
+        ${renderArchiveMilestones(highlights)}
+      </section>
+
+      <section class="archiveSection">
+        <h3 class="archiveSectionTitle">Patterns</h3>
+        ${renderArchiveRankings(mostSeenArtists, topVenues, topCities)}
+      </section>
+    `;
   }
 
   function renderArchiveRow(it) {
@@ -2114,13 +2247,8 @@
   }
 
   function renderArchiveSetlistInner() {
-    if (state.archiveSetlistLoading) {
-      return `<div class="archiveDetailMuted">Loading setlist...</div>`;
-    }
-
-    if (state.archiveSetlistSearching) {
-      return `<div class="archiveDetailMuted">Searching for setlist...</div>`;
-    }
+    if (state.archiveSetlistLoading) return `<div class="archiveDetailMuted">Loading setlist...</div>`;
+    if (state.archiveSetlistSearching) return `<div class="archiveDetailMuted">Searching for setlist...</div>`;
 
     if (state.archiveSetlistData?.setlist) {
       if (isMultiArtistSetlist(state.archiveSetlistData)) {
@@ -2131,11 +2259,7 @@
       const sets = Array.isArray(setlist?.sets) ? setlist.sets : [];
 
       if (!sets.length) {
-        return `
-          <div class="archiveSetlistCard">
-            <div class="archiveDetailMuted">No setlist found</div>
-          </div>
-        `;
+        return `<div class="archiveSetlistCard"><div class="archiveDetailMuted">No setlist found</div></div>`;
       }
 
       return `
@@ -2192,11 +2316,7 @@
         <div class="archiveNoteEditorSheet">
           <div class="archiveNoteEditorTitle">${escapeHtml(title)}</div>
           <div class="archiveNoteEditorSub">${escapeHtml(sub)}</div>
-          <textarea
-            class="archiveNoteTextarea"
-            placeholder="Write what made this concert memorable..."
-            data-archive-note-textarea="true"
-          >${escapeHtml(state.archiveNoteDraft)}</textarea>
+          <textarea class="archiveNoteTextarea" placeholder="Write what made this concert memorable..." data-archive-note-textarea="true">${escapeHtml(state.archiveNoteDraft)}</textarea>
           <div class="archiveNoteEditorActions">
             <button type="button" class="archiveNoteBtn archiveNoteBtnSecondary" data-archive-note-cancel="true" ${state.archiveNoteSaving ? "disabled" : ""}>Cancel</button>
             <button type="button" class="archiveNoteBtn archiveNoteBtnPrimary" data-archive-note-save="true" ${state.archiveNoteSaving ? "disabled" : ""}>
@@ -2251,8 +2371,8 @@
     if (!archiveList) return;
 
     const filteredItems = getFilteredArchiveItems();
-    const statsHtml = renderArchiveStatsPanel(state.archiveStats);
-    const exploreHtml = renderArchiveExplore(state.lastArchive, state.archiveStats);
+    const statsHtml = renderArchiveStatsPanel(state.archiveStats || {});
+    const exploreHtml = renderArchiveExplore(state.lastArchive, state.archiveStats || {});
     const rowsHtml = renderArchiveTimeline(filteredItems);
     const modalHtml = renderArchiveDetailModal();
 
@@ -2349,9 +2469,7 @@
     if (!document.getElementById(styleId)) {
       const st = document.createElement("style");
       st.id = styleId;
-      st.textContent = `
-        .lmArchiveShellHidden{display:none !important;}
-      `;
+      st.textContent = `.lmArchiveShellHidden{display:none !important;}`;
       document.head.appendChild(st);
     }
 
@@ -2585,7 +2703,7 @@
         state.archiveFilterMode = nextMode;
         if (nextMode !== "year") state.archiveYearOlderOpen = false;
 
-        const nextOptions = getArchiveFilterOptions(nextMode, state.lastArchive, state.archiveStats).filter((x) => x !== "__OLDER_TOGGLE__");
+        const nextOptions = getArchiveFilterOptions(nextMode, state.lastArchive, state.archiveStats || {}).filter((x) => x !== "__OLDER_TOGGLE__");
         const currentValue = normalizeSpace(state.archiveFilterValue || "");
 
         if (!nextOptions.includes(currentValue)) {
@@ -2692,7 +2810,7 @@
       const availableOptions = getArchiveFilterOptions(
         state.archiveFilterMode,
         state.lastArchive,
-        state.archiveStats
+        state.archiveStats || {}
       ).filter((x) => x !== "__OLDER_TOGGLE__");
 
       if (state.archiveFilterMode !== "all" && !availableOptions.includes(state.archiveFilterValue)) {
@@ -2734,7 +2852,9 @@
         concertsLoaded: state.concertsLoaded,
         lastArchive: Array.isArray(state.lastArchive) ? state.lastArchive.slice() : [],
         archiveStats: state.archiveStats ? { ...state.archiveStats } : null,
+        archiveOnThisDay: state.archiveOnThisDay ? { ...state.archiveOnThisDay } : null,
         archiveHeroImages: { ...state.archiveHeroImages },
+        archiveOnThisDayImages: { ...state.archiveOnThisDayImages },
         archiveFilterMode: state.archiveFilterMode,
         archiveFilterValue: state.archiveFilterValue,
         archiveYearOlderOpen: state.archiveYearOlderOpen,

@@ -71,6 +71,7 @@
   const lastfmArtistImageCache = new Map();
   let archiveRowImageObserver = null;
   let archiveShellCleaned = false;
+  let navOrderFixed = false;
 
   function absApi(urlOrPath) {
     if (!urlOrPath) return "";
@@ -405,9 +406,8 @@
     const safeImageUrl = isBadLastfmImageUrl(imageUrl) ? "" : imageUrl;
     lastfmArtistImageCache.set(artistName, safeImageUrl || "");
     return safeImageUrl || "";
-  }
-
-  function ensureIdentityUi() {
+       }
+   function ensureIdentityUi() {
     const identityView = $("viewIdentity");
     if (!identityView) return;
 
@@ -686,8 +686,9 @@
         .archiveDnaLabel{
           margin-top:10px;font-size:10px;line-height:1.2;letter-spacing:.12em;
           text-transform:uppercase;color:rgba(255,255,255,.40);
-    }
-    .archiveMilestoneGrid{display:grid;gap:10px}
+        }
+
+        .archiveMilestoneGrid{display:grid;gap:10px}
         .archiveMilestoneCard{
           position:relative;overflow:hidden;border-radius:18px;
           background:radial-gradient(circle at 16% 20%, rgba(255,255,255,.04), transparent 38%),linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.022));
@@ -695,15 +696,8 @@
           box-shadow:inset 0 1px 0 rgba(255,255,255,.03),0 12px 26px rgba(0,0,0,.12);
         }
         .archiveMilestoneCardButton{
-          position:relative;
-          width:100%;
-          border:none;
-          background:transparent;
-          color:inherit;
-          text-align:left;
-          padding:15px 14px;
-          cursor:pointer;
-          display:block;
+          position:relative;width:100%;border:none;background:transparent;color:inherit;text-align:left;
+          padding:15px 14px;cursor:pointer;display:block;
         }
         .archiveMilestoneCardButton:focus-visible{
           outline:2px solid rgba(255,255,255,.28);
@@ -729,12 +723,8 @@
         .archiveMilestoneMeta{margin-top:8px;font-size:12px;line-height:1.45;color:rgba(255,255,255,.62)}
         .archiveMilestoneVenue{margin-top:3px;font-size:12px;line-height:1.45;color:rgba(255,255,255,.40)}
         .archiveMilestoneHint{
-          margin-top:10px;
-          font-size:11px;
-          line-height:1.2;
-          color:rgba(255,255,255,.34);
-          letter-spacing:.06em;
-          text-transform:uppercase;
+          margin-top:10px;font-size:11px;line-height:1.2;color:rgba(255,255,255,.34);
+          letter-spacing:.06em;text-transform:uppercase;
         }
 
         .archiveRankGrid{display:grid;gap:10px}
@@ -772,7 +762,6 @@
           background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.26);color:#fff;
           box-shadow:0 8px 20px rgba(0,0,0,.10);
         }
-
         .archiveTimeline{display:grid;gap:10px;margin-top:2px}
         .archiveRow{position:relative;overflow:hidden;grid-template-columns:minmax(0,1fr) auto;align-items:center}
         .archiveRowButton{cursor:pointer}
@@ -982,6 +971,8 @@
         .archiveNoteBtnPrimary{background:#fff;color:#111}
         .archiveNoteBtn[disabled]{opacity:.55;cursor:default}
 
+        .lmArchiveShellHidden{display:none !important;}
+
         @media (min-width: 420px){
           .archiveRankGrid{grid-template-columns:repeat(3,minmax(0,1fr))}
         }
@@ -1147,7 +1138,8 @@
     const t = normalizeSpace(timeLocal || "");
     return [dateText, t].filter(Boolean).join(" • ");
   }
-   function concertScoreEmoji(score) {
+
+  function concertScoreEmoji(score) {
     const s = Number(score || 0);
     if (s >= 85) return "🔥";
     if (s >= 70) return "✨";
@@ -1219,9 +1211,8 @@
         }
       </div>
     `;
-  }
-
-  function renderConcertSection(el, title, statText, events) {
+             }
+   function renderConcertSection(el, title, statText, events) {
     if (!el) return;
 
     if (!events.length) {
@@ -1406,7 +1397,7 @@
     if (!archiveList) return false;
 
     try {
-      const [statsOk] = await Promise.all([
+      const [statsResult] = await Promise.all([
         (async () => {
           const j = await archiveApiGet("/stats");
           state.archiveStats = j || null;
@@ -1415,15 +1406,18 @@
             enrichArchiveHeroImages(state.archiveStats),
             enrichArchiveMilestoneImages(state.archiveStats?.highlights || {})
           ]);
+
           return true;
         })(),
         loadArchiveOnThisDay()
       ]);
 
-      return statsOk;
+      return statsResult;
     } catch {
       state.archiveStats = null;
       state.archiveHeroImages.returningArtist = "";
+      state.archiveOnThisDay = null;
+      state.archiveOnThisDayImages = {};
       return false;
     }
   }
@@ -1490,17 +1484,12 @@
       const selected = normalizeSpace(value);
       const mainArtist = normalizeSpace(it?.main_artist || "");
       const title = normalizeSpace(it?.title || "");
-
       const supports = String(it?.supports || "")
         .split(",")
         .map((x) => normalizeSpace(x))
         .filter(Boolean);
 
-      return (
-        mainArtist === selected ||
-        title === selected ||
-        supports.includes(selected)
-      );
+      return mainArtist === selected || title === selected || supports.includes(selected);
     }
 
     if (mode === "city") return normalizeSpace(it?.city || "") === value;
@@ -1712,9 +1701,10 @@
       alert(`Could not save note.\n\n${String(err.message || err)}`);
     }
   }
-   function renderArchiveExplore(items, stats) {
+
+  function renderArchiveExplore(items, stats) {
     const mode = state.archiveFilterMode || "all";
-    const options = getArchiveFilterOptions(mode, items, stats);
+    const options = getArchiveFilterOptions(mode, items, stats || {});
 
     return `
       <section class="archiveSection">
@@ -2392,6 +2382,7 @@
 
     setupArchiveRowImageEnhancement();
     cleanupArchiveShell();
+    reorderBottomTabs();
     document.body.style.overflow = state.archiveSelectedEventKey ? "hidden" : "";
   }
 
@@ -2462,70 +2453,75 @@
     rows.forEach((row) => archiveRowImageObserver.observe(row));
   }
 
+  function reorderBottomTabs() {
+    if (navOrderFixed) return;
+
+    const tabConcerts = $("tabConcerts");
+    const tabIdentity = $("tabIdentity");
+    if (!tabConcerts || !tabIdentity) return;
+
+    const parent = tabConcerts.parentElement;
+    if (!parent || parent !== tabIdentity.parentElement) return;
+
+    const nodes = Array.from(parent.children);
+    const concertIdx = nodes.indexOf(tabConcerts);
+    const identityIdx = nodes.indexOf(tabIdentity);
+
+    if (concertIdx === -1 || identityIdx === -1) return;
+
+    if (concertIdx > identityIdx) {
+      parent.insertBefore(tabConcerts, tabIdentity);
+    }
+
+    navOrderFixed = true;
+  }
+
   function cleanupArchiveShell() {
     if (!archiveList) return;
-
-    const styleId = "lmArchiveShellCleanupCss";
-    if (!document.getElementById(styleId)) {
-      const st = document.createElement("style");
-      st.id = styleId;
-      st.textContent = `.lmArchiveShellHidden{display:none !important;}`;
-      document.head.appendChild(st);
-    }
 
     const archiveView = $("viewArchive") || archiveList.closest("[data-view='archive']") || archiveList.closest(".view");
     if (!archiveView) return;
 
     const archiveCard = archiveList.closest(".card");
-    if (archiveCard) {
-      const cardTitle = archiveCard.querySelector(".card__title");
-      if (cardTitle && normalizeSpace(cardTitle.textContent).toLowerCase() === "archive list") {
-        cardTitle.classList.add("lmArchiveShellHidden");
+
+    const textsToHideExact = new Set([
+      "archive",
+      "saved sessions, history, or archived mirror states can render here.",
+      "archive list"
+    ]);
+
+    archiveView.querySelectorAll("h1,h2,h3,p,.title,.sub,.card__title,.card__sub,.card__desc").forEach((el) => {
+      if (archiveCard && archiveCard.contains(el)) return;
+
+      const txt = normalizeSpace(el.textContent).toLowerCase();
+      if (!txt) return;
+
+      if (
+        textsToHideExact.has(txt) ||
+        txt.includes("saved sessions") ||
+        txt.includes("archived mirror states") ||
+        txt.includes("history, or archived mirror states can render here")
+      ) {
+        el.classList.add("lmArchiveShellHidden");
       }
+    });
 
-      archiveCard.querySelectorAll(".card__sub, .card__desc, p").forEach((el) => {
-        const txt = normalizeSpace(el.textContent).toLowerCase();
-        if (
-          txt === "archive list" ||
-          txt.includes("saved sessions") ||
-          txt.includes("archived mirror states") ||
-          txt.includes("history, or archived mirror states can render here")
-        ) {
-          el.classList.add("lmArchiveShellHidden");
-        }
-      });
-    }
+    Array.from(archiveView.children).forEach((child) => {
+      if (archiveCard && child === archiveCard) return;
+      if (archiveCard && archiveCard.contains(child)) return;
 
-    if (!archiveShellCleaned) {
-      const stack = archiveView.querySelector(".stack") || archiveView;
-      const cards = Array.from(stack.querySelectorAll(":scope > .card"));
-      if (cards.length) {
-        for (const child of Array.from(stack.children)) {
-          if (child === archiveCard) break;
-
-          const txt = normalizeSpace(child.textContent).toLowerCase();
-          if (
-            txt.includes("saved sessions") ||
-            txt.includes("archived mirror states can render here")
-          ) {
-            child.classList.add("lmArchiveShellHidden");
-          } else if (
-            /archive/.test(txt) &&
-            child.querySelector &&
-            child.querySelector("h1,h2,h3,.title,.card__title")
-          ) {
-            const blockText = normalizeSpace(child.textContent).toLowerCase();
-            if (
-              blockText.includes("saved sessions") ||
-              blockText.includes("archived mirror states")
-            ) {
-              child.classList.add("lmArchiveShellHidden");
-            }
-          }
-        }
+      const txt = normalizeSpace(child.textContent).toLowerCase();
+      if (
+        txt === "archive" ||
+        txt.includes("saved sessions") ||
+        txt.includes("archived mirror states") ||
+        txt.includes("history, or archived mirror states can render here")
+      ) {
+        child.classList.add("lmArchiveShellHidden");
       }
-      archiveShellCleaned = true;
-    }
+    });
+
+    archiveShellCleaned = true;
   }
 
   function bindTopPanelControls() {
@@ -2831,12 +2827,14 @@
     bindArchiveInteractions();
     bindTopPanelControls();
     bindTabPrefetch();
+    reorderBottomTabs();
 
     loadConcertPlaceholders();
 
     await Promise.all([loadRecent(), loadTop(), loadConcertRecommendations(), loadArchiveList()]);
     syncIdentityTabUi();
     cleanupArchiveShell();
+    reorderBottomTabs();
   }
 
   window.__LM_APP__ = {

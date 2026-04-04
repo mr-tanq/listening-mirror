@@ -1,6 +1,7 @@
 /* econcerts.js — FULL FILE REPLACE
    Listening Mirror — Concerts tab
    UX: Discover / Radar / Going / Hidden
+
    Includes:
    - swipe deck
    - artist radar
@@ -12,6 +13,7 @@
    - toasts
    - skeleton loading
    - softer transitions
+   - optimistic Plan add/remove (no full hard reset feeling)
 */
 
 (() => {
@@ -20,7 +22,7 @@
   const listEl = document.querySelector("#econcertsList");
   if (!listEl) return;
 
-  const STORE_KEY = "lm_econcerts_ui_v72_polish_pack";
+  const STORE_KEY = "lm_econcerts_ui_v73_polish_fixed";
   const ECONCERTS_BASE = "https://econcerts.errtanq9.workers.dev";
   const ARCHIVE_BASE = "https://listening-mirror-archive.errtanq9.workers.dev";
   const RECOMMENDED_LIMIT = 5000;
@@ -45,6 +47,7 @@
     const timePart = safeStr(timeLocal) || "20:00";
     const normalizedTime = /^\d{2}:\d{2}$/.test(timePart) ? timePart : "20:00";
     const dt = new Date(`${datePart}T${normalizedTime}:00+02:00`);
+
     return isValidDate(dt) ? dt : null;
   }
 
@@ -176,6 +179,7 @@
 
     s = s.replace(/\s+\(.*?\)\s*$/g, "").trim();
     s = s.replace(/\s+\[.*?\]\s*$/g, "").trim();
+
     return s;
   }
 
@@ -268,8 +272,6 @@
   let detailsSheetEvent = null;
   let radarExpandedGroupKey = "";
   let isRefreshing = false;
-  let currentLoadingMode = "";
-  let optimisticPlannedKeys = new Set();
 
   const artistImageCache = new Map();
 
@@ -343,6 +345,7 @@
   function pickBestImage(candidates) {
     const valid = candidates.map((x) => safeStr(x)).filter(Boolean);
     if (!valid.length) return "";
+
     valid.sort((a, b) => scoreImageUrl(b) - scoreImageUrl(a));
     return valid[0] || "";
   }
@@ -479,8 +482,7 @@
     if (v === "recommended" || v === "older-taste" || v === "borderline") return "suggested";
     return "none";
   }
-
-  function normalizeRecommendedEvent(ev) {
+   function normalizeRecommendedEvent(ev) {
     const start = parseAmsterdamDate(ev?.date_local, ev?.time_local);
     if (!isValidDate(start)) return null;
 
@@ -600,6 +602,7 @@
 
       const scoreDiff = Number(b.score || 0) - Number(a.score || 0);
       if (scoreDiff !== 0) return scoreDiff;
+
       return a.startTs - b.startTs;
     });
   }
@@ -629,8 +632,9 @@
       url: safeStr(event?.url),
       image_url: safeStr(event?.imageUrl)
     };
-         }
-   async function apiAddToPlan(event) {
+  }
+
+  async function apiAddToPlan(event) {
     const payload = buildPlannedPayload(event);
 
     await fetchJson(`${ARCHIVE_BASE}/planned-concerts/add`, {
@@ -695,7 +699,6 @@
     else plannedItems.push(normalized);
 
     plannedItems.sort((a, b) => a.startTs - b.startTs);
-    optimisticPlannedKeys.add(normalized.eventKey);
   }
 
   function removeOptimisticPlannedEvent(eventKey) {
@@ -704,7 +707,6 @@
 
     plannedMap.delete(key);
     plannedItems = plannedItems.filter((x) => x.eventKey !== key);
-    optimisticPlannedKeys.delete(key);
   }
 
   async function handlePlanEvent(event, opts = {}) {
@@ -732,7 +734,7 @@
     }
   }
 
-  async function handleRemovePlan(eventKey, opts = {}) {
+  async function handleRemovePlan(eventKey) {
     const key = safeStr(eventKey);
     if (!key) return;
 
@@ -756,7 +758,6 @@
   }
 
   const isPlanned = (eventKey) => plannedMap.has(safeStr(eventKey));
-  const isDismissed = (id) => store.dismissedIds.includes(id);
 
   async function dismiss(id) {
     if (!store.dismissedIds.includes(id)) {
@@ -1051,7 +1052,7 @@
       el.classList.add("is-out");
       window.setTimeout(() => el.remove(), 240);
     }, 2200);
-       }
+                              }
    function renderLoadingSkeleton(mode = "discover") {
     const shell = document.createElement("div");
     shell.className = "lmx-shell lmx-fade-in";
@@ -1219,8 +1220,7 @@
       .lmx-skeleton-list { display:flex; flex-direction:column; gap:12px; }
       .lmx-skeleton-row {
         display:flex; gap:12px; padding:14px; border-radius:20px;
-        background:rgba(255,255,255,.03);
-        border:1px solid rgba(255,255,255,.05);
+        background:rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.05);
       }
       .lmx-skeleton-thumb { width:72px; height:72px; border-radius:18px; flex-shrink:0; }
       .lmx-skeleton-col { display:flex; flex-direction:column; gap:10px; flex:1; }
@@ -1265,6 +1265,7 @@
           linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.18) 24%, rgba(0,0,0,.84) 100%),
           radial-gradient(circle at 50% 24%, rgba(124,171,255,.18), transparent 22%);
       }
+
       .lmx-card-body {
         position:relative; z-index:1; height:100%;
         display:flex; flex-direction:column; justify-content:space-between;
@@ -1362,7 +1363,6 @@
       }
       .lmx-city-name { margin:0 0 6px; font-size:1rem; font-weight:900; color:#fff; }
       .lmx-city-count { margin:0; font-size:.88rem; color:rgba(255,255,255,.72); }
-
       .lmx-group {
         border-radius:22px; overflow:hidden;
         border:1px solid rgba(255,255,255,.08);
@@ -1402,6 +1402,7 @@
         transform:translateY(0);
         padding:0 14px 14px;
       }
+
       .lmx-date-row {
         display:flex; align-items:center; justify-content:space-between; gap:10px;
         border-radius:16px; padding:12px;
@@ -1763,9 +1764,7 @@
 
     hideBtn.addEventListener("click", triggerPass);
     planBtn.addEventListener("click", triggerPlan);
-    infoBtn.addEventListener("click", () => {
-      openDetailsSheetForEvent(ev);
-    });
+    infoBtn.addEventListener("click", () => openDetailsSheetForEvent(ev));
 
     attachSwipe(card, {
       onLeft: triggerPass,
@@ -1810,7 +1809,7 @@
       else planLabel.classList.remove("show");
     };
 
-    const onPointerUp = async () => {
+    const onPointerUp = () => {
       if (!active) return;
       active = false;
       card.style.transition = "transform .22s ease, opacity .22s ease";
@@ -2040,9 +2039,7 @@
         planBtn.textContent = isPlanned(ev.eventKey || ev.id) ? "Planned" : "Plan";
         planBtn.addEventListener("click", async (e) => {
           e.stopPropagation();
-          if (!isPlanned(ev.eventKey || ev.id)) {
-            await handlePlanEvent(ev);
-          }
+          if (!isPlanned(ev.eventKey || ev.id)) await handlePlanEvent(ev);
         });
 
         const whyBtn = document.createElement("button");
@@ -2298,9 +2295,7 @@
     planBtn.className = `lmx-btn${isPlanned(ev.eventKey || ev.id) ? "" : " lmx-btn--plan"}`;
     planBtn.textContent = isPlanned(ev.eventKey || ev.id) ? "Planned" : "Plan";
     planBtn.addEventListener("click", async () => {
-      if (!isPlanned(ev.eventKey || ev.id)) {
-        await handlePlanEvent(ev);
-      }
+      if (!isPlanned(ev.eventKey || ev.id)) await handlePlanEvent(ev);
     });
 
     const hideBtn = document.createElement("button");
@@ -2374,8 +2369,7 @@
     isRefreshing = true;
 
     if (!silent) {
-      currentLoadingMode = store.activeMode || "discover";
-      renderLoadingSkeleton(currentLoadingMode);
+      renderLoadingSkeleton(store.activeMode || "discover");
     }
 
     if (!keepSheet) removeExistingDetailsSheet();

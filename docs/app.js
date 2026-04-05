@@ -1,5 +1,5 @@
 /* app.js (FULL FILE REPLACE)
-   Listening Mirror — Identity tabs + Archive rich stats
+   Listening Mirror — Identity tabs + Archive rich stats 
    Archive includes:
    - automatic Last.fm visuals
    - filters
